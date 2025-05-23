@@ -5,8 +5,6 @@ The main entrance of the cliver application
 """
 
 from shlex import split as shell_split
-from pathlib import Path
-from typing import Optional, cast
 import click
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
@@ -19,7 +17,7 @@ from rich.panel import Panel
 from cliver.config import ConfigManager
 from cliver.core import Core
 from cliver.commands import loads_commands, list_commands_names
-from cliver.util import get_config_dir, in_batch
+from cliver.util import get_config_dir, stdin_is_piped, read_piped_input
 from cliver.constants import *
 
 
@@ -44,10 +42,10 @@ class Cliver:
         # prepare console for interaction
         self.history_path = self.config_dir / "history"
         self.session = None
+        self.piped = stdin_is_piped()
 
     def init_session(self, group: click.Group):
-        if self.session is not None:
-            # Loaded already
+        if self.piped or self.session is not None:
             return
         # Set up prompt session with history
         self.session = PromptSession(
@@ -67,47 +65,60 @@ class Cliver:
 
     def run(self) -> None:
         """Run the Cliver client."""
-        console.print(
-            Panel.fit(
-                "[bold blue]Cliver[/bold blue] - AI Agent Command Line Interface",
-                border_style="blue",
-            )
-        )
-        console.print(
-            "Type [bold green]/help[/bold green] to see available commands or start typing to interact with the AI."
-        )
-
-        while True:
-            try:
-                # Get user input
-                line = self.session.prompt("Cliver> ").strip()
-                if line.lower() in ("exit", "quit"):
-                    break
-
-                if line.startswith("/") and len(line) > 1:
-                    # possibly a command
-                    line = line[1:]
-                elif not line.lower().startswith(f"{CMD_CHAT} "):
-                    line = f"{CMD_CHAT} {line}"
-
-                # now the command is always specified, but may not be available.
-                parts = shell_split(line)
-                cliver.main(args=parts,
-                            prog_name="cliver",
-                            standalone_mode=False,
-                            obj=self
-                            )
-
-            except KeyboardInterrupt:
+        if self.piped:
+            user_data = read_piped_input()
+            if user_data is None:
                 console.print(
-                    "\n[yellow]Use 'exit' or 'quit' to exit[/yellow]")
-            except EOFError:
-                break
-            except Exception as e:
-                console.print(f"[red]Error: {e}[/red]")
+                    "[bold yellow]No data received from stdin.[/bold yellow]")
+            else:
+                if not user_data.lower() in ("exit", "quit"):
+                    self.call_cmd(user_data)
+        else:
+            console.print(
+                Panel.fit(
+                    "[bold blue]Cliver[/bold blue] - AI Agent Command Line Interface",
+                    border_style="blue",
+                )
+            )
+            console.print(
+                "Type [bold green]/help[/bold green] to see available commands or start typing to interact with the AI."
+            )
+
+            while True:
+                try:
+                    # Get user input
+                    line = self.session.prompt("Cliver> ").strip()
+                    if line.lower() in ("exit", "quit"):
+                        break
+                    if line.startswith("/") and len(line) > 1:
+                        # possibly a command
+                        line = line[1:]
+                    elif not line.lower().startswith(f"{CMD_CHAT} "):
+                        line = f"{CMD_CHAT} {line}"
+
+                    self.call_cmd(line)
+
+                except KeyboardInterrupt:
+                    console.print(
+                        "\n[yellow]Use 'exit' or 'quit' to exit[/yellow]")
+                except EOFError:
+                    break
+                except Exception as e:
+                    console.print(f"[red]Error: {e}[/red]")
 
         # Clean up
         self.cleanup()
+
+    def call_cmd(self, line: str):
+        """
+        Call a command with the given name and arguments.
+        """
+        parts = shell_split(line)
+        cliver.main(args=parts,
+                    prog_name="cliver",
+                    standalone_mode=False,
+                    obj=self
+                    )
 
     def cleanup(self):
         """
@@ -123,21 +134,15 @@ cli = Cliver()
 
 
 @click.group(invoke_without_command=True)
-@click.option(
-    "-b",
-    "--batch",
-    is_flag=True,
-    help="If it runs as batch mode"
-)
 @click.pass_context
-def cliver(ctx: click.Context, batch: bool = False):
+def cliver(ctx: click.Context):
     """
     Cliver: An application aims to make your CLI clever
     """
     if ctx.obj is None:
         ctx.obj = cli
 
-    if ctx.invoked_subcommand is None and not in_batch(batch):
+    if ctx.invoked_subcommand is None:
         # If no subcommand is invoked, show the help message
         _interact()
 

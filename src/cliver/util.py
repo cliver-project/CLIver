@@ -1,6 +1,7 @@
 import platform
 import sys
 import os
+import select
 import stat
 from pathlib import Path
 from cliver.constants import *
@@ -30,7 +31,8 @@ def stdin_is_piped():
     return not os.isatty(fd) and stat.S_ISFIFO(mode)
 
 
-def in_batch(batch: bool = False) -> bool:
-    if batch:
-        return True
-    return True if stdin_is_piped() else False
+def read_piped_input(timeout=0.1):
+    """Non-blocking read from stdin if data is available."""
+    if select.select([sys.stdin], [], [], timeout)[0]:
+        return sys.stdin.read()
+    return None
