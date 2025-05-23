@@ -1,0 +1,53 @@
+{
+    "mcpServers": {
+        "sqlite": {
+          "command": "uvx",
+          "type": "stdio",
+          "args": ["mcp-server-sqlite", "--db-path", "./test.db"],
+          "env": {
+            "DB_URL": "~/sqlite.db"
+          }
+        },
+        "http-sse-server": {
+          "type": "sse",
+          "url": "https://localhost:8080/api/v1/",
+          "headers": {
+            "Authorization": "Bearer {{ http-sse-server.access_token }}"
+          }
+        }
+    },
+    "models": {
+        "gpt-4": {
+            "provider": "openai",
+            "type": "MULTI_MODAL",
+            "api_key": "{{ openai_api_key }}",
+            "url": "https://api.openai.com/v1/chat/completions",
+            "options": {
+                "temperature": 0.7,
+                "top_p": 1.0,
+                "max_tokens": 2000
+            }
+        },
+        "deepseek-r1:8b": {
+            "provider": "ollama",
+            "url": "https://localhost:11434",
+            "api_key": "{{ ollama_api_key }}",
+            "type": "TEXT_TO_TEXT",
+            "options": {
+                "temperature": 0.9,
+                "top_p": 1.0,
+                "max_tokens": 1000
+            }
+        }
+    },
+    "secrets": {
+        "vault_path": "~/.config/cliver/secrets.vault",
+        "references": {
+            "openai_api_key": "openai.api_key",
+            "ollama_access_token": "ollama.access_token",
+            "http-sse-server.access_token": "http-sse-server_access_token_value"
+        }
+    },
+    "default_server": "sqlite",
+    "default_model": "gpt-4"
+}
