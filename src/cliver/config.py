@@ -17,7 +17,7 @@ class MCPServerBase(BaseModel):
 class MCPServerStdio(MCPServerBase):
     type: Literal["stdio"]
     command: str
-    args: List[str]
+    args: Optional[List[str]] = None
     env: Optional[Dict[str, str]] = None
 
     def info(self) -> str:
@@ -62,11 +62,11 @@ class SecretsConfig(BaseModel):
 
 
 class AppConfig(BaseModel):
-    mcpServers: Dict[str, MCPServer]
+    mcpServers: Dict[str, MCPServer] = {}
     default_server: Optional[str] = None
-    models: Dict[str, ModelConfig]
+    models: Dict[str, ModelConfig] = {}
     default_model: Optional[str] = None
-    secrets: SecretsConfig
+    secrets: Optional[SecretsConfig] = None
 
 
 class ConfigManager:
@@ -86,14 +86,18 @@ class ConfigManager:
         """Load configuration from file.
 
         Returns:
-            Client configuration
+            Cliver configuration
         """
         if not self.config_file.exists():
             return AppConfig()
 
         try:
             with open(self.config_file, "r") as f:
-                config_data = json.load(f)
+                file_content = f.read()
+                # Check if the file is empty
+                if not file_content or not file_content.strip():
+                    return AppConfig()
+                config_data = json.loads(file_content)
                 # Ensure each MCPServer has its name set from the key
                 if "mcpServers" in config_data and isinstance(
                     config_data["mcpServers"], dict
@@ -112,7 +116,7 @@ class ConfigManager:
             print(f"Error loading configuration: {e}")
             return AppConfig()
 
-    def _save_config(self, config: AppConfig) -> None:
+    def _save_config(self) -> None:
         """Save configuration to file.
 
         Args:
@@ -122,16 +126,16 @@ class ConfigManager:
             if not self.config_dir.exists():
                 self.config_dir.mkdir(parents=True, exist_ok=True)
             with open(self.config_file, "w") as f:
-                json.dump(config, f, indent=4)
+                json.dump(self.config.model_dump(), f)
 
         except Exception as e:
             print(f"Error saving configuration: {e}")
 
-    def add_stdio_mcp_server(
+    def add_or_update_stdio_mcp_server(
         self,
         name: str,
-        command: str,
-        args: List[str],
+        command: str = None,
+        args: List[str] = None,
         env: Optional[Dict[str, str]] = None,
     ) -> None:
         """Add a stdio server to the configuration.
@@ -146,33 +150,46 @@ class ConfigManager:
         server = MCPServerStdio(
             name=name, type="stdio", command=command, args=args, env=env
         )
-        self._add_or_update_server(server)
+        self.add_or_update_server(server)
 
-    def _add_or_update_server(self, server: MCPServer) -> None:
+    def add_or_update_server(self, server: MCPServer) -> None:
         """Add or update a server in the configuration.
 
         Args:
             server: Server configuration
         """
         # Check if server already exists
-        for i, existing in enumerate(self.config.mcpServers):
-            if existing.name == server.name:
-                # Replace existing server
-                self.config.mcpServers[i] = server
-                break
+        if server.name in self.config.mcpServers:
+            server_in_config = self.config.mcpServers[server.name]
+            if server_in_config.type != server.type:
+                raise ValueError(
+                    f"Server with name {server.name} already exists with a different type."
+                )
+            # Update existing server
+            if server.type == "stdio":
+                if server.command:
+                    server_in_config.command = server.command
+                if server.args:
+                    server_in_config.args = server.args
+                if server.env:
+                    server_in_config.env = server.env
+            elif server.type == "sse":
+                if server.url:
+                    server_in_config.url = server.url
+                if server.headers:
+                    server_in_config.headers = server.headers
         else:
             # Add new server
-            self.config.mcpServers.append(server)
-
-        # Set as default if first server
-        if not self.config.default_server:
-            self.config.default_server = server.name
+            self.config.mcpServers[server.name] = server
+            # Set as default if first server
+            if not self.config.default_server:
+                self.config.default_server = server.name
 
         # Save config
-        self._save_config(self.config)
+        self._save_config()
 
-    def add_sse_mcp_server(
-        self, name: str, url: str, headers: Optional[Dict[str, str]] = None
+    def add_or_update_sse_mcp_server(
+        self, name: str, url: str = None, headers: Optional[Dict[str, str]] = None
     ) -> None:
         """Add a SSE server to the configuration.
 
@@ -183,7 +200,7 @@ class ConfigManager:
         """
         # Create server config
         server = MCPServerSSE(name=name, type="sse", url=url, headers=headers)
-        self._add_or_update_server(server)
+        self.add_or_update_server(server)
 
     def remove_mcp_server(self, name: str) -> bool:
         """Remove a server from the configuration.
@@ -195,22 +212,21 @@ class ConfigManager:
             True if server was removed, False otherwise
         """
         # Find server
-        for i, server in enumerate(self.config.mcpServers):
-            if server.name == name:
-                # Remove server
-                self.config.mcpServers.pop(i)
+        if name in self.config.mcpServers:
+            # Remove server
+            self.config.mcpServers.pop(name)
 
-                # Update default server if needed
-                if self.config.default_server == name:
-                    self.config.default_server = (
-                        self.config.mcpServers[0].name
-                        if self.config.mcpServers
-                        else None
-                    )
+            # Update default server if needed
+            if self.config.default_server == name:
+                self.config.default_server = (
+                    self.config.mcpServers.keys()[0]
+                    if self.config.mcpServers
+                    else None
+                )
 
-                # Save config
-                self._save_config(self.config)
-                return True
+            # Save config
+            self._save_config()
+            return True
 
         return False
 
@@ -226,15 +242,8 @@ class ConfigManager:
         # Use default server if name not specified
         if not name:
             name = self.config.default_server
-
-        if not name:
-            return None
-
-        # Find server
-        for server in self.config.mcpServers:
-            if server.name == name:
-                return server
-
+        if self.config.mcpServers:
+            return self.config.mcpServers.get(name)
         return None
 
     def set_default_mcp_server(self, name: str) -> bool:
@@ -247,14 +256,14 @@ class ConfigManager:
             True if default server was set, False otherwise
         """
         # Check if server exists
-        for server in self.config.mcpServers:
-            if server.name == name:
-                # Set default server
-                self.config.default_server = name
-
-                # Save config
-                self._save_config(self.config)
+        if name in self.config.mcpServers:
+            # Check if server is already default
+            if self.config.default_server == name:
                 return True
+            self.config.default_server = name
+            # Save config
+            self._save_config()
+            return True
 
         return False
 
@@ -264,4 +273,6 @@ class ConfigManager:
         Returns:
             List of mcp server information
         """
-        return [server for _, server in self.config.mcpServers.items()]
+        if self.config.mcpServers:
+            return [server for _, server in self.config.mcpServers.items()]
+        return []

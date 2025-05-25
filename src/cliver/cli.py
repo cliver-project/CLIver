@@ -21,9 +21,6 @@ from cliver.util import get_config_dir, stdin_is_piped, read_piped_input
 from cliver.constants import *
 
 
-console = Console()
-
-
 class Cliver:
     """
     The global App is the box for all capabilities.
@@ -42,12 +39,12 @@ class Cliver:
         # prepare console for interaction
         self.history_path = self.config_dir / "history"
         self.session = None
+        self.console = Console()
         self.piped = stdin_is_piped()
 
     def init_session(self, group: click.Group):
         if self.piped or self.session is not None:
             return
-        # Set up prompt session with history
         self.session = PromptSession(
             history=FileHistory(str(self.history_path)),
             auto_suggest=AutoSuggestFromHistory(),
@@ -68,19 +65,19 @@ class Cliver:
         if self.piped:
             user_data = read_piped_input()
             if user_data is None:
-                console.print(
+                self.console.print(
                     "[bold yellow]No data received from stdin.[/bold yellow]")
             else:
                 if not user_data.lower() in ("exit", "quit"):
                     self.call_cmd(user_data)
         else:
-            console.print(
+            self.console.print(
                 Panel.fit(
                     "[bold blue]Cliver[/bold blue] - AI Agent Command Line Interface",
                     border_style="blue",
                 )
             )
-            console.print(
+            self.console.print(
                 "Type [bold green]/help[/bold green] to see available commands or start typing to interact with the AI."
             )
 
@@ -99,12 +96,12 @@ class Cliver:
                     self.call_cmd(line)
 
                 except KeyboardInterrupt:
-                    console.print(
+                    self.console.print(
                         "\n[yellow]Use 'exit' or 'quit' to exit[/yellow]")
                 except EOFError:
                     break
                 except Exception as e:
-                    console.print(f"[red]Error: {e}[/red]")
+                    self.console.print(f"[red]Error: {e}[/red]")
 
         # Clean up
         self.cleanup()

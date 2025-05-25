@@ -31,7 +31,7 @@ def stdin_is_piped():
     return not os.isatty(fd) and stat.S_ISFIFO(mode)
 
 
-def read_piped_input(timeout=0.1):
+def read_piped_input(timeout=5.0):
     """Non-blocking read from stdin if data is available."""
     if select.select([sys.stdin], [], [], timeout)[0]:
         return sys.stdin.read()
