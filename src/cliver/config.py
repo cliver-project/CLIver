@@ -20,11 +20,17 @@ class MCPServerStdio(MCPServerBase):
     args: List[str]
     env: Optional[Dict[str, str]] = None
 
+    def info(self) -> str:
+        return f"Command: {self.command} {' '.join(self.args)}\nEnvironment: {self.env}"
+
 
 class MCPServerSSE(MCPServerBase):
     type: Literal["sse"]
     url: str
     headers: Optional[Dict[str, str]] = None
+
+    def info(self) -> str:
+        return f"URL: {self.url}\nHeaders: {self.headers}"
 
 
 MCPServer = Union[MCPServerStdio, MCPServerSSE]
@@ -74,7 +80,6 @@ class ConfigManager:
         """
         self.config_dir = config_dir
         self.config_file = self.config_dir / "config.json"
-        self.config_dir.mkdir(parents=True, exist_ok=True)
         self.config = self._load_config()
 
     def _load_config(self) -> AppConfig:
@@ -114,6 +119,8 @@ class ConfigManager:
             config: Client configuration
         """
         try:
+            if not self.config_dir.exists():
+                self.config_dir.mkdir(parents=True, exist_ok=True)
             with open(self.config_file, "w") as f:
                 json.dump(config, f, indent=4)
 
