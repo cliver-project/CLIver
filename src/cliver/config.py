@@ -37,9 +37,9 @@ MCPServer = Union[MCPServerStdio, MCPServerSSE]
 
 
 class ModelOptions(BaseModel):
-    temperature: float = Field(0.7, description="Sampling temperature")
+    temperature: float = Field(0.9, description="Sampling temperature")
     top_p: float = Field(1.0, description="Top-p sampling cutoff")
-    max_tokens: int = Field(1000, description="Maximum number of tokens")
+    max_tokens: int = Field(4096, description="Maximum number of tokens")
     # special class-level variable to allow extra fields
     model_config = {"extra": "allow"}
 
@@ -276,3 +276,69 @@ class ConfigManager:
         if self.config.mcpServers:
             return [server for _, server in self.config.mcpServers.items()]
         return []
+
+    def list_llm_models(self) -> List[ModelConfig]:
+        """List all LLM Models
+        """
+        if self.config.models:
+            return [model for _, model in self.config.models.items()]
+        return []
+
+    def add_or_update_llm_model(self, name: str, provider: str, api_key: str, url: str, options: str, name_in_provider: str, type: str = "TEXT_TO_TEXT") -> None:
+        if not self.config.models:
+            self.config.models = {}
+        if name in self.config.models:
+            llm = self.config.models[name]
+            if provider:
+                llm.provider = provider
+            if url:
+                llm.url = url
+            if type:
+                llm.type = type
+            if name_in_provider:
+                llm.name_in_provider = name_in_provider
+        else:
+            llm = ModelConfig(name=name, provider=provider, type=type, url=url)
+            self.config.models[name] = llm
+            if self.config.default_model is None:
+                self.config.default_model = name
+            if name_in_provider:
+                llm.name_in_provider = name_in_provider
+            else:
+                llm.name_in_provider = name
+
+        if api_key:
+            llm.api_key = api_key
+        if options:
+            try:
+                options_json = json.loads(options)
+                llm.options = ModelOptions(**options_json)
+            except:
+                # fall backs to default
+                llm.options = ModelOptions()
+        self._save_config()
+
+    def remove_llm_model(self, name: str) -> None:
+        # Find model
+        if name in self.config.models:
+            # Remove model
+            self.config.models.pop(name)
+
+            # Update default model if needed
+            if self.config.default_model == name:
+                self.config.default_model = (
+                    self.config.models.keys()[0]
+                    if self.config.models
+                    else None
+                )
+
+            # Save config
+            self._save_config()
+            return True
+
+        return False
+
+    def get_llm_model(self, name: str) -> Optional[ModelConfig]:
+        if not name or not self.config.models:
+            return None
+        return self.config.models.get(name)

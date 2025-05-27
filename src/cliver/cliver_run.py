@@ -1,3 +1,3 @@
-from cliver.cli import main
+from cliver.cli import cliver_main
 
-main()
+cliver_main()

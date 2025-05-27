@@ -7,17 +7,23 @@ from rich import box
 
 
 @click.group(name="config", help="Manage configuration settings.")
-def config():
+@click.pass_context
+def config(ctx: click.Context):
     """
     Configuration command group.
     This group contains commands to manage configuration settings.
     """
-    pass
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+        ctx.exit()
 
 
 @config.group(name="mcp", help="Manage the MCP Servers")
-def mcp():
-    pass
+@click.pass_context
+def mcp(ctx: click.Context):
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+        ctx.exit()
 
 
 def post_group():
@@ -184,3 +190,176 @@ def remove_mcp_server(cliver: Cliver, name: str):
         return
     cliver.config_manager.remove_mcp_server(name)
     cliver.console.print(f"Removed MCP server: {name}")
+
+
+#
+#  Models sub commands
+#
+@config.group(name="llm", help="Manage the LLM Models")
+@click.pass_context
+def llm(ctx: click.Context):
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+        ctx.exit()
+
+
+@llm.command(name="list", help="List LLM Models")
+@pass_cliver
+def list_llm_models(cliver: Cliver):
+    models = cliver.config_manager.list_llm_models()
+    if models:
+        table = Table(title="Configured LLM Models", box=box.SQUARE)
+        table.add_column("Name", style="green")
+        table.add_column("Name In Provider", style="green")
+        table.add_column("Provider")
+        table.add_column("API Key", style="red")
+        table.add_column("Type", style="blue")
+        table.add_column("URL")
+        table.add_column("Options", style="blue")
+        for model in models:
+            table.add_row(
+                model.name,
+                model.name_in_provider,
+                model.provider,
+                model.api_key,
+                model.type,
+                model.url,
+                model.options.model_dump_json() if model.options else ""
+            )
+        cliver.console.print(table)
+    else:
+        cliver.console.print("No LLM Models configured.")
+
+
+@llm.command(name="remove", help="Remove a LLM Model")
+@click.option(
+    "--name",
+    "-n",
+    type=str,
+    required=True,
+    help="Name of the LLM Model",
+)
+@pass_cliver
+def remove_llm_model(cliver: Cliver, name: str):
+    model = cliver.config_manager.get_llm_model(name)
+    if not model:
+        cliver.console.print(f"No LLM Model found with name: {name}")
+        return
+    cliver.config_manager.remove_llm_model(name)
+    cliver.console.print(f"Removed LLM Model: {name}")
+
+
+@llm.command(name="add", help="Add a LLM Model")
+@click.option(
+    "--name",
+    "-n",
+    type=str,
+    required=True,
+    help="Name of the LLM Model",
+)
+@click.option(
+    "--provider",
+    "-p",
+    type=str,
+    required=True,
+    help="The provider of the LLM Model",
+)
+@click.option(
+    "--api-key",
+    "-k",
+    type=str,
+    help="The api_key of the LLM Model",
+)
+@click.option(
+    "--url",
+    "-u",
+    type=str,
+    required=True,
+    help="The url of the LLM Provider service",
+)
+@click.option(
+    "--options",
+    "-o",
+    type=str,
+    help="The options in json format of the LLM Provider",
+)
+@click.option(
+    "--name-in-provider",
+    "-N",
+    type=str,
+    help="The name of the LLM within the Provider",
+)
+@click.option(
+    "--type",
+    "-t",
+    type=str,
+    default="TEXT_TO_TEXT",
+    show_default=True,
+    help="The type of the LLM Provider",
+)
+@pass_cliver
+def add_llm_model(cliver: Cliver, name: str, provider: str, api_key: str, url: str, options: str, name_in_provider: str, type: str):
+    model = cliver.config_manager.get_llm_model(name)
+    if model:
+        cliver.console.print(
+            f"LLM Model found with name: {name} already exists.")
+        return
+    cliver.config_manager.add_or_update_llm_model(
+        name, provider, api_key, url, options, name_in_provider, type)
+    cliver.console.print(f"Added LLM Model: {name}")
+
+
+@llm.command(name="set", help="Update a LLM Model")
+@click.option(
+    "--name",
+    "-n",
+    type=str,
+    required=True,
+    help="Name of the LLM Model",
+)
+@click.option(
+    "--provider",
+    "-p",
+    type=str,
+    help="The provider of the LLM Model",
+)
+@click.option(
+    "--api-key",
+    "-k",
+    type=str,
+    help="The api_key of the LLM Model",
+)
+@click.option(
+    "--url",
+    "-u",
+    type=str,
+    help="The url of the LLM Provider service",
+)
+@click.option(
+    "--options",
+    "-o",
+    type=str,
+    help="The options in json format of the LLM Provider",
+)
+@click.option(
+    "--name-in-provider",
+    "-N",
+    type=str,
+    help="The name of the LLM within the Provider",
+)
+@click.option(
+    "--type",
+    "-t",
+    type=str,
+    help="The type of the LLM Provider",
+)
+@pass_cliver
+def update_llm_model(cliver: Cliver, name: str, provider: str, api_key: str, url: str, options: str, name_in_provider: str, type: str = "TEXT_TO_TEXT"):
+    model = cliver.config_manager.get_llm_model(name)
+    if not model:
+        cliver.console.print(
+            f"LLM Model with name: {name} was not found.")
+        return
+    cliver.config_manager.add_or_update_llm_model(
+        name, provider, api_key, url, options, name_in_provider, type)
+    cliver.console.print(f"Added LLM Model: {name}")

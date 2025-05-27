@@ -100,6 +100,8 @@ class Cliver:
                         "\n[yellow]Use 'exit' or 'quit' to exit[/yellow]")
                 except EOFError:
                     break
+                except click.exceptions.NoArgsIsHelpError as e:
+                    self.console.print(f"{e.format_message()}")
                 except Exception as e:
                     self.console.print(f"[red]Error: {e}[/red]")
 
