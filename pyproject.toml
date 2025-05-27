@@ -28,7 +28,7 @@ dev = [
 ]
 
 [project.scripts]
-cliver = "cliver.cli:main"
+cliver = "cliver.cli:cliver_main"
 
 [build-system]
 requires = ["uv_build>=0.7,<0.8"]

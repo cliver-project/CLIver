@@ -25,10 +25,13 @@ def get_config_dir() -> Path:
 
 
 def stdin_is_piped():
-    fd = sys.stdin.fileno()
-    mode = os.fstat(fd).st_mode
-    # True if stdin is a FIFO (pipe)
-    return not os.isatty(fd) and stat.S_ISFIFO(mode)
+    try:
+        fd = sys.stdin.fileno()
+        mode = os.fstat(fd).st_mode
+        # True if stdin is a FIFO (pipe)
+        return not os.isatty(fd) and stat.S_ISFIFO(mode)
+    except:
+        return True
 
 
 def read_piped_input(timeout=5.0):

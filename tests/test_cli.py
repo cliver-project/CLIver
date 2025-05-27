@@ -1,21 +1,28 @@
-import pytest
 from click.testing import CliRunner
-from cliver.cli import cli, register_commands
 
 
-@pytest.fixture(autouse=True)
-def setup_cli():
-    register_commands()
-
-
-def test_batch_greet_and_exit():
-    # let's pretend we added a "greet" leaf command for testing
-    result = CliRunner().invoke(cli, ["config", "list"])
+def test_list_mcp_servers_empty(load_cliver, init_config):
+    result = CliRunner().invoke(load_cliver, ["config", "mcp", "list"])
     assert result.exit_code == 0
+    assert "No MCP servers configured." in result.output
 
 
-def test_interactive_repl_exit_immediately(monkeypatch):
-    monkeypatch.setattr("prompt_toolkit.prompt", lambda *args, **kwargs: "exit")
-    result = CliRunner().invoke(cli, [])
+def test_list_mcp_servers_simple(load_cliver, simple_mcp_server):
+    result = CliRunner().invoke(load_cliver, ["config", "mcp", "list"])
     assert result.exit_code == 0
-    assert "Entering interactive shell" in result.output
+    assert "stdio" in result.output
+    assert "ocp_mcp_server_start arg-a arg-b" in result.output
+    assert "{'KUBECONFIG': '~/.kube/config'}" in result.output
+
+
+def test_add_stdio_mcp_server(load_cliver, init_config):
+    result = CliRunner().invoke(load_cliver, ["config", "mcp", "list"])
+    assert result.exit_code == 0
+    assert "No MCP servers configured." in result.output
+    result = CliRunner().invoke(load_cliver, ["config", "mcp", "add",
+                                              "--name", "blender", "--type", "stdio", "--command", "uvx", "--args", "blender-mcp"])
+    assert result.exit_code == 0
+    assert "Added MCP server: blender of type stdio" in result.output
+    result = CliRunner().invoke(load_cliver, ["config", "mcp", "list"])
+    assert result.exit_code == 0
+    assert "uvx blender-mcp" in result.output

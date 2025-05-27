@@ -16,7 +16,7 @@ from rich.panel import Panel
 
 from cliver.config import ConfigManager
 from cliver.core import Core
-from cliver.commands import loads_commands, list_commands_names
+from cliver import commands
 from cliver.util import get_config_dir, stdin_is_piped, read_piped_input
 from cliver.constants import *
 
@@ -58,7 +58,7 @@ class Cliver:
         )
 
     def load_commands_names(self, group: click.Group) -> list[str]:
-        return list_commands_names(group)
+        return commands.list_commands_names(group)
 
     def run(self) -> None:
         """Run the Cliver client."""
@@ -111,11 +111,11 @@ class Cliver:
         Call a command with the given name and arguments.
         """
         parts = shell_split(line)
-        cliver.main(args=parts,
-                    prog_name="cliver",
-                    standalone_mode=False,
-                    obj=self
-                    )
+        cliver(args=parts,
+               prog_name="cliver",
+               standalone_mode=False,
+               obj=self
+               )
 
     def cleanup(self):
         """
@@ -127,8 +127,6 @@ class Cliver:
 
 pass_cliver = click.make_pass_decorator(Cliver)
 
-cli = Cliver()
-
 
 @click.group(invoke_without_command=True)
 @click.pass_context
@@ -136,15 +134,17 @@ def cliver(ctx: click.Context):
     """
     Cliver: An application aims to make your CLI clever
     """
+    cli = None
     if ctx.obj is None:
+        cli = Cliver()
         ctx.obj = cli
 
     if ctx.invoked_subcommand is None:
         # If no subcommand is invoked, show the help message
-        _interact()
+        _interact(cli)
 
 
-def _interact():
+def _interact(cli: Cliver):
     """
     Start an interactive session with the AI agent.
     """
@@ -152,8 +152,12 @@ def _interact():
     cli.run()
 
 
-def main():
+def loads_commands():
+    commands.loads_commands(cliver)
+
+
+def cliver_main(*args, **kwargs):
     # loading all click groups and commands before calling it
-    loads_commands(cliver)
+    loads_commands()
     # bootstrap the cliver application
     cliver()
