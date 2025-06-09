@@ -10,13 +10,13 @@ from pydantic import BaseModel, Field
 
 
 class MCPServerBase(BaseModel):
-    type: str
-    name: str
+    type: Optional[str]
+    name: Optional[str]
 
 
 class MCPServerStdio(MCPServerBase):
     type: Literal["stdio"]
-    command: str
+    command: Optional[str]
     args: Optional[List[str]] = None
     env: Optional[Dict[str, str]] = None
 
@@ -26,7 +26,7 @@ class MCPServerStdio(MCPServerBase):
 
 class MCPServerSSE(MCPServerBase):
     type: Literal["sse"]
-    url: str
+    url: Optional[str]
     headers: Optional[Dict[str, str]] = None
 
     def info(self) -> str:

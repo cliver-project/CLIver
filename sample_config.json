@@ -2,14 +2,14 @@
     "mcpServers": {
         "sqlite": {
           "command": "uvx",
-          "type": "stdio",
+          "transport": "stdio",
           "args": ["mcp-server-sqlite", "--db-path", "./test.db"],
           "env": {
             "DB_URL": "~/sqlite.db"
           }
         },
         "http-sse-server": {
-          "type": "sse",
+          "transport": "sse",
           "url": "https://localhost:8080/api/v1/",
           "headers": {
             "Authorization": "Bearer {{ http-sse-server.access_token }}"
@@ -41,7 +41,7 @@
         }
     },
     "secrets": {
-        "vault_path": "~/.config/cliver/secrets.vault",
+        "vault_path": "secrets.vault",
         "references": {
             "openai_api_key": "openai.api_key",
             "ollama_access_token": "ollama.access_token",
