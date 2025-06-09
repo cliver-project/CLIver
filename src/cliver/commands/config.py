@@ -1,7 +1,6 @@
 import click
 import json
 from cliver.cli import Cliver, pass_cliver
-from cliver.config import MCPServerStdio, MCPServerSSE
 from rich.table import Table
 from rich import box
 
@@ -38,13 +37,13 @@ def list_mcp_servers(cliver: Cliver):
     if mcp_servers:
         table = Table(title="Configured MCP Servers", box=box.SQUARE)
         table.add_column("Name", style="green")
-        table.add_column("Type")
+        table.add_column("Transport")
         table.add_column("Info", style="blue")
-        for mcp in mcp_servers:
+        for name, mcp in mcp_servers.items():
             table.add_row(
-                mcp.name,
-                mcp.type,
-                mcp.info(),
+                name,
+                mcp.get("transport"),
+                f"{mcp.get("command") or ''} {mcp.get("args") or ''} {mcp.get("env") or ''}",
             )
         cliver.console.print(table)
     else:
@@ -96,29 +95,29 @@ def set_mcp_server(cliver: Cliver, name: str, command: str = None, args: str = N
         cliver.console.print(f"No MCP server found with name: {name}")
         return
 
-    if mcp_server.type == 'stdio':
+    if mcp_server.get("transport") == 'stdio':
         if command:
-            mcp_server.command = command
+            mcp_server["command"] = command
         if args:
-            mcp_server.args = args.split(",")
+            mcp_server["args"] = args.split(",")
         if envs:
-            mcp_server.env = json.loads(envs)
-    elif mcp_server.type == 'sse':
+            mcp_server["env"] = json.loads(envs)
+    elif mcp_server.get("transport") == 'sse':
         if url:
-            mcp_server.url = url
+            mcp_server["url"] = url
         if headers:
-            mcp_server.headers = json.loads(headers)
+            mcp_server["headers"] = json.loads(headers)
     cliver.config_manager.add_or_update_server(mcp_server)
     cliver.console.print(f"Updated MCP server: {name}")
 
 
 @mcp.command(name="add", help="Add a MCP server")
 @click.option(
-    "--type",
+    "--transport",
     "-t",
     required=True,
     type=click.Choice(['stdio', 'sse']),
-    help="Type of the MCP server",
+    help="Transport of the MCP server",
 )
 @click.option(
     "--name",
@@ -158,20 +157,20 @@ def set_mcp_server(cliver: Cliver, name: str, command: str = None, args: str = N
     help="HTTP headers in JSON format for sse MCP server",
 )
 @pass_cliver
-def add_mcp_server(cliver: Cliver, name: str, type: str, command: str = None, args: str = None, envs: str = None, url: str = None, headers: str = None):
+def add_mcp_server(cliver: Cliver, name: str, transport: str, command: str = None, args: str = None, envs: str = None, url: str = None, headers: str = None):
     mcp_server = cliver.config_manager.get_mcp_server(name)
     if mcp_server:
         cliver.console.print(f"MCP server with name {name} already exists.")
         return
-    if type == 'stdio':
+    if transport == 'stdio':
         cliver.config_manager.add_or_update_stdio_mcp_server(
             name=name, command=command, args=args.split(","), env=json.loads(envs) if envs else None)
-    elif type == 'sse':
+    elif transport == 'sse':
         cliver.config_manager.add_or_update_sse_mcp_server(
             name=name, url=url, headers=json.loads(headers) if headers else None)
     else:
-        click.echo(f"Unsupported MCP server type: {type}")
-    cliver.console.print(f"Added MCP server: {name} of type {type}")
+        click.echo(f"Unsupported MCP server transport: {transport}")
+    cliver.console.print(f"Added MCP server: {name} of transport {transport}")
 
 
 @mcp.command(name="remove", help="Remove a MCP server")

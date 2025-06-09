@@ -85,7 +85,7 @@ class Cliver:
                 try:
                     # Get user input
                     line = self.session.prompt("Cliver> ").strip()
-                    if line.lower() in ("exit", "quit"):
+                    if line.lower() in ("exit", "quit", "/exit", "/quit"):
                         break
                     if line.startswith("/") and len(line) > 1:
                         # possibly a command

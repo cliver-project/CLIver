@@ -8,34 +8,6 @@ from typing import Dict, List, Optional, Any, Union, Literal
 import json
 from pydantic import BaseModel, Field
 
-
-class MCPServerBase(BaseModel):
-    type: Optional[str]
-    name: Optional[str]
-
-
-class MCPServerStdio(MCPServerBase):
-    type: Literal["stdio"]
-    command: Optional[str]
-    args: Optional[List[str]] = None
-    env: Optional[Dict[str, str]] = None
-
-    def info(self) -> str:
-        return f"Command: {self.command} {' '.join(self.args)}\nEnvironment: {self.env}"
-
-
-class MCPServerSSE(MCPServerBase):
-    type: Literal["sse"]
-    url: Optional[str]
-    headers: Optional[Dict[str, str]] = None
-
-    def info(self) -> str:
-        return f"URL: {self.url}\nHeaders: {self.headers}"
-
-
-MCPServer = Union[MCPServerStdio, MCPServerSSE]
-
-
 class ModelOptions(BaseModel):
     temperature: float = Field(0.9, description="Sampling temperature")
     top_p: float = Field(1.0, description="Top-p sampling cutoff")
@@ -62,7 +34,7 @@ class SecretsConfig(BaseModel):
 
 
 class AppConfig(BaseModel):
-    mcpServers: Dict[str, MCPServer] = {}
+    mcpServers: Dict[str, Dict] = {}
     default_server: Optional[str] = None
     models: Dict[str, ModelConfig] = {}
     default_model: Optional[str] = None
@@ -98,13 +70,6 @@ class ConfigManager:
                 if not file_content or not file_content.strip():
                     return AppConfig()
                 config_data = json.loads(file_content)
-                # Ensure each MCPServer has its name set from the key
-                if "mcpServers" in config_data and isinstance(
-                    config_data["mcpServers"], dict
-                ):
-                    for name, server in config_data["mcpServers"].items():
-                        if isinstance(server, dict):
-                            server["name"] = name
                 # Ensure each ModelConfig has its name set from the key
                 if "models" in config_data and isinstance(config_data["models"], dict):
                     for name, model in config_data["models"].items():
@@ -147,43 +112,47 @@ class ConfigManager:
             env: Environment variables
         """
         # Create server config
-        server = MCPServerStdio(
-            name=name, type="stdio", command=command, args=args, env=env
-        )
-        self.add_or_update_server(server)
+        server = {
+            "transport": "stdio",
+            "command": command,
+            "args": args,
+            "env": env,
+        }
+        self.add_or_update_server(name, server)
 
-    def add_or_update_server(self, server: MCPServer) -> None:
+    def add_or_update_server(self, name: str, server: Dict) -> None:
         """Add or update a server in the configuration.
 
         Args:
+            name: Server name
             server: Server configuration
         """
         # Check if server already exists
-        if server.name in self.config.mcpServers:
-            server_in_config = self.config.mcpServers[server.name]
-            if server_in_config.type != server.type:
+        if name in self.config.mcpServers:
+            server_in_config = self.config.mcpServers[name]
+            if server_in_config.get("transport") != server.get("transport"):
                 raise ValueError(
-                    f"Server with name {server.name} already exists with a different type."
+                    f"Server with name {name} already exists with a different type."
                 )
             # Update existing server
-            if server.type == "stdio":
-                if server.command:
-                    server_in_config.command = server.command
-                if server.args:
-                    server_in_config.args = server.args
-                if server.env:
-                    server_in_config.env = server.env
-            elif server.type == "sse":
-                if server.url:
-                    server_in_config.url = server.url
-                if server.headers:
-                    server_in_config.headers = server.headers
+            if server.get("transport") == "stdio":
+                if server.get("command"):
+                    server_in_config["command"] = server.get("command")
+                if server.get("args"):
+                    server_in_config["args"] = server.get("args")
+                if server.get("env"):
+                    server_in_config["env"] = server.get("env")
+            elif server.get("transport") == "sse":
+                if server.get("url"):
+                    server_in_config["url"] = server.get("url")
+                if server.get("headers"):
+                    server_in_config["headers"] = server.get("headers")
         else:
             # Add new server
-            self.config.mcpServers[server.name] = server
+            self.config.mcpServers[name] = server
             # Set as default if first server
             if not self.config.default_server:
-                self.config.default_server = server.name
+                self.config.default_server = name
 
         # Save config
         self._save_config()
@@ -199,8 +168,12 @@ class ConfigManager:
             headers: Headers for the server
         """
         # Create server config
-        server = MCPServerSSE(name=name, type="sse", url=url, headers=headers)
-        self.add_or_update_server(server)
+        server = {
+            "transport": "sse",
+            "url": url,
+            "headers": headers,
+        }
+        self.add_or_update_server(name, server)
 
     def remove_mcp_server(self, name: str) -> bool:
         """Remove a server from the configuration.
@@ -230,7 +203,7 @@ class ConfigManager:
 
         return False
 
-    def get_mcp_server(self, name: Optional[str] = None) -> Optional[MCPServer]:
+    def get_mcp_server(self, name: Optional[str] = None) -> Optional[Dict]:
         """Get a server configuration.
 
         Args:
@@ -267,15 +240,13 @@ class ConfigManager:
 
         return False
 
-    def list_mcp_servers(self) -> List[MCPServer]:
+    def list_mcp_servers(self) -> Dict[str, Dict]:
         """List all mcp servers.
 
         Returns:
             List of mcp server information
         """
-        if self.config.mcpServers:
-            return [server for _, server in self.config.mcpServers.items()]
-        return []
+        return self.config.mcpServers
 
     def list_llm_models(self) -> List[ModelConfig]:
         """List all LLM Models
@@ -315,11 +286,14 @@ class ConfigManager:
                 llm.options = ModelOptions(**options_json)
             except:
                 # fall backs to default
-                llm.options = ModelOptions()
+                llm.options = ModelOptions(
+                    temperature=0.7,
+                    top_p=0.9,
+                    max_tokens=4096
+                )
         self._save_config()
 
-    def remove_llm_model(self, name: str) -> None:
-        # Find model
+    def remove_llm_model(self, name: str) -> bool:
         if name in self.config.models:
             # Remove model
             self.config.models.pop(name)
