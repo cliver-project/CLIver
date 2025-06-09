@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional, Any, Union, Literal, get_type_hints
+from typing import Dict, Optional, Any, Union, get_type_hints
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.sessions import StdioConnection, SSEConnection, StreamableHttpConnection, WebsocketConnection
 from langchain_core.documents.base import Blob
@@ -42,14 +42,15 @@ class MCPServersCaller:
         else:
             raise ValueError(f"Transport: {transport} is not supported")
 
-    async def get_mcp_resource(self, server: str, resource_path: str = None) -> list[Blob]:
+    async def get_mcp_resource(self, server: str, resource_path: str = None) -> Union[Dict[str, str] | list[Blob]]:
         """Call the MCP server to get resources using langchain_mcp_adapters."""
         try:
             return await self.mcp_client.get_resources(server_name=server, uris=resource_path)
         except Exception as e:
             return {"error": str(e)}
 
-    async def get_mcp_tools(self, server: Optional[str] = None) -> list[BaseTool]:
+    # TODO we need to make sure some arguments are required so that LLM won't return an empty argument
+    async def get_mcp_tools(self, server: Optional[str] = None) -> Union[Dict[str, str] | list[BaseTool]]:
         """
         Call the MCP server to get tools using langchain_mcp_adapters and convert to BaseTool to be used in langchain
         """
@@ -76,12 +77,12 @@ class MCPServersCaller:
         except Exception as e:
             return {"error": str(e)}
 
-    async def get_mcp_prompt(self, server: str) -> list[HumanMessage | AIMessage]:
+    async def get_mcp_prompt(self, server: str, prompt_name: str, arguments: dict[str, Any] | None = None) -> list[Dict | HumanMessage | AIMessage]:
         """Call the MCP server to get prompt using langchain_mcp_adapters."""
         try:
-            return await self.mcp_client.get_prompt(server_name=server)
+            return await self.mcp_client.get_prompt(server_name=server, prompt_name=prompt_name, arguments=arguments)
         except Exception as e:
-            return {"error": str(e)}
+            return [{"error": str(e)}]
 
     async def call_mcp_server_tool(self, server: str, tool_name: str, args: Dict[str, Any] = None) -> list[Dict[str, Any]]:
         """Call an MCP tool using langchain_mcp_adapters."""

@@ -3,7 +3,7 @@ Configuration module for Cliver client.
 """
 
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Union, Literal
+from typing import Dict, List, Optional
 
 import json
 from pydantic import BaseModel, Field
@@ -248,12 +248,10 @@ class ConfigManager:
         """
         return self.config.mcpServers
 
-    def list_llm_models(self) -> List[ModelConfig]:
+    def list_llm_models(self) -> Dict[str, ModelConfig]:
         """List all LLM Models
         """
-        if self.config.models:
-            return [model for _, model in self.config.models.items()]
-        return []
+        return self.config.models
 
     def add_or_update_llm_model(self, name: str, provider: str, api_key: str, url: str, options: str, name_in_provider: str, type: str = "TEXT_TO_TEXT") -> None:
         if not self.config.models:
@@ -312,7 +310,9 @@ class ConfigManager:
 
         return False
 
-    def get_llm_model(self, name: str) -> Optional[ModelConfig]:
-        if not name or not self.config.models:
-            return None
-        return self.config.models.get(name)
+    def get_llm_model(self, name: Optional[str] = None) -> Optional[ModelConfig]:
+        if not name:
+            name = self.config.default_model
+        if self.config.models:
+            return self.config.models.get(name)
+        return None

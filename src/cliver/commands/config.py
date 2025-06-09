@@ -215,7 +215,7 @@ def list_llm_models(cliver: Cliver):
         table.add_column("Type", style="blue")
         table.add_column("URL")
         table.add_column("Options", style="blue")
-        for model in models:
+        for name, model in models.items():
             table.add_row(
                 model.name,
                 model.name_in_provider,

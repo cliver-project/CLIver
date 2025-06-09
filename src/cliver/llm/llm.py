@@ -1,100 +1,80 @@
-import os
-from langchain.globals import set_debug, set_verbose
 from typing import List, Dict, Optional, Union
-from abc import ABC, abstractmethod
+
 from cliver.config import ModelConfig
+from cliver.llm.ollama_engine import OllamaLlamaInferenceEngine
 from cliver.mcp import MCPServersCaller
-from langchain_core.messages import AIMessage, ToolMessage, SystemMessage, HumanMessage, ChatMessage
+from langchain_core.messages import ToolMessage, SystemMessage, HumanMessage, AIMessage
 from langchain_core.messages.base import BaseMessage
 from langchain_core.tools import BaseTool
+from cliver.llm.base import LLMInferenceEngine
 
-if os.environ.get("MODE") == 'dev':
-    set_debug(True)
-    set_verbose(True)
-    import logging
-    import langchain
-    langchain.LANGCHAIN_DEBUG = True
-    logging.basicConfig(level=logging.DEBUG)
-
-
-class LLMInferenceEngine(ABC):
-    def __init__(self, config: ModelConfig):
-        self.config = config or {}
-
-    # This method focus on the real LLM inference only.
-    @abstractmethod
-    async def infer(self, messages: List[BaseMessage], tools: Optional[list[BaseTool]]) -> BaseMessage:
-        pass
-
-
-# Ollama inference engine
-class OllamaLlamaInferenceEngine(LLMInferenceEngine):
-    def __init__(self, config: ModelConfig):
-        super().__init__(config)
-        from langchain_ollama import ChatOllama
-
-        self.llm = ChatOllama(
-            base_url=self.config.url,
-            model=self.config.name_in_provider,
-            **self.config.model_dump()
-        )
-
-    async def infer(self, messages: list[BaseMessage], tools: Optional[list[BaseTool]]) -> BaseMessage:
-        try:
-            _llm = self.llm
-            if tools:
-                _llm = self.llm.bind_tools(tools)
-            response = await _llm.ainvoke(messages)
-            return response
-        except Exception as e:
-            return AIMessage(content=f"Error: {e}", additional_kwargs={"type": "error"})
-
+def create_llm_engine(model: ModelConfig) -> Optional[LLMInferenceEngine]:
+    if model.provider == "ollama":
+        return OllamaLlamaInferenceEngine(model)
+    return None
 
 class TaskExecutor:
-    def __init__(self, llm_engine: LLMInferenceEngine, mcp_caller: MCPServersCaller):
-        self.llm_engine = llm_engine
+    """
+    This is the central place managing the execution of all configured LLM models and MCP servers.
+    """
+    def __init__(self, llm_models: Dict[str, ModelConfig], mcp_caller: MCPServersCaller, default_model: Optional[ModelConfig] = None):
+        self.llm_models = llm_models
+        self.default_model = default_model
         self.mcp_caller = mcp_caller
+        self.llm_engines: Dict[str, LLMInferenceEngine] = {}
 
-    async def process_user_input(self, user_input: str, max_iterations: int = 5) -> Union[BaseMessage, str]:
-        """Process user input through the LLM, handling tool calls if needed."""
+    def _select_llm_engine(self, model: str = None) -> LLMInferenceEngine:
+        if model and model in self.llm_models:
+            _model = self.llm_models[model]
+        else:
+            _model = self.default_model
+        if not _model:
+            raise RuntimeError(f"No model named {model}.")
+        if _model.name in self.llm_engines:
+            llm_engine = self.llm_engines[_model.name]
+        else:
+            llm_engine = create_llm_engine(_model)
+            self.llm_engines[_model.name] = llm_engine
+        return llm_engine
 
+    async def _filter_tools(self, user_input: str, mcp_tools: list[BaseTool]) -> list[BaseTool]:
+        # TODO filter based on user input
+        return mcp_tools
+
+    async def _enhance_prompt(self, user_input: str) -> list[BaseMessage]:
+        # TODO get some enhanced prompts to be added to the final messages
+        return []
+
+    async def process_user_input(self, user_input: str, max_iterations: int = 10, model: str = None) -> Union[BaseMessage, str]:
+        """
+        Process user input through the LLM, handling tool calls if needed.
+        Args:
+            user_input (str): The user input.
+            max_iterations (int): The maximum number of iterations.
+            model (str): The model to use, the default one will be used if not specified.
+        """
+
+        llm_engine = self._select_llm_engine(model)
         # Add system message to instruct the LLM about tool usage
-        system_message = """
-        You are an AI assistant that can use tools to help answer questions.
+        system_message = llm_engine.system_message()
 
-If you need to call a tools to get more information from client side, always extract MCP tool calls and format them **only** as a function call to `tool_calls`.
-- Gather from user: tool_name, arguments.
-- When ready, respond only with JSON in the form:
-  "tool_calls": [
-    {
-      "name": "<tool_name>",
-      "args": {...},
-      "id": "<tool_call_id>",
-      "type": "tool_call"
-    }
-  ]
-- Do **not** add any text outside the JSON.
-
-If you have all the information needed to answer directly, provide a text response.
-"""
-
-        # TODO we need to make sure some arguments are required so that LLM won't return an empty argument
         mcp_tools = await self.mcp_caller.get_mcp_tools()
-        messages = []
-        messages.append(SystemMessage(content=system_message))
+        mcp_tools = await self._filter_tools(user_input, mcp_tools)
 
-        # TODO we may need to retrieve some enhanced prompt from some mcp servers before inference
+        messages: list[BaseMessage] = [SystemMessage(content=system_message), HumanMessage(content=user_input)]
+        enhanced_messages = await self._enhance_prompt(user_input)
+        if enhanced_messages:
+            messages.extend(enhanced_messages)
 
-        messages.append(HumanMessage(content=user_input))
-        return await self._process_messages(messages, max_iterations, 0, mcp_tools)
+        return await self._process_messages(llm_engine, messages, max_iterations, 0, mcp_tools)
 
-    async def _process_messages(self, messages: List[BaseMessage], max_iterations: int, current_iteration: int, mcp_tools: Optional[list[BaseTool]] = None) -> Union[BaseMessage, str]:
+    async def _process_messages(self, llm_engine: LLMInferenceEngine, messages: List[BaseMessage], max_iterations: int, current_iteration: int, mcp_tools: Optional[list[BaseTool]] = None) -> Union[BaseMessage, str]:
         """Handle processing messages recursively with tool calling."""
         if current_iteration >= max_iterations:
             return "Reached maximum number of iterations without a final answer."
 
         # Get response from LLM
-        response = await self.llm_engine.infer(messages, mcp_tools)
+        response = await llm_engine.infer(messages, mcp_tools)
 
         # Handle different response types
         if response.tool_calls:
@@ -116,13 +96,13 @@ If you have all the information needed to answer directly, provide a text respon
                         mcp_server_name, the_tool_name, args)
                     messages.append(ToolMessage(
                         content=mcp_tool_result, tool_call_id=tool_call_id))
-                    # TODO improve the messages with errors adding assistant messages ? shall we continue or a way to improve it ?
                     # TODO check the error if it is because of the wrong arguments
                     if any("error" in r for r in mcp_tool_result):
-                        messages.append(ChatMessage(role="assistant",
-                                                    content=f"Error calling tool {tool_name}: {mcp_tool_result[0].error}"))
-                        return await self._process_messages(messages, max_iterations, current_iteration + 1, mcp_tools)
-                return await self._process_messages(messages, max_iterations, current_iteration + 1)
+                        messages.append(AIMessage(content=f"Error calling tool {tool_name}: {mcp_tool_result[0].get("error")}"))
+                        # we need the tool execution again
+                        return await self._process_messages(llm_engine, messages, max_iterations, current_iteration + 1, mcp_tools)
+                # normally we don't need to send the tools to llm again
+                return await self._process_messages(llm_engine, messages, max_iterations, current_iteration + 1)
             except Exception as e:
                 return f"Error processing tool call: {str(e)}"
         else:
@@ -141,8 +121,6 @@ async def run_example():
         # Add any other necessary configurations
     )
 
-    # Initialize components
-    llm_engine = OllamaLlamaInferenceEngine(config)
     mcp_servers = MCPServersCaller(mcp_servers={
         "time": {
             "transport": "stdio",
@@ -153,7 +131,7 @@ async def run_example():
             ]
         }
     })
-    executor = TaskExecutor(llm_engine, mcp_servers)
+    executor = TaskExecutor({"llama3.2": config}, mcp_servers, config)
 
     # Process a user query
     user_input = "What time is it now ?"
