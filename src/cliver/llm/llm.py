@@ -3,7 +3,7 @@ import asyncio
 
 from cliver.config import ModelConfig
 from cliver.llm.ollama_engine import OllamaLlamaInferenceEngine
-from cliver.mcp import MCPServersCaller
+from cliver.mcp_server_caller import MCPServersCaller
 from langchain_core.messages import ToolMessage, SystemMessage, HumanMessage, AIMessage
 from langchain_core.messages.base import BaseMessage
 from langchain_core.tools import BaseTool
