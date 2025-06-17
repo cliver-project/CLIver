@@ -14,7 +14,7 @@ from cliver.llm import TaskExecutor
     required=False,
     help="Which LLM model to use",
 )
-@click.argument("query")
+@click.argument("query", nargs=-1)
 @pass_cliver
 def chat(cliver: Cliver, model: Optional[str], query: str):
     """
@@ -22,7 +22,8 @@ def chat(cliver: Cliver, model: Optional[str], query: str):
     This group contains commands to manage configuration settings.
     """
     task_executor = cliver.task_executor
-    asyncio.run(_async_chat(task_executor, query, model))
+    sentence = " ".join(query)
+    asyncio.run(_async_chat(task_executor, sentence, model))
 
 async def _async_chat(task_executor: TaskExecutor, user_input: str, model: str):
     response = await task_executor.process_user_input(user_input=user_input, model=model)
