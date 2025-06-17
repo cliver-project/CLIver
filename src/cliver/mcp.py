@@ -19,9 +19,8 @@ class MCPServersCaller:
     The central place to interact with MP Servers
     """
 
-    def __init__(self, mcp_servers: Dict[str, Dict], default_server: Optional[str] = None):
+    def __init__(self, mcp_servers: Dict[str, Dict]):
         self.mcp_servers = mcp_servers
-        self.default_server = default_server
         self.mcp_client = MultiServerMCPClient({
             server_name: self._get_mcp_server_connection(server_config) for server_name, server_config in mcp_servers.items()
         })

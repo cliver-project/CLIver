@@ -17,7 +17,6 @@ from rich.panel import Panel
 from cliver.config import ConfigManager
 from cliver.llm import TaskExecutor
 from cliver import commands
-from cliver.mcp import MCPServersCaller
 from cliver.util import get_config_dir, stdin_is_piped, read_piped_input
 from cliver.constants import *
 
@@ -34,10 +33,8 @@ class Cliver:
         # load config
         self.config_dir = get_config_dir()
         self.config_manager = ConfigManager(self.config_dir)
-        self.mcp_caller = MCPServersCaller(mcp_servers=self.config_manager.list_mcp_servers(),
-                                           default_server=self.config_manager.get_mcp_server())
         self.task_executor = TaskExecutor(llm_models=self.config_manager.list_llm_models(),
-                                          mcp_caller=self.mcp_caller,
+                                          mcp_servers=self.config_manager.list_mcp_servers(),
                                           default_model=self.config_manager.get_llm_model())
         # prepare console for interaction
         self.history_path = self.config_dir / "history"
