@@ -1,4 +1,5 @@
 from typing import List, Dict, Optional, Union, Callable, Awaitable, Any, Tuple
+import asyncio
 
 from cliver.config import ModelConfig
 from cliver.llm.ollama_engine import OllamaLlamaInferenceEngine
@@ -39,6 +40,21 @@ class TaskExecutor:
             llm_engine = create_llm_engine(_model)
             self.llm_engines[_model.name] = llm_engine
         return llm_engine
+
+    def process_user_input_sync(self, user_input: str,
+                                 max_iterations: int = 10,
+                                 confirm_tool_exec: bool = False,
+                                 model: str = None,
+                                 system_message_override: Optional[Callable[[], str]] = None,
+                                 filter_tools: Optional[
+                                     Callable[[str, list[BaseTool]], Awaitable[list[BaseTool]]]] = None,
+                                 enhance_prompt: Optional[Callable[[str], Awaitable[list[BaseMessage]]]] = None,
+                                 tool_error_check: Optional[
+                                     Callable[[str, list[Dict[str, Any]]], Tuple[bool, str]]] = None,
+                                 ) -> Union[BaseMessage, str]:
+        return asyncio.run(
+            self.process_user_input(user_input, max_iterations, confirm_tool_exec, model, system_message_override,
+                                    filter_tools, enhance_prompt, tool_error_check))
 
     # This is the method that can be used out of box
     async def process_user_input(self, user_input: str,
@@ -148,5 +164,3 @@ def _confirm_tool_execution(prompt="Are you sure? (y/n): ") -> bool:
             return True
         elif response in ['n', 'no']:
             return False
-        else:
-            print("Please respond with 'y' or 'n'.")
