@@ -29,6 +29,9 @@ class TaskExecutor:
         else:
             _model = self.default_model
         if not _model:
+            models = [v for _, v in self.llm_models.items()]
+            _model = models[0] if len(models) > 0 else None
+        if not _model:
             raise RuntimeError(f"No model named {model}.")
         if _model.name in self.llm_engines:
             llm_engine = self.llm_engines[_model.name]

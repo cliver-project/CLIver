@@ -107,7 +107,7 @@ def set_mcp_server(cliver: Cliver, name: str, command: str = None, args: str = N
             mcp_server["url"] = url
         if headers:
             mcp_server["headers"] = json.loads(headers)
-    cliver.config_manager.add_or_update_server(mcp_server)
+    cliver.config_manager.add_or_update_server(name, mcp_server)
     cliver.console.print(f"Updated MCP server: {name}")
 
 
@@ -361,4 +361,4 @@ def update_llm_model(cliver: Cliver, name: str, provider: str, api_key: str, url
         return
     cliver.config_manager.add_or_update_llm_model(
         name, provider, api_key, url, options, name_in_provider, type)
-    cliver.console.print(f"Added LLM Model: {name}")
+    cliver.console.print(f"LLM Model: {name} updated")

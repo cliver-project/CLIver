@@ -91,7 +91,7 @@ class ConfigManager:
             if not self.config_dir.exists():
                 self.config_dir.mkdir(parents=True, exist_ok=True)
             with open(self.config_file, "w") as f:
-                json.dump(self.config.model_dump(), f)
+                json.dump(self.config.model_dump(), f, indent=4, sort_keys=True)
 
         except Exception as e:
             print(f"Error saving configuration: {e}")
