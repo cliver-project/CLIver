@@ -1,7 +1,6 @@
 import click
 from typing import Optional
 from cliver.cli import Cliver, pass_cliver
-import asyncio
 
 from cliver.llm import TaskExecutor
 
@@ -23,10 +22,10 @@ def chat(cliver: Cliver, model: Optional[str], query: str):
     """
     task_executor = cliver.task_executor
     sentence = " ".join(query)
-    asyncio.run(_async_chat(task_executor, sentence, model))
+    _async_chat(task_executor, sentence, model)
 
 async def _async_chat(task_executor: TaskExecutor, user_input: str, model: str):
-    response = await task_executor.process_user_input(user_input=user_input, model=model)
+    response = task_executor.process_user_input_sync(user_input=user_input, model=model)
     click.echo(response)
     if response:
         if isinstance(response, str):
