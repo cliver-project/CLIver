@@ -24,9 +24,10 @@ def chat(cliver: Cliver, model: Optional[str], query: str):
     sentence = " ".join(query)
     _async_chat(task_executor, sentence, model)
 
-async def _async_chat(task_executor: TaskExecutor, user_input: str, model: str):
-    response = task_executor.process_user_input_sync(user_input=user_input, model=model)
-    click.echo(response)
+
+def _async_chat(task_executor: TaskExecutor, user_input: str, model: str):
+    response = task_executor.process_user_input_sync(
+        user_input=user_input, model=model)
     if response:
         if isinstance(response, str):
             click.echo(response)
