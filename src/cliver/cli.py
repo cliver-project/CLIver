@@ -6,6 +6,7 @@ The main entrance of the cliver application
 
 from shlex import split as shell_split
 import click
+import sys
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import WordCompleter
@@ -32,6 +33,9 @@ class Cliver:
         """
         # load config
         self.config_dir = get_config_dir()
+        dir_str = str(self.config_dir.absolute())
+        if dir_str not in sys.path:
+            sys.path.append(dir_str)
         self.config_manager = ConfigManager(self.config_dir)
         self.task_executor = TaskExecutor(llm_models=self.config_manager.list_llm_models(),
                                           mcp_servers=self.config_manager.list_mcp_servers(),
@@ -156,6 +160,8 @@ def _interact(cli: Cliver):
 
 def loads_commands():
     commands.loads_commands(cliver)
+    # Loads extended commands from config dir
+    commands.loads_external_commands(cliver)
 
 
 def cliver_main(*args, **kwargs):

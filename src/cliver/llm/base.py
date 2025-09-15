@@ -18,20 +18,31 @@ class LLMInferenceEngine(ABC):
         This method can be overridden
         """
         return """
-        You are an AI assistant that can use tools to help answer questions.
+You are an AI assistant that can use tools to help answer questions.
 
-If you need to call a tools to get more information from client side, always extract MCP tool calls and format them **only** as a function call to `tool_calls`.
-- Gather from user: tool_name, arguments.
-- When ready, respond only with JSON in the form:
+Available tools will be provided to you. When you need to use a tool, you MUST use the exact tool name provided.
+
+To use a tool, respond ONLY with a JSON object in this exact format:
+{
   "tool_calls": [
     {
-      "name": "<tool_name>",
-      "args": {...},
-      "id": "<tool_call_id>",
+      "name": "exact_tool_name",
+      "args": {
+        "argument_name": "argument_value"
+      },
+      "id": "unique_identifier_for_this_call",
       "type": "tool_call"
     }
   ]
-- Do **not** add any text outside the JSON.
+}
 
-If you have all the information needed to answer directly, provide a text response.
+After you make a tool call, you will receive the result. Use that information to formulate your final answer.
+
+If you have all the information needed to answer directly without using any tools, provide a text response.
+
+Important:
+1. Only use the exact tool names provided to you
+2. Respond ONLY with the JSON format when calling tools
+3. Do not include any other text when making tool calls
+4. Wait for the tool results before providing your final answer
 """

@@ -76,12 +76,9 @@ class MCPServersCaller:
         except Exception as e:
             return {"error": str(e)}
 
-    async def get_mcp_prompt(self, server: str, prompt_name: str, arguments: dict[str, Any] | None = None) -> list[Dict | HumanMessage | AIMessage]:
+    async def get_mcp_prompt(self, server: str, prompt_name: str, arguments: dict[str, Any] | None = None) -> list[HumanMessage | AIMessage]:
         """Call the MCP server to get prompt using langchain_mcp_adapters."""
-        try:
-            return await self.mcp_client.get_prompt(server_name=server, prompt_name=prompt_name, arguments=arguments)
-        except Exception as e:
-            return [{"error": str(e)}]
+        return await self.mcp_client.get_prompt(server_name=server, prompt_name=prompt_name, arguments=arguments)
 
     async def call_mcp_server_tool(self, server: str, tool_name: str, args: Dict[str, Any] = None) -> list[Dict[str, Any]]:
         """Call an MCP tool using langchain_mcp_adapters."""
