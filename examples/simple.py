@@ -1,6 +1,7 @@
 from cliver.config import ModelConfig
 from cliver import TaskExecutor
 
+
 # Example usage
 async def run_example():
     # Create configuration for Ollama
@@ -11,7 +12,7 @@ async def run_example():
             type="Text-To-Text",
             url="http://localhost:11434",
             name_in_provider="llama3.2:latest",
-            api_key="the api key"
+            api_key="the api key",
         )
     }
 
@@ -19,10 +20,7 @@ async def run_example():
         "time": {
             "transport": "stdio",
             "command": "uvx",
-            "args": [
-                "mcp-server-time",
-                "--local-timezone=Asia/Shanghai"
-            ]
+            "args": ["mcp-server-time", "--local-timezone=Asia/Shanghai"],
         }
     }
     executor = TaskExecutor(llm_models, mcp_servers)
@@ -42,4 +40,5 @@ async def run_example():
 
 if __name__ == "__main__":
     import asyncio
+
     asyncio.run(run_example())

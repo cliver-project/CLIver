@@ -1,8 +1,9 @@
 from abc import ABC, abstractmethod
 from cliver.config import ModelConfig
-from typing import List, Optional
+from typing import List, Optional, AsyncIterator
 from langchain_core.messages.base import BaseMessage
 from langchain_core.tools import BaseTool
+
 
 class LLMInferenceEngine(ABC):
     def __init__(self, config: ModelConfig):
@@ -10,8 +11,18 @@ class LLMInferenceEngine(ABC):
 
     # This method focus on the real LLM inference only.
     @abstractmethod
-    async def infer(self, messages: List[BaseMessage], tools: Optional[list[BaseTool]]) -> BaseMessage:
+    async def infer(
+        self, messages: List[BaseMessage], tools: Optional[list[BaseTool]]
+    ) -> BaseMessage:
         pass
+
+    async def stream(
+        self, messages: List[BaseMessage], tools: Optional[list[BaseTool]]
+    ) -> AsyncIterator[BaseMessage]:
+        """Stream responses from the LLM."""
+        # Default implementation falls back to regular inference
+        response = await self.infer(messages, tools)
+        yield response
 
     def system_message(self) -> str:
         """

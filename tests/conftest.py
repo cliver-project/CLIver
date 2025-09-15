@@ -5,6 +5,7 @@ from cliver.config import ConfigManager
 @pytest.fixture()
 def load_cliver():
     from cliver import cli
+
     cli.loads_commands()
     return cli.cliver
 
@@ -25,8 +26,15 @@ def config_manager(init_config):
 @pytest.fixture()
 def simple_mcp_server(init_config, config_manager):
     config_manager.add_or_update_stdio_mcp_server(
-        "ocp", "ocp_mcp_server_start", ["arg-a", "arg-b"], {"KUBECONFIG": "~/.kube/config"})
+        "ocp",
+        "ocp_mcp_server_start",
+        ["arg-a", "arg-b"],
+        {"KUBECONFIG": "~/.kube/config"},
+    )
+
 
 @pytest.fixture()
 def simple_llm_model(init_config, config_manager):
-    config_manager.add_or_update_llm_model("llama3.2", "ollama", "xx", "http://localhost:11434","","llama3.2:latest")
+    config_manager.add_or_update_llm_model(
+        "llama3.2", "ollama", "xx", "http://localhost:11434", "", "llama3.2:latest"
+    )

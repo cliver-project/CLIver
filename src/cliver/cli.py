@@ -29,17 +29,18 @@ class Cliver:
     """
 
     def __init__(self):
-        """Initialize the Cliver application.
-        """
+        """Initialize the Cliver application."""
         # load config
         self.config_dir = get_config_dir()
         dir_str = str(self.config_dir.absolute())
         if dir_str not in sys.path:
             sys.path.append(dir_str)
         self.config_manager = ConfigManager(self.config_dir)
-        self.task_executor = TaskExecutor(llm_models=self.config_manager.list_llm_models(),
-                                          mcp_servers=self.config_manager.list_mcp_servers(),
-                                          default_model=self.config_manager.get_llm_model())
+        self.task_executor = TaskExecutor(
+            llm_models=self.config_manager.list_llm_models(),
+            mcp_servers=self.config_manager.list_mcp_servers(),
+            default_model=self.config_manager.get_llm_model(),
+        )
         # prepare console for interaction
         self.history_path = self.config_dir / "history"
         self.session = None
@@ -52,8 +53,7 @@ class Cliver:
         self.session = PromptSession(
             history=FileHistory(str(self.history_path)),
             auto_suggest=AutoSuggestFromHistory(),
-            completer=WordCompleter(
-                self.load_commands_names(group), ignore_case=True),
+            completer=WordCompleter(self.load_commands_names(group), ignore_case=True),
             style=Style.from_dict(
                 {
                     "prompt": "ansigreen bold",
@@ -70,7 +70,8 @@ class Cliver:
             user_data = read_piped_input()
             if user_data is None:
                 self.console.print(
-                    "[bold yellow]No data received from stdin.[/bold yellow]")
+                    "[bold yellow]No data received from stdin.[/bold yellow]"
+                )
             else:
                 if not user_data.lower() in ("exit", "quit"):
                     self.call_cmd(user_data)
@@ -101,7 +102,8 @@ class Cliver:
 
                 except KeyboardInterrupt:
                     self.console.print(
-                        "\n[yellow]Use 'exit' or 'quit' to exit[/yellow]")
+                        "\n[yellow]Use 'exit' or 'quit' to exit[/yellow]"
+                    )
                 except EOFError:
                     break
                 except click.exceptions.NoArgsIsHelpError as e:
@@ -117,11 +119,7 @@ class Cliver:
         Call a command with the given name and arguments.
         """
         parts = shell_split(line)
-        cliver(args=parts,
-               prog_name="cliver",
-               standalone_mode=False,
-               obj=self
-               )
+        cliver(args=parts, prog_name="cliver", standalone_mode=False, obj=self)
 
     def cleanup(self):
         """

@@ -1,6 +1,11 @@
 from typing import Dict, Optional, Any, Union, get_type_hints
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from langchain_mcp_adapters.sessions import StdioConnection, SSEConnection, StreamableHttpConnection, WebsocketConnection
+from langchain_mcp_adapters.sessions import (
+    StdioConnection,
+    SSEConnection,
+    StreamableHttpConnection,
+    WebsocketConnection,
+)
 from langchain_core.documents.base import Blob
 from langchain_core.tools import BaseTool
 from langchain_core.messages import AIMessage, HumanMessage
@@ -8,8 +13,7 @@ from mcp.types import CallToolResult
 
 
 def filter_dict_for_typed_dict(source: Dict, typed_dict_type: type) -> Dict:
-    """Helper method to extract values from a source dict
-    """
+    """Helper method to extract values from a source dict"""
     keys = get_type_hints(typed_dict_type).keys()
     return {k: source[k] for k in keys if k in source}
 
@@ -21,9 +25,12 @@ class MCPServersCaller:
 
     def __init__(self, mcp_servers: Dict[str, Dict]):
         self.mcp_servers = mcp_servers
-        self.mcp_client = MultiServerMCPClient({
-            server_name: self._get_mcp_server_connection(server_config) for server_name, server_config in mcp_servers.items()
-        })
+        self.mcp_client = MultiServerMCPClient(
+            {
+                server_name: self._get_mcp_server_connection(server_config)
+                for server_name, server_config in mcp_servers.items()
+            }
+        )
 
     def _get_mcp_server_connection(self, server_config: Dict) -> Dict[str, Any]:
         """Get the connection configuration for an MCP server."""
@@ -41,20 +48,27 @@ class MCPServersCaller:
         else:
             raise ValueError(f"Transport: {transport} is not supported")
 
-    async def get_mcp_resource(self, server: str, resource_path: str = None) -> Union[Dict[str, str] | list[Blob]]:
+    async def get_mcp_resource(
+        self, server: str, resource_path: str = None
+    ) -> Union[Dict[str, str] | list[Blob]]:
         """Call the MCP server to get resources using langchain_mcp_adapters."""
         try:
-            return await self.mcp_client.get_resources(server_name=server, uris=resource_path)
+            return await self.mcp_client.get_resources(
+                server_name=server, uris=resource_path
+            )
         except Exception as e:
             return {"error": str(e)}
 
     # TODO we need to make sure some arguments are required so that LLM won't return an empty argument
-    async def get_mcp_tools(self, server: Optional[str] = None) -> Union[Dict[str, str] | list[BaseTool]]:
+    async def get_mcp_tools(
+        self, server: Optional[str] = None
+    ) -> Union[Dict[str, str] | list[BaseTool]]:
         """
         Call the MCP server to get tools using langchain_mcp_adapters and convert to BaseTool to be used in langchain
         """
         try:
             from langchain_mcp_adapters.tools import load_mcp_tools
+
             tools: list[BaseTool] = []
             server_connections = {}
             if server:
@@ -76,20 +90,34 @@ class MCPServersCaller:
         except Exception as e:
             return {"error": str(e)}
 
-    async def get_mcp_prompt(self, server: str, prompt_name: str, arguments: dict[str, Any] | None = None) -> list[HumanMessage | AIMessage]:
+    async def get_mcp_prompt(
+        self, server: str, prompt_name: str, arguments: dict[str, Any] | None = None
+    ) -> list[HumanMessage | AIMessage]:
         """Call the MCP server to get prompt using langchain_mcp_adapters."""
-        return await self.mcp_client.get_prompt(server_name=server, prompt_name=prompt_name, arguments=arguments)
+        return await self.mcp_client.get_prompt(
+            server_name=server, prompt_name=prompt_name, arguments=arguments
+        )
 
-    async def call_mcp_server_tool(self, server: str, tool_name: str, args: Dict[str, Any] = None) -> list[Dict[str, Any]]:
+    async def call_mcp_server_tool(
+        self, server: str, tool_name: str, args: Dict[str, Any] = None
+    ) -> list[Dict[str, Any]]:
         """Call an MCP tool using langchain_mcp_adapters."""
         try:
             if server not in self.mcp_servers:
-                return [{"error": f"Server '{server}' not found in configured MCP servers"}]
+                return [
+                    {"error": f"Server '{server}' not found in configured MCP servers"}
+                ]
 
             async with self.mcp_client.session(server_name=server) as mcp_session:
-                result: CallToolResult = await mcp_session.call_tool(name=tool_name, arguments=args)
+                result: CallToolResult = await mcp_session.call_tool(
+                    name=tool_name, arguments=args
+                )
                 if result.isError:
-                    return [{"error": f"Failed to call tool {tool_name} in mcp server {server}"}]
+                    return [
+                        {
+                            "error": f"Failed to call tool {tool_name} in mcp server {server}"
+                        }
+                    ]
                 return [c.model_dump() for c in result.content]
 
         except Exception as e:

@@ -5,11 +5,16 @@ import importlib
 from typing import List, Callable
 from cliver.util import get_config_dir
 
+
 def loads_commands(group: click.Group) -> None:
     current_dir = os.path.dirname(os.path.abspath(__file__))
-    _load_commands_from_dir(current_dir, group,
-                            package_name="cliver.commands",
-                            filter_fn=lambda f_name: f_name != "__init__.py")
+    _load_commands_from_dir(
+        current_dir,
+        group,
+        package_name="cliver.commands",
+        filter_fn=lambda f_name: f_name != "__init__.py",
+    )
+
 
 # This will load py modules from config directory
 # This assumes the py modules are safe and should be set up manually.
@@ -20,12 +25,16 @@ def loads_external_commands(group: click.Group) -> None:
         sys.path.append(dir_str)
     _load_commands_from_dir(dir_str, group, log=True)
 
-def _load_commands_from_dir(commands_dir: str, group: click.Group,
-                            package_name: str = None,
-                            filter_fn: Callable[[str], bool] = None,
-                            log: bool = False) -> None:
+
+def _load_commands_from_dir(
+    commands_dir: str,
+    group: click.Group,
+    package_name: str = None,
+    filter_fn: Callable[[str], bool] = None,
+    log: bool = False,
+) -> None:
     for filename in os.listdir(commands_dir):
-        if filename.endswith('.py'):
+        if filename.endswith(".py"):
             # either we don't filter or filter_fn returns True
             if filter_fn is None or filter_fn(filename):
                 if log:

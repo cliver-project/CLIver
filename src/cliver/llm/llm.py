@@ -1,4 +1,14 @@
-from typing import List, Dict, Optional, Union, Callable, Awaitable, Any, Tuple
+from typing import (
+    List,
+    Dict,
+    Optional,
+    Union,
+    Callable,
+    Awaitable,
+    Any,
+    Tuple,
+    AsyncIterator,
+)
 import asyncio
 
 from cliver.config import ModelConfig
@@ -9,16 +19,24 @@ from langchain_core.messages.base import BaseMessage
 from langchain_core.tools import BaseTool
 from cliver.llm.base import LLMInferenceEngine
 
+
 def create_llm_engine(model: ModelConfig) -> Optional[LLMInferenceEngine]:
     if model.provider == "ollama":
         return OllamaLlamaInferenceEngine(model)
     return None
 
+
 class TaskExecutor:
     """
     This is the central place managing the execution of all configured LLM models and MCP servers.
     """
-    def __init__(self, llm_models: Dict[str, ModelConfig], mcp_servers: Dict[str, Dict], default_model: Optional[ModelConfig] = None):
+
+    def __init__(
+        self,
+        llm_models: Dict[str, ModelConfig],
+        mcp_servers: Dict[str, Dict],
+        default_model: Optional[ModelConfig] = None,
+    ):
         self.llm_models = llm_models
         self.default_model = default_model
         self.mcp_caller = MCPServersCaller(mcp_servers=mcp_servers)
@@ -44,31 +62,108 @@ class TaskExecutor:
             self.llm_engines[_model.name] = llm_engine
         return llm_engine
 
-    def process_user_input_sync(self, user_input: str,
-                                 max_iterations: int = 10,
-                                 confirm_tool_exec: bool = False,
-                                 model: str = None,
-                                 system_message_override: Optional[Callable[[], str]] = None,
-                                 filter_tools: Optional[
-                                     Callable[[str, list[BaseTool]], Awaitable[list[BaseTool]]]] = None,
-                                 enhance_prompt: Optional[Callable[[str, MCPServersCaller], Awaitable[list[BaseMessage]]]] = None,
-                                 tool_error_check: Optional[
-                                     Callable[[str, list[Dict[str, Any]]], Tuple[bool, str]]] = None,
-                                 ) -> Union[BaseMessage, str]:
+    def process_user_input_sync(
+        self,
+        user_input: str,
+        max_iterations: int = 10,
+        confirm_tool_exec: bool = False,
+        model: str = None,
+        system_message_override: Optional[Callable[[], str]] = None,
+        filter_tools: Optional[
+            Callable[[str, list[BaseTool]], Awaitable[list[BaseTool]]]
+        ] = None,
+        enhance_prompt: Optional[
+            Callable[[str, MCPServersCaller], Awaitable[list[BaseMessage]]]
+        ] = None,
+        tool_error_check: Optional[
+            Callable[[str, list[Dict[str, Any]]], Tuple[bool, str]]
+        ] = None,
+        stream: bool = False,
+    ) -> Union[BaseMessage, str]:
         return asyncio.run(
-            self.process_user_input(user_input, max_iterations, confirm_tool_exec, model, system_message_override,
-                                    filter_tools, enhance_prompt, tool_error_check))
+            self.process_user_input(
+                user_input,
+                max_iterations,
+                confirm_tool_exec,
+                model,
+                system_message_override,
+                filter_tools,
+                enhance_prompt,
+                tool_error_check,
+                stream,
+            )
+        )
+
+    async def stream_user_input(
+        self,
+        user_input: str,
+        max_iterations: int = 10,
+        confirm_tool_exec: bool = False,
+        model: str = None,
+        system_message_override: Optional[Callable[[], str]] = None,
+        filter_tools: Optional[
+            Callable[[str, list[BaseTool]], Awaitable[list[BaseTool]]]
+        ] = None,
+        enhance_prompt: Optional[
+            Callable[[str, MCPServersCaller], Awaitable[list[BaseMessage]]]
+        ] = None,
+        tool_error_check: Optional[
+            Callable[[str, list[Dict[str, Any]]], Tuple[bool, str]]
+        ] = None,
+    ) -> AsyncIterator[BaseMessage]:
+        """
+        Stream user input through the LLM, handling tool calls if needed.
+        """
+        llm_engine = self._select_llm_engine(model)
+        # Add system message to instruct the LLM about tool usage
+        system_message = llm_engine.system_message()
+        if system_message_override:
+            system_message = system_message_override()
+
+        mcp_tools = await self.mcp_caller.get_mcp_tools()
+        if filter_tools:
+            mcp_tools = await filter_tools(user_input, mcp_tools)
+        if not mcp_tools:
+            mcp_tools = []
+
+        messages: list[BaseMessage] = [
+            SystemMessage(content=system_message),
+            HumanMessage(content=user_input),
+        ]
+        if enhance_prompt:
+            enhanced_messages = await enhance_prompt(user_input, self.mcp_caller)
+            messages.extend(enhanced_messages)
+
+        async for chunk in self._stream_messages(
+            llm_engine,
+            messages,
+            max_iterations,
+            0,
+            mcp_tools,
+            confirm_tool_exec,
+            tool_error_check,
+        ):
+            yield chunk
 
     # This is the method that can be used out of box
-    async def process_user_input(self, user_input: str,
-                                 max_iterations: int = 10,
-                                 confirm_tool_exec: bool = False,
-                                 model: str = None,
-                                 system_message_override: Optional[Callable[[], str]] = None,
-                                 filter_tools: Optional[Callable[[str, list[BaseTool]], Awaitable[list[BaseTool]]]] = None,
-                                 enhance_prompt: Optional[Callable[[str, MCPServersCaller], Awaitable[list[BaseMessage]]]] = None,
-                                 tool_error_check: Optional[Callable[[str, list[Dict[str, Any]]], Tuple[bool, str]]] = None,
-                                 ) -> Union[BaseMessage, str]:
+    async def process_user_input(
+        self,
+        user_input: str,
+        max_iterations: int = 10,
+        confirm_tool_exec: bool = False,
+        model: str = None,
+        system_message_override: Optional[Callable[[], str]] = None,
+        filter_tools: Optional[
+            Callable[[str, list[BaseTool]], Awaitable[list[BaseTool]]]
+        ] = None,
+        enhance_prompt: Optional[
+            Callable[[str, MCPServersCaller], Awaitable[list[BaseMessage]]]
+        ] = None,
+        tool_error_check: Optional[
+            Callable[[str, list[Dict[str, Any]]], Tuple[bool, str]]
+        ] = None,
+        stream: bool = False,
+    ) -> Union[BaseMessage, str]:
         """
         Process user input through the LLM, handling tool calls if needed.
         Args:
@@ -95,20 +190,52 @@ class TaskExecutor:
         if not mcp_tools:
             mcp_tools = []
 
-        messages: list[BaseMessage] = [SystemMessage(content=system_message), HumanMessage(content=user_input)]
+        messages: list[BaseMessage] = [
+            SystemMessage(content=system_message),
+            HumanMessage(content=user_input),
+        ]
         if enhance_prompt:
             enhanced_messages = await enhance_prompt(user_input, self.mcp_caller)
             messages.extend(enhanced_messages)
 
-        return await self._process_messages(llm_engine, messages, max_iterations, 0, mcp_tools, confirm_tool_exec, tool_error_check)
+        if stream:
+            # For streaming, we'll return the full response after collecting all chunks
+            full_response = ""
+            async for chunk in self._stream_messages(
+                llm_engine,
+                messages,
+                max_iterations,
+                0,
+                mcp_tools,
+                confirm_tool_exec,
+                tool_error_check,
+            ):
+                if hasattr(chunk, "content"):
+                    full_response += chunk.content
+            return AIMessage(content=full_response)
+        else:
+            return await self._process_messages(
+                llm_engine,
+                messages,
+                max_iterations,
+                0,
+                mcp_tools,
+                confirm_tool_exec,
+                tool_error_check,
+            )
 
-    async def _process_messages(self, llm_engine: LLMInferenceEngine,
-                                messages: List[BaseMessage],
-                                max_iterations: int,
-                                current_iteration: int,
-                                mcp_tools: list[BaseTool],
-                                confirm_tool_exec: bool,
-                                tool_error_check: Optional[Callable[[str, list[Dict[str, Any]]], Tuple[bool, str]]]= None) -> Union[BaseMessage, str]:
+    async def _process_messages(
+        self,
+        llm_engine: LLMInferenceEngine,
+        messages: List[BaseMessage],
+        max_iterations: int,
+        current_iteration: int,
+        mcp_tools: list[BaseTool],
+        confirm_tool_exec: bool,
+        tool_error_check: Optional[
+            Callable[[str, list[Dict[str, Any]]], Tuple[bool, str]]
+        ] = None,
+    ) -> Union[BaseMessage, str]:
         """Handle processing messages recursively with tool calling."""
         if current_iteration >= max_iterations:
             return "Reached maximum number of iterations without a final answer."
@@ -119,14 +246,36 @@ class TaskExecutor:
         # Handle different response types
         # First check if response has proper tool_calls attribute
         if response.tool_calls:
-            return await self._execute_tool_calls(response.tool_calls, llm_engine, messages, max_iterations, current_iteration, mcp_tools, confirm_tool_exec, tool_error_check)
+            return await self._execute_tool_calls(
+                response.tool_calls,
+                llm_engine,
+                messages,
+                max_iterations,
+                current_iteration,
+                mcp_tools,
+                confirm_tool_exec,
+                tool_error_check,
+            )
         else:
             # Check if the response content contains tool calls formatted as JSON
-            if hasattr(response, 'content') and response.content and '"tool_calls"' in str(response.content):
+            if (
+                hasattr(response, "content")
+                and response.content
+                and '"tool_calls"' in str(response.content)
+            ):
                 # Try to parse tool calls from the content
                 tool_calls = self._parse_tool_calls_from_content(response.content)
                 if tool_calls:
-                    return await self._execute_tool_calls(tool_calls, llm_engine, messages, max_iterations, current_iteration, mcp_tools, confirm_tool_exec, tool_error_check)
+                    return await self._execute_tool_calls(
+                        tool_calls,
+                        llm_engine,
+                        messages,
+                        max_iterations,
+                        current_iteration,
+                        mcp_tools,
+                        confirm_tool_exec,
+                        tool_error_check,
+                    )
 
             # If no tool calls, return the response
             return response
@@ -146,22 +295,28 @@ class TaskExecutor:
 
             if match:
                 # Extract the tool_calls section
-                tool_calls_section = '{' + match.group(1) + '}'
+                tool_calls_section = "{" + match.group(1) + "}"
                 parsed = json.loads(tool_calls_section)
-                tool_calls = parsed.get('tool_calls', [])
+                tool_calls = parsed.get("tool_calls", [])
                 return tool_calls
         except Exception:
             # If parsing fails, return None
             pass
         return None
 
-    async def _execute_tool_calls(self, tool_calls: List[Dict], llm_engine: LLMInferenceEngine,
-                                 messages: List[BaseMessage],
-                                 max_iterations: int,
-                                 current_iteration: int,
-                                 mcp_tools: list[BaseTool],
-                                 confirm_tool_exec: bool,
-                                 tool_error_check: Optional[Callable[[str, list[Dict[str, Any]]], Tuple[bool, str]]]) -> Union[BaseMessage, str]:
+    async def _execute_tool_calls(
+        self,
+        tool_calls: List[Dict],
+        llm_engine: LLMInferenceEngine,
+        messages: List[BaseMessage],
+        max_iterations: int,
+        current_iteration: int,
+        mcp_tools: list[BaseTool],
+        confirm_tool_exec: bool,
+        tool_error_check: Optional[
+            Callable[[str, list[Dict[str, Any]]], Tuple[bool, str]]
+        ],
+    ) -> Union[BaseMessage, str]:
         """Execute tool calls and process the results."""
         try:
             for tool_call in tool_calls:
@@ -169,7 +324,7 @@ class TaskExecutor:
                 tool_name: str = tool_call.get("name")
                 the_tool_name = tool_name
                 if "#" in tool_name:
-                    s_array = tool_name.split('#')
+                    s_array = tool_name.split("#")
                     mcp_server_name = s_array[0]
                     the_tool_name = s_array[1]
 
@@ -178,43 +333,174 @@ class TaskExecutor:
                 # default we don't care about confirmation and just run the tool
                 proceed = True
                 if confirm_tool_exec:
-                    proceed = _confirm_tool_execution(f"This will execute tool: {the_tool_name} from mcp server: {mcp_server_name}")
+                    proceed = _confirm_tool_execution(
+                        f"This will execute tool: {the_tool_name} from mcp server: {mcp_server_name}"
+                    )
                 if not proceed:
                     return f"Stopped at tool execution: {tool_call}"
                 mcp_tool_result = await self.mcp_caller.call_mcp_server_tool(
-                    mcp_server_name, the_tool_name, args)
+                    mcp_server_name, the_tool_name, args
+                )
                 # Format the tool result properly for ToolMessage
                 if isinstance(mcp_tool_result, list) and len(mcp_tool_result) > 0:
                     first_result = mcp_tool_result[0]
-                    if isinstance(first_result, dict) and 'text' in first_result:
-                        tool_result_content = first_result['text']
+                    if isinstance(first_result, dict) and "text" in first_result:
+                        tool_result_content = first_result["text"]
                     else:
                         tool_result_content = str(mcp_tool_result)
                 else:
                     tool_result_content = str(mcp_tool_result)
-                messages.append(ToolMessage(
-                    content=tool_result_content, tool_call_id=tool_call_id))
+                messages.append(
+                    ToolMessage(content=tool_result_content, tool_call_id=tool_call_id)
+                )
                 if not tool_error_check:
                     tool_error_check = _tool_error_check_internal
                 sent, tool_error_message = tool_error_check(tool_name, mcp_tool_result)
                 if sent:
                     messages.append(AIMessage(content=tool_error_message))
-                    return await self._process_messages(llm_engine, messages, max_iterations, current_iteration + 1,
-                                                        mcp_tools, confirm_tool_exec, tool_error_check)
+                    return await self._process_messages(
+                        llm_engine,
+                        messages,
+                        max_iterations,
+                        current_iteration + 1,
+                        mcp_tools,
+                        confirm_tool_exec,
+                        tool_error_check,
+                    )
             # normally we don't need to send the tools to llm again
-            return await self._process_messages(llm_engine, messages, max_iterations, current_iteration + 1, [], confirm_tool_exec, tool_error_check)
+            return await self._process_messages(
+                llm_engine,
+                messages,
+                max_iterations,
+                current_iteration + 1,
+                [],
+                confirm_tool_exec,
+                tool_error_check,
+            )
         except Exception as e:
             return f"Error processing tool call: {str(e)}"
 
-def _tool_error_check_internal(tool_name: str, mcp_tool_result: list[Dict[str, Any]]) -> (bool, str):
+    async def _stream_messages(
+        self,
+        llm_engine: LLMInferenceEngine,
+        messages: List[BaseMessage],
+        max_iterations: int,
+        current_iteration: int,
+        mcp_tools: list[BaseTool],
+        confirm_tool_exec: bool,
+        tool_error_check: Optional[
+            Callable[[str, list[Dict[str, Any]]], Tuple[bool, str]]
+        ],
+    ) -> AsyncIterator[BaseMessage]:
+        """Handle streaming messages recursively with tool calling."""
+        if current_iteration >= max_iterations:
+            yield AIMessage(
+                content="Reached maximum number of iterations without a final answer."
+            )
+            return
+
+        # Stream response from LLM
+        async for chunk in llm_engine.stream(messages, mcp_tools):
+            yield chunk
+
+            # Check if this chunk contains tool calls
+            if hasattr(chunk, "tool_calls") and chunk.tool_calls:
+                # Execute tool calls and continue processing
+                try:
+                    for tool_call in chunk.tool_calls:
+                        mcp_server_name = ""
+                        tool_name: str = tool_call.get("name")
+                        the_tool_name = tool_name
+                        if "#" in tool_name:
+                            s_array = tool_name.split("#")
+                            mcp_server_name = s_array[0]
+                            the_tool_name = s_array[1]
+
+                        args = tool_call.get("args")
+                        tool_call_id = tool_call.get("id")
+                        # default we don't care about confirmation and just run the tool
+                        proceed = True
+                        if confirm_tool_exec:
+                            proceed = _confirm_tool_execution(
+                                f"This will execute tool: {the_tool_name} from mcp server: {mcp_server_name}"
+                            )
+                        if not proceed:
+                            yield AIMessage(
+                                content=f"Stopped at tool execution: {tool_call}"
+                            )
+                            return
+                        mcp_tool_result = await self.mcp_caller.call_mcp_server_tool(
+                            mcp_server_name, the_tool_name, args
+                        )
+                        # Format the tool result properly for ToolMessage
+                        if (
+                            isinstance(mcp_tool_result, list)
+                            and len(mcp_tool_result) > 0
+                        ):
+                            first_result = mcp_tool_result[0]
+                            if (
+                                isinstance(first_result, dict)
+                                and "text" in first_result
+                            ):
+                                tool_result_content = first_result["text"]
+                            else:
+                                tool_result_content = str(mcp_tool_result)
+                        else:
+                            tool_result_content = str(mcp_tool_result)
+                        messages.append(
+                            ToolMessage(
+                                content=tool_result_content, tool_call_id=tool_call_id
+                            )
+                        )
+                        if not tool_error_check:
+                            tool_error_check = _tool_error_check_internal
+                        sent, tool_error_message = tool_error_check(
+                            tool_name, mcp_tool_result
+                        )
+                        if sent:
+                            messages.append(AIMessage(content=tool_error_message))
+                            async for result_chunk in self._stream_messages(
+                                llm_engine,
+                                messages,
+                                max_iterations,
+                                current_iteration + 1,
+                                mcp_tools,
+                                confirm_tool_exec,
+                                tool_error_check,
+                            ):
+                                yield result_chunk
+                            return
+                    # normally we don't need to send the tools to llm again
+                    async for result_chunk in self._stream_messages(
+                        llm_engine,
+                        messages,
+                        max_iterations,
+                        current_iteration + 1,
+                        [],
+                        confirm_tool_exec,
+                        tool_error_check,
+                    ):
+                        yield result_chunk
+                except Exception as e:
+                    yield AIMessage(content=f"Error processing tool call: {str(e)}")
+                return
+
+
+def _tool_error_check_internal(
+    tool_name: str, mcp_tool_result: list[Dict[str, Any]]
+) -> (bool, str):
     if any("error" in r for r in mcp_tool_result):
-        return True, f"Error calling tool {tool_name}: {mcp_tool_result[0].get("error")}, you may need to check the tool arguments and run it again."
+        return (
+            True,
+            f"Error calling tool {tool_name}: {mcp_tool_result[0].get('error')}, you may need to check the tool arguments and run it again.",
+        )
     return False, None
+
 
 def _confirm_tool_execution(prompt="Are you sure? (y/n): ") -> bool:
     while True:
         response = input(prompt).strip().lower()
-        if response in ['y', 'yes']:
+        if response in ["y", "yes"]:
             return True
-        elif response in ['n', 'no']:
+        elif response in ["n", "no"]:
             return False

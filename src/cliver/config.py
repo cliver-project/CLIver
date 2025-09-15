@@ -8,6 +8,7 @@ from typing import Dict, List, Optional
 import json
 from pydantic import BaseModel, Field
 
+
 class ModelOptions(BaseModel):
     temperature: float = Field(0.9, description="Sampling temperature")
     top_p: float = Field(1.0, description="Top-p sampling cutoff")
@@ -192,9 +193,7 @@ class ConfigManager:
             # Update default server if needed
             if self.config.default_server == name:
                 self.config.default_server = (
-                    self.config.mcpServers.keys()[0]
-                    if self.config.mcpServers
-                    else None
+                    self.config.mcpServers.keys()[0] if self.config.mcpServers else None
                 )
 
             # Save config
@@ -249,11 +248,19 @@ class ConfigManager:
         return self.config.mcpServers
 
     def list_llm_models(self) -> Dict[str, ModelConfig]:
-        """List all LLM Models
-        """
+        """List all LLM Models"""
         return self.config.models
 
-    def add_or_update_llm_model(self, name: str, provider: str, api_key: str, url: str, options: str, name_in_provider: str, type: str = "TEXT_TO_TEXT") -> None:
+    def add_or_update_llm_model(
+        self,
+        name: str,
+        provider: str,
+        api_key: str,
+        url: str,
+        options: str,
+        name_in_provider: str,
+        type: str = "TEXT_TO_TEXT",
+    ) -> None:
         if not self.config.models:
             self.config.models = {}
         if name in self.config.models:
@@ -284,11 +291,7 @@ class ConfigManager:
                 llm.options = ModelOptions(**options_json)
             except:
                 # fall backs to default
-                llm.options = ModelOptions(
-                    temperature=0.7,
-                    top_p=0.9,
-                    max_tokens=4096
-                )
+                llm.options = ModelOptions(temperature=0.7, top_p=0.9, max_tokens=4096)
         self._save_config()
 
     def remove_llm_model(self, name: str) -> bool:
@@ -299,9 +302,7 @@ class ConfigManager:
             # Update default model if needed
             if self.config.default_model == name:
                 self.config.default_model = (
-                    self.config.models.keys()[0]
-                    if self.config.models
-                    else None
+                    self.config.models.keys()[0] if self.config.models else None
                 )
 
             # Save config

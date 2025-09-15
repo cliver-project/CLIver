@@ -43,7 +43,7 @@ def list_mcp_servers(cliver: Cliver):
             table.add_row(
                 name,
                 mcp.get("transport"),
-                f"{mcp.get("command") or ''} {mcp.get("args") or ''} {mcp.get("env") or ''}",
+                f"{mcp.get('command') or ''} {mcp.get('args') or ''} {mcp.get('env') or ''}",
             )
         cliver.console.print(table)
     else:
@@ -89,20 +89,28 @@ def list_mcp_servers(cliver: Cliver):
     help="HTTP headers in JSON format for sse MCP server",
 )
 @pass_cliver
-def set_mcp_server(cliver: Cliver, name: str, command: str = None, args: str = None, url: str = None, headers: str = None, envs: str = None):
+def set_mcp_server(
+    cliver: Cliver,
+    name: str,
+    command: str = None,
+    args: str = None,
+    url: str = None,
+    headers: str = None,
+    envs: str = None,
+):
     mcp_server = cliver.config_manager.get_mcp_server(name)
     if not mcp_server:
         cliver.console.print(f"No MCP server found with name: {name}")
         return
 
-    if mcp_server.get("transport") == 'stdio':
+    if mcp_server.get("transport") == "stdio":
         if command:
             mcp_server["command"] = command
         if args:
             mcp_server["args"] = args.split(",")
         if envs:
             mcp_server["env"] = json.loads(envs)
-    elif mcp_server.get("transport") == 'sse':
+    elif mcp_server.get("transport") == "sse":
         if url:
             mcp_server["url"] = url
         if headers:
@@ -116,7 +124,7 @@ def set_mcp_server(cliver: Cliver, name: str, command: str = None, args: str = N
     "--transport",
     "-t",
     required=True,
-    type=click.Choice(['stdio', 'sse']),
+    type=click.Choice(["stdio", "sse"]),
     help="Transport of the MCP server",
 )
 @click.option(
@@ -157,17 +165,31 @@ def set_mcp_server(cliver: Cliver, name: str, command: str = None, args: str = N
     help="HTTP headers in JSON format for sse MCP server",
 )
 @pass_cliver
-def add_mcp_server(cliver: Cliver, name: str, transport: str, command: str = None, args: str = None, envs: str = None, url: str = None, headers: str = None):
+def add_mcp_server(
+    cliver: Cliver,
+    name: str,
+    transport: str,
+    command: str = None,
+    args: str = None,
+    envs: str = None,
+    url: str = None,
+    headers: str = None,
+):
     mcp_server = cliver.config_manager.get_mcp_server(name)
     if mcp_server:
         cliver.console.print(f"MCP server with name {name} already exists.")
         return
-    if transport == 'stdio':
+    if transport == "stdio":
         cliver.config_manager.add_or_update_stdio_mcp_server(
-            name=name, command=command, args=args.split(","), env=json.loads(envs) if envs else None)
-    elif transport == 'sse':
+            name=name,
+            command=command,
+            args=args.split(","),
+            env=json.loads(envs) if envs else None,
+        )
+    elif transport == "sse":
         cliver.config_manager.add_or_update_sse_mcp_server(
-            name=name, url=url, headers=json.loads(headers) if headers else None)
+            name=name, url=url, headers=json.loads(headers) if headers else None
+        )
     else:
         click.echo(f"Unsupported MCP server transport: {transport}")
     cliver.console.print(f"Added MCP server: {name} of transport {transport}")
@@ -223,7 +245,7 @@ def list_llm_models(cliver: Cliver):
                 model.api_key,
                 model.type,
                 model.url,
-                model.options.model_dump_json() if model.options else ""
+                model.options.model_dump_json() if model.options else "",
             )
         cliver.console.print(table)
     else:
@@ -297,14 +319,23 @@ def remove_llm_model(cliver: Cliver, name: str):
     help="The type of the LLM Provider",
 )
 @pass_cliver
-def add_llm_model(cliver: Cliver, name: str, provider: str, api_key: str, url: str, options: str, name_in_provider: str, type: str):
+def add_llm_model(
+    cliver: Cliver,
+    name: str,
+    provider: str,
+    api_key: str,
+    url: str,
+    options: str,
+    name_in_provider: str,
+    type: str,
+):
     model = cliver.config_manager.get_llm_model(name)
     if model:
-        cliver.console.print(
-            f"LLM Model found with name: {name} already exists.")
+        cliver.console.print(f"LLM Model found with name: {name} already exists.")
         return
     cliver.config_manager.add_or_update_llm_model(
-        name, provider, api_key, url, options, name_in_provider, type)
+        name, provider, api_key, url, options, name_in_provider, type
+    )
     cliver.console.print(f"Added LLM Model: {name}")
 
 
@@ -353,12 +384,21 @@ def add_llm_model(cliver: Cliver, name: str, provider: str, api_key: str, url: s
     help="The type of the LLM Provider",
 )
 @pass_cliver
-def update_llm_model(cliver: Cliver, name: str, provider: str, api_key: str, url: str, options: str, name_in_provider: str, type: str = "TEXT_TO_TEXT"):
+def update_llm_model(
+    cliver: Cliver,
+    name: str,
+    provider: str,
+    api_key: str,
+    url: str,
+    options: str,
+    name_in_provider: str,
+    type: str = "TEXT_TO_TEXT",
+):
     model = cliver.config_manager.get_llm_model(name)
     if not model:
-        cliver.console.print(
-            f"LLM Model with name: {name} was not found.")
+        cliver.console.print(f"LLM Model with name: {name} was not found.")
         return
     cliver.config_manager.add_or_update_llm_model(
-        name, provider, api_key, url, options, name_in_provider, type)
+        name, provider, api_key, url, options, name_in_provider, type
+    )
     cliver.console.print(f"LLM Model: {name} updated")

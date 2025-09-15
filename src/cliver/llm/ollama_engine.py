@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, AsyncIterator
 
 from cliver.config import ModelConfig
 from langchain_core.messages import AIMessage
@@ -6,6 +6,7 @@ from langchain_core.messages.base import BaseMessage
 from langchain_core.tools import BaseTool
 from cliver.llm.base import LLMInferenceEngine
 from langchain_ollama import ChatOllama as Ollama
+
 
 # Ollama inference engine
 class OllamaLlamaInferenceEngine(LLMInferenceEngine):
@@ -15,10 +16,12 @@ class OllamaLlamaInferenceEngine(LLMInferenceEngine):
         self.llm = Ollama(
             base_url=self.config.url,
             model=self.config.name_in_provider,
-            **self.config.model_dump()
+            **self.config.model_dump(),
         )
 
-    async def infer(self, messages: list[BaseMessage], tools: Optional[list[BaseTool]]) -> BaseMessage:
+    async def infer(
+        self, messages: list[BaseMessage], tools: Optional[list[BaseTool]]
+    ) -> BaseMessage:
         try:
             _llm = self.llm
             if tools:
@@ -28,3 +31,15 @@ class OllamaLlamaInferenceEngine(LLMInferenceEngine):
         except Exception as e:
             return AIMessage(content=f"Error: {e}", additional_kwargs={"type": "error"})
 
+    async def stream(
+        self, messages: list[BaseMessage], tools: Optional[list[BaseTool]]
+    ) -> AsyncIterator[BaseMessage]:
+        """Stream responses from the LLM."""
+        try:
+            _llm = self.llm
+            if tools:
+                _llm = self.llm.bind_tools(tools)
+            async for chunk in _llm.astream(messages):
+                yield chunk
+        except Exception as e:
+            yield AIMessage(content=f"Error: {e}", additional_kwargs={"type": "error"})
