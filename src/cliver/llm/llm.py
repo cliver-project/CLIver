@@ -10,9 +10,14 @@ from typing import (
     AsyncIterator,
 )
 import asyncio
+import logging
+
+# Create a logger for this module
+logger = logging.getLogger(__name__)
 
 from cliver.config import ModelConfig
 from cliver.llm.ollama_engine import OllamaLlamaInferenceEngine
+from cliver.llm.openai_engine import OpenAICompatibleInferenceEngine
 from cliver.mcp_server_caller import MCPServersCaller
 from langchain_core.messages import ToolMessage, SystemMessage, HumanMessage, AIMessage
 from langchain_core.messages.base import BaseMessage
@@ -23,6 +28,8 @@ from cliver.llm.base import LLMInferenceEngine
 def create_llm_engine(model: ModelConfig) -> Optional[LLMInferenceEngine]:
     if model.provider == "ollama":
         return OllamaLlamaInferenceEngine(model)
+    elif model.provider == "openai":
+        return OpenAICompatibleInferenceEngine(model)
     return None
 
 
@@ -76,9 +83,8 @@ class TaskExecutor:
             Callable[[str, MCPServersCaller], Awaitable[list[BaseMessage]]]
         ] = None,
         tool_error_check: Optional[
-            Callable[[str, list[Dict[str, Any]]], Tuple[bool, str]]
+            Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]
         ] = None,
-        stream: bool = False,
     ) -> Union[BaseMessage, str]:
         return asyncio.run(
             self.process_user_input(
@@ -90,7 +96,6 @@ class TaskExecutor:
                 filter_tools,
                 enhance_prompt,
                 tool_error_check,
-                stream,
             )
         )
 
@@ -108,31 +113,15 @@ class TaskExecutor:
             Callable[[str, MCPServersCaller], Awaitable[list[BaseMessage]]]
         ] = None,
         tool_error_check: Optional[
-            Callable[[str, list[Dict[str, Any]]], Tuple[bool, str]]
+            Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]
         ] = None,
     ) -> AsyncIterator[BaseMessage]:
         """
         Stream user input through the LLM, handling tool calls if needed.
         """
-        llm_engine = self._select_llm_engine(model)
-        # Add system message to instruct the LLM about tool usage
-        system_message = llm_engine.system_message()
-        if system_message_override:
-            system_message = system_message_override()
-
-        mcp_tools = await self.mcp_caller.get_mcp_tools()
-        if filter_tools:
-            mcp_tools = await filter_tools(user_input, mcp_tools)
-        if not mcp_tools:
-            mcp_tools = []
-
-        messages: list[BaseMessage] = [
-            SystemMessage(content=system_message),
-            HumanMessage(content=user_input),
-        ]
-        if enhance_prompt:
-            enhanced_messages = await enhance_prompt(user_input, self.mcp_caller)
-            messages.extend(enhanced_messages)
+        llm_engine, mcp_tools, messages = await self._prepare_messages_and_tools(
+            enhance_prompt, filter_tools, model, system_message_override, user_input
+        )
 
         async for chunk in self._stream_messages(
             llm_engine,
@@ -144,6 +133,28 @@ class TaskExecutor:
             tool_error_check,
         ):
             yield chunk
+
+    async def _prepare_messages_and_tools(
+        self, enhance_prompt, filter_tools, model, system_message_override, user_input
+    ):
+        llm_engine = self._select_llm_engine(model)
+        # Add system message to instruct the LLM about tool usage
+        system_message = llm_engine.system_message()
+        if system_message_override:
+            system_message = system_message_override()
+        mcp_tools = await self.mcp_caller.get_mcp_tools()
+        if filter_tools:
+            mcp_tools = await filter_tools(user_input, mcp_tools)
+        if not mcp_tools:
+            mcp_tools = []
+        messages: list[BaseMessage] = [
+            SystemMessage(content=system_message),
+            HumanMessage(content=user_input),
+        ]
+        if enhance_prompt:
+            enhanced_messages = await enhance_prompt(user_input, self.mcp_caller)
+            messages.extend(enhanced_messages)
+        return llm_engine, mcp_tools, messages
 
     # This is the method that can be used out of box
     async def process_user_input(
@@ -160,9 +171,8 @@ class TaskExecutor:
             Callable[[str, MCPServersCaller], Awaitable[list[BaseMessage]]]
         ] = None,
         tool_error_check: Optional[
-            Callable[[str, list[Dict[str, Any]]], Tuple[bool, str]]
+            Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]
         ] = None,
-        stream: bool = False,
     ) -> Union[BaseMessage, str]:
         """
         Process user input through the LLM, handling tool calls if needed.
@@ -178,51 +188,19 @@ class TaskExecutor:
                               sent back to LLM if the first returned value is True.
         """
 
-        llm_engine = self._select_llm_engine(model)
-        # Add system message to instruct the LLM about tool usage
-        system_message = llm_engine.system_message()
-        if system_message_override:
-            system_message = system_message_override()
+        llm_engine, mcp_tools, messages = await self._prepare_messages_and_tools(
+            enhance_prompt, filter_tools, model, system_message_override, user_input
+        )
 
-        mcp_tools = await self.mcp_caller.get_mcp_tools()
-        if filter_tools:
-            mcp_tools = await filter_tools(user_input, mcp_tools)
-        if not mcp_tools:
-            mcp_tools = []
-
-        messages: list[BaseMessage] = [
-            SystemMessage(content=system_message),
-            HumanMessage(content=user_input),
-        ]
-        if enhance_prompt:
-            enhanced_messages = await enhance_prompt(user_input, self.mcp_caller)
-            messages.extend(enhanced_messages)
-
-        if stream:
-            # For streaming, we'll return the full response after collecting all chunks
-            full_response = ""
-            async for chunk in self._stream_messages(
-                llm_engine,
-                messages,
-                max_iterations,
-                0,
-                mcp_tools,
-                confirm_tool_exec,
-                tool_error_check,
-            ):
-                if hasattr(chunk, "content"):
-                    full_response += chunk.content
-            return AIMessage(content=full_response)
-        else:
-            return await self._process_messages(
-                llm_engine,
-                messages,
-                max_iterations,
-                0,
-                mcp_tools,
-                confirm_tool_exec,
-                tool_error_check,
-            )
+        return await self._process_messages(
+            llm_engine,
+            messages,
+            max_iterations,
+            0,
+            mcp_tools,
+            confirm_tool_exec,
+            tool_error_check,
+        )
 
     async def _process_messages(
         self,
@@ -233,52 +211,44 @@ class TaskExecutor:
         mcp_tools: list[BaseTool],
         confirm_tool_exec: bool,
         tool_error_check: Optional[
-            Callable[[str, list[Dict[str, Any]]], Tuple[bool, str]]
+            Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]
         ] = None,
     ) -> Union[BaseMessage, str]:
-        """Handle processing messages recursively with tool calling."""
-        if current_iteration >= max_iterations:
-            return "Reached maximum number of iterations without a final answer."
+        """Handle processing messages with tool calling using a while loop."""
+        iteration = current_iteration
 
-        # Get response from LLM
-        response = await llm_engine.infer(messages, mcp_tools)
-
-        # Handle different response types
-        # First check if response has proper tool_calls attribute
-        if response.tool_calls:
-            return await self._execute_tool_calls(
-                response.tool_calls,
-                llm_engine,
-                messages,
-                max_iterations,
-                current_iteration,
-                mcp_tools,
-                confirm_tool_exec,
-                tool_error_check,
-            )
-        else:
-            # Check if the response content contains tool calls formatted as JSON
-            if (
-                hasattr(response, "content")
-                and response.content
-                and '"tool_calls"' in str(response.content)
-            ):
-                # Try to parse tool calls from the content
-                tool_calls = self._parse_tool_calls_from_content(response.content)
-                if tool_calls:
-                    return await self._execute_tool_calls(
-                        tool_calls,
-                        llm_engine,
-                        messages,
-                        max_iterations,
-                        current_iteration,
-                        mcp_tools,
-                        confirm_tool_exec,
-                        tool_error_check,
-                    )
-
+        while iteration < max_iterations:
+            # Get response from LLM
+            response = await llm_engine.infer(messages, mcp_tools)
+            logger.debug(f"LLM response: {response}")
+            # Handle different response types
+            # First check if response has proper tool_calls attribute
+            tool_calls = response.tool_calls
+            if tool_calls is None:
+                if (
+                        hasattr(response, "content")
+                        and response.content
+                        and '"tool_calls"' in str(response.content)
+                ):
+                    tool_calls = self._parse_tool_calls_from_content(response.content)
+            if tool_calls:
+                # as long as there is tool execution, the result will be sent back unless a fatal error happens
+                stop, result = await self._execute_tool_calls(
+                    response.tool_calls,
+                    messages,
+                    confirm_tool_exec,
+                    tool_error_check,
+                )
+                if stop:
+                    return AIMessage(content=result)
+                else:
+                    # If sent is False, continue processing messages
+                    iteration += 1
+                    continue
             # If no tool calls, return the response
             return response
+
+        return "Reached maximum number of iterations without a final answer."
 
     def _parse_tool_calls_from_content(self, content) -> Optional[List[Dict]]:
         """Parse tool calls from response content when LLM doesn't properly use tool binding."""
@@ -301,23 +271,20 @@ class TaskExecutor:
                 return tool_calls
         except Exception:
             # If parsing fails, return None
-            pass
+            return None
         return None
 
+    # returns a tuple to indicate if there is error occurs which indicates stop and a string message
     async def _execute_tool_calls(
         self,
         tool_calls: List[Dict],
-        llm_engine: LLMInferenceEngine,
         messages: List[BaseMessage],
-        max_iterations: int,
-        current_iteration: int,
-        mcp_tools: list[BaseTool],
         confirm_tool_exec: bool,
         tool_error_check: Optional[
-            Callable[[str, list[Dict[str, Any]]], Tuple[bool, str]]
+            Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]
         ],
-    ) -> Union[BaseMessage, str]:
-        """Execute tool calls and process the results."""
+    ) -> Tuple[bool, str | None]:
+        """Execute tool calls and return a Tuple with sent bool and result."""
         try:
             for tool_call in tool_calls:
                 mcp_server_name = ""
@@ -327,9 +294,12 @@ class TaskExecutor:
                     s_array = tool_name.split("#")
                     mcp_server_name = s_array[0]
                     the_tool_name = s_array[1]
-
                 args = tool_call.get("args")
                 tool_call_id = tool_call.get("id")
+                # Ensure we have a valid tool_call_id for OpenAI compatibility
+                if not tool_call_id:
+                    import uuid
+                    tool_call_id = str(uuid.uuid4())
                 # default we don't care about confirmation and just run the tool
                 proceed = True
                 if confirm_tool_exec:
@@ -337,7 +307,7 @@ class TaskExecutor:
                         f"This will execute tool: {the_tool_name} from mcp server: {mcp_server_name}"
                     )
                 if not proceed:
-                    return f"Stopped at tool execution: {tool_call}"
+                    return True, f"Stopped at tool execution: {tool_call}"
                 mcp_tool_result = await self.mcp_caller.call_mcp_server_tool(
                     mcp_server_name, the_tool_name, args
                 )
@@ -355,30 +325,15 @@ class TaskExecutor:
                 )
                 if not tool_error_check:
                     tool_error_check = _tool_error_check_internal
-                sent, tool_error_message = tool_error_check(tool_name, mcp_tool_result)
-                if sent:
+                error, tool_error_message = tool_error_check(tool_name, mcp_tool_result)
+                if error:
                     messages.append(AIMessage(content=tool_error_message))
-                    return await self._process_messages(
-                        llm_engine,
-                        messages,
-                        max_iterations,
-                        current_iteration + 1,
-                        mcp_tools,
-                        confirm_tool_exec,
-                        tool_error_check,
-                    )
-            # normally we don't need to send the tools to llm again
-            return await self._process_messages(
-                llm_engine,
-                messages,
-                max_iterations,
-                current_iteration + 1,
-                [],
-                confirm_tool_exec,
-                tool_error_check,
-            )
+                    return error, tool_error_message
+            # all good, messages have been updated, go on with next iteration
+            return False, "Tool calls executed successfully"
         except Exception as e:
-            return f"Error processing tool call: {str(e)}"
+            logger.error(f"Error processing tool call: {str(e)}", exc_info=True)
+            return True, f"Error processing tool call: {str(e)}"
 
     async def _stream_messages(
         self,
@@ -389,106 +344,50 @@ class TaskExecutor:
         mcp_tools: list[BaseTool],
         confirm_tool_exec: bool,
         tool_error_check: Optional[
-            Callable[[str, list[Dict[str, Any]]], Tuple[bool, str]]
+            Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]
         ],
     ) -> AsyncIterator[BaseMessage]:
-        """Handle streaming messages recursively with tool calling."""
-        if current_iteration >= max_iterations:
-            yield AIMessage(
-                content="Reached maximum number of iterations without a final answer."
-            )
-            return
+        """Handle streaming messages with tool calling."""
+        iteration = current_iteration
 
-        # Stream response from LLM
-        async for chunk in llm_engine.stream(messages, mcp_tools):
-            yield chunk
+        while iteration < max_iterations:
+            # Stream response from LLM
+            async for chunk in llm_engine.stream(messages, mcp_tools):
+                # Yield the chunk for streaming
+                yield chunk
 
-            # Check if this chunk contains tool calls
-            if hasattr(chunk, "tool_calls") and chunk.tool_calls:
-                # Execute tool calls and continue processing
-                try:
-                    for tool_call in chunk.tool_calls:
-                        mcp_server_name = ""
-                        tool_name: str = tool_call.get("name")
-                        the_tool_name = tool_name
-                        if "#" in tool_name:
-                            s_array = tool_name.split("#")
-                            mcp_server_name = s_array[0]
-                            the_tool_name = s_array[1]
-
-                        args = tool_call.get("args")
-                        tool_call_id = tool_call.get("id")
-                        # default we don't care about confirmation and just run the tool
-                        proceed = True
-                        if confirm_tool_exec:
-                            proceed = _confirm_tool_execution(
-                                f"This will execute tool: {the_tool_name} from mcp server: {mcp_server_name}"
-                            )
-                        if not proceed:
-                            yield AIMessage(
-                                content=f"Stopped at tool execution: {tool_call}"
-                            )
+                # Check if this chunk contains tool calls
+                if hasattr(chunk, "tool_calls") and chunk.tool_calls:
+                    try:
+                        logger.debug(f"Streaming chunk with tool calls: {chunk}")
+                        stop, result = await self._execute_tool_calls(chunk.tool_calls, messages, confirm_tool_exec, tool_error_check)
+                        if stop:
+                            # If we need to stop, yield the result as a message
+                            if result:
+                                yield AIMessage(content=result)
                             return
-                        mcp_tool_result = await self.mcp_caller.call_mcp_server_tool(
-                            mcp_server_name, the_tool_name, args
-                        )
-                        # Format the tool result properly for ToolMessage
-                        if (
-                            isinstance(mcp_tool_result, list)
-                            and len(mcp_tool_result) > 0
-                        ):
-                            first_result = mcp_tool_result[0]
-                            if (
-                                isinstance(first_result, dict)
-                                and "text" in first_result
-                            ):
-                                tool_result_content = first_result["text"]
-                            else:
-                                tool_result_content = str(mcp_tool_result)
                         else:
-                            tool_result_content = str(mcp_tool_result)
-                        messages.append(
-                            ToolMessage(
-                                content=tool_result_content, tool_call_id=tool_call_id
-                            )
-                        )
-                        if not tool_error_check:
-                            tool_error_check = _tool_error_check_internal
-                        sent, tool_error_message = tool_error_check(
-                            tool_name, mcp_tool_result
-                        )
-                        if sent:
-                            messages.append(AIMessage(content=tool_error_message))
-                            async for result_chunk in self._stream_messages(
-                                llm_engine,
-                                messages,
-                                max_iterations,
-                                current_iteration + 1,
-                                mcp_tools,
-                                confirm_tool_exec,
-                                tool_error_check,
-                            ):
-                                yield result_chunk
-                            return
-                    # normally we don't need to send the tools to llm again
-                    async for result_chunk in self._stream_messages(
-                        llm_engine,
-                        messages,
-                        max_iterations,
-                        current_iteration + 1,
-                        [],
-                        confirm_tool_exec,
-                        tool_error_check,
-                    ):
-                        yield result_chunk
-                except Exception as e:
-                    yield AIMessage(content=f"Error processing tool call: {str(e)}")
+                            # Continue processing with the updated messages
+                            # normally we don't need to send the tools to llm again
+                            iteration += 1
+                            break  # Break inner loop to continue with next iteration
+                    except Exception as e:
+                        logger.error(f"Error processing tool call in streaming: {str(e)}", exc_info=True)
+                        yield AIMessage(content=f"Error processing tool call: {str(e)}")
+                        return
+            else:
+                # If we completed the async for loop without breaking, we're done
                 return
+
+        # If we've reached max iterations
+        yield AIMessage(
+            content="Reached maximum number of iterations without a final answer."
+        )
 
 
 def _tool_error_check_internal(
     tool_name: str, mcp_tool_result: list[Dict[str, Any]]
-) -> (bool, str):
+) -> Tuple[bool, str | None]:
     if any("error" in r for r in mcp_tool_result):
         return (
             True,

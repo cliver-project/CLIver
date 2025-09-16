@@ -1,5 +1,6 @@
 import click
 import asyncio
+import time
 from typing import Optional
 from cliver.cli import Cliver, pass_cliver
 
@@ -60,12 +61,11 @@ async def _stream_chat(task_executor: TaskExecutor, user_input: str, model: str)
             if hasattr(chunk, "content") and chunk.content:
                 # Print each character with a small delay to simulate streaming
                 import sys
-                import time
 
                 for char in chunk.content:
                     sys.stdout.write(char)
                     sys.stdout.flush()
-                    time.sleep(0.01)  # Small delay for streaming effect
+                    time.sleep(0.01)
         print()  # New line at the end
     except Exception as e:
         click.echo(f"Error: {e}")

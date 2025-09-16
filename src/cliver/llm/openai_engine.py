@@ -5,19 +5,38 @@ from langchain_core.messages import AIMessage
 from langchain_core.messages.base import BaseMessage
 from langchain_core.tools import BaseTool
 from cliver.llm.base import LLMInferenceEngine
-from langchain_ollama import ChatOllama as Ollama
+from langchain_openai import ChatOpenAI
 
 
-# Ollama inference engine
-class OllamaLlamaInferenceEngine(LLMInferenceEngine):
+# OpenAI compatible inference engine
+class OpenAICompatibleInferenceEngine(LLMInferenceEngine):
     def __init__(self, config: ModelConfig):
         super().__init__(config)
 
-        self.llm = Ollama(
-            base_url=self.config.url,
-            model=self.config.name_in_provider,
-            **self.config.model_dump(),
-        )
+        # Prepare the parameters for the ChatOpenAI constructor
+        llm_params = {
+            "model": self.config.name_in_provider or self.config.name,
+            "base_url": self.config.url,
+            "temperature": (
+                self.config.options.temperature if self.config.options else 0.7
+            ),
+            "max_tokens": (
+                self.config.options.max_tokens if self.config.options else 4096
+            ),
+        }
+
+        # Add API key if provided
+        if self.config.api_key:
+            llm_params["api_key"] = self.config.api_key
+
+        # Add any additional options from the config
+        if self.config.options:
+            for key, value in self.config.options.model_dump().items():
+                # Skip temperature and max_tokens as they're already handled
+                if key not in ["temperature", "max_tokens"]:
+                    llm_params[key] = value
+
+        self.llm = ChatOpenAI(**llm_params)
 
     async def infer(
         self, messages: list[BaseMessage], tools: Optional[list[BaseTool]]

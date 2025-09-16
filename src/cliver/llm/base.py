@@ -24,6 +24,13 @@ class LLMInferenceEngine(ABC):
         response = await self.infer(messages, tools)
         yield response
 
+    # @abstractmethod
+    # def parse_tool_calls(
+    #         self, messages: List[BaseMessage], tools: Optional[list[BaseTool]]
+    # ) -> list[str]:
+    #     """Stream responses from the LLM."""
+    #     pass
+
     def system_message(self) -> str:
         """
         This method can be overridden
