@@ -39,7 +39,7 @@ def _async_chat(
 ):
     if stream:
         # For streaming, we need to run the async generator
-        response = asyncio.run(_stream_chat(task_executor, user_input, model))
+        asyncio.run(_stream_chat(task_executor, user_input, model))
     else:
         response = task_executor.process_user_input_sync(
             user_input=user_input, model=model

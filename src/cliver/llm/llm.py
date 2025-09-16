@@ -85,7 +85,7 @@ class TaskExecutor:
         tool_error_check: Optional[
             Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]
         ] = None,
-    ) -> Union[BaseMessage, str]:
+    ) -> BaseMessage:
         return asyncio.run(
             self.process_user_input(
                 user_input,
@@ -173,7 +173,7 @@ class TaskExecutor:
         tool_error_check: Optional[
             Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]
         ] = None,
-    ) -> Union[BaseMessage, str]:
+    ) -> BaseMessage:
         """
         Process user input through the LLM, handling tool calls if needed.
         Args:
@@ -213,7 +213,7 @@ class TaskExecutor:
         tool_error_check: Optional[
             Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]
         ] = None,
-    ) -> Union[BaseMessage, str]:
+    ) -> BaseMessage:
         """Handle processing messages with tool calling using a while loop."""
         iteration = current_iteration
 
@@ -248,7 +248,7 @@ class TaskExecutor:
             # If no tool calls, return the response
             return response
 
-        return "Reached maximum number of iterations without a final answer."
+        return AIMessage(content="Reached maximum number of iterations without a final answer.")
 
     def _parse_tool_calls_from_content(self, content) -> Optional[List[Dict]]:
         """Parse tool calls from response content when LLM doesn't properly use tool binding."""
