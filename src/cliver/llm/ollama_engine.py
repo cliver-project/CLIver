@@ -7,7 +7,6 @@ from langchain_core.tools import BaseTool
 from cliver.llm.base import LLMInferenceEngine
 from langchain_ollama import ChatOllama as Ollama
 
-
 # Ollama inference engine
 class OllamaLlamaInferenceEngine(LLMInferenceEngine):
     def __init__(self, config: ModelConfig):

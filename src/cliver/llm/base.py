@@ -3,7 +3,9 @@ from cliver.config import ModelConfig
 from typing import List, Optional, AsyncIterator
 from langchain_core.messages.base import BaseMessage
 from langchain_core.tools import BaseTool
+import logging
 
+logger = logging.getLogger(__name__)
 
 class LLMInferenceEngine(ABC):
     def __init__(self, config: ModelConfig):
@@ -24,12 +26,35 @@ class LLMInferenceEngine(ABC):
         response = await self.infer(messages, tools)
         yield response
 
-    # @abstractmethod
-    # def parse_tool_calls(
-    #         self, messages: List[BaseMessage], tools: Optional[list[BaseTool]]
-    # ) -> list[str]:
-    #     """Stream responses from the LLM."""
-    #     pass
+    def parse_tool_calls(self, response: BaseMessage, model: str) -> list[dict] | None:
+        """Parse the tool calls from the response from the LLM."""
+        if response is None:
+            return None
+        tool_calls = self._parse_tool_calls_from_content(response, model)
+        if tool_calls is None:
+            return None
+        tools_to_call = []
+        for tool_call in tool_calls:
+            tool_to_call = {}
+            mcp_server_name = ""
+            tool_name: str = tool_call.get("name")
+            the_tool_name = tool_name
+            if "#" in tool_name:
+                s_array = tool_name.split("#")
+                mcp_server_name = s_array[0]
+                the_tool_name = s_array[1]
+            args = tool_call.get("args")
+            tool_call_id = tool_call.get("id")
+            # Ensure we have a valid tool_call_id for OpenAI compatibility
+            if not tool_call_id:
+                import uuid
+                tool_call_id = str(uuid.uuid4())
+            tool_to_call["tool_call_id"] = tool_call_id
+            tool_to_call["tool_name"] = the_tool_name
+            tool_to_call["mcp_server"] = mcp_server_name
+            tool_to_call["args"] = args
+            tools_to_call.append(tool_to_call)
+        return tools_to_call
 
     def system_message(self) -> str:
         """
@@ -54,7 +79,7 @@ To use a tool, respond ONLY with a JSON object in this exact format:
   ]
 }
 
-After you make a tool call, you will receive the result. Use that information to formulate your final answer.
+After you make a tool call, you will receive the result. You may need to make additional tool calls based on the results until you have enough information to provide your final answer. The process can involve multiple rounds of tool calls.
 
 If you have all the information needed to answer directly without using any tools, provide a text response.
 
@@ -63,4 +88,55 @@ Important:
 2. Respond ONLY with the JSON format when calling tools
 3. Do not include any other text when making tool calls
 4. Wait for the tool results before providing your final answer
+5. You can make multiple rounds of tool calls if needed - after receiving results, you can make another tool call or provide your final answer
+6. The tool_calls should be returned as a strict JSON format that can be accessed via response.tool_calls, not embedded in the response content
 """
+
+    def _parse_tool_calls_from_content(self, response: BaseMessage, model: str) -> Optional[list[dict]]:
+        """Parse tool calls from response content when LLM doesn't properly use tool binding."""
+        if response is None:
+            return None
+        if response.tool_calls:
+            return response.tool_calls
+        if (
+                hasattr(response, "content")
+                and response.content
+        ):
+            if type(response.content) == dict and dict(response.content)["tool_calls"]:
+                content_dict = dict(response.content)
+                return content_dict.get("tool_calls", [])
+        if (
+                hasattr(response, "content")
+                and response.content
+                and '"tool_calls"' in str(response.content)
+        ):
+            try:
+                import json_repair
+                import re
+                content_str = str(response.content)
+                # Look for tool_calls pattern in the content
+                # This pattern matches the JSON structure we expect
+                pattern = r'\{[^{]*"tool_calls":\s*\[[^\]]*\][^\}]*\}'
+                match = re.search(pattern, content_str, re.DOTALL)
+
+                if match:
+                    # Extract the complete JSON object containing tool_calls
+                    tool_calls_section = match.group(0)
+                    parsed = json_repair.loads(tool_calls_section)
+                    tool_calls = parsed.get("tool_calls", [])
+                    return tool_calls
+
+                # If the above pattern doesn't work, try to find just the tool_calls array
+                pattern = r'"tool_calls":\s*(\[[^\]]*\])'
+                match = re.search(pattern, content_str, re.DOTALL)
+
+                if match:
+                    # Extract just the tool_calls array
+                    tool_calls_array = match.group(1)
+                    tool_calls = json_repair.loads(tool_calls_array)
+                    return tool_calls
+            except Exception as e:
+                # If parsing fails, return None
+                logger.error(f"Error parsing tool calls: {str(e)}", exc_info=True)
+                return None
+        return None

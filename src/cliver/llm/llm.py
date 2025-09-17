@@ -2,7 +2,6 @@ from typing import (
     List,
     Dict,
     Optional,
-    Union,
     Callable,
     Awaitable,
     Any,
@@ -125,6 +124,7 @@ class TaskExecutor:
 
         async for chunk in self._stream_messages(
             llm_engine,
+            model,
             messages,
             max_iterations,
             0,
@@ -194,6 +194,7 @@ class TaskExecutor:
 
         return await self._process_messages(
             llm_engine,
+            model,
             messages,
             max_iterations,
             0,
@@ -205,6 +206,7 @@ class TaskExecutor:
     async def _process_messages(
         self,
         llm_engine: LLMInferenceEngine,
+        model: str,
         messages: List[BaseMessage],
         max_iterations: int,
         current_iteration: int,
@@ -222,19 +224,11 @@ class TaskExecutor:
             response = await llm_engine.infer(messages, mcp_tools)
             logger.debug(f"LLM response: {response}")
             # Handle different response types
-            # First check if response has proper tool_calls attribute
-            tool_calls = response.tool_calls
-            if tool_calls is None:
-                if (
-                        hasattr(response, "content")
-                        and response.content
-                        and '"tool_calls"' in str(response.content)
-                ):
-                    tool_calls = self._parse_tool_calls_from_content(response.content)
+            tool_calls = llm_engine.parse_tool_calls(response, model)
             if tool_calls:
                 # as long as there is tool execution, the result will be sent back unless a fatal error happens
                 stop, result = await self._execute_tool_calls(
-                    response.tool_calls,
+                    tool_calls,
                     messages,
                     confirm_tool_exec,
                     tool_error_check,
@@ -250,30 +244,6 @@ class TaskExecutor:
 
         return AIMessage(content="Reached maximum number of iterations without a final answer.")
 
-    def _parse_tool_calls_from_content(self, content) -> Optional[List[Dict]]:
-        """Parse tool calls from response content when LLM doesn't properly use tool binding."""
-        try:
-            import json
-            import re
-
-            content_str = str(content)
-
-            # Look for tool_calls pattern in the content
-            # This pattern matches the JSON structure we expect
-            pattern = r'("tool_calls":\s*\[[^\]]*\])'
-            match = re.search(pattern, content_str, re.DOTALL)
-
-            if match:
-                # Extract the tool_calls section
-                tool_calls_section = "{" + match.group(1) + "}"
-                parsed = json.loads(tool_calls_section)
-                tool_calls = parsed.get("tool_calls", [])
-                return tool_calls
-        except Exception:
-            # If parsing fails, return None
-            return None
-        return None
-
     # returns a tuple to indicate if there is error occurs which indicates stop and a string message
     async def _execute_tool_calls(
         self,
@@ -287,29 +257,33 @@ class TaskExecutor:
         """Execute tool calls and return a Tuple with sent bool and result."""
         try:
             for tool_call in tool_calls:
-                mcp_server_name = ""
-                tool_name: str = tool_call.get("name")
-                the_tool_name = tool_name
-                if "#" in tool_name:
-                    s_array = tool_name.split("#")
-                    mcp_server_name = s_array[0]
-                    the_tool_name = s_array[1]
-                args = tool_call.get("args")
-                tool_call_id = tool_call.get("id")
-                # Ensure we have a valid tool_call_id for OpenAI compatibility
-                if not tool_call_id:
-                    import uuid
-                    tool_call_id = str(uuid.uuid4())
+                mcp_server = tool_call["mcp_server"]
+                tool_name = tool_call["tool_name"]
+                args = tool_call["args"]
+                tool_call_id = tool_call["tool_call_id"]
                 # default we don't care about confirmation and just run the tool
                 proceed = True
                 if confirm_tool_exec:
                     proceed = _confirm_tool_execution(
-                        f"This will execute tool: {the_tool_name} from mcp server: {mcp_server_name}"
+                        f"This will execute tool: {tool_name} from mcp server: {mcp_server}"
                     )
                 if not proceed:
                     return True, f"Stopped at tool execution: {tool_call}"
+
+                # Append the tool execution to messages using AIMessage with tool_calls
+                tool_execution_message = AIMessage(
+                    content="",  # Empty content as this is a tool call
+                    tool_calls=[{
+                        "name": f"{mcp_server}#{tool_name}",
+                        "args": args,
+                        "id": tool_call_id,
+                        "type": "tool_call"
+                    }]
+                )
+                messages.append(tool_execution_message)
+
                 mcp_tool_result = await self.mcp_caller.call_mcp_server_tool(
-                    mcp_server_name, the_tool_name, args
+                    mcp_server, tool_name, args
                 )
                 # Format the tool result properly for ToolMessage
                 if isinstance(mcp_tool_result, list) and len(mcp_tool_result) > 0:
@@ -338,6 +312,7 @@ class TaskExecutor:
     async def _stream_messages(
         self,
         llm_engine: LLMInferenceEngine,
+        model: str,
         messages: List[BaseMessage],
         max_iterations: int,
         current_iteration: int,
@@ -360,7 +335,8 @@ class TaskExecutor:
                 if hasattr(chunk, "tool_calls") and chunk.tool_calls:
                     try:
                         logger.debug(f"Streaming chunk with tool calls: {chunk}")
-                        stop, result = await self._execute_tool_calls(chunk.tool_calls, messages, confirm_tool_exec, tool_error_check)
+                        tool_calls = llm_engine.parse_tool_calls(chunk, model)
+                        stop, result = await self._execute_tool_calls(tool_calls, messages, confirm_tool_exec, tool_error_check)
                         if stop:
                             # If we need to stop, yield the result as a message
                             if result:

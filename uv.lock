@@ -220,6 +220,7 @@ source = { editable = "." }
 dependencies = [
     { name = "click" },
     { name = "httpx" },
+    { name = "json-repair" },
     { name = "langchain" },
     { name = "langchain-core" },
     { name = "langchain-mcp-adapters" },
@@ -249,6 +250,7 @@ dev = [
 requires-dist = [
     { name = "click", specifier = ">=8.1.0" },
     { name = "httpx", specifier = ">=0.24.0" },
+    { name = "json-repair", specifier = ">=0.50.1" },
     { name = "langchain", specifier = ">=0.3.0" },
     { name = "langchain-core", specifier = ">=0.3.63" },
     { name = "langchain-mcp-adapters", specifier = ">=0.1.4" },
@@ -564,6 +566,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/d8/b3/2bd02071c5a2430d0b70403a34411fc519c2f227da7b03da9ba6a956f931/jiter-0.10.0-cp314-cp314-win32.whl", hash = "sha256:ac509f7eccca54b2a29daeb516fb95b6f0bd0d0d8084efaf8ed5dfc7b9f0b357", size = 210127 },
     { url = "https://files.pythonhosted.org/packages/03/0c/5fe86614ea050c3ecd728ab4035534387cd41e7c1855ef6c031f1ca93e3f/jiter-0.10.0-cp314-cp314t-macosx_11_0_arm64.whl", hash = "sha256:5ed975b83a2b8639356151cef5c0d597c68376fc4922b45d0eb384ac058cfa00", size = 318527 },
     { url = "https://files.pythonhosted.org/packages/b3/4a/4175a563579e884192ba6e81725fc0448b042024419be8d83aa8a80a3f44/jiter-0.10.0-cp314-cp314t-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:3aa96f2abba33dc77f79b4cf791840230375f9534e5fac927ccceb58c5e604a5", size = 354213 },
+]
+
+[[package]]
+name = "json-repair"
+version = "0.50.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/91/71/6d57ed93e43e98cdd124e82ab6231c6817f06a10743e7ae4bc6f66d03a02/json_repair-0.50.1.tar.gz", hash = "sha256:4ee69bc4be7330fbb90a3f19e890852c5fe1ceacec5ed1d2c25cdeeebdfaec76", size = 34864 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ad/be/b1e05740d9c6f333dab67910f3894e2e2416c1ef00f9f7e20a327ab1f396/json_repair-0.50.1-py3-none-any.whl", hash = "sha256:9b78358bb7572a6e0b8effe7a8bd8cb959a3e311144842b1d2363fe39e2f13c5", size = 26020 },
 ]
 
 [[package]]
