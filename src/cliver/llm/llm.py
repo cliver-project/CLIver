@@ -10,6 +10,7 @@ from typing import (
 )
 import asyncio
 import logging
+import time
 
 # Create a logger for this module
 logger = logging.getLogger(__name__)
@@ -324,33 +325,92 @@ class TaskExecutor:
     ) -> AsyncIterator[BaseMessage]:
         """Handle streaming messages with tool calling."""
         iteration = current_iteration
-
+        tool_call_indicators = ['tool_calls"','"tool_calls"', '{"tool_calls"', "'tool_calls'"]
         while iteration < max_iterations:
             # Stream response from LLM
+            accumulated_content = ""
+            tool_call_buffer = ""  # Buffer specifically for tool call detection
+            last_yield_time = 0
+
             async for chunk in llm_engine.stream(messages, mcp_tools):
-                # Yield the chunk for streaming
-                yield chunk
+                current_time = time.time()
+
+                # Accumulate content from chunks to handle incomplete tool calls
+                chunk_content = ""
+                if hasattr(chunk, "content") and chunk.content:
+                    chunk_content = str(chunk.content)
+                    accumulated_content += chunk_content
 
                 # Check if this chunk contains tool calls
+                tool_calls = None
+
+                # First check if the chunk directly has tool_calls attribute
                 if hasattr(chunk, "tool_calls") and chunk.tool_calls:
                     try:
                         logger.debug(f"Streaming chunk with tool calls: {chunk}")
                         tool_calls = llm_engine.parse_tool_calls(chunk, model)
-                        stop, result = await self._execute_tool_calls(tool_calls, messages, confirm_tool_exec, tool_error_check)
-                        if stop:
-                            # If we need to stop, yield the result as a message
-                            if result:
-                                yield AIMessage(content=result)
-                            return
-                        else:
-                            # Continue processing with the updated messages
-                            # normally we don't need to send the tools to llm again
-                            iteration += 1
-                            break  # Break inner loop to continue with next iteration
+                        if tool_calls is None:
+                            logger.error(f"Failed to parse tool calls: {chunk.tool_calls}")
+                            continue
                     except Exception as e:
                         logger.error(f"Error processing tool call in streaming: {str(e)}", exc_info=True)
-                        yield AIMessage(content=f"Error processing tool call: {str(e)}")
+                        # Continue processing other chunks
+                        continue
+                else:
+                    # Add chunk content to tool call buffer for detection
+                    # Limit buffer size to prevent memory issues
+                    tool_call_buffer = (tool_call_buffer + chunk_content)[-200:]
+                    if any(tool_call_buffer.strip() in indicator for indicator in tool_call_indicators):
+                        # it might be the case the first chunks are very small which we have no idea of if it is a tool call or not.
+                        continue
+
+                    # Check if buffer suggests this is a tool call
+                    # More robust detection than just checking for a substring
+                    if any(indicator in tool_call_buffer for indicator in tool_call_indicators):
+                        try:
+                            # Create a temporary message with accumulated content for parsing
+                            temp_message = AIMessage(content=accumulated_content)
+                            tool_calls = llm_engine.parse_tool_calls(temp_message, model)
+                            if tool_calls is None:
+                                continue
+                        except Exception as e:
+                            # If parsing fails, it might be an incomplete tool call
+                            # Continue accumulating content
+                            logger.error(f"Incomplete tool call detected, continuing accumulation: {str(e)}")
+                            continue
+
+                if tool_calls:
+                    # Reset buffers as we found complete tool calls
+                    accumulated_content = ""
+                    tool_call_buffer = ""
+                    # Execute tool calls (this method is async, so we need to await it)
+                    stop, result = await self._execute_tool_calls(tool_calls, messages, confirm_tool_exec,
+                                                                 tool_error_check)
+                    if stop:
+                        # If we need to stop, yield the result as a message
+                        if result:
+                            yield AIMessage(content=result)
                         return
+                    else:
+                        # Continue processing with the updated messages
+                        iteration += 1
+                        break  # Break inner loop to continue with next iteration
+                else:
+                    # Only yield the chunk if we're confident it's not part of a tool call
+                    # Check that it doesn't contain tool call indicators
+                    # But also check if we've accumulated too much content without finding tool calls
+                    # Or if enough time has passed since last yield (to prevent hanging)
+                    safe_to_yield = (
+                        not any(indicator in accumulated_content for indicator in tool_call_indicators) or
+                        len(accumulated_content) > 1000 or  # If we've accumulated a lot, it's probably not a tool call
+                        (current_time - last_yield_time) > 2.0  # If 2 seconds have passed, yield what we have
+                    )
+
+                    if safe_to_yield and chunk_content:
+                        yield chunk
+                        last_yield_time = current_time
+                    # Continue to next chunk without yielding if we're still unsure
+
             else:
                 # If we completed the async for loop without breaking, we're done
                 return
