@@ -1,28 +1,30 @@
-from typing import (
-    List,
-    Dict,
-    Optional,
-    Callable,
-    Awaitable,
-    Any,
-    Tuple,
-    AsyncIterator,
-)
 import asyncio
 import logging
 import time
+from typing import (
+    Any,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+)
 
 # Create a logger for this module
 logger = logging.getLogger(__name__)
 
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages.base import BaseMessage
+from langchain_core.tools import BaseTool
+
 from cliver.config import ModelConfig
+from cliver.llm.base import LLMInferenceEngine
 from cliver.llm.ollama_engine import OllamaLlamaInferenceEngine
 from cliver.llm.openai_engine import OpenAICompatibleInferenceEngine
 from cliver.mcp_server_caller import MCPServersCaller
-from langchain_core.messages import ToolMessage, SystemMessage, HumanMessage, AIMessage
-from langchain_core.messages.base import BaseMessage
-from langchain_core.tools import BaseTool
-from cliver.llm.base import LLMInferenceEngine
+from cliver.util import retry_with_confirmation_async
 
 
 def create_llm_engine(model: ModelConfig) -> Optional[LLMInferenceEngine]:
@@ -283,8 +285,10 @@ class TaskExecutor:
                 )
                 messages.append(tool_execution_message)
 
-                mcp_tool_result = await self.mcp_caller.call_mcp_server_tool(
-                    mcp_server, tool_name, args
+                mcp_tool_result = await retry_with_confirmation_async(
+                    self.mcp_caller.call_mcp_server_tool,
+                    mcp_server, tool_name, args,
+                    confirm_on_retry=False
                 )
                 # Format the tool result properly for ToolMessage
                 if isinstance(mcp_tool_result, list) and len(mcp_tool_result) > 0:
@@ -350,7 +354,6 @@ class TaskExecutor:
                         logger.debug(f"Streaming chunk with tool calls: {chunk}")
                         tool_calls = llm_engine.parse_tool_calls(chunk, model)
                         if tool_calls is None:
-                            logger.error(f"Failed to parse tool calls: {chunk.tool_calls}")
                             continue
                     except Exception as e:
                         logger.error(f"Error processing tool call in streaming: {str(e)}", exc_info=True)
