@@ -3,10 +3,13 @@ Configuration module for Cliver client.
 """
 
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Set
 
 import json
 from pydantic import BaseModel, Field
+
+# Import model capabilities
+from cliver.model_capabilities import ModelCapability, ModelCapabilityDetector
 
 
 class ModelOptions(BaseModel):
@@ -20,13 +23,32 @@ class ModelOptions(BaseModel):
 class ModelConfig(BaseModel):
     name: str
     provider: str
-    type: str
     url: str
     name_in_provider: Optional[str] = Field(
         None, description="Internal name used by provider"
     )
     api_key: Optional[str] = Field(None, description="API key for the model")
     options: Optional[ModelOptions] = None
+    capabilities: Optional[Set[ModelCapability]] = Field(
+        None, description="Model capabilities"
+    )
+
+    def get_capabilities(self) -> Set[ModelCapability]:
+        """
+        Get the model's capabilities. If not explicitly set, detect based on provider and model name.
+
+        Returns:
+            Set of ModelCapability enums representing the model's capabilities
+        """
+        if self.capabilities is not None:
+            return self.capabilities
+
+        # If capabilities not explicitly set, detect them
+        detector = ModelCapabilityDetector()
+        capabilities = detector.detect_capabilities(
+            self.provider, self.name_in_provider or self.name
+        )
+        return capabilities.capabilities
 
 
 class SecretsConfig(BaseModel):
@@ -259,7 +281,6 @@ class ConfigManager:
         url: str,
         options: str,
         name_in_provider: str,
-        type: str = "TEXT_TO_TEXT",
     ) -> None:
         if not self.config.models:
             self.config.models = {}
@@ -269,12 +290,10 @@ class ConfigManager:
                 llm.provider = provider
             if url:
                 llm.url = url
-            if type:
-                llm.type = type
             if name_in_provider:
                 llm.name_in_provider = name_in_provider
         else:
-            llm = ModelConfig(name=name, provider=provider, type=type, url=url)
+            llm = ModelConfig(name=name, provider=provider, url=url)
             self.config.models[name] = llm
             if self.config.default_model is None:
                 self.config.default_model = name

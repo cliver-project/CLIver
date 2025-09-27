@@ -1,11 +1,13 @@
 from typing import Optional, AsyncIterator
 
 from cliver.config import ModelConfig
+from cliver.model_capabilities import ModelCapability
 from langchain_core.messages import AIMessage
 from langchain_core.messages.base import BaseMessage
 from langchain_core.tools import BaseTool
 from cliver.llm.base import LLMInferenceEngine
 from langchain_openai import ChatOpenAI
+
 
 # OpenAI compatible inference engine
 class OpenAICompatibleInferenceEngine(LLMInferenceEngine):
@@ -43,7 +45,17 @@ class OpenAICompatibleInferenceEngine(LLMInferenceEngine):
         try:
             _llm = self.llm
             if tools:
-                _llm = self.llm.bind_tools(tools, strict=True)
+                # Check if the model supports tool calling
+                capabilities = self.config.get_capabilities()
+                if ModelCapability.TOOL_CALLING in capabilities:
+                    # Use strict mode for OpenAI models that support it
+                    if self.config.provider == "openai":
+                        _llm = self.llm.bind_tools(tools, strict=True)
+                    else:
+                        _llm = self.llm.bind_tools(tools)
+                else:
+                    # Fallback to non-tool binding if not supported
+                    pass
             response = await _llm.ainvoke(messages)
             return response
         except Exception as e:
@@ -55,7 +67,17 @@ class OpenAICompatibleInferenceEngine(LLMInferenceEngine):
         """Stream responses from the LLM."""
         _llm = self.llm
         if tools:
-            _llm = self.llm.bind_tools(tools)
+            # Check if the model supports tool calling
+            capabilities = self.config.get_capabilities()
+            if ModelCapability.TOOL_CALLING in capabilities:
+                # Use strict mode for OpenAI models that support it
+                if self.config.provider == "openai":
+                    _llm = self.llm.bind_tools(tools, strict=True)
+                else:
+                    _llm = self.llm.bind_tools(tools)
+            else:
+                # Fallback to non-tool binding if not supported
+                pass
         try:
             async for chunk in _llm.astream(messages):
                 yield chunk

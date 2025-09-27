@@ -234,7 +234,6 @@ def list_llm_models(cliver: Cliver):
         table.add_column("Name In Provider", style="green")
         table.add_column("Provider")
         table.add_column("API Key", style="red")
-        table.add_column("Type", style="blue")
         table.add_column("URL")
         table.add_column("Options", style="blue")
         for name, model in models.items():
@@ -243,7 +242,6 @@ def list_llm_models(cliver: Cliver):
                 model.name_in_provider,
                 model.provider,
                 model.api_key,
-                model.type,
                 model.url,
                 model.options.model_dump_json() if model.options else "",
             )
@@ -310,14 +308,6 @@ def remove_llm_model(cliver: Cliver, name: str):
     type=str,
     help="The name of the LLM within the Provider",
 )
-@click.option(
-    "--type",
-    "-t",
-    type=str,
-    default="TEXT_TO_TEXT",
-    show_default=True,
-    help="The type of the LLM Provider",
-)
 @pass_cliver
 def add_llm_model(
     cliver: Cliver,
@@ -327,14 +317,13 @@ def add_llm_model(
     url: str,
     options: str,
     name_in_provider: str,
-    type: str,
 ):
     model = cliver.config_manager.get_llm_model(name)
     if model:
         cliver.console.print(f"LLM Model found with name: {name} already exists.")
         return
     cliver.config_manager.add_or_update_llm_model(
-        name, provider, api_key, url, options, name_in_provider, type
+        name, provider, api_key, url, options, name_in_provider
     )
     cliver.console.print(f"Added LLM Model: {name}")
 
@@ -377,12 +366,6 @@ def add_llm_model(
     type=str,
     help="The name of the LLM within the Provider",
 )
-@click.option(
-    "--type",
-    "-t",
-    type=str,
-    help="The type of the LLM Provider",
-)
 @pass_cliver
 def update_llm_model(
     cliver: Cliver,
@@ -392,13 +375,12 @@ def update_llm_model(
     url: str,
     options: str,
     name_in_provider: str,
-    type: str = "TEXT_TO_TEXT",
 ):
     model = cliver.config_manager.get_llm_model(name)
     if not model:
         cliver.console.print(f"LLM Model with name: {name} was not found.")
         return
     cliver.config_manager.add_or_update_llm_model(
-        name, provider, api_key, url, options, name_in_provider, type
+        name, provider, api_key, url, options, name_in_provider
     )
     cliver.console.print(f"LLM Model: {name} updated")

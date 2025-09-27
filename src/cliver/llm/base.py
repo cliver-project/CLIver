@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from cliver.config import ModelConfig
+from cliver.model_capabilities import ModelCapability
 from typing import List, Optional, AsyncIterator
 from langchain_core.messages.base import BaseMessage
 from langchain_core.tools import BaseTool
@@ -7,9 +8,15 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class LLMInferenceEngine(ABC):
     def __init__(self, config: ModelConfig):
         self.config = config or {}
+
+    def supports_capability(self, capability: ModelCapability) -> bool:
+        """Check if the model supports a specific capability."""
+        capabilities = self.config.get_capabilities()
+        return capability in capabilities
 
     # This method focus on the real LLM inference only.
     @abstractmethod
@@ -48,6 +55,7 @@ class LLMInferenceEngine(ABC):
             # Ensure we have a valid tool_call_id for OpenAI compatibility
             if not tool_call_id:
                 import uuid
+
                 tool_call_id = str(uuid.uuid4())
             tool_to_call["tool_call_id"] = tool_call_id
             tool_to_call["tool_name"] = the_tool_name
@@ -92,27 +100,27 @@ Important:
 6. The tool_calls should be returned as a strict JSON format that can be accessed via response.tool_calls, not embedded in the response content
 """
 
-    def _parse_tool_calls_from_content(self, response: BaseMessage, model: str) -> Optional[list[dict]]:
+    def _parse_tool_calls_from_content(
+        self, response: BaseMessage, model: str
+    ) -> Optional[list[dict]]:
         """Parse tool calls from response content when LLM doesn't properly use tool binding."""
         if response is None:
             return None
         if response.tool_calls:
             return response.tool_calls
-        if (
-                hasattr(response, "content")
-                and response.content
-        ):
+        if hasattr(response, "content") and response.content:
             if type(response.content) == dict and dict(response.content)["tool_calls"]:
                 content_dict = dict(response.content)
                 return content_dict.get("tool_calls", [])
         if (
-                hasattr(response, "content")
-                and response.content
-                and '"tool_calls"' in str(response.content)
+            hasattr(response, "content")
+            and response.content
+            and '"tool_calls"' in str(response.content)
         ):
             try:
                 import json_repair
                 import re
+
                 content_str = str(response.content)
                 # Look for tool_calls pattern in the content
                 # This pattern matches the JSON structure we expect

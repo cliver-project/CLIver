@@ -76,6 +76,7 @@ def retry_with_confirmation(
         retries are exhausted
     """
     import asyncio
+
     last_exception = None
 
     for attempt in range(max_retries + 1):
@@ -133,6 +134,7 @@ async def retry_with_confirmation_async(
         retries are exhausted
     """
     import asyncio
+
     last_exception = None
 
     for attempt in range(max_retries + 1):
@@ -157,6 +159,7 @@ async def retry_with_confirmation_async(
 
     # If we get here, all retries were exhausted
     raise last_exception
+
 
 def _confirm_tool_execution(prompt="Are you sure? (y/n): ") -> bool:
     """Helper function to get user confirmation."""

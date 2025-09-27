@@ -1,11 +1,13 @@
 from typing import Optional, AsyncIterator
 
 from cliver.config import ModelConfig
+from cliver.model_capabilities import ModelCapability
 from langchain_core.messages import AIMessage
 from langchain_core.messages.base import BaseMessage
 from langchain_core.tools import BaseTool
 from cliver.llm.base import LLMInferenceEngine
 from langchain_ollama import ChatOllama as Ollama
+
 
 # Ollama inference engine
 class OllamaLlamaInferenceEngine(LLMInferenceEngine):
@@ -24,7 +26,13 @@ class OllamaLlamaInferenceEngine(LLMInferenceEngine):
         try:
             _llm = self.llm
             if tools:
-                _llm = self.llm.bind_tools(tools)
+                # Check if the model supports tool calling
+                capabilities = self.config.get_capabilities()
+                if ModelCapability.TOOL_CALLING in capabilities:
+                    _llm = self.llm.bind_tools(tools)
+                else:
+                    # Fallback to non-tool binding if not supported
+                    pass
             response = await _llm.ainvoke(messages)
             return response
         except Exception as e:
@@ -36,7 +44,13 @@ class OllamaLlamaInferenceEngine(LLMInferenceEngine):
         """Stream responses from the LLM."""
         _llm = self.llm
         if tools:
-            _llm = self.llm.bind_tools(tools)
+            # Check if the model supports tool calling
+            capabilities = self.config.get_capabilities()
+            if ModelCapability.TOOL_CALLING in capabilities:
+                _llm = self.llm.bind_tools(tools)
+            else:
+                # Fallback to non-tool binding if not supported
+                pass
         try:
             async for chunk in _llm.astream(messages):
                 yield chunk

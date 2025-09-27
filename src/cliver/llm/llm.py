@@ -245,7 +245,9 @@ class TaskExecutor:
             # If no tool calls, return the response
             return response
 
-        return AIMessage(content="Reached maximum number of iterations without a final answer.")
+        return AIMessage(
+            content="Reached maximum number of iterations without a final answer."
+        )
 
     # returns a tuple to indicate if there is error occurs which indicates stop and a string message
     async def _execute_tool_calls(
@@ -276,19 +278,23 @@ class TaskExecutor:
                 # Append the tool execution to messages using AIMessage with tool_calls
                 tool_execution_message = AIMessage(
                     content="",  # Empty content as this is a tool call
-                    tool_calls=[{
-                        "name": f"{mcp_server}#{tool_name}",
-                        "args": args,
-                        "id": tool_call_id,
-                        "type": "tool_call"
-                    }]
+                    tool_calls=[
+                        {
+                            "name": f"{mcp_server}#{tool_name}",
+                            "args": args,
+                            "id": tool_call_id,
+                            "type": "tool_call",
+                        }
+                    ],
                 )
                 messages.append(tool_execution_message)
 
                 mcp_tool_result = await retry_with_confirmation_async(
                     self.mcp_caller.call_mcp_server_tool,
-                    mcp_server, tool_name, args,
-                    confirm_on_retry=False
+                    mcp_server,
+                    tool_name,
+                    args,
+                    confirm_on_retry=False,
                 )
                 # Format the tool result properly for ToolMessage
                 if isinstance(mcp_tool_result, list) and len(mcp_tool_result) > 0:
@@ -329,7 +335,12 @@ class TaskExecutor:
     ) -> AsyncIterator[BaseMessage]:
         """Handle streaming messages with tool calling."""
         iteration = current_iteration
-        tool_call_indicators = ['tool_calls"','"tool_calls"', '{"tool_calls"', "'tool_calls'"]
+        tool_call_indicators = [
+            'tool_calls"',
+            '"tool_calls"',
+            '{"tool_calls"',
+            "'tool_calls'",
+        ]
         while iteration < max_iterations:
             # Stream response from LLM
             accumulated_content = ""
@@ -356,30 +367,43 @@ class TaskExecutor:
                         if tool_calls is None:
                             continue
                     except Exception as e:
-                        logger.error(f"Error processing tool call in streaming: {str(e)}", exc_info=True)
+                        logger.error(
+                            f"Error processing tool call in streaming: {str(e)}",
+                            exc_info=True,
+                        )
                         # Continue processing other chunks
                         continue
                 else:
                     # Add chunk content to tool call buffer for detection
                     # Limit buffer size to prevent memory issues
                     tool_call_buffer = (tool_call_buffer + chunk_content)[-200:]
-                    if any(tool_call_buffer.strip() in indicator for indicator in tool_call_indicators):
+                    if any(
+                        tool_call_buffer.strip() in indicator
+                        for indicator in tool_call_indicators
+                    ):
                         # it might be the case the first chunks are very small which we have no idea of if it is a tool call or not.
                         continue
 
                     # Check if buffer suggests this is a tool call
                     # More robust detection than just checking for a substring
-                    if any(indicator in tool_call_buffer for indicator in tool_call_indicators):
+                    if any(
+                        indicator in tool_call_buffer
+                        for indicator in tool_call_indicators
+                    ):
                         try:
                             # Create a temporary message with accumulated content for parsing
                             temp_message = AIMessage(content=accumulated_content)
-                            tool_calls = llm_engine.parse_tool_calls(temp_message, model)
+                            tool_calls = llm_engine.parse_tool_calls(
+                                temp_message, model
+                            )
                             if tool_calls is None:
                                 continue
                         except Exception as e:
                             # If parsing fails, it might be an incomplete tool call
                             # Continue accumulating content
-                            logger.error(f"Incomplete tool call detected, continuing accumulation: {str(e)}")
+                            logger.error(
+                                f"Incomplete tool call detected, continuing accumulation: {str(e)}"
+                            )
                             continue
 
                 if tool_calls:
@@ -387,8 +411,9 @@ class TaskExecutor:
                     accumulated_content = ""
                     tool_call_buffer = ""
                     # Execute tool calls (this method is async, so we need to await it)
-                    stop, result = await self._execute_tool_calls(tool_calls, messages, confirm_tool_exec,
-                                                                 tool_error_check)
+                    stop, result = await self._execute_tool_calls(
+                        tool_calls, messages, confirm_tool_exec, tool_error_check
+                    )
                     if stop:
                         # If we need to stop, yield the result as a message
                         if result:
@@ -404,9 +429,14 @@ class TaskExecutor:
                     # But also check if we've accumulated too much content without finding tool calls
                     # Or if enough time has passed since last yield (to prevent hanging)
                     safe_to_yield = (
-                        not any(indicator in accumulated_content for indicator in tool_call_indicators) or
-                        len(accumulated_content) > 1000 or  # If we've accumulated a lot, it's probably not a tool call
-                        (current_time - last_yield_time) > 2.0  # If 2 seconds have passed, yield what we have
+                        not any(
+                            indicator in accumulated_content
+                            for indicator in tool_call_indicators
+                        )
+                        or len(accumulated_content)
+                        > 1000  # If we've accumulated a lot, it's probably not a tool call
+                        or (current_time - last_yield_time)
+                        > 2.0  # If 2 seconds have passed, yield what we have
                     )
 
                     if safe_to_yield and chunk_content:
