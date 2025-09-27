@@ -169,3 +169,41 @@ def _confirm_tool_execution(prompt="Are you sure? (y/n): ") -> bool:
             return True
         elif response in ["n", "no"]:
             return False
+
+
+def read_context_files(base_path: str = ".", file_filter: list[str] = None) -> str:
+    """
+    Read context from markdown files if they exist.
+
+    Args:
+        base_path: The base path to look for context files (default: current directory)
+        file_filter: List of filenames to look for (default: ["Cliver.md"])
+
+    Returns:
+        A string containing the context from the files, or empty string if none found
+    """
+    import os
+
+    context = ""
+
+    # Files to look for in order of priority
+    if file_filter is None:
+        context_files = ["Cliver.md"]
+    else:
+        context_files = file_filter
+
+    for filename in context_files:
+        file_path = os.path.join(base_path, filename)
+        if os.path.exists(file_path):
+            try:
+                with open(file_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                    if content.strip():
+                        context += f"\n# Content from {filename}:\n{content}\n"
+            except Exception as e:
+                # Log error but continue with other files
+                import logging
+
+                logging.warning(f"Could not read {filename}: {e}")
+
+    return context.strip()

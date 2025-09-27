@@ -24,7 +24,7 @@ from cliver.llm.base import LLMInferenceEngine
 from cliver.llm.ollama_engine import OllamaLlamaInferenceEngine
 from cliver.llm.openai_engine import OpenAICompatibleInferenceEngine
 from cliver.mcp_server_caller import MCPServersCaller
-from cliver.util import retry_with_confirmation_async
+from cliver.util import retry_with_confirmation_async, read_context_files
 
 
 def create_llm_engine(model: ModelConfig) -> Optional[LLMInferenceEngine]:
@@ -33,6 +33,30 @@ def create_llm_engine(model: ModelConfig) -> Optional[LLMInferenceEngine]:
     elif model.provider == "openai":
         return OpenAICompatibleInferenceEngine(model)
     return None
+
+
+## TODO: we need to improve this to take consideration of user_input and even call some mcp tools
+## TODO: We may need to parsed the structured context file and do embedding to get only related sections.
+async def default_enhance_prompt(
+    user_input: str, mcp_caller: MCPServersCaller
+) -> list[BaseMessage]:
+    """
+    Default enhancement function that reads context files for context.
+    By default, it looks for Cliver.md but can be configured to look for other files.
+
+    Args:
+        user_input: The user's input
+        mcp_caller: The MCP servers caller instance
+
+    Returns:
+        A list of BaseMessage with the context information
+    """
+    import os
+
+    context = read_context_files(os.getcwd())
+    if context:
+        return [SystemMessage(content=f"Context information:\n{context}")]
+    return []
 
 
 class TaskExecutor:
@@ -120,7 +144,19 @@ class TaskExecutor:
     ) -> AsyncIterator[BaseMessage]:
         """
         Stream user input through the LLM, handling tool calls if needed.
+        Args:
+            user_input (str): The user input.
+            max_iterations (int): The maximum number of iterations.
+            confirm_tool_exec(bool): Ask for confirmation on tool execution.
+            model (str): The model to use, the default one will be used if not specified.
+            system_message_override: The system message override function.
+            filter_tools: The function that filters tool calls.
+            enhance_prompt: The function that enhances the prompt. This works alongside the default function
+                           that reads Cliver.md for context.
+            tool_error_check: The function that checks tool errors. The returned string will be the tool error message
+                              sent back to LLM if the first returned value is True.
         """
+
         llm_engine, mcp_tools, messages = await self._prepare_messages_and_tools(
             enhance_prompt, filter_tools, model, system_message_override, user_input
         )
@@ -150,13 +186,27 @@ class TaskExecutor:
             mcp_tools = await filter_tools(user_input, mcp_tools)
         if not mcp_tools:
             mcp_tools = []
+
+        # Create initial messages with system message
         messages: list[BaseMessage] = [
             SystemMessage(content=system_message),
-            HumanMessage(content=user_input),
         ]
+
+        # Always apply the default enhancement function to get context from Cliver.md
+        default_enhanced_messages = await default_enhance_prompt(
+            user_input, self.mcp_caller
+        )
+        if default_enhanced_messages and len(default_enhanced_messages) > 0:
+            messages.extend(default_enhanced_messages)
+
+        # Apply user-provided enhancement function if provided
         if enhance_prompt:
-            enhanced_messages = await enhance_prompt(user_input, self.mcp_caller)
-            messages.extend(enhanced_messages)
+            user_enhanced_messages = await enhance_prompt(user_input, self.mcp_caller)
+            messages.extend(user_enhanced_messages)
+
+        # Add the user input
+        messages.append(HumanMessage(content=user_input))
+
         return llm_engine, mcp_tools, messages
 
     # This is the method that can be used out of box
@@ -186,7 +236,8 @@ class TaskExecutor:
             model (str): The model to use, the default one will be used if not specified.
             system_message_override: The system message override function.
             filter_tools: The function that filters tool calls.
-            enhance_prompt: The function that enhances the prompt.
+            enhance_prompt: The function that enhances the prompt. This works alongside the default function
+                           that reads Cliver.md for context.
             tool_error_check: The function that checks tool errors. The returned string will be the tool error message
                               sent back to LLM if the first returned value is True.
         """
