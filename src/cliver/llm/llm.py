@@ -25,6 +25,7 @@ from cliver.llm.ollama_engine import OllamaLlamaInferenceEngine
 from cliver.llm.openai_engine import OpenAICompatibleInferenceEngine
 from cliver.mcp_server_caller import MCPServersCaller
 from cliver.util import retry_with_confirmation_async, read_context_files
+from cliver.prompt_enhancer import apply_skill_sets_and_template
 
 
 def create_llm_engine(model: ModelConfig) -> Optional[LLMInferenceEngine]:
@@ -111,6 +112,9 @@ class TaskExecutor:
         tool_error_check: Optional[
             Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]
         ] = None,
+        skill_sets: List[str] = None,
+        template: Optional[str] = None,
+        params: dict = None,
     ) -> BaseMessage:
         return asyncio.run(
             self.process_user_input(
@@ -122,6 +126,9 @@ class TaskExecutor:
                 filter_tools,
                 enhance_prompt,
                 tool_error_check,
+                skill_sets,
+                template,
+                params,
             )
         )
 
@@ -141,6 +148,9 @@ class TaskExecutor:
         tool_error_check: Optional[
             Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]
         ] = None,
+        skill_sets: List[str] = None,
+        template: Optional[str] = None,
+        params: dict = None,
     ) -> AsyncIterator[BaseMessage]:
         """
         Stream user input through the LLM, handling tool calls if needed.
@@ -155,10 +165,14 @@ class TaskExecutor:
                            that reads Cliver.md for context.
             tool_error_check: The function that checks tool errors. The returned string will be the tool error message
                               sent back to LLM if the first returned value is True.
+            skill_sets: List of skill set names to apply.
+            template: Template name to apply.
+            params: Parameters for skill sets and templates.
         """
 
-        llm_engine, mcp_tools, messages = await self._prepare_messages_and_tools(
-            enhance_prompt, filter_tools, model, system_message_override, user_input
+        llm_engine, mcp_tools, messages, skill_set_tools = await self._prepare_messages_and_tools(
+            enhance_prompt, filter_tools, model, system_message_override, user_input,
+            skill_sets, template, params
         )
 
         async for chunk in self._stream_messages(
@@ -174,30 +188,44 @@ class TaskExecutor:
             yield chunk
 
     async def _prepare_messages_and_tools(
-        self, enhance_prompt, filter_tools, model, system_message_override, user_input
+        self, enhance_prompt, filter_tools, model, system_message_override, user_input,
+        skill_sets=None, template=None, params=None
     ):
         llm_engine = self._select_llm_engine(model)
         # Add system message to instruct the LLM about tool usage
         system_message = llm_engine.system_message()
         if system_message_override:
             system_message = system_message_override()
-        mcp_tools = await self.mcp_caller.get_mcp_tools()
-        if filter_tools:
-            mcp_tools = await filter_tools(user_input, mcp_tools)
-        if not mcp_tools:
-            mcp_tools = []
 
         # Create initial messages with system message
         messages: list[BaseMessage] = [
             SystemMessage(content=system_message),
         ]
-
         # Always apply the default enhancement function to get context from Cliver.md
         default_enhanced_messages = await default_enhance_prompt(
             user_input, self.mcp_caller
         )
         if default_enhanced_messages and len(default_enhanced_messages) > 0:
             messages.extend(default_enhanced_messages)
+
+        mcp_tools = await self.mcp_caller.get_mcp_tools()
+        if filter_tools:
+            mcp_tools = await filter_tools(user_input, mcp_tools)
+        if not mcp_tools:
+            mcp_tools = []
+
+        # Apply skill sets and templates if provided
+        skill_set_tools = []
+        if skill_sets or template:
+            messages, skill_set_tools = apply_skill_sets_and_template(
+                user_input, messages, skill_sets, template, params
+            )
+
+        # Add skill set tools to mcp_tools if any
+        if skill_set_tools:
+            # TODO: Convert skill_set_tools to BaseTool objects
+            # For now, we'll just log that we have skill set tools
+            logger.info(f"Skill set tools to include: {skill_set_tools}")
 
         # Apply user-provided enhancement function if provided
         if enhance_prompt:
@@ -207,7 +235,7 @@ class TaskExecutor:
         # Add the user input
         messages.append(HumanMessage(content=user_input))
 
-        return llm_engine, mcp_tools, messages
+        return llm_engine, mcp_tools, messages, skill_set_tools
 
     # This is the method that can be used out of box
     async def process_user_input(
@@ -226,6 +254,9 @@ class TaskExecutor:
         tool_error_check: Optional[
             Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]
         ] = None,
+        skill_sets: List[str] = None,
+        template: Optional[str] = None,
+        params: dict = None,
     ) -> BaseMessage:
         """
         Process user input through the LLM, handling tool calls if needed.
@@ -240,10 +271,14 @@ class TaskExecutor:
                            that reads Cliver.md for context.
             tool_error_check: The function that checks tool errors. The returned string will be the tool error message
                               sent back to LLM if the first returned value is True.
+            skill_sets: List of skill set names to apply.
+            template: Template name to apply.
+            params: Parameters for skill sets and templates.
         """
 
-        llm_engine, mcp_tools, messages = await self._prepare_messages_and_tools(
-            enhance_prompt, filter_tools, model, system_message_override, user_input
+        llm_engine, mcp_tools, messages, skill_set_tools = await self._prepare_messages_and_tools(
+            enhance_prompt, filter_tools, model, system_message_override, user_input,
+            skill_sets, template, params
         )
 
         return await self._process_messages(
