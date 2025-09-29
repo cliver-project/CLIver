@@ -2,7 +2,8 @@
 Yet another AI agent to make your CLI clever
 
 ## Overview
-CLIver is an AI-powered command-line interface tool that enhances your terminal experience with intelligent capabilities. It integrates with MCP (Model Coordination Protocol) servers and various LLM providers to provide an interactive CLI experience.
+CLIver is an AI-powered command-line interface tool that enhances your terminal experience with intelligent capabilities.
+It integrates with MCP (Model Coordination Protocol) servers and various LLM providers to provide an interactive CLI experience.
 
 ## Features
 - Interactive chat with LLM models
@@ -73,17 +74,26 @@ Skill sets are predefined collections of capabilities, tools, and context that c
 
 ### Example Skill Set
 ```yaml
-name: code_review
-description: Skill set for code review tasks
+description: File system operations
 system_message: |
-  You are an expert code reviewer. Your task is to review code for quality, security, and best practices.
+  You are an expert file system assistant. You have access to tools for
+  file operations. When asked to perform operations, be precise and
+  confirm destructive actions.
 tools:
-  - server: filesystem
-    tool: read_file
+  - name: read_file
+    mcp_server: file_system
+    description: Read the contents of a file
     parameters:
-      path: ${FILE_PATH}
+      path: ${file_path}
+  - name: write_file
+    mcp_server: file_system
+    description: Write content to a file
+    parameters:
+      path: ${file_path}
+      content: ${content}
 parameters:
-  FILE_PATH: ""
+  file_path: /default/path.txt
+  content: Default content
 ```
 
 ## Templates
