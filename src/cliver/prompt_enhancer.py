@@ -237,6 +237,7 @@ class Template:
                 result = result.replace(f"{{{key}}}", value)
         # Handle default values: {key:default_value}
         import re
+
         pattern = r"\{([^}:]+):([^}]+)\}"
         matches = re.findall(pattern, result)
         for key, default_value in matches:
@@ -278,6 +279,7 @@ def load_skill_set(skill_set_name: str) -> Optional[SkillSet]:
     logger.warning(f"Skill set {skill_set_name} not found")
     return None
 
+
 def load_template(template_name: str) -> Optional[Template]:
     """
     Load a template by name.
@@ -303,14 +305,17 @@ def load_template(template_name: str) -> Optional[Template]:
         ...     content = template.apply({"user_input": "def hello(): pass"})
     """
     # Supported template file extensions
-    extensions = ['.md', '.txt']
+    extensions = [".md", ".txt"]
     content = _load_with_extensions_of_dirs(template_name, extensions)
     if content:
         return Template(template_name, content)
     logger.warning(f"Template {template_name} not found")
     return None
 
-def _load_with_extensions_of_dirs(file_name: str = None, extensions: List[str] = None, dirs: List[Path] = None) -> Optional[str]:
+
+def _load_with_extensions_of_dirs(
+    file_name: str = None, extensions: List[str] = None, dirs: List[Path] = None
+) -> Optional[str]:
     """
     Load file content with extension and directory search.
 
@@ -349,7 +354,7 @@ def apply_skill_sets_and_template(
     messages: List[BaseMessage],
     skill_set_names: List[str] = None,
     template_name: Optional[str] = None,
-    params: Dict[str, str] = None
+    params: Dict[str, str] = None,
 ) -> tuple[List[BaseMessage], List[Dict[str, Any]]]:
     """
     Apply skill sets and template to enhance the messages.

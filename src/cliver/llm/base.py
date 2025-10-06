@@ -1,10 +1,13 @@
+import logging
 from abc import ABC, abstractmethod
-from cliver.config import ModelConfig
-from cliver.model_capabilities import ModelCapability
-from typing import List, Optional, AsyncIterator
+from typing import AsyncIterator, List, Optional
+
 from langchain_core.messages.base import BaseMessage
 from langchain_core.tools import BaseTool
-import logging
+
+from cliver.config import ModelConfig
+from cliver.media import MediaContent
+from cliver.model_capabilities import ModelCapability
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +35,23 @@ class LLMInferenceEngine(ABC):
         # Default implementation falls back to regular inference
         response = await self.infer(messages, tools)
         yield response
+
+    def extract_media_from_response(self, response: BaseMessage) -> List[MediaContent]:
+        """
+        Extract media content from LLM response.
+
+        This method should be overridden by specific LLM engines to handle
+        their specific response formats for multimedia content.
+
+        Args:
+            response: BaseMessage response from the LLM
+
+        Returns:
+            List of MediaContent objects extracted from the response
+        """
+        # Default implementation returns empty list
+        # Specific engines should override this method
+        return []
 
     def parse_tool_calls(self, response: BaseMessage, model: str) -> list[dict] | None:
         """Parse the tool calls from the response from the LLM."""
@@ -118,8 +138,9 @@ Important:
             and '"tool_calls"' in str(response.content)
         ):
             try:
-                import json_repair
                 import re
+
+                import json_repair
 
                 content_str = str(response.content)
                 # Look for tool_calls pattern in the content

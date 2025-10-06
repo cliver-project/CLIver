@@ -1,3 +1,5 @@
+from typing import Optional
+
 import click
 import json
 from cliver.cli import Cliver, pass_cliver
@@ -233,17 +235,27 @@ def list_llm_models(cliver: Cliver):
         table.add_column("Name", style="green")
         table.add_column("Name In Provider", style="green")
         table.add_column("Provider")
-        table.add_column("API Key", style="red")
         table.add_column("URL")
-        table.add_column("Options", style="blue")
+        table.add_column("Capabilities", style="blue")
+        table.add_column("File Upload", style="yellow")
         for name, model in models.items():
+            # Get model capabilities
+            capabilities = model.get_capabilities()
+
+            # Format capabilities as a comma-separated string
+            capabilities_str = ", ".join([cap.value for cap in capabilities]) if capabilities else "N/A"
+
+            # Check if file upload is supported
+            from cliver.model_capabilities import ModelCapability
+            file_upload_supported = ModelCapability.FILE_UPLOAD in capabilities
+
             table.add_row(
                 model.name,
                 model.name_in_provider,
                 model.provider,
-                model.api_key,
                 model.url,
-                model.options.model_dump_json() if model.options else "",
+                capabilities_str,
+                "Yes" if file_upload_supported else "No",
             )
         cliver.console.print(table)
     else:

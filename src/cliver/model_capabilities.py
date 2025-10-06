@@ -21,6 +21,7 @@ class ModelCapability(Enum):
     TOOL_CALLING = "tool_calling"
     JSON_MODE = "json_mode"
     FUNCTION_CALLING = "function_calling"
+    FILE_UPLOAD = "file_upload"
 
 
 # Provider-specific capability mappings
@@ -32,6 +33,7 @@ PROVIDER_CAPABILITIES = {
         ModelCapability.TOOL_CALLING,
         ModelCapability.FUNCTION_CALLING,
         ModelCapability.JSON_MODE,
+        ModelCapability.FILE_UPLOAD,
     },
     "ollama": {
         ModelCapability.TEXT_TO_TEXT,
@@ -167,6 +169,7 @@ class ModelCapabilities:
             "video_input": ModelCapability.VIDEO_TO_TEXT in self.capabilities,
             "video_output": ModelCapability.TEXT_TO_VIDEO in self.capabilities,
             "tool_calling": ModelCapability.TOOL_CALLING in self.capabilities,
+            "file_upload": ModelCapability.FILE_UPLOAD in self.capabilities,
         }
 
 

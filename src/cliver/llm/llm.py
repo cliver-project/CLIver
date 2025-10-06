@@ -24,8 +24,9 @@ from cliver.llm.base import LLMInferenceEngine
 from cliver.llm.ollama_engine import OllamaLlamaInferenceEngine
 from cliver.llm.openai_engine import OpenAICompatibleInferenceEngine
 from cliver.mcp_server_caller import MCPServersCaller
-from cliver.util import retry_with_confirmation_async, read_context_files
+from cliver.media import load_media_files, load_media_file, MediaType
 from cliver.prompt_enhancer import apply_skill_sets_and_template
+from cliver.util import read_context_files, retry_with_confirmation_async
 
 
 def create_llm_engine(model: ModelConfig) -> Optional[LLMInferenceEngine]:
@@ -96,9 +97,25 @@ class TaskExecutor:
             self.llm_engines[_model.name] = llm_engine
         return llm_engine
 
+    def get_llm_engine(self, model: str = None) -> LLMInferenceEngine:
+        """
+        Get the LLM engine for a specific model.
+
+        Args:
+            model: Model name to get engine for
+
+        Returns:
+            LLMInferenceEngine instance
+        """
+        return self._select_llm_engine(model)
+
     def process_user_input_sync(
         self,
         user_input: str,
+        images: List[str] = None,
+        audio_files: List[str] = None,
+        video_files: List[str] = None,
+        files: List[str] = None,  # General files for tools like code interpreter
         max_iterations: int = 10,
         confirm_tool_exec: bool = False,
         model: str = None,
@@ -119,6 +136,10 @@ class TaskExecutor:
         return asyncio.run(
             self.process_user_input(
                 user_input,
+                images,
+                audio_files,
+                video_files,
+                files,
                 max_iterations,
                 confirm_tool_exec,
                 model,
@@ -135,6 +156,10 @@ class TaskExecutor:
     async def stream_user_input(
         self,
         user_input: str,
+        images: List[str] = None,
+        audio_files: List[str] = None,
+        video_files: List[str] = None,
+        files: List[str] = None,  # General files for tools like code interpreter
         max_iterations: int = 10,
         confirm_tool_exec: bool = False,
         model: str = None,
@@ -156,6 +181,10 @@ class TaskExecutor:
         Stream user input through the LLM, handling tool calls if needed.
         Args:
             user_input (str): The user input.
+            images (List[str]): List of image file paths to send with the message.
+            audio_files (List[str]): List of audio file paths to send with the message.
+            video_files (List[str]): List of video file paths to send with the message.
+            files (List[str]): List of general file paths to upload for tools like code interpreter.
             max_iterations (int): The maximum number of iterations.
             confirm_tool_exec(bool): Ask for confirmation on tool execution.
             model (str): The model to use, the default one will be used if not specified.
@@ -170,11 +199,28 @@ class TaskExecutor:
             params: Parameters for skill sets and templates.
         """
 
-        llm_engine, mcp_tools, messages, skill_set_tools = await self._prepare_messages_and_tools(
-            enhance_prompt, filter_tools, model, system_message_override, user_input,
-            skill_sets, template, params
+        (
+            llm_engine,
+            mcp_tools,
+            messages,
+            skill_set_tools,
+        ) = await self._prepare_messages_and_tools(
+            enhance_prompt,
+            filter_tools,
+            model,
+            system_message_override,
+            user_input,
+            images,
+            audio_files,
+            video_files,
+            files,
+            skill_sets,
+            template,
+            params,
         )
 
+        # Since we've enhanced the infer and stream methods to handle multimedia,
+        # we can always use the regular stream method
         async for chunk in self._stream_messages(
             llm_engine,
             model,
@@ -188,10 +234,34 @@ class TaskExecutor:
             yield chunk
 
     async def _prepare_messages_and_tools(
-        self, enhance_prompt, filter_tools, model, system_message_override, user_input,
-        skill_sets=None, template=None, params=None
+        self,
+        enhance_prompt,
+        filter_tools,
+        model,
+        system_message_override,
+        user_input,
+        images=None,
+        audio_files=None,
+        video_files=None,
+        files=None,  # General files for tools like code interpreter
+        skill_sets=None,
+        template=None,
+        params=None,
     ):
+        logger.info(f"_prepare_messages_and_tools called with files: {files}")
+
+        # Check file upload capability early, before any processing
+        if files:
+            llm_engine = self._select_llm_engine(model)
+            if hasattr(llm_engine, 'config'):
+                capabilities = llm_engine.config.get_capabilities()
+                from cliver.model_capabilities import ModelCapability
+                if ModelCapability.FILE_UPLOAD not in capabilities:
+                    logger.error("File upload is not supported for this model. Please use a model that supports file uploads or remove the --file option.")
+                    raise ValueError("File upload is not supported for this model. Please use a model that supports file uploads or remove the --file option.")
+
         llm_engine = self._select_llm_engine(model)
+        logger.info(f"Selected LLM engine: {type(llm_engine)}")
         # Add system message to instruct the LLM about tool usage
         system_message = llm_engine.system_message()
         if system_message_override:
@@ -232,8 +302,112 @@ class TaskExecutor:
             user_enhanced_messages = await enhance_prompt(user_input, self.mcp_caller)
             messages.extend(user_enhanced_messages)
 
-        # Add the user input
-        messages.append(HumanMessage(content=user_input))
+        # Load media files if provided
+        media_content = []
+
+        # Load image files
+        logger.info(f"loading images: {images}")
+        if images:
+            for image_path in images:
+                try:
+                    print(f"loading image_path: {image_path}")
+                    media_content.append(load_media_file(image_path))
+                except Exception as e:
+                    logger.warning(f"Could not load image file {image_path}: {e}")
+
+        # Load audio files
+        if audio_files:
+            for audio_path in audio_files:
+                try:
+                    media_content.append(load_media_file(audio_path))
+                except Exception as e:
+                    logger.warning(f"Could not load audio file {audio_path}: {e}")
+
+        # Load video files
+        if video_files:
+            for video_path in video_files:
+                try:
+                    media_content.append(load_media_file(video_path))
+                except Exception as e:
+                    logger.warning(f"Could not load video file {video_path}: {e}")
+
+        # Handle file uploads for tools like code interpreter
+        uploaded_file_ids = []
+        if files:
+            logger.info(f"Processing file uploads for files: {files}")
+            # Check if the model supports file uploads through its capabilities
+            if hasattr(llm_engine, 'config'):
+                capabilities = llm_engine.config.get_capabilities()
+                from cliver.model_capabilities import ModelCapability
+                if ModelCapability.FILE_UPLOAD not in capabilities:
+                    logger.error("File upload is not supported for this model. Please use a model that supports file uploads or remove the --file option.")
+                    raise ValueError("File upload is not supported for this model. Please use a model that supports file uploads or remove the --file option.")
+
+            for file_path in files:
+                try:
+                    # Check if this is an OpenAI engine that supports file uploads
+                    if hasattr(llm_engine, 'upload_file'):
+                        file_id = llm_engine.upload_file(file_path)
+                        if file_id:
+                            uploaded_file_ids.append(file_id)
+                            logger.info(f"Uploaded file {file_path} with ID {file_id}")
+                        else:
+                            logger.warning(f"Failed to upload file {file_path}")
+                    else:
+                        logger.info(f"LLM engine doesn't support file uploads, skipping {file_path}")
+                except Exception as e:
+                    logger.warning(f"Could not upload file {file_path}: {e}. Please check the configuration if the capability is enabled.")
+            logger.info(f"Completed file uploads. Uploaded file IDs: {uploaded_file_ids}")
+
+        # Add the user input with media content and file references
+        if media_content or uploaded_file_ids:
+            # Create a human message with media content and file references
+            content_parts = []
+
+            # Add text content
+            content_parts.append({"type": "text", "text": user_input})
+
+            # Add media content
+            for media in media_content:
+                if media.type == MediaType.IMAGE:
+                    content_parts.append(
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:{media.mime_type};base64,{media.data}"
+                            },
+                        }
+                    )
+                # For audio/video, add as text descriptions
+                elif media.type == MediaType.AUDIO:
+                    content_parts.append(
+                        {
+                            "type": "text",
+                            "text": f"[Audio file: {media.filename}]",
+                        }
+                    )
+                elif media.type == MediaType.VIDEO:
+                    content_parts.append(
+                        {
+                            "type": "text",
+                            "text": f"[Video file: {media.filename}]",
+                        }
+                    )
+
+            # Add file references for uploaded files
+            if uploaded_file_ids:
+                content_parts.append(
+                    {
+                        "type": "text",
+                        "text": f"\n\nUploaded files for reference: {', '.join(uploaded_file_ids)}"
+                    }
+                )
+
+            human_message = HumanMessage(content=content_parts)
+            messages.append(human_message)
+        else:
+            # Add the user input as a regular message
+            messages.append(HumanMessage(content=user_input))
 
         return llm_engine, mcp_tools, messages, skill_set_tools
 
@@ -241,6 +415,10 @@ class TaskExecutor:
     async def process_user_input(
         self,
         user_input: str,
+        images: List[str] = None,
+        audio_files: List[str] = None,
+        video_files: List[str] = None,
+        files: List[str] = None,  # General files for tools like code interpreter
         max_iterations: int = 10,
         confirm_tool_exec: bool = False,
         model: str = None,
@@ -262,6 +440,10 @@ class TaskExecutor:
         Process user input through the LLM, handling tool calls if needed.
         Args:
             user_input (str): The user input.
+            images (List[str]): List of image file paths to send with the message.
+            audio_files (List[str]): List of audio file paths to send with the message.
+            video_files (List[str]): List of video file paths to send with the message.
+            files (List[str]): List of general file paths to upload for tools like code interpreter.
             max_iterations (int): The maximum number of iterations.
             confirm_tool_exec(bool): Ask for confirmation on tool execution.
             model (str): The model to use, the default one will be used if not specified.
@@ -276,11 +458,28 @@ class TaskExecutor:
             params: Parameters for skill sets and templates.
         """
 
-        llm_engine, mcp_tools, messages, skill_set_tools = await self._prepare_messages_and_tools(
-            enhance_prompt, filter_tools, model, system_message_override, user_input,
-            skill_sets, template, params
+        (
+            llm_engine,
+            mcp_tools,
+            messages,
+            skill_set_tools,
+        ) = await self._prepare_messages_and_tools(
+            enhance_prompt,
+            filter_tools,
+            model,
+            system_message_override,
+            user_input,
+            images,
+            audio_files,
+            video_files,
+            files,
+            skill_sets,
+            template,
+            params,
         )
 
+        # Since we've enhanced the infer and stream methods to handle multimedia,
+        # we can always use the regular infer method
         return await self._process_messages(
             llm_engine,
             model,
@@ -304,13 +503,18 @@ class TaskExecutor:
         tool_error_check: Optional[
             Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]
         ] = None,
+        infer_method: Optional[Callable] = None,
     ) -> BaseMessage:
         """Handle processing messages with tool calling using a while loop."""
         iteration = current_iteration
 
+        # Use custom inference method if provided, otherwise use default
+        if infer_method is None:
+            infer_method = llm_engine.infer
+
         while iteration < max_iterations:
             # Get response from LLM
-            response = await llm_engine.infer(messages, mcp_tools)
+            response = await infer_method(messages, mcp_tools)
             logger.debug(f"LLM response: {response}")
             # Handle different response types
             tool_calls = llm_engine.parse_tool_calls(response, model)
@@ -418,6 +622,7 @@ class TaskExecutor:
         tool_error_check: Optional[
             Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]
         ],
+        stream_method: Optional[Callable] = None,
     ) -> AsyncIterator[BaseMessage]:
         """Handle streaming messages with tool calling."""
         iteration = current_iteration
@@ -427,13 +632,18 @@ class TaskExecutor:
             '{"tool_calls"',
             "'tool_calls'",
         ]
+
+        # Use custom streaming method if provided, otherwise use default
+        if stream_method is None:
+            stream_method = llm_engine.stream
+
         while iteration < max_iterations:
             # Stream response from LLM
             accumulated_content = ""
             tool_call_buffer = ""  # Buffer specifically for tool call detection
             last_yield_time = 0
 
-            async for chunk in llm_engine.stream(messages, mcp_tools):
+            async for chunk in stream_method(messages, mcp_tools):
                 current_time = time.time()
 
                 # Accumulate content from chunks to handle incomplete tool calls
