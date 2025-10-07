@@ -38,7 +38,7 @@ class Cliver:
         self.config_manager = ConfigManager(self.config_dir)
         self.task_executor = TaskExecutor(
             llm_models=self.config_manager.list_llm_models(),
-            mcp_servers=self.config_manager.list_mcp_servers(),
+            mcp_servers=self.config_manager.list_mcp_servers_for_mcp_caller(),
             default_model=self.config_manager.get_llm_model(),
         )
         # prepare console for interaction

@@ -2,15 +2,14 @@
 Configuration module for Cliver client.
 """
 
-from pathlib import Path
-from typing import Dict, List, Optional, Set
-
 import json
+from pathlib import Path
+from typing import Dict, List, Optional, Set, Union
+
 from pydantic import BaseModel, Field
 
 # Import model capabilities
 from cliver.model_capabilities import ModelCapability, ModelCapabilityDetector
-
 
 class ModelOptions(BaseModel):
     temperature: float = Field(0.9, description="Sampling temperature")
@@ -33,9 +32,12 @@ class ModelConfig(BaseModel):
         None, description="Model capabilities"
     )
 
+    model_config = {"extra": "allow"}
+
     def get_capabilities(self) -> Set[ModelCapability]:
         """
-        Get the model's capabilities. If not explicitly set, detect based on provider and model name.
+        Get the model's capabilities. If not explicitly set, detect based on
+        provider and model name.
 
         Returns:
             Set of ModelCapability enums representing the model's capabilities
@@ -50,18 +52,81 @@ class ModelConfig(BaseModel):
         )
         return capabilities.capabilities
 
+    def model_dump(self, **kwargs):
+        """Override to exclude name field and null values."""
+        data = super().model_dump(**kwargs)
+        # Remove name field since it's redundant (key in models dict)
+        data.pop("name", None)
+        # Remove null values
+        return {k: v for k, v in data.items() if v is not None}
+
+
+class MCPServerConfig(BaseModel):
+    """Base class for MCP server configurations."""
+
+    name: str
+    transport: str
+
+    model_config = {"extra": "allow"}
+
+    def model_dump(self, **kwargs):
+        """Override to exclude name field and null values."""
+        data = super().model_dump(**kwargs)
+        # Remove name field since it's redundant (key in mcpServers dict)
+        data.pop("name", None)
+        # Remove null values
+        return {k: v for k, v in data.items() if v is not None}
+
+
+class StdioMCPServerConfig(MCPServerConfig):
+    """Configuration for stdio MCP servers."""
+
+    transport: str = "stdio"
+    command: str
+    args: Optional[List[str]] = None
+    env: Optional[Dict[str, str]] = None
+
+
+class SSEMCPServerConfig(MCPServerConfig):
+    """Configuration for SSE MCP servers (deprecated)."""
+
+    transport: str = "sse"
+    url: str
+    headers: Optional[Dict[str, str]] = None
+
+
+class StreamableHttpMCPServerConfig(MCPServerConfig):
+    """Configuration for Streamable HTTP MCP servers."""
+
+    transport: str = "streamable_http"
+    url: str
+    headers: Optional[Dict[str, str]] = None
+
+
+class WebSocketMCPServerConfig(MCPServerConfig):
+    """Configuration for WebSocket MCP servers."""
+
+    transport: str = "websocket"
+    url: str
+    headers: Optional[Dict[str, str]] = None
+
 
 class SecretsConfig(BaseModel):
     vault_path: str
     references: Dict[str, str]
 
-
 class AppConfig(BaseModel):
-    mcpServers: Dict[str, Dict] = {}
+    mcpServers: Dict[str, MCPServerConfig] = {}
     default_server: Optional[str] = None
     models: Dict[str, ModelConfig] = {}
     default_model: Optional[str] = None
     secrets: Optional[SecretsConfig] = None
+
+    def model_dump(self, **kwargs):
+        """Override to exclude null values."""
+        data = super().model_dump(**kwargs)
+        # Remove null values
+        return {k: v for k, v in data.items() if v is not None}
 
 
 class ConfigManager:
@@ -93,11 +158,55 @@ class ConfigManager:
                 if not file_content or not file_content.strip():
                     return AppConfig()
                 config_data = json.loads(file_content)
+
                 # Ensure each ModelConfig has its name set from the key
                 if "models" in config_data and isinstance(config_data["models"], dict):
                     for name, model in config_data["models"].items():
                         if isinstance(model, dict):
                             model["name"] = name
+
+                mcp_servers_data = config_data.get("mcpServers")
+                if mcp_servers_data and isinstance(mcp_servers_data, dict):
+                    converted_servers = {}
+                    for name, server in mcp_servers_data.items():
+                        if isinstance(server, dict):
+                            # Remove name from server dict to avoid
+                            # duplicate keyword argument
+                            server_dict = server.copy()
+                            server_dict.pop("name", None)
+                            transport = server_dict.get("transport")
+                            server_config = {"name": name, **server_dict}
+                            if transport == "stdio":
+                                # Convert dict to StdioMCPServerConfig
+                                converted_servers[name] = StdioMCPServerConfig(
+                                    **server_config
+                                )
+                            elif transport == "sse":
+                                # Convert dict to SSEMCPServerConfig
+                                converted_servers[name] = SSEMCPServerConfig(
+                                    **server_config
+                                )
+                            elif transport == "streamable_http":
+                                # Convert dict to StreamableHttpMCPServerConfig
+                                converted_servers[name] = StreamableHttpMCPServerConfig(
+                                    **server_config
+                                )
+                            elif transport == "websocket":
+                                # Convert dict to WebSocketMCPServerConfig
+                                converted_servers[name] = WebSocketMCPServerConfig(
+                                    **server_config
+                                )
+                            else:
+                                # For unknown transport types, create base
+                                # MCPServerConfig
+                                converted_servers[name] = MCPServerConfig(
+                                    **server_config
+                                )
+                        else:
+                            # Already an MCPServerConfig object
+                            converted_servers[name] = server
+                    config_data["mcpServers"] = converted_servers
+
                 config = AppConfig(**config_data)
                 return config
         except Exception as e:
@@ -105,16 +214,35 @@ class ConfigManager:
             return AppConfig()
 
     def _save_config(self) -> None:
-        """Save configuration to file.
-
-        Args:
-            config: Client configuration
-        """
+        """Save configuration to file."""
         try:
             if not self.config_dir.exists():
                 self.config_dir.mkdir(parents=True, exist_ok=True)
+
+            # Use the AppConfig's model_dump method which excludes null values
+            config_data = self.config.model_dump()
+
+            # Handle MCP servers serialization to preserve all fields and
+            # exclude redundant name
+            if "mcpServers" in config_data:
+                serialized_servers = {}
+                for name, server in self.config.mcpServers.items():
+                    # Use the server's own model_dump to preserve all fields
+                    # and exclude redundant name
+                    serialized_servers[name] = server.model_dump()
+                config_data["mcpServers"] = serialized_servers
+
+            # Handle models serialization to exclude redundant name
+            if "models" in config_data:
+                serialized_models = {}
+                for name, model in self.config.models.items():
+                    # Use the model's own model_dump to preserve all fields
+                    # and exclude redundant name
+                    serialized_models[name] = model.model_dump()
+                config_data["models"] = serialized_models
+
             with open(self.config_file, "w") as f:
-                json.dump(self.config.model_dump(), f, indent=4, sort_keys=True)
+                json.dump(config_data, f, indent=4, sort_keys=True)
 
         except Exception as e:
             print(f"Error saving configuration: {e}")
@@ -122,7 +250,7 @@ class ConfigManager:
     def add_or_update_stdio_mcp_server(
         self,
         name: str,
-        command: str = None,
+        command: str,
         args: List[str] = None,
         env: Optional[Dict[str, str]] = None,
     ) -> None:
@@ -135,41 +263,48 @@ class ConfigManager:
             env: Environment variables
         """
         # Create server config
-        server = {
-            "transport": "stdio",
-            "command": command,
-            "args": args,
-            "env": env,
-        }
+        server_config = {"name": name, "command": command}
+        if args is not None:
+            # noinspection PyTypeChecker
+            server_config["args"] = args
+        if env is not None:
+            # noinspection PyTypeChecker
+            server_config["env"] = env
+        server = StdioMCPServerConfig(**server_config)
         self.add_or_update_server(name, server)
 
-    def add_or_update_server(self, name: str, server: Dict) -> None:
+    def add_or_update_server(
+        self, name: str, server: Union[Dict, MCPServerConfig]
+    ) -> None:
         """Add or update a server in the configuration.
 
         Args:
             name: Server name
-            server: Server configuration
+            server: Server configuration (either as dict or MCPServerConfig)
         """
+        # Convert dict to appropriate server config type if needed
+        if isinstance(server, dict):
+            transport = server.get("transport")
+            if transport == "stdio":
+                server = StdioMCPServerConfig(name=name, **server)
+            elif transport == "sse":
+                server = SSEMCPServerConfig(name=name, **server)
+            elif transport == "streamable_http":
+                server = StreamableHttpMCPServerConfig(name=name, **server)
+            elif transport == "websocket":
+                server = WebSocketMCPServerConfig(name=name, **server)
+            else:
+                raise ValueError(f"Unsupported transport type: {transport}")
+
         # Check if server already exists
         if name in self.config.mcpServers:
-            server_in_config = self.config.mcpServers[name]
-            if server_in_config.get("transport") != server.get("transport"):
+            existing_server = self.config.mcpServers[name]
+            if existing_server.transport != server.transport:
                 raise ValueError(
                     f"Server with name {name} already exists with a different type."
                 )
             # Update existing server
-            if server.get("transport") == "stdio":
-                if server.get("command"):
-                    server_in_config["command"] = server.get("command")
-                if server.get("args"):
-                    server_in_config["args"] = server.get("args")
-                if server.get("env"):
-                    server_in_config["env"] = server.get("env")
-            elif server.get("transport") == "sse":
-                if server.get("url"):
-                    server_in_config["url"] = server.get("url")
-                if server.get("headers"):
-                    server_in_config["headers"] = server.get("headers")
+            self.config.mcpServers[name] = server
         else:
             # Add new server
             self.config.mcpServers[name] = server
@@ -181,9 +316,9 @@ class ConfigManager:
         self._save_config()
 
     def add_or_update_sse_mcp_server(
-        self, name: str, url: str = None, headers: Optional[Dict[str, str]] = None
+        self, name: str, url: str, headers: Optional[Dict[str, str]] = None
     ) -> None:
-        """Add a SSE server to the configuration.
+        """Add a SSE server to the configuration (deprecated, use streamable instead).
 
         Args:
             name: Server name
@@ -191,11 +326,47 @@ class ConfigManager:
             headers: Headers for the server
         """
         # Create server config
-        server = {
-            "transport": "sse",
-            "url": url,
-            "headers": headers,
-        }
+        server_config = {"name": name, "url": url}
+        if headers is not None:
+            # noinspection PyTypeChecker
+            server_config["headers"] = headers
+        server = SSEMCPServerConfig(**server_config)
+        self.add_or_update_server(name, server)
+
+    def add_or_update_streamable_mcp_server(
+        self, name: str, url: str, headers: Optional[Dict[str, str]] = None
+    ) -> None:
+        """Add a Streamable HTTP server to the configuration.
+
+        Args:
+            name: Server name
+            url: Server URL
+            headers: Headers for the server
+        """
+        # Create server config
+        server_config = {"name": name, "url": url}
+        if headers is not None:
+            # noinspection PyTypeChecker
+            server_config["headers"] = headers
+        server = StreamableHttpMCPServerConfig(**server_config)
+        self.add_or_update_server(name, server)
+
+    def add_or_update_websocket_mcp_server(
+        self, name: str, url: str, headers: Optional[Dict[str, str]] = None
+    ) -> None:
+        """Add a WebSocket server to the configuration.
+
+        Args:
+            name: Server name
+            url: Server URL
+            headers: Headers for the server
+        """
+        # Create server config
+        server_config = {"name": name, "url": url}
+        if headers is not None:
+            # noinspection PyTypeChecker
+            server_config["headers"] = headers
+        server = WebSocketMCPServerConfig(**server_config)
         self.add_or_update_server(name, server)
 
     def remove_mcp_server(self, name: str) -> bool:
@@ -215,7 +386,7 @@ class ConfigManager:
             # Update default server if needed
             if self.config.default_server == name:
                 self.config.default_server = (
-                    self.config.mcpServers.keys()[0] if self.config.mcpServers else None
+                    None if not self.config.mcpServers else next(iter(self.config.mcpServers))
                 )
 
             # Save config
@@ -224,7 +395,7 @@ class ConfigManager:
 
         return False
 
-    def get_mcp_server(self, name: Optional[str] = None) -> Optional[Dict]:
+    def get_mcp_server(self, name: Optional[str] = None) -> Optional[MCPServerConfig]:
         """Get a server configuration.
 
         Args:
@@ -261,13 +432,25 @@ class ConfigManager:
 
         return False
 
-    def list_mcp_servers(self) -> Dict[str, Dict]:
+    def list_mcp_servers(self) -> Dict[str, MCPServerConfig]:
         """List all mcp servers.
 
         Returns:
             List of mcp server information
         """
         return self.config.mcpServers
+
+    def list_mcp_servers_for_mcp_caller(self) -> Dict[str, Dict]:
+        """List all mcp servers as dictionaries for the MCP caller.
+
+        Returns:
+            List of mcp server information as dictionaries
+        """
+        # Convert Pydantic models to dictionaries for compatibility with
+        # MCP server caller
+        return {
+            name: server.model_dump() for name, server in self.config.mcpServers.items()
+        }
 
     def list_llm_models(self) -> Dict[str, ModelConfig]:
         """List all LLM Models"""
@@ -285,6 +468,7 @@ class ConfigManager:
         if not self.config.models:
             self.config.models = {}
         if name in self.config.models:
+            # update as it is already in the config
             llm = self.config.models[name]
             if provider:
                 llm.provider = provider
@@ -293,6 +477,7 @@ class ConfigManager:
             if name_in_provider:
                 llm.name_in_provider = name_in_provider
         else:
+            # create a new config for LLM
             llm = ModelConfig(name=name, provider=provider, url=url)
             self.config.models[name] = llm
             if self.config.default_model is None:
@@ -308,7 +493,7 @@ class ConfigManager:
             try:
                 options_json = json.loads(options)
                 llm.options = ModelOptions(**options_json)
-            except:
+            except Exception:
                 # fall backs to default
                 llm.options = ModelOptions(temperature=0.7, top_p=0.9, max_tokens=4096)
         self._save_config()
@@ -321,7 +506,7 @@ class ConfigManager:
             # Update default model if needed
             if self.config.default_model == name:
                 self.config.default_model = (
-                    self.config.models.keys()[0] if self.config.models else None
+                    next(iter(self.config.models)) if self.config.models else None
                 )
 
             # Save config

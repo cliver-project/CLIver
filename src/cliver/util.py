@@ -207,3 +207,45 @@ def read_context_files(base_path: str = ".", file_filter: list[str] = None) -> s
                 logging.warning(f"Could not read {filename}: {e}")
 
     return context.strip()
+
+
+def parse_key_value_options(option_list: tuple, console=None) -> dict:
+    """
+    Parse a list of key=value strings into a dictionary with appropriate type conversion.
+
+    Args:
+        option_list: Tuple of strings in key=value format
+        console: Optional console object for printing warnings
+
+    Returns:
+        Dictionary with parsed key-value pairs
+    """
+    options_dict = {}
+
+    if not option_list:
+        return options_dict
+
+    for opt in option_list:
+        if "=" in opt:
+            key, value = opt.split("=", 1)
+            # Try to convert value to appropriate type
+            try:
+                # Try integer first
+                if "." not in value and value.isdigit():
+                    options_dict[key] = int(value)
+                # Try float
+                elif "." in value and all(c.isdigit() or c == "." for c in value):
+                    options_dict[key] = float(value)
+                # Keep as string
+                else:
+                    options_dict[key] = value
+            except ValueError:
+                options_dict[key] = value
+        else:
+            # Print warning if console is provided
+            if console:
+                console.print(
+                    f"Warning: Invalid option format '{opt}', expected key=value"
+                )
+
+    return options_dict
