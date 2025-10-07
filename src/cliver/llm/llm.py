@@ -24,7 +24,7 @@ from cliver.llm.base import LLMInferenceEngine
 from cliver.llm.ollama_engine import OllamaLlamaInferenceEngine
 from cliver.llm.openai_engine import OpenAICompatibleInferenceEngine
 from cliver.mcp_server_caller import MCPServersCaller
-from cliver.media import load_media_files, load_media_file, MediaType
+from cliver.media import load_media_file
 from cliver.prompt_enhancer import apply_skill_sets_and_template
 from cliver.util import read_context_files, retry_with_confirmation_async
 
@@ -81,13 +81,7 @@ class TaskExecutor:
         return self.mcp_caller
 
     def _select_llm_engine(self, model: str = None) -> LLMInferenceEngine:
-        if model and model in self.llm_models:
-            _model = self.llm_models[model]
-        else:
-            _model = self.default_model
-        if not _model:
-            models = [v for _, v in self.llm_models.items()]
-            _model = models[0] if len(models) > 0 else None
+        _model = self._get_llm_model(model)
         if not _model:
             raise RuntimeError(f"No model named {model}.")
         if _model.name in self.llm_engines:
@@ -96,6 +90,13 @@ class TaskExecutor:
             llm_engine = create_llm_engine(_model)
             self.llm_engines[_model.name] = llm_engine
         return llm_engine
+
+    def _get_llm_model(self, model: str | None) -> ModelConfig:
+        if model:
+            _model = self.llm_models.get(model)
+        else:
+            _model = self.default_model
+        return _model
 
     def get_llm_engine(self, model: str = None) -> LLMInferenceEngine:
         """
@@ -257,8 +258,7 @@ class TaskExecutor:
                 capabilities = llm_engine.config.get_capabilities()
                 from cliver.model_capabilities import ModelCapability
                 if ModelCapability.FILE_UPLOAD not in capabilities:
-                    logger.error("File upload is not supported for this model. Please use a model that supports file uploads or remove the --file option.")
-                    raise ValueError("File upload is not supported for this model. Please use a model that supports file uploads or remove the --file option.")
+                    logger.info("File upload is not supported for this model. Will use content embedding as fallback.")
 
         llm_engine = self._select_llm_engine(model)
         logger.info(f"Selected LLM engine: {type(llm_engine)}")
@@ -310,7 +310,6 @@ class TaskExecutor:
         if images:
             for image_path in images:
                 try:
-                    print(f"loading image_path: {image_path}")
                     media_content.append(load_media_file(image_path))
                 except Exception as e:
                     logger.warning(f"Could not load image file {image_path}: {e}")
@@ -333,66 +332,55 @@ class TaskExecutor:
 
         # Handle file uploads for tools like code interpreter
         uploaded_file_ids = []
+        embedded_files_content = []
         if files:
             logger.info(f"Processing file uploads for files: {files}")
             # Check if the model supports file uploads through its capabilities
-            if hasattr(llm_engine, 'config'):
-                capabilities = llm_engine.config.get_capabilities()
+            file_upload_supported = False
+            model_config = self._get_llm_model(model)
+            if model_config:
+                capabilities = model_config.get_capabilities()
                 from cliver.model_capabilities import ModelCapability
-                if ModelCapability.FILE_UPLOAD not in capabilities:
-                    logger.error("File upload is not supported for this model. Please use a model that supports file uploads or remove the --file option.")
-                    raise ValueError("File upload is not supported for this model. Please use a model that supports file uploads or remove the --file option.")
+                file_upload_supported = ModelCapability.FILE_UPLOAD in capabilities
 
-            for file_path in files:
-                try:
-                    # Check if this is an OpenAI engine that supports file uploads
-                    if hasattr(llm_engine, 'upload_file'):
-                        file_id = llm_engine.upload_file(file_path)
-                        if file_id:
-                            uploaded_file_ids.append(file_id)
-                            logger.info(f"Uploaded file {file_path} with ID {file_id}")
+            if not file_upload_supported:
+                logger.info("File upload is not supported for this model. Will embed file contents in the prompt instead.")
+                # Fallback: embed file contents directly in the prompt
+                for file_path in files:
+                    try:
+                        # Import here to avoid circular imports
+                        from cliver.util import read_file_content
+                        file_content = read_file_content(file_path)
+                        embedded_files_content.append((file_path, file_content))
+                        logger.info(f"Embedded content of file {file_path} in prompt")
+                    except Exception as e:
+                        logger.warning(f"Could not read file {file_path} for embedding: {e}")
+            else:
+                # Original file upload logic
+                for file_path in files:
+                    try:
+                        # Check if this is an OpenAI engine that supports file uploads
+                        if hasattr(llm_engine, 'upload_file'):
+                            file_id = llm_engine.upload_file(file_path)
+                            if file_id:
+                                uploaded_file_ids.append(file_id)
+                                logger.info(f"Uploaded file {file_path} with ID {file_id}")
+                            else:
+                                logger.warning(f"Failed to upload file {file_path}")
                         else:
-                            logger.warning(f"Failed to upload file {file_path}")
-                    else:
-                        logger.info(f"LLM engine doesn't support file uploads, skipping {file_path}")
-                except Exception as e:
-                    logger.warning(f"Could not upload file {file_path}: {e}. Please check the configuration if the capability is enabled.")
-            logger.info(f"Completed file uploads. Uploaded file IDs: {uploaded_file_ids}")
+                            logger.info(f"LLM engine doesn't support file uploads, skipping {file_path}")
+                    except Exception as e:
+                        logger.warning(f"Could not upload file {file_path}: {e}. Please check the configuration if the capability is enabled.")
+                logger.info(f"Completed file uploads. Uploaded file IDs: {uploaded_file_ids}")
 
         # Add the user input with media content and file references
-        if media_content or uploaded_file_ids:
+        if media_content or uploaded_file_ids or embedded_files_content:
             # Create a human message with media content and file references
-            content_parts = []
+            content_parts = [{"type": "text", "text": user_input}]
 
-            # Add text content
-            content_parts.append({"type": "text", "text": user_input})
-
-            # Add media content
-            for media in media_content:
-                if media.type == MediaType.IMAGE:
-                    content_parts.append(
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:{media.mime_type};base64,{media.data}"
-                            },
-                        }
-                    )
-                # For audio/video, add as text descriptions
-                elif media.type == MediaType.AUDIO:
-                    content_parts.append(
-                        {
-                            "type": "text",
-                            "text": f"[Audio file: {media.filename}]",
-                        }
-                    )
-                elif media.type == MediaType.VIDEO:
-                    content_parts.append(
-                        {
-                            "type": "text",
-                            "text": f"[Video file: {media.filename}]",
-                        }
-                    )
+            # Add media content using shared utility function
+            from cliver.media import add_media_content_to_message_parts
+            add_media_content_to_message_parts(content_parts, media_content)
 
             # Add file references for uploaded files
             if uploaded_file_ids:
@@ -402,6 +390,18 @@ class TaskExecutor:
                         "text": f"\n\nUploaded files for reference: {', '.join(uploaded_file_ids)}"
                     }
                 )
+
+            # Add embedded file contents for models that don't support file uploads
+            if embedded_files_content:
+                content_parts.append({
+                    "type": "text",
+                    "text": "\n\nThe following files have been provided for context:"
+                })
+                for file_path, file_content in embedded_files_content:
+                    content_parts.append({
+                        "type": "text",
+                        "text": f"\n\nFile: {file_path}\nContent:\n```\n{file_content}\n```"
+                    })
 
             human_message = HumanMessage(content=content_parts)
             messages.append(human_message)

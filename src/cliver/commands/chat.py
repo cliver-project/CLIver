@@ -114,8 +114,7 @@ def chat(
         if len(file) > 0 and not llm_engine.supports_capability(
             ModelCapability.FILE_UPLOAD
         ):
-            click.echo(f"Model '{model}' does not support file uploads.")
-            return 1
+            click.echo(f"Model '{model}' does not support file uploads. Will embed file contents in the prompt.")
 
         if len(image) > 0 and not llm_engine.supports_capability(
             ModelCapability.IMAGE_TO_TEXT
@@ -235,8 +234,7 @@ def _async_chat(
         if "File upload is not supported" in str(e):
             click.echo(f"Error: {e}")
             click.echo(
-                "Please configure your model with --supports-file-upload flag "
-                "or remove the --file option."
+                "Will use content embedding as fallback."
             )
         else:
             raise
@@ -322,8 +320,7 @@ async def _stream_chat(
         if "File upload is not supported" in str(e):
             click.echo(f"Error: {e}")
             click.echo(
-                "Please configure your model with --supports-file-upload flag "
-                "or remove the --file option."
+                "Will use content embedding as fallback."
             )
         else:
             raise

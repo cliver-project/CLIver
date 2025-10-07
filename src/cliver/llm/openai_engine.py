@@ -217,33 +217,9 @@ class OpenAICompatibleInferenceEngine(LLMInferenceEngine):
                         content_parts.append(
                             {"type": "text", "text": message.content})
 
-                    # Add media content in OpenAI format
-                    for media in message.media_content:
-                        if media.type == MediaType.IMAGE:
-                            content_parts.append(
-                                {
-                                    "type": "image_url",
-                                    "image_url": {
-                                        "url": f"data:{media.mime_type};base64,{media.data}"
-                                    },
-                                }
-                            )
-                        # For audio/video, add as text descriptions
-                        # TODO: better support on audio and video
-                        elif media.type == MediaType.AUDIO:
-                            content_parts.append(
-                                {
-                                    "type": "text",
-                                    "text": f"[Audio file: {media.filename}]",
-                                }
-                            )
-                        elif media.type == MediaType.VIDEO:
-                            content_parts.append(
-                                {
-                                    "type": "text",
-                                    "text": f"[Video file: {media.filename}]",
-                                }
-                            )
+                    # Add media content using shared utility function
+                    from cliver.media import add_media_content_to_message_parts
+                    add_media_content_to_message_parts(content_parts, message.media_content)
 
                     # Create new message with OpenAI standard format
                     converted_message = HumanMessage(content=content_parts)

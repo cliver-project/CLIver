@@ -8,7 +8,7 @@ import mimetypes
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 
 class MediaType(Enum):
@@ -198,3 +198,38 @@ def load_media_files(file_paths: List[str]) -> List[MediaContent]:
 
             logging.warning(f"Could not load media file {file_path}: {e}")
     return media_content
+
+
+def add_media_content_to_message_parts(content_parts: List[Dict], media_content: List[MediaContent]) -> None:
+    """
+    Add media content to message parts in the standard format.
+
+    Args:
+        content_parts: List of content parts to append to
+        media_content: List of MediaContent objects to add
+    """
+    for media in media_content:
+        if media.type == MediaType.IMAGE:
+            content_parts.append(
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:{media.mime_type};base64,{media.data}"
+                    },
+                }
+            )
+        # For audio/video, add as text descriptions
+        elif media.type == MediaType.AUDIO:
+            content_parts.append(
+                {
+                    "type": "text",
+                    "text": f"[Audio file: {media.filename}]",
+                }
+            )
+        elif media.type == MediaType.VIDEO:
+            content_parts.append(
+                {
+                    "type": "text",
+                    "text": f"[Video file: {media.filename}]",
+                }
+            )

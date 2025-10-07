@@ -249,3 +249,45 @@ def parse_key_value_options(option_list: tuple, console=None) -> dict:
                 )
 
     return options_dict
+
+
+def read_file_content(file_path: str, max_size: int = 100000) -> str:
+    """
+    Read the content of a file and return it as a string.
+
+    Args:
+        file_path: Path to the file to read
+        max_size: Maximum file size to read in bytes (default: 100KB)
+
+    Returns:
+        String content of the file
+
+    Raises:
+        FileNotFoundError: If the file doesn't exist
+        ValueError: If the file is too large or cannot be read as text
+    """
+    import os
+
+    # Check if file exists
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f"File not found: {file_path}")
+
+    # Check file size
+    file_size = os.path.getsize(file_path)
+    if file_size > max_size:
+        raise ValueError(f"File is too large ({file_size} bytes). Maximum allowed size is {max_size} bytes.")
+
+    # Try to read as text with common encodings
+    encodings = ['utf-8', 'utf-16', 'latin-1']
+
+    for encoding in encodings:
+        try:
+            with open(file_path, 'r', encoding=encoding) as f:
+                content = f.read()
+                return content
+        except UnicodeDecodeError:
+            continue
+        except Exception as e:
+            raise ValueError(f"Error reading file {file_path}: {str(e)}")
+
+    raise ValueError(f"Unable to read file {file_path} with any of the supported encodings: {encodings}")
