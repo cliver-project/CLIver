@@ -11,6 +11,7 @@ from cliver.config import (
     StreamableHttpMCPServerConfig,
     WebSocketMCPServerConfig,
 )
+from cliver.model_capabilities import ProviderEnum
 
 
 @click.group(name="config", help="Manage configuration settings.")
@@ -147,8 +148,8 @@ def set_mcp_server(
 @click.option(
     "--transport",
     "-t",
-    required=True,
     type=click.Choice(["stdio", "sse", "streamable", "websocket"]),
+    default="stdio",
     help="Transport of the MCP server (sse is deprecated, use streamable instead)",
 )
 @click.option(
@@ -355,7 +356,7 @@ def remove_llm_model(cliver: Cliver, name: str):
 @click.option(
     "--provider",
     "-p",
-    type=str,
+    type=click.Choice([p.value for p in ProviderEnum]),
     required=True,
     help="The provider of the LLM Model",
 )
@@ -431,7 +432,7 @@ def add_llm_model(
 @click.option(
     "--provider",
     "-p",
-    type=str,
+    type=click.Choice([p.value for p in ProviderEnum]),
     help="The provider of the LLM Model",
 )
 @click.option(

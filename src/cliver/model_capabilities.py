@@ -8,6 +8,14 @@ from enum import Enum
 from typing import Dict, Set
 
 
+class ProviderEnum(str, Enum):
+    """Enumeration of supported LLM providers."""
+
+    OLLAMA = "ollama"
+    OPENAI = "openai"
+    VLLM = "vllm"
+
+
 class ModelCapability(Enum):
     """Enumeration of model capabilities."""
 

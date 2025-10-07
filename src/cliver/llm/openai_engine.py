@@ -1,8 +1,6 @@
 import json
 import logging
-import os
 from typing import AsyncIterator, List, Optional, Dict, Any
-from pathlib import Path
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.tools import BaseTool
@@ -14,8 +12,6 @@ from cliver.llm.base import LLMInferenceEngine
 from cliver.llm.media_utils import (
     extract_data_urls,
     data_url_to_media_content,
-    extract_media_from_json,
-    get_file_extension
 )
 from cliver.media import MediaContent, MediaType
 from cliver.model_capabilities import ModelCapability
