@@ -9,7 +9,8 @@ from typing import Dict, List, Optional, Set, Union
 from pydantic import BaseModel, Field
 
 # Import model capabilities
-from cliver.model_capabilities import ModelCapability, ModelCapabilityDetector
+from cliver.model_capabilities import ModelCapability, ModelCapabilityDetector, ModelCapabilities
+
 
 class ModelOptions(BaseModel):
     temperature: float = Field(0.9, description="Sampling temperature")
@@ -46,11 +47,15 @@ class ModelConfig(BaseModel):
             return self.capabilities
 
         # If capabilities not explicitly set, detect them
+        capabilities = self.get_model_capabilities()
+        return capabilities.capabilities
+
+    def get_model_capabilities(self) -> ModelCapabilities:
         detector = ModelCapabilityDetector()
         capabilities = detector.detect_capabilities(
             self.provider, self.name_in_provider or self.name
         )
-        return capabilities.capabilities
+        return capabilities
 
     def model_dump(self, **kwargs):
         """Override to exclude name field and null values."""

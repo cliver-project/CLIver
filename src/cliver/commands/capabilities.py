@@ -42,7 +42,7 @@ def capabilities(cli: Cliver, model: str = None, detailed: bool = False):
         table.add_column("Tools", style="red")
 
         for model_name, model_config in models.items():
-            capabilities = model_config.get_capabilities()
+            capabilities = model_config.get_model_capabilities()
             modality_caps = capabilities.get_modality_capabilities()
             table.add_row(
                 model_name,
