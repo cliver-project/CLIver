@@ -63,7 +63,14 @@ class ModelConfig(BaseModel):
         # Remove name field since it's redundant (key in models dict)
         data.pop("name", None)
         # Remove null values
-        return {k: v for k, v in data.items() if v is not None}
+        result = {k: v for k, v in data.items() if v is not None}
+
+        # Handle capabilities serialization
+        if "capabilities" in result and result["capabilities"]:
+            # Convert set of ModelCapability enums to list of strings
+            result["capabilities"] = [cap.value for cap in result["capabilities"]]
+
+        return result
 
 
 class MCPServerConfig(BaseModel):
@@ -169,6 +176,14 @@ class ConfigManager:
                     for name, model in config_data["models"].items():
                         if isinstance(model, dict):
                             model["name"] = name
+                            # Handle capabilities deserialization
+                            if "capabilities" in model and model["capabilities"]:
+                                # Convert list of strings to set of ModelCapability enums
+                                try:
+                                    model["capabilities"] = {ModelCapability(cap) for cap in model["capabilities"]}
+                                except ValueError as e:
+                                    print(f"Warning: Invalid capability in model {name}: {e}")
+                                    model["capabilities"] = None
 
                 mcp_servers_data = config_data.get("mcpServers")
                 if mcp_servers_data and isinstance(mcp_servers_data, dict):
@@ -469,6 +484,7 @@ class ConfigManager:
         url: str,
         options: str,
         name_in_provider: str,
+        capabilities: str = None,
     ) -> None:
         if not self.config.models:
             self.config.models = {}
@@ -501,6 +517,21 @@ class ConfigManager:
             except Exception:
                 # fall backs to default
                 llm.options = ModelOptions(temperature=0.7, top_p=0.9, max_tokens=4096)
+
+        # Handle capabilities
+        if capabilities:
+            # Parse comma-separated capabilities into a set of ModelCapability enums
+            try:
+                capability_list = [cap.strip() for cap in capabilities.split(",") if cap.strip()]
+                capability_set = set()
+                for cap_str in capability_list:
+                    # Convert string to ModelCapability enum
+                    capability_set.add(ModelCapability(cap_str))
+                llm.capabilities = capability_set
+            except ValueError as e:
+                print(f"Warning: Invalid capability specified: {e}")
+                # Continue without setting capabilities
+
         self._save_config()
 
     def remove_llm_model(self, name: str) -> bool:

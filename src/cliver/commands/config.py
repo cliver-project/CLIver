@@ -385,6 +385,12 @@ def remove_llm_model(cliver: Cliver, name: str):
     type=str,
     help="The name of the LLM within the Provider",
 )
+@click.option(
+    "--capabilities",
+    "-c",
+    type=str,
+    help="Comma-separated list of model capabilities (e.g., text_to_text,image_to_text,tool_calling)",
+)
 @pass_cliver
 def add_llm_model(
     cliver: Cliver,
@@ -394,6 +400,7 @@ def add_llm_model(
     url: str,
     option: tuple,
     name_in_provider: str,
+    capabilities: str,
 ):
     model = cliver.config_manager.get_llm_model(name)
     if model:
@@ -407,7 +414,7 @@ def add_llm_model(
         options_json = json.dumps(options_dict)
 
     cliver.config_manager.add_or_update_llm_model(
-        name, provider, api_key, url, options_json, name_in_provider
+        name, provider, api_key, url, options_json, name_in_provider, capabilities
     )
     cliver.console.print(f"Added LLM Model: {name}")
 
@@ -452,6 +459,12 @@ def add_llm_model(
     type=str,
     help="The name of the LLM within the Provider",
 )
+@click.option(
+    "--capabilities",
+    "-c",
+    type=str,
+    help="Comma-separated list of model capabilities (e.g., text_to_text,image_to_text,tool_calling)",
+)
 @pass_cliver
 def update_llm_model(
     cliver: Cliver,
@@ -461,6 +474,7 @@ def update_llm_model(
     url: str,
     option: tuple,
     name_in_provider: str,
+    capabilities: str,
 ):
     model = cliver.config_manager.get_llm_model(name)
     if not model:
@@ -474,6 +488,6 @@ def update_llm_model(
         options_json = json.dumps(options_dict)
 
     cliver.config_manager.add_or_update_llm_model(
-        name, provider, api_key, url, options_json, name_in_provider
+        name, provider, api_key, url, options_json, name_in_provider, capabilities
     )
     cliver.console.print(f"LLM Model: {name} updated")
