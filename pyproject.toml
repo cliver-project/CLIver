@@ -24,12 +24,14 @@ dependencies = [
     "langchain-ollama>=0.3.3",
     "python-dotenv>=1.1.0",
     "json-repair>=0.50.1",
+    "jinja2>=3.1.0",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=7.0.0",
     "pytest-cov",
+    "pytest-asyncio>=1.2.0",
     "isort>=5.12.0",
     "mypy>=1.0.0",
     "ruff>=0.0.270",
@@ -57,3 +59,9 @@ disallow_incomplete_defs = true
 line-length = 88
 target-version = "py310"
 select = ["E", "F", "B", "I"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
