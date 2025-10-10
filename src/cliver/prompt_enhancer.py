@@ -8,23 +8,23 @@ Skill Sets
 ----------
 Skill sets are YAML files that define a set of tools and system messages that can be
 applied to enhance the behavior of the AI agent. They support parameter substitution
-to make them reusable across different contexts.
+to make them reusable across different contexts using Jinja2 templating.
 
 Syntax for SkillSet YAML files:
 ```yaml
 description: A brief description of what this skill set does
 system_message: |
   System message that will be prepended to the conversation.
-  Can include parameter placeholders like ${param_name}.
+  Can include parameter placeholders like {{ param_name }}.
 tools:
   - name: tool_name
     mcp_server: server_name
     description: Description of what this tool does
     parameters:
-      param1: ${param_value}  # Parameter placeholder
-      param2: static_value    # Static value
+      param1: "{{ param_value }}"  # Parameter placeholder
+      param2: static_value         # Static value
 parameters:
-  param_name: default_value   # Default values for parameter substitution
+  param_name: default_value        # Default values for parameter substitution
 ```
 
 Example SkillSet:
@@ -39,13 +39,13 @@ tools:
     mcp_server: file_system
     description: Read the contents of a file
     parameters:
-      path: ${file_path}
+      path: "{{ file_path }}"
   - name: write_file
     mcp_server: file_system
     description: Write content to a file
     parameters:
-      path: ${file_path}
-      content: ${content}
+      path: "{{ file_path }}"
+      content: "{{ content }}"
 parameters:
   file_path: /default/path.txt
   content: Default content
@@ -54,16 +54,16 @@ parameters:
 Templates
 ---------
 Templates are text or markdown files that can contain placeholders for dynamic content.
-They support both simple placeholders and placeholders with default values.
+They support parameter substitution using Jinja2 templating.
 
 Syntax for Templates:
-- Simple placeholder: `{placeholder_name}`
-- Placeholder with default: `{placeholder_name:default_value}`
+- Simple placeholder: `{{ placeholder_name }}`
+- Placeholder with default: `{{ placeholder_name | default('default_value') }}`
 
 Example Template (.txt or .md):
 ```
 You are asked to analyze the following code:
-{user_input}
+{{ user_input }}
 
 Please provide a detailed review focusing on:
 1. Code quality and best practices
@@ -75,11 +75,11 @@ Analysis:
 
 Template with defaults:
 ```
-Task: {task:Code Review}
-Context: {context:No additional context provided}
+Task: {{ task | default('Code Review') }}
+Context: {{ context | default('No additional context provided') }}
 
 Instructions:
-{user_input}
+{{ user_input }}
 
 Response:
 ```
@@ -90,6 +90,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import yaml
+from jinja2 import Template as JinjaTemplate
 from langchain_core.messages import BaseMessage
 
 from cliver.util import get_config_dir
@@ -128,12 +129,12 @@ class SkillSet:
         self.tools = data.get("tools", [])
         self.parameters = data.get("parameters", {})
 
-    def get_system_message(self, params: Dict[str, str] = None) -> str:
+    def get_system_message(self, params: Dict[str, str] = None) -> Optional[str]:
         """
         Get the system message with parameter substitution.
 
-        This method performs parameter substitution in the system message, replacing
-        placeholders like ${param_name} with actual values from the provided params
+        This method performs parameter substitution in the system message using Jinja2 templating,
+        replacing placeholders like {{ param_name }} with actual values from the provided params
         or default parameters defined in the skill set.
 
         Args:
@@ -142,14 +143,17 @@ class SkillSet:
         Returns:
             The system message with all parameter placeholders replaced
         """
-        message = self.system_message
+        if not self.system_message:
+            return None
+
+        # Combine default parameters with provided params
+        combined_params = self.parameters.copy()
         if params:
-            for key, value in params.items():
-                message = message.replace(f"${{{key}}}", value)
-        # Also substitute with skill set default parameters
-        for key, value in self.parameters.items():
-            message = message.replace(f"${{{key}}}", str(value))
-        return message
+            combined_params.update(params)
+
+        # Use Jinja2 templating for parameter substitution
+        template = JinjaTemplate(self.system_message)
+        return template.render(**combined_params)
 
     def get_tools_with_params(
         self, params: Dict[str, str] = None
@@ -158,9 +162,9 @@ class SkillSet:
         Get tools with parameter substitution.
 
         This method returns the tools defined in the skill set with parameter
-        substitution applied to tool parameters. Placeholders like ${param_name}
+        substitution applied to tool parameters. Placeholders like {{ param_name }}
         are replaced with actual values from the provided params or default
-        parameters defined in the skill set.
+        parameters defined in the skill set using Jinja2 templating.
 
         Each tool will have an mcp_server field, and the name will be formatted
         as "mcp_server#tool_name" when sent to the LLM.
@@ -172,24 +176,21 @@ class SkillSet:
             List of tools with parameter substitution applied
         """
         tools = []
+        # Combine default parameters with provided params
+        combined_params = self.parameters.copy()
+        if params:
+            combined_params.update(params)
+
         for tool in self.tools:
             # Create a copy of the tool definition
             tool_copy = tool.copy()
-            # Substitute parameters in tool parameters
+            # Substitute parameters in tool parameters using Jinja2
             if "parameters" in tool_copy:
                 for param_key, param_value in tool_copy["parameters"].items():
-                    if (
-                        isinstance(param_value, str)
-                        and param_value.startswith("${")
-                        and param_value.endswith("}")
-                    ):
-                        param_name = param_value[2:-1]  # Remove ${ and }
-                        if params and param_name in params:
-                            tool_copy["parameters"][param_key] = params[param_name]
-                        elif param_name in self.parameters:
-                            tool_copy["parameters"][param_key] = self.parameters[
-                                param_name
-                            ]
+                    if isinstance(param_value, str):
+                        # Use Jinja2 templating for parameter substitution
+                        template = JinjaTemplate(param_value)
+                        tool_copy["parameters"][param_key] = template.render(**combined_params)
             tools.append(tool_copy)
         return tools
 
@@ -221,9 +222,9 @@ class Template:
         """
         Apply parameters to the template.
 
-        This method performs parameter substitution in the template content, replacing
-        placeholders like {param_name} with actual values from the provided params.
-        It also handles placeholders with default values like {param_name:default_value}.
+        This method performs parameter substitution in the template content using Jinja2 templating,
+        replacing placeholders like {{ param_name }} with actual values from the provided params.
+        It also handles placeholders with default values using Jinja2's default filter.
 
         Args:
             params: Dictionary of parameter values to substitute
@@ -231,21 +232,12 @@ class Template:
         Returns:
             The template content with all parameter placeholders replaced
         """
-        result = self.content
-        if params:
-            for key, value in params.items():
-                result = result.replace(f"{{{key}}}", value)
-        # Handle default values: {key:default_value}
-        import re
+        if not self.content:
+            return self.content
 
-        pattern = r"\{([^}:]+):([^}]+)\}"
-        matches = re.findall(pattern, result)
-        for key, default_value in matches:
-            if not params or key not in params:
-                result = result.replace(f"{{{key}:{default_value}}}", default_value)
-            else:
-                result = result.replace(f"{{{key}:{default_value}}}", params[key])
-        return result
+        # Use Jinja2 templating for parameter substitution
+        template = JinjaTemplate(self.content)
+        return template.render(**params if params else {})
 
 
 def load_skill_set(skill_set_name: str) -> Optional[SkillSet]:
@@ -410,12 +402,12 @@ def apply_skill_sets_and_template(
     if template_name and messages:
         template = load_template(template_name)
         if template:
-            enhanced_content = template.apply(params)
-            # Replace placeholders in template with original content if needed
-            if "{user_input}" in enhanced_content:
-                enhanced_content = enhanced_content.replace("{user_input}", user_input)
-            elif "{input}" in enhanced_content:
-                enhanced_content = enhanced_content.replace("{input}", user_input)
+            # Prepare parameters for template, ensuring user_input is available
+            template_params = params.copy() if params else {}
+            template_params["user_input"] = user_input
+            template_params["input"] = user_input
+
+            enhanced_content = template.apply(template_params)
             messages.append(HumanMessage(content=enhanced_content))
         else:
             logger.warning(f"Template {template_name} not found")
