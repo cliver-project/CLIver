@@ -27,19 +27,19 @@ def mock_task_executor():
 
 
 @pytest.fixture
-def workflow_manager(mock_task_executor):
+def workflow_manager(mock_task_executor, workflow_path):
     """Create a LocalDirectoryWorkflowManager with mock dependencies."""
-    return LocalDirectoryWorkflowManager()
+    return LocalDirectoryWorkflowManager(workflow_dirs=[workflow_path])
 
 
 @pytest.fixture
-def workflow_executor(workflow_manager, mock_task_executor):
+def workflow_executor(workflow_manager, mock_task_executor, workflow_cache_path):
     """Create a WorkflowExecutor with mock dependencies."""
     from cliver.workflow.persistence.local_cache import LocalCacheProvider
     return WorkflowExecutor(
         task_executor=mock_task_executor,
         workflow_manager=workflow_manager,
-        persistence_provider=LocalCacheProvider()
+        persistence_provider=LocalCacheProvider(cache_dir=workflow_cache_path)
     )
 
 
