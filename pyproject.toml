@@ -1,7 +1,7 @@
 [project]
 name = "cliver"
 version = "0.1.0"
-description = "Another AI Agent to make your CLI clever"
+description = "An AI Agent to make your CLI clever and more"
 authors = [
     { name = "Lin Gao", email = "aoingl@gmail.com" }
 ]

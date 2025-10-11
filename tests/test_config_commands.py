@@ -1,4 +1,4 @@
-"""Comprehensive tests for all config commands including MCP servers and LLM CRUD operations."""
+"""Comprehensive tests for all config, mcp, and llm commands after restructuring to top-level commands."""
 
 import json
 from click.testing import CliRunner
@@ -10,7 +10,6 @@ def test_mcp_server_add_stdio_with_env(load_cliver, init_config):
     result = CliRunner().invoke(
         load_cliver,
         [
-            "config",
             "mcp",
             "add",
             "--name",
@@ -29,7 +28,7 @@ def test_mcp_server_add_stdio_with_env(load_cliver, init_config):
     assert "Added MCP server: test_stdio of transport stdio" in result.output
 
     # Verify the server was added correctly
-    result = CliRunner().invoke(load_cliver, ["config", "mcp", "list"])
+    result = CliRunner().invoke(load_cliver, ["mcp", "list"])
     assert result.exit_code == 0
     assert "test_stdio" in result.output
     assert "KEY1" in result.output
@@ -43,7 +42,6 @@ def test_mcp_server_add_streamable_with_headers(load_cliver, init_config):
     result = CliRunner().invoke(
         load_cliver,
         [
-            "config",
             "mcp",
             "add",
             "--name",
@@ -62,7 +60,7 @@ def test_mcp_server_add_streamable_with_headers(load_cliver, init_config):
     assert "Added MCP server: test_streamable of transport streamable" in result.output
 
     # Verify the server was added correctly
-    result = CliRunner().invoke(load_cliver, ["config", "mcp", "list"])
+    result = CliRunner().invoke(load_cliver, ["mcp", "list"])
     assert result.exit_code == 0
     assert "test_streamable" in result.output
     assert "Authorization" in result.output
@@ -76,7 +74,6 @@ def test_mcp_server_add_sse_with_headers(load_cliver, init_config):
     result = CliRunner().invoke(
         load_cliver,
         [
-            "config",
             "mcp",
             "add",
             "--name",
@@ -100,7 +97,6 @@ def test_mcp_server_set_env_and_headers(load_cliver, init_config):
     CliRunner().invoke(
         load_cliver,
         [
-            "config",
             "mcp",
             "add",
             "--name",
@@ -115,7 +111,6 @@ def test_mcp_server_set_env_and_headers(load_cliver, init_config):
     CliRunner().invoke(
         load_cliver,
         [
-            "config",
             "mcp",
             "add",
             "--name",
@@ -131,7 +126,6 @@ def test_mcp_server_set_env_and_headers(load_cliver, init_config):
     result = CliRunner().invoke(
         load_cliver,
         [
-            "config",
             "mcp",
             "set",
             "--name",
@@ -147,7 +141,6 @@ def test_mcp_server_set_env_and_headers(load_cliver, init_config):
     result = CliRunner().invoke(
         load_cliver,
         [
-            "config",
             "mcp",
             "set",
             "--name",
@@ -160,7 +153,7 @@ def test_mcp_server_set_env_and_headers(load_cliver, init_config):
     assert "Updated MCP server: test_streamable" in result.output
 
     # Verify updates
-    result = CliRunner().invoke(load_cliver, ["config", "mcp", "list"])
+    result = CliRunner().invoke(load_cliver, ["mcp", "list"])
     assert result.exit_code == 0
     assert "NEW_KEY" in result.output
     assert "NEW_VALUE" in result.output
@@ -173,7 +166,6 @@ def test_mcp_server_invalid_env_format(load_cliver, init_config):
     result = CliRunner().invoke(
         load_cliver,
         [
-            "config",
             "mcp",
             "add",
             "--name",
@@ -195,7 +187,6 @@ def test_mcp_server_invalid_header_format(load_cliver, init_config):
     result = CliRunner().invoke(
         load_cliver,
         [
-            "config",
             "mcp",
             "add",
             "--name",
@@ -217,7 +208,6 @@ def test_llm_model_add_with_options(load_cliver, init_config):
     result = CliRunner().invoke(
         load_cliver,
         [
-            "config",
             "llm",
             "add",
             "--name",
@@ -238,7 +228,7 @@ def test_llm_model_add_with_options(load_cliver, init_config):
     assert "Added LLM Model: test_model" in result.output
 
     # Verify the model was added correctly
-    result = CliRunner().invoke(load_cliver, ["config", "llm", "list"])
+    result = CliRunner().invoke(load_cliver, ["llm", "list"])
     assert result.exit_code == 0
     assert "test_model" in result.output
     assert "ollama" in result.output
@@ -250,7 +240,6 @@ def test_llm_model_set_options(load_cliver, init_config):
     CliRunner().invoke(
         load_cliver,
         [
-            "config",
             "llm",
             "add",
             "--name",
@@ -268,7 +257,6 @@ def test_llm_model_set_options(load_cliver, init_config):
     result = CliRunner().invoke(
         load_cliver,
         [
-            "config",
             "llm",
             "set",
             "--name",
@@ -283,7 +271,7 @@ def test_llm_model_set_options(load_cliver, init_config):
     assert "LLM Model: test_model updated" in result.output
 
     # Verify updates
-    result = CliRunner().invoke(load_cliver, ["config", "llm", "list"])
+    result = CliRunner().invoke(load_cliver, ["llm", "list"])
     assert result.exit_code == 0
     assert "test_model" in result.output
 
@@ -294,7 +282,6 @@ def test_config_file_format(load_cliver, init_config):
     CliRunner().invoke(
         load_cliver,
         [
-            "config",
             "mcp",
             "add",
             "--name",
@@ -311,7 +298,6 @@ def test_config_file_format(load_cliver, init_config):
     CliRunner().invoke(
         load_cliver,
         [
-            "config",
             "mcp",
             "add",
             "--name",
@@ -328,7 +314,6 @@ def test_config_file_format(load_cliver, init_config):
     CliRunner().invoke(
         load_cliver,
         [
-            "config",
             "llm",
             "add",
             "--name",
@@ -377,7 +362,6 @@ def test_mcp_server_remove(load_cliver, init_config):
     CliRunner().invoke(
         load_cliver,
         [
-            "config",
             "mcp",
             "add",
             "--name",
@@ -390,20 +374,20 @@ def test_mcp_server_remove(load_cliver, init_config):
     )
 
     # Verify it exists
-    result = CliRunner().invoke(load_cliver, ["config", "mcp", "list"])
+    result = CliRunner().invoke(load_cliver, ["mcp", "list"])
     assert result.exit_code == 0
     assert "test_server" in result.output
 
     # Remove it
     result = CliRunner().invoke(
         load_cliver,
-        ["config", "mcp", "remove", "--name", "test_server"]
+        ["mcp", "remove", "--name", "test_server"]
     )
     assert result.exit_code == 0
     assert "Removed MCP server: test_server" in result.output
 
     # Verify it's gone
-    result = CliRunner().invoke(load_cliver, ["config", "mcp", "list"])
+    result = CliRunner().invoke(load_cliver, ["mcp", "list"])
     assert result.exit_code == 0
     assert "test_server" not in result.output
 
@@ -414,7 +398,6 @@ def test_llm_model_remove(load_cliver, init_config):
     CliRunner().invoke(
         load_cliver,
         [
-            "config",
             "llm",
             "add",
             "--name",
@@ -427,19 +410,40 @@ def test_llm_model_remove(load_cliver, init_config):
     )
 
     # Verify it exists
-    result = CliRunner().invoke(load_cliver, ["config", "llm", "list"])
+    result = CliRunner().invoke(load_cliver, ["llm", "list"])
     assert result.exit_code == 0
     assert "test_model" in result.output
 
     # Remove it
     result = CliRunner().invoke(
         load_cliver,
-        ["config", "llm", "remove", "--name", "test_model"]
+        ["llm", "remove", "--name", "test_model"]
     )
     assert result.exit_code == 0
     assert "Removed LLM Model: test_model" in result.output
 
     # Verify it's gone
-    result = CliRunner().invoke(load_cliver, ["config", "llm", "list"])
+    result = CliRunner().invoke(load_cliver, ["llm", "list"])
     assert result.exit_code == 0
     assert "test_model" not in result.output
+
+
+def test_config_validation(load_cliver, init_config):
+    """Test configuration validation command."""
+    result = CliRunner().invoke(load_cliver, ["config", "validate"])
+    assert result.exit_code == 0
+    assert "✓ Configuration is valid" in result.output
+
+
+def test_config_show(load_cliver, init_config):
+    """Test showing configuration."""
+    result = CliRunner().invoke(load_cliver, ["config", "show"])
+    assert result.exit_code == 0
+    assert result.output  # Should show some configuration content
+
+
+def test_config_path(load_cliver, init_config):
+    """Test showing configuration file path."""
+    result = CliRunner().invoke(load_cliver, ["config", "path"])
+    assert result.exit_code == 0
+    assert "Configuration file path:" in result.output
