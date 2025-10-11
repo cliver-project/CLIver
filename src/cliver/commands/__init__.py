@@ -20,11 +20,10 @@ def loads_commands(group: click.Group) -> None:
 # This assumes the py modules are safe and should be set up manually.
 def loads_external_commands(group: click.Group) -> None:
     config_dir = get_config_dir()
-    dir_str = str(config_dir.absolute())
+    dir_str = str(config_dir.absolute() / "commands")
     if dir_str not in sys.path:
         sys.path.append(dir_str)
     _load_commands_from_dir(dir_str, group, log=True)
-
 
 def _load_commands_from_dir(
     commands_dir: str,
@@ -33,6 +32,9 @@ def _load_commands_from_dir(
     filter_fn: Callable[[str], bool] = None,
     log: bool = False,
 ) -> None:
+    if commands_dir and not os.path.exists(commands_dir):
+        click.echo(f"Commands directory: {commands_dir} does not exist")
+        return
     for filename in os.listdir(commands_dir):
         if filename.endswith(".py"):
             # either we don't filter or filter_fn returns True
