@@ -111,6 +111,12 @@ logger = logging.getLogger(__name__)
     type=str,
     help="Additional inference options in key=value format (Inference Options)",
 )
+@click.option(
+    "--debug",
+    is_flag=True,
+    default=False,
+    help="Enable debug logging to show detailed logs in console",
+)
 @click.argument("query", nargs=-1)
 @pass_cliver
 def chat(
@@ -132,10 +138,17 @@ def chat(
     top_p: Optional[float],
     frequency_penalty: Optional[float],
     option: Optional[tuple],
+    debug: bool = False,
 ):
     """
     Chat with LLM models.
     """
+    if debug:
+        # Enable debug logging
+        logging.basicConfig(level=logging.DEBUG)
+        # logger.setLevel(logging.DEBUG)
+        logger.debug("Debug logging enabled for chat command")
+
     # Join the query tuple into a single string to check if it's empty
     sentence = " ".join(query) if query else ""
     if len(sentence.strip()) == 0:
