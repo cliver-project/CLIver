@@ -47,6 +47,7 @@ class Cliver:
         self.console = Console()
         self.piped = stdin_is_piped()
 
+    # TODO: we may need to maintain the selected model, and other options during the session initiation
     def init_session(self, group: click.Group):
         if self.piped or self.session is not None:
             return
@@ -78,7 +79,7 @@ class Cliver:
         else:
             self.console.print(
                 Panel.fit(
-                    "[bold blue]Cliver[/bold blue] - AI Agent Command Line Interface",
+                    "[bold blue]CLIver[/bold blue] - AI Agent Command Line Interface",
                     border_style="blue",
                 )
             )
@@ -145,10 +146,10 @@ def cliver(ctx: click.Context):
 
     if ctx.invoked_subcommand is None:
         # If no subcommand is invoked, show the help message
-        _interact(cli)
+        interact(cli)
 
 
-def _interact(cli: Cliver):
+def interact(cli: Cliver):
     """
     Start an interactive session with the AI agent.
     """

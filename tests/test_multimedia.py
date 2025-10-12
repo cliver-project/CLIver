@@ -97,6 +97,7 @@ class TestOllamaEngine:
         config.provider = "ollama"
         config.name_in_provider = "llava"
         config.url = "http://localhost:11434"
+        config.options = None  # Add the missing options attribute
         config.model_dump = Mock(return_value={})
 
         # Mock capabilities

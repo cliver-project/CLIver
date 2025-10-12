@@ -11,10 +11,9 @@ from pydantic import BaseModel, Field
 # Import model capabilities
 from cliver.model_capabilities import ModelCapability, ModelCapabilityDetector, ModelCapabilities
 
-
 class ModelOptions(BaseModel):
-    temperature: float = Field(0.9, description="Sampling temperature")
-    top_p: float = Field(1.0, description="Top-p sampling cutoff")
+    temperature: float = Field(0.7, description="Sampling temperature")
+    top_p: float = Field(0.3, description="Top-p sampling cutoff")
     max_tokens: int = Field(4096, description="Maximum number of tokens")
     # special class-level variable to allow extra fields
     model_config = {"extra": "allow"}
@@ -24,14 +23,10 @@ class ModelConfig(BaseModel):
     name: str
     provider: str
     url: str
-    name_in_provider: Optional[str] = Field(
-        None, description="Internal name used by provider"
-    )
+    name_in_provider: Optional[str] = Field(None, description="Internal name used by provider")
     api_key: Optional[str] = Field(None, description="API key for the model")
-    options: Optional[ModelOptions] = None
-    capabilities: Optional[Set[ModelCapability]] = Field(
-        None, description="Model capabilities"
-    )
+    options: Optional[ModelOptions] = Field(None, description="Options for model")
+    capabilities: Optional[Set[ModelCapability]] = Field(None, description="Model capabilities")
 
     model_config = {"extra": "allow"}
 
@@ -57,6 +52,8 @@ class ModelConfig(BaseModel):
         )
         return capabilities
 
+    # we need to override this for persistence purpose to skip null values on saving
+    # as we already have the name as the key, we don't want to persistent the name to the config json
     def model_dump(self, **kwargs):
         """Override to exclude name field and null values."""
         data = super().model_dump(**kwargs)
@@ -78,8 +75,6 @@ class MCPServerConfig(BaseModel):
 
     name: str
     transport: str
-
-    model_config = {"extra": "allow"}
 
     def model_dump(self, **kwargs):
         """Override to exclude name field and null values."""
@@ -140,7 +135,8 @@ class AppConfig(BaseModel):
         # Remove null values
         return {k: v for k, v in data.items() if v is not None}
 
-
+# TODO: support the configuration from others like from a k8s ConfigMap
+# TODO: shall we support yaml format as well ?
 class ConfigManager:
     """Configuration manager for Cliver client."""
 

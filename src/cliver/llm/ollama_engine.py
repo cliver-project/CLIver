@@ -1,6 +1,6 @@
 import json
 import logging
-from typing import AsyncIterator, List, Optional
+from typing import AsyncIterator, List, Optional, Dict, Any
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.tools import BaseTool
@@ -22,47 +22,63 @@ logger = logging.getLogger(__name__)
 class OllamaLlamaInferenceEngine(LLMInferenceEngine):
     def __init__(self, config: ModelConfig):
         super().__init__(config)
+        self.options = {}
+        if self.config and self.config.options:
+            self.options = self.config.options.model_dump()
 
         self.llm = Ollama(
+            model=self.config.name_in_provider or self.config.name,
             base_url=self.config.url,
-            model=self.config.name_in_provider,
-            **self.config.model_dump(),
+            **self.options,
         )
 
     async def infer(
-        self, messages: list[BaseMessage], tools: Optional[list[BaseTool]]
+        self,
+        messages: list[BaseMessage],
+        tools: Optional[list[BaseTool]],
+        options: Optional[Dict[str, Any]] = None
     ) -> BaseMessage:
         try:
-            # Convert messages to Ollama multi-media format if needed
+            # Convert messages to Ollama multimedia format if needed
             converted_messages = self._convert_messages_to_ollama_format(messages)
-            _llm = self.llm
-            if tools:
-                # Check if the model supports tool calling
-                capabilities = self.config.get_capabilities()
-                if ModelCapability.TOOL_CALLING in capabilities:
-                    _llm = self.llm.bind_tools(tools)
+            _llm = await self._reconstruct_llm(self.llm, options, tools)
             response = await _llm.ainvoke(converted_messages)
             return response
         except Exception as e:
             return AIMessage(content=f"Error: {e}", additional_kwargs={"type": "error"})
 
     async def stream(
-        self, messages: list[BaseMessage], tools: Optional[list[BaseTool]]
+        self,
+        messages: list[BaseMessage],
+        tools: Optional[list[BaseTool]],
+        options: Optional[Dict[str, Any]] = None
     ) -> AsyncIterator[BaseMessage]:
         """Stream responses from the LLM."""
-        # Convert messages to Ollama multi-media format if needed
+        # Convert messages to Ollama multimedia format if needed
         converted_messages = self._convert_messages_to_ollama_format(messages)
-        _llm = self.llm
-        if tools:
-            # Check if the model supports tool calling
-            capabilities = self.config.get_capabilities()
-            if ModelCapability.TOOL_CALLING in capabilities:
-                _llm = self.llm.bind_tools(tools)
+        _llm = await self._reconstruct_llm(self.llm, options, tools)
         try:
             async for chunk in _llm.astream(converted_messages):
                 yield chunk
         except Exception as e:
             yield AIMessage(content=f"Error: {e}", additional_kwargs={"type": "error"})
+
+    async def _reconstruct_llm(self, _llm: Ollama, options: dict[str, Any] | None, tools: list[BaseTool] | None) -> Ollama:
+        # Create a new instance with options that override the base configuration
+        if options and len(options) > 0:
+            # Create base options from config if available
+            ollama_options = self.options.copy()
+            # Update with provided options
+            ollama_options.update(options)
+            _llm = Ollama(base_url=self.config.url,
+                          model=self.config.name_in_provider or self.config.name,
+                          **ollama_options)
+        if tools and len(tools) > 0:
+            # Check if the model supports tool calling
+            capabilities = self.config.get_capabilities()
+            if ModelCapability.TOOL_CALLING in capabilities:
+                _llm = _llm.bind_tools(tools)
+        return _llm
 
     @staticmethod
     def _convert_messages_to_ollama_format(
@@ -108,7 +124,7 @@ class OllamaLlamaInferenceEngine(LLMInferenceEngine):
                         }
                     converted_messages.append(converted_message)
                 else:
-                    # Not a multi-media message, keep as is
+                    # Not a multimedia message, keep as is
                     converted_messages.append(message)
             else:
                 # Not a human message, keep as is

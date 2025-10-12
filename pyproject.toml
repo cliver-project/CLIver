@@ -38,6 +38,12 @@ dev = [
     "black>=25.1.0",
 ]
 
+docs = [
+    "mkdocs>=1.4.0",
+    "mkdocs-material>=9.0.0",
+    "mkdocs-minify-plugin>=0.2.0",
+]
+
 [project.scripts]
 cliver = "cliver.cli:cliver_main"
 

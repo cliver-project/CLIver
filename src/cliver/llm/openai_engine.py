@@ -23,6 +23,9 @@ logger = logging.getLogger(__name__)
 class OpenAICompatibleInferenceEngine(LLMInferenceEngine):
     def __init__(self, config: ModelConfig):
         super().__init__(config)
+        self.options = {}
+        if self.config and self.config.options:
+            self.options = self.config.options.model_dump()
 
         # Initialize OpenAI client for file operations
         if self.config.api_key:
@@ -36,30 +39,12 @@ class OpenAICompatibleInferenceEngine(LLMInferenceEngine):
         # Store uploaded file IDs
         self.uploaded_files = {}
 
-        # Prepare the parameters for the ChatOpenAI constructor
-        llm_params = {
-            "model": self.config.name_in_provider or self.config.name,
-            "base_url": self.config.url,
-            "temperature": (
-                self.config.options.temperature if self.config.options else 0.7
-            ),
-            "max_tokens": (
-                self.config.options.max_tokens if self.config.options else 4096
-            ),
-        }
-
-        # Add API key if provided
-        if self.config.api_key:
-            llm_params["api_key"] = self.config.api_key
-
-        # Add any additional options from the config
-        if self.config.options:
-            for key, value in self.config.options.model_dump().items():
-                # Skip temperature and max_tokens as they're already handled
-                if key not in ["temperature", "max_tokens"]:
-                    llm_params[key] = value
-
-        self.llm = ChatOpenAI(**llm_params)
+        self.llm = ChatOpenAI(
+            model=self.config.name_in_provider or self.config.name,
+            base_url=self.config.url,
+            api_key=self.config.api_key,
+            **self.options,
+        )
 
     def upload_file(self, file_path: str, purpose: str = "assistants") -> Optional[str]:
         """
@@ -144,35 +129,51 @@ class OpenAICompatibleInferenceEngine(LLMInferenceEngine):
             return False
 
     async def infer(
-        self, messages: list[BaseMessage], tools: Optional[list[BaseTool]]
+        self,
+        messages: list[BaseMessage],
+        tools: Optional[list[BaseTool]],
+        options: Optional[Dict[str, Any]] = None
     ) -> BaseMessage:
         try:
             # Convert messages to OpenAI multi-media format if needed
             converted_messages = self._convert_messages_to_openai_format(
                 messages)
-            _llm = self.llm
-            if tools:
-                # Check if the model supports tool calling
-                capabilities = self.config.get_capabilities()
-                if ModelCapability.TOOL_CALLING in capabilities:
-                    _llm = self.llm.bind_tools(tools, strict=True)
+            _llm = await self._reconstruct_llm(self.llm, options, tools)
             response = await _llm.ainvoke(converted_messages)
             return response
         except Exception as e:
             return AIMessage(content=f"Error: {e}", additional_kwargs={"type": "error"})
 
+    async def _reconstruct_llm(self, _llm: ChatOpenAI, options: dict[str, Any] | None, tools: list[BaseTool] | None) -> ChatOpenAI:
+        # Create a new instance with options that override the base configuration
+        if options and len(options) > 0:
+            # Create base options from config if available
+            openai_options = self.options.copy()
+            openai_options.update(options)
+            
+            _llm = ChatOpenAI(
+                model=self.config.name_in_provider or self.config.name,
+                base_url=self.config.url if self.config.url else None,
+                api_key=self.config.api_key if self.config.api_key else None,
+                **openai_options
+            )
+        if tools and len(tools) > 0:
+            # Check if the model supports tool calling
+            capabilities = self.config.get_capabilities()
+            if ModelCapability.TOOL_CALLING in capabilities:
+                _llm = _llm.bind_tools(tools, strict=True)
+        return _llm
+
     async def stream(
-        self, messages: list[BaseMessage], tools: Optional[list[BaseTool]]
+        self,
+        messages: list[BaseMessage],
+        tools: Optional[list[BaseTool]],
+        options: Optional[Dict[str, Any]] = None
     ) -> AsyncIterator[BaseMessage]:
         """Stream responses from the LLM."""
         # Convert messages to OpenAI multi-media format if needed
         converted_messages = self._convert_messages_to_openai_format(messages)
-        _llm = self.llm
-        if tools:
-            # Check if the model supports tool calling
-            capabilities = self.config.get_capabilities()
-            if ModelCapability.TOOL_CALLING in capabilities:
-                _llm = self.llm.bind_tools(tools, strict=True)
+        _llm = await self._reconstruct_llm(self.llm, options, tools)
         try:
             async for chunk in _llm.astream(converted_messages):
                 yield chunk
@@ -215,13 +216,14 @@ class OpenAICompatibleInferenceEngine(LLMInferenceEngine):
 
                     # Add media content using shared utility function
                     from cliver.media import add_media_content_to_message_parts
-                    add_media_content_to_message_parts(content_parts, message.media_content)
+                    add_media_content_to_message_parts(
+                        content_parts, message.media_content)
 
                     # Create new message with OpenAI standard format
                     converted_message = HumanMessage(content=content_parts)
                     converted_messages.append(converted_message)
                 else:
-                    # Not a multi-media message, keep as is
+                    # Not a multimedia message, keep as is
                     converted_messages.append(message)
             else:
                 # Not a human message, keep as is

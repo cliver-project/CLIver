@@ -7,7 +7,7 @@ from unittest.mock import Mock, AsyncMock
 
 from cliver.llm.llm import TaskExecutor
 from cliver.llm.base import LLMInferenceEngine
-from cliver.config import ModelConfig
+from cliver.config import ModelConfig, ModelOptions
 from cliver.model_capabilities import ModelCapability
 from langchain_core.messages import AIMessage
 
@@ -24,7 +24,9 @@ class TestFileEmbeddingFallback:
             name_in_provider="test-model",
             url="http://test",
             api_key=None,
-            options={}
+            options=ModelOptions(
+                temperature=0.5,
+            )
         )
 
         # Create a mock engine

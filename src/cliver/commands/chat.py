@@ -1,13 +1,14 @@
 import asyncio
 import time
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 import click
 
-from cliver.cli import Cliver, pass_cliver
+from cliver.cli import Cliver, pass_cliver, interact
 from cliver.llm import TaskExecutor
 from cliver.media_handler import MultimediaResponseHandler
 from cliver.model_capabilities import ModelCapability
+from cliver.util import parse_key_value_options
 
 
 @click.command(name="chat", help="Chat with LLM models")
@@ -79,8 +80,34 @@ from cliver.model_capabilities import ModelCapability
     "--param",
     "-p",
     multiple=True,
-    type=(str, str),
+    type=str,
     help="Parameters for skill sets and templates (key=value)",
+)
+@click.option(
+    "--temperature",
+    type=float,
+    help="Temperature parameter for the LLM (Inference Options)",
+)
+@click.option(
+    "--max-tokens",
+    type=int,
+    help="Maximum number of tokens for the LLM (Inference Options)",
+)
+@click.option(
+    "--top-p",
+    type=float,
+    help="Top-p parameter for the LLM (Inference Options)",
+)
+@click.option(
+    "--frequency-penalty",
+    type=float,
+    help="Frequency penalty for the LLM (Inference Options)",
+)
+@click.option(
+    "--option",
+    multiple=True,
+    type=str,
+    help="Additional inference options in key=value format (Inference Options)",
 )
 @click.argument("query", nargs=-1)
 @pass_cliver
@@ -94,14 +121,25 @@ def chat(
     file: List[str],
     skill_set: List[str],
     template: Optional[str],
-    param: List[tuple],
+    param: Optional[tuple],
     save_media: bool,
     media_dir: Optional[str],
-    query: str,
+    query: tuple,
+    temperature: Optional[float],
+    max_tokens: Optional[int],
+    top_p: Optional[float],
+    frequency_penalty: Optional[float],
+    option: Optional[tuple],
 ):
     """
     Chat with LLM models.
     """
+    # Join the query tuple into a single string to check if it's empty
+    sentence = " ".join(query) if query else ""
+    if len(sentence.strip()) == 0:
+        # no query, let's start an interactive mode
+        interact(cliver)
+        return 0
     try:
         task_executor = cliver.task_executor
         llm_engine = task_executor.get_llm_engine(model)
@@ -114,7 +152,8 @@ def chat(
         if len(file) > 0 and not llm_engine.supports_capability(
             ModelCapability.FILE_UPLOAD
         ):
-            click.echo(f"Model '{model}' does not support file uploads. Will embed file contents in the prompt.")
+            click.echo(
+                f"Model '{model}' does not support file uploads. Will embed file contents in the prompt.")
 
         if len(image) > 0 and not llm_engine.supports_capability(
             ModelCapability.IMAGE_TO_TEXT
@@ -134,9 +173,25 @@ def chat(
             click.echo(f"Model '{model}' does not support video processing.")
             return 1
 
-        sentence = " ".join(query)
         # Convert param tuples to dictionary
-        params = dict(param)
+        params = parse_key_value_options(param, cliver.console)
+
+        # Collect all the LLM configuration options into a dictionary
+        options = {}
+        if temperature is not None:
+            options['temperature'] = temperature
+        if max_tokens is not None:
+            options['max_tokens'] = max_tokens
+        if top_p is not None:
+            options['top_p'] = top_p
+        if frequency_penalty is not None:
+            options['frequency_penalty'] = frequency_penalty
+
+        # Process additional options provided via --option flag (key=value format)
+        if option:
+            opts_dict = parse_key_value_options(option)
+            options.update(opts_dict)
+
         return _async_chat(
             task_executor,
             sentence,
@@ -151,6 +206,7 @@ def chat(
             params,
             save_media,
             media_dir,
+            options,
         )
     except Exception as e:
         click.echo(f"Error: {e}")
@@ -171,6 +227,7 @@ def _async_chat(
     params: dict = None,
     save_media: bool = False,
     media_dir: Optional[str] = None,
+    options: Dict[str, Any] = None,
 ):
     # Create multimedia response handler
     response_handler = MultimediaResponseHandler(media_dir)
@@ -192,6 +249,7 @@ def _async_chat(
                     params,
                     save_media,
                     media_dir,
+                    options,
                 )
             )
         else:
@@ -205,6 +263,7 @@ def _async_chat(
                 skill_sets=skill_sets,
                 template=template,
                 params=params,
+                options=options,
             )
             if response:
                 # Get the LLM engine used for this response
@@ -258,6 +317,7 @@ async def _stream_chat(
     params: dict = None,
     save_media: bool = False,
     media_dir: Optional[str] = None,
+    options: Dict[str, Any] = None,
 ):
     """Stream the chat response character by character."""
     # Create multimedia response handler
@@ -275,6 +335,7 @@ async def _stream_chat(
             skill_sets=skill_sets,
             template=template,
             params=params,
+            options=options,
         ):
             if hasattr(chunk, "content") and chunk.content:
                 # For streaming, we accumulate content and display it as it comes

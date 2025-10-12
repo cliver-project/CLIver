@@ -1,6 +1,6 @@
 import logging
 from abc import ABC, abstractmethod
-from typing import AsyncIterator, List, Optional
+from typing import AsyncIterator, List, Optional, Dict, Any
 
 from langchain_core.messages.base import BaseMessage
 from langchain_core.tools import BaseTool
@@ -24,16 +24,22 @@ class LLMInferenceEngine(ABC):
     # This method focus on the real LLM inference only.
     @abstractmethod
     async def infer(
-        self, messages: List[BaseMessage], tools: Optional[list[BaseTool]]
+        self,
+        messages: List[BaseMessage],
+        tools: Optional[list[BaseTool]],
+        options: Optional[Dict[str, Any]] = None
     ) -> BaseMessage:
         pass
 
     async def stream(
-        self, messages: List[BaseMessage], tools: Optional[list[BaseTool]]
+        self,
+        messages: List[BaseMessage],
+        tools: Optional[list[BaseTool]],
+        options: Optional[Dict[str, Any]] = None
     ) -> AsyncIterator[BaseMessage]:
         """Stream responses from the LLM."""
         # Default implementation falls back to regular inference
-        response = await self.infer(messages, tools)
+        response = await self.infer(messages, tools, options)
         yield response
 
     def extract_media_from_response(self, response: BaseMessage) -> List[MediaContent]:

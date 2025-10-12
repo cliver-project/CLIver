@@ -2,7 +2,6 @@
 
 import json
 from click.testing import CliRunner
-from pathlib import Path
 
 
 def test_mcp_server_add_stdio_with_env(load_cliver, init_config):

@@ -133,6 +133,7 @@ class TaskExecutor:
         skill_sets: List[str] = None,
         template: Optional[str] = None,
         params: dict = None,
+        options: Dict[str, Any] = None,
     ) -> BaseMessage:
         return asyncio.run(
             self.process_user_input(
@@ -151,6 +152,7 @@ class TaskExecutor:
                 skill_sets,
                 template,
                 params,
+                options,
             )
         )
 
@@ -177,6 +179,7 @@ class TaskExecutor:
         skill_sets: List[str] = None,
         template: Optional[str] = None,
         params: dict = None,
+        options: Dict[str, Any] = None,
     ) -> AsyncIterator[BaseMessage]:
         """
         Stream user input through the LLM, handling tool calls if needed.
@@ -198,6 +201,7 @@ class TaskExecutor:
             skill_sets: List of skill set names to apply.
             template: Template name to apply.
             params: Parameters for skill sets and templates.
+            options: Dictionary of additional options to override LLM configurations.
         """
 
         (
@@ -231,6 +235,7 @@ class TaskExecutor:
             mcp_tools,
             confirm_tool_exec,
             tool_error_check,
+            options=options,
         ):
             yield chunk
 
@@ -435,6 +440,7 @@ class TaskExecutor:
         skill_sets: List[str] = None,
         template: Optional[str] = None,
         params: dict = None,
+        options: Dict[str, Any] = None,
     ) -> BaseMessage:
         """
         Process user input through the LLM, handling tool calls if needed.
@@ -489,6 +495,7 @@ class TaskExecutor:
             mcp_tools,
             confirm_tool_exec,
             tool_error_check,
+            options=options,
         )
 
     async def _process_messages(
@@ -504,6 +511,7 @@ class TaskExecutor:
             Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]
         ] = None,
         infer_method: Optional[Callable] = None,
+        options: Dict[str, Any] = None,
     ) -> BaseMessage:
         """Handle processing messages with tool calling using a while loop."""
         iteration = current_iteration
@@ -514,7 +522,7 @@ class TaskExecutor:
 
         while iteration < max_iterations:
             # Get response from LLM
-            response = await infer_method(messages, mcp_tools)
+            response = await infer_method(messages, mcp_tools, options=options)
             logger.debug(f"LLM response: {response}")
             # Handle different response types
             tool_calls = llm_engine.parse_tool_calls(response, model)
@@ -623,6 +631,7 @@ class TaskExecutor:
             Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]
         ],
         stream_method: Optional[Callable] = None,
+        options: Dict[str, Any] = None,
     ) -> AsyncIterator[BaseMessage]:
         """Handle streaming messages with tool calling."""
         iteration = current_iteration
@@ -643,7 +652,7 @@ class TaskExecutor:
             tool_call_buffer = ""  # Buffer specifically for tool call detection
             last_yield_time = 0
 
-            async for chunk in stream_method(messages, mcp_tools):
+            async for chunk in stream_method(messages, mcp_tools, options=options):
                 current_time = time.time()
 
                 # Accumulate content from chunks to handle incomplete tool calls
