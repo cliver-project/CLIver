@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import time
 from typing import List, Optional, Dict, Any
 
@@ -10,6 +11,7 @@ from cliver.media_handler import MultimediaResponseHandler
 from cliver.model_capabilities import ModelCapability
 from cliver.util import parse_key_value_options
 
+logger = logging.getLogger(__name__)
 
 @click.command(name="chat", help="Chat with LLM models")
 @click.option(
@@ -152,8 +154,8 @@ def chat(
         if len(file) > 0 and not llm_engine.supports_capability(
             ModelCapability.FILE_UPLOAD
         ):
-            click.echo(
-                f"Model '{model}' does not support file uploads. Will embed file contents in the prompt.")
+            logger.debug(
+                "Model '%s' does not support file uploads. Will embed file contents in the prompt.", model)
 
         if len(image) > 0 and not llm_engine.supports_capability(
             ModelCapability.IMAGE_TO_TEXT
@@ -188,7 +190,7 @@ def chat(
             options['frequency_penalty'] = frequency_penalty
 
         # Process additional options provided via --option flag (key=value format)
-        if option:
+        if option and len(option) > 0:
             opts_dict = parse_key_value_options(option)
             options.update(opts_dict)
 

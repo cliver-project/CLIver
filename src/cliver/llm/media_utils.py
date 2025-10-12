@@ -89,7 +89,7 @@ def data_url_to_media_content(data_url: str, filename_base: str) -> Optional[Med
         )
     except Exception as e:
         logger.warning(f"Error converting data URL to MediaContent: {e}")
-        return None
+        raise e
 
 
 def extract_media_from_json(parsed_content: dict, source_prefix: str = "llm") -> List[MediaContent]:
@@ -136,24 +136,20 @@ def dict_to_media_content(data: dict, filename_base: str) -> Optional[MediaConte
     Returns:
         MediaContent object or None if invalid
     """
-    try:
-        # Extract required fields
-        mime_type = data.get('mime_type', '')
-        base64_data = data.get('data', '')
+    # Extract required fields
+    mime_type = data.get('mime_type', '')
+    base64_data = data.get('data', '')
 
-        if not mime_type or not base64_data:
-            return None
-
-        # Determine media type and filename
-        media_type, filename = _determine_media_type_and_filename(mime_type, filename_base)
-
-        return MediaContent(
-            type=media_type,
-            data=base64_data,
-            mime_type=mime_type,
-            filename=filename,
-            source="llm_json_response"
-        )
-    except Exception as e:
-        logger.warning(f"Error converting dict to MediaContent: {e}")
+    if not mime_type or not base64_data:
         return None
+
+    # Determine media type and filename
+    media_type, filename = _determine_media_type_and_filename(mime_type, filename_base)
+
+    return MediaContent(
+        type=media_type,
+        data=base64_data,
+        mime_type=mime_type,
+        filename=filename,
+        source="llm_json_response"
+    )

@@ -73,6 +73,7 @@ def _load_workflows_from_directory(directory: Path) -> Dict[str, Workflow]:
                     workflows[workflow.name] = workflow
             except Exception as e:
                 logger.warning(f"Failed to load workflow from {workflow_file}: {e}")
+                raise e
     return workflows
 
 

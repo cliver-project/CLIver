@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 import click
@@ -5,6 +6,7 @@ import importlib
 from typing import List, Callable
 from cliver.util import get_config_dir
 
+logger = logging.getLogger(__name__)
 
 def loads_commands(group: click.Group) -> None:
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -14,7 +16,6 @@ def loads_commands(group: click.Group) -> None:
         package_name="cliver.commands",
         filter_fn=lambda f_name: f_name != "__init__.py",
     )
-
 
 # This will load py modules from config directory
 # This assumes the py modules are safe and should be set up manually.
@@ -33,7 +34,7 @@ def _load_commands_from_dir(
     log: bool = False,
 ) -> None:
     if commands_dir and not os.path.exists(commands_dir):
-        click.echo(f"Commands directory: {commands_dir} does not exist")
+        logger.warning("Commands directory: %s does not exist", commands_dir)
         return
     for filename in os.listdir(commands_dir):
         if filename.endswith(".py"):
@@ -41,7 +42,7 @@ def _load_commands_from_dir(
             if filter_fn is None or filter_fn(filename):
                 if log:
                     full = os.path.abspath(os.path.join(commands_dir, filename))
-                    click.echo(f"Loads command from {full}")
+                    logger.debug("Loads command from: %s", full)
                 grp_name = filename[:-3]
                 module_name = f"{grp_name}"
                 if package_name is not None:

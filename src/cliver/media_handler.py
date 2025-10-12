@@ -5,7 +5,6 @@ This module provides functionality for handling multimedia responses from LLMs,
 including saving media content to local files and displaying text responses.
 """
 
-import base64
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -117,6 +116,7 @@ class MultimediaResponseHandler:
                 media_content = llm_engine.extract_media_from_response(response)
             except Exception as e:
                 logger.warning(f"Error extracting media from response: {e}")
+                raise e
 
         multimedia_response = MultimediaResponse(
             text_content=text_content,
@@ -166,6 +166,7 @@ class MultimediaResponseHandler:
 
             except Exception as e:
                 logger.error(f"Error saving media {media.filename}: {e}")
+                raise e
 
         return saved_files
 
@@ -219,28 +220,6 @@ class MultimediaResponseHandler:
             'media_types': [media.type.value for media in response.media_content],
             'media_filenames': [media.filename for media in response.media_content if media.filename]
         }
-
-
-# Convenience functions for common use cases
-def handle_multimedia_response(
-    response: Union[str, BaseMessage],
-    save_directory: Optional[str] = None,
-    auto_save_media: bool = False
-) -> MultimediaResponse:
-    """
-    Convenience function to handle a multimedia response.
-
-    Args:
-        response: Response from LLM
-        save_directory: Directory to save media files
-        auto_save_media: Whether to automatically save media content
-
-    Returns:
-        MultimediaResponse object
-    """
-    handler = MultimediaResponseHandler(save_directory)
-    return handler.process_response(response, auto_save_media)
-
 
 def save_response_media(
     response: Union[str, BaseMessage, MultimediaResponse],

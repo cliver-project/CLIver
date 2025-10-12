@@ -2,19 +2,22 @@
 Configuration module for Cliver client.
 """
 
+import logging
 import json
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Union
+from typing import Dict, List, Optional, Set, Union, Any
 
 from pydantic import BaseModel, Field
 
 # Import model capabilities
 from cliver.model_capabilities import ModelCapability, ModelCapabilityDetector, ModelCapabilities
 
+logger = logging.getLogger(__name__)
+
 class ModelOptions(BaseModel):
-    temperature: float = Field(0.7, description="Sampling temperature")
-    top_p: float = Field(0.3, description="Top-p sampling cutoff")
-    max_tokens: int = Field(4096, description="Maximum number of tokens")
+    temperature: float = Field(default=0.7, description="Sampling temperature")
+    top_p: float = Field(default=0.3, description="Top-p sampling cutoff")
+    max_tokens: int = Field(default=4096, description="Maximum number of tokens")
     # special class-level variable to allow extra fields
     model_config = {"extra": "allow"}
 
@@ -23,10 +26,10 @@ class ModelConfig(BaseModel):
     name: str
     provider: str
     url: str
-    name_in_provider: Optional[str] = Field(None, description="Internal name used by provider")
-    api_key: Optional[str] = Field(None, description="API key for the model")
-    options: Optional[ModelOptions] = Field(None, description="Options for model")
-    capabilities: Optional[Set[ModelCapability]] = Field(None, description="Model capabilities")
+    name_in_provider: Optional[str] = Field(default=None, description="Internal name used by provider")
+    api_key: Optional[str] = Field(default=None, description="API key for the model")
+    options: Optional[ModelOptions] = Field(default=None, description="Options for model")
+    capabilities: Optional[Set[ModelCapability]] = Field(default=None, description="Model capabilities")
 
     model_config = {"extra": "allow"}
 
@@ -90,8 +93,8 @@ class StdioMCPServerConfig(MCPServerConfig):
 
     transport: str = "stdio"
     command: str
-    args: Optional[List[str]] = None
-    env: Optional[Dict[str, str]] = None
+    args: Optional[List[str]] = Field(default=None, description="Arguments to start the stdio mcp server")
+    env: Optional[Dict[str, str]] = Field(default=None, description="Environment variables for the stdio mcp server")
 
 
 class SSEMCPServerConfig(MCPServerConfig):
@@ -99,7 +102,7 @@ class SSEMCPServerConfig(MCPServerConfig):
 
     transport: str = "sse"
     url: str
-    headers: Optional[Dict[str, str]] = None
+    headers: Optional[Dict[str, str]] = Field(default=None, description="The HTTP headers to interact with the SSE MCP server")
 
 
 class StreamableHttpMCPServerConfig(MCPServerConfig):
@@ -107,7 +110,7 @@ class StreamableHttpMCPServerConfig(MCPServerConfig):
 
     transport: str = "streamable_http"
     url: str
-    headers: Optional[Dict[str, str]] = None
+    headers: Optional[Dict[str, str]] = Field(default=None, description="The HTTP headers to interact with the streamable_http MCP server")
 
 
 class WebSocketMCPServerConfig(MCPServerConfig):
@@ -115,7 +118,7 @@ class WebSocketMCPServerConfig(MCPServerConfig):
 
     transport: str = "websocket"
     url: str
-    headers: Optional[Dict[str, str]] = None
+    headers: Optional[Dict[str, str]] = Field(default=None, description="The HTTP headers to interact with the websocket MCP server")
 
 
 class SecretsConfig(BaseModel):
@@ -124,10 +127,10 @@ class SecretsConfig(BaseModel):
 
 class AppConfig(BaseModel):
     mcpServers: Dict[str, MCPServerConfig] = {}
-    default_server: Optional[str] = None
+    default_server: Optional[str] = Field(default=None, description="The default MCP server")
     models: Dict[str, ModelConfig] = {}
-    default_model: Optional[str] = None
-    secrets: Optional[SecretsConfig] = None
+    default_model: Optional[str] = Field(default=None, description="The default LLM model")
+    secrets: Optional[SecretsConfig] = Field(default=None, description="The Secrets configuration")
 
     def model_dump(self, **kwargs):
         """Override to exclude null values."""
@@ -157,6 +160,7 @@ class ConfigManager:
             Cliver configuration
         """
         if not self.config_file.exists():
+            logger.info(f"No configuration file found at {str(self.config_dir)}, using default configuration.")
             return AppConfig()
 
         try:
@@ -178,7 +182,8 @@ class ConfigManager:
                                 try:
                                     model["capabilities"] = {ModelCapability(cap) for cap in model["capabilities"]}
                                 except ValueError as e:
-                                    print(f"Warning: Invalid capability in model {name}: {e}")
+                                    # we tolerate the bad capabilities configuration and just ignore it.
+                                    logger.warning(f"Warning: Invalid capability in model {name}: {e}")
                                     model["capabilities"] = None
 
                 mcp_servers_data = config_data.get("mcpServers")
@@ -213,21 +218,15 @@ class ConfigManager:
                                     **server_config
                                 )
                             else:
-                                # For unknown transport types, create base
-                                # MCPServerConfig
-                                converted_servers[name] = MCPServerConfig(
-                                    **server_config
-                                )
-                        else:
-                            # Already an MCPServerConfig object
-                            converted_servers[name] = server
+                                raise ValueError(f"Unknown transport {transport}")
                     config_data["mcpServers"] = converted_servers
 
                 config = AppConfig(**config_data)
                 return config
         except Exception as e:
-            print(f"Error loading configuration: {e}")
-            return AppConfig()
+            # we don't want to tolerate this as it may lead to the whole configuration missing just because a blemish
+            logger.error("Error loading configuration: %s", e, stack_info=True, exc_info=True)
+            raise e
 
     def _save_config(self) -> None:
         """Save configuration to file."""
@@ -261,7 +260,8 @@ class ConfigManager:
                 json.dump(config_data, f, indent=4, sort_keys=True)
 
         except Exception as e:
-            print(f"Error saving configuration: {e}")
+            logger.error("Error saving configuration: %s", e)
+            raise e
 
     def add_or_update_stdio_mcp_server(
         self,
@@ -478,7 +478,7 @@ class ConfigManager:
         provider: str,
         api_key: str,
         url: str,
-        options: str,
+        options: Dict[str, Any],
         name_in_provider: str,
         capabilities: str = None,
     ) -> None:
@@ -506,13 +506,8 @@ class ConfigManager:
 
         if api_key:
             llm.api_key = api_key
-        if options:
-            try:
-                options_json = json.loads(options)
-                llm.options = ModelOptions(**options_json)
-            except Exception:
-                # fall backs to default
-                llm.options = ModelOptions(temperature=0.7, top_p=0.9, max_tokens=4096)
+        if options and len(options) > 0:
+            llm.options = ModelOptions(**options)
 
         # Handle capabilities
         if capabilities:
@@ -525,8 +520,9 @@ class ConfigManager:
                     capability_set.add(ModelCapability(cap_str))
                 llm.capabilities = capability_set
             except ValueError as e:
-                print(f"Warning: Invalid capability specified: {e}")
-                # Continue without setting capabilities
+                # we don't tolerate this because it is saving.
+                logger.error("Warning: Invalid capability specified: %s, exception: %s", capabilities, e)
+                raise e
 
         self._save_config()
 

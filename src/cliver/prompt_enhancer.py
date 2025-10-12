@@ -338,6 +338,7 @@ def _load_with_extensions_of_dirs(
                     return content
                 except Exception as e:
                     logger.error(f"Error loading file {file_path}: {e}")
+                    raise e
     return None
 
 

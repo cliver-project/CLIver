@@ -103,7 +103,7 @@ class LocalCacheProvider(CacheProvider):
                 return True
             except Exception as e:
                 logger.error(f"Failed to save execution state: {e}")
-                return False
+                raise e
 
     def load_execution_state(self, workflow_name: str, execution_id: str) -> Optional[WorkflowExecutionState]:
         """Thread-safe load workflow execution state from cache.
@@ -138,7 +138,7 @@ class LocalCacheProvider(CacheProvider):
                 return state
             except Exception as e:
                 logger.error(f"Failed to load execution state: {e}")
-                return None
+                raise e
 
     def remove_execution_state(self, workflow_name: str, execution_id: str) -> bool:
         """Thread-safe remove workflow execution state from cache.
@@ -171,7 +171,7 @@ class LocalCacheProvider(CacheProvider):
                     return True
                 except Exception as e:
                     logger.error(f"Failed to remove execution state: {e}")
-                    return False
+                    raise e
         finally:
             # delete the lock if any
             with self._locks_lock:
@@ -218,6 +218,7 @@ class LocalCacheProvider(CacheProvider):
                                 continue
             except Exception as e:
                 logger.error(f"Failed to list executions: {e}")
+                raise e
 
             return executions
 
@@ -247,6 +248,7 @@ class LocalCacheProvider(CacheProvider):
                         logger.warning(f"Failed to remove workflow directory {workflow_dir}: {e}")
             except Exception as e:
                 logger.error(f"Failed to clear executions: {e}")
+                raise e
             return count
 
     def get_execution_cache_dir(self, workflow_name: str, execution_id: str) -> Optional[str]:
@@ -305,7 +307,7 @@ class LocalCacheProvider(CacheProvider):
                 return True
             except Exception as e:
                 logger.error(f"Failed to save step result: {e}")
-                return False
+                raise e
 
     def load_step_result(self, workflow_name: str, execution_id: str, step_id: str) -> Optional[ExecutionResult]:
         """Load step execution result from cache.
@@ -345,4 +347,4 @@ class LocalCacheProvider(CacheProvider):
                 return result
             except Exception as e:
                 logger.error(f"Failed to load step result: {e}")
-                return None
+                raise e

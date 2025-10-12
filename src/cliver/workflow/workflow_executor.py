@@ -13,7 +13,7 @@ from typing import Dict, Any, Optional
 from cliver.workflow.persistence import LocalCacheProvider, PersistenceProvider
 from cliver.workflow.workflow_manager_base import WorkflowManager
 from cliver.workflow.workflow_models import (
-    ExecutionContext, ExecutionResult, WorkflowExecutionState, StepType, OnErrorAction
+    ExecutionContext, WorkflowExecutionState, StepType, OnErrorAction
 )
 from cliver.workflow.steps.base import StepExecutor
 from cliver.workflow.steps.function_step import FunctionStepExecutor

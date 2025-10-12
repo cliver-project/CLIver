@@ -462,6 +462,7 @@ class TaskExecutor:
             skill_sets: List of skill set names to apply.
             template: Template name to apply.
             params: Parameters for skill sets and templates.
+            options: Additional options for LLM inference that can override what the ModelConfig is defined.
         """
 
         (

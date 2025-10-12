@@ -57,29 +57,6 @@ PROVIDER_CAPABILITIES = {
 
 # Model-specific capability mappings (overrides provider defaults)
 MODEL_CAPABILITIES = {
-    # OpenAI models
-    "gpt-4*": {
-        ModelCapability.TEXT_TO_TEXT,
-        ModelCapability.TEXT_TO_IMAGE,
-        ModelCapability.IMAGE_TO_TEXT,
-        ModelCapability.TOOL_CALLING,
-        ModelCapability.FUNCTION_CALLING,
-        ModelCapability.JSON_MODE,
-    },
-    "gpt-3.5*": {
-        ModelCapability.TEXT_TO_TEXT,
-        ModelCapability.TOOL_CALLING,
-        ModelCapability.FUNCTION_CALLING,
-        ModelCapability.JSON_MODE,
-    },
-    "gpt-4-vision*": {
-        ModelCapability.TEXT_TO_TEXT,
-        ModelCapability.TEXT_TO_IMAGE,
-        ModelCapability.IMAGE_TO_TEXT,
-        ModelCapability.TOOL_CALLING,
-        ModelCapability.FUNCTION_CALLING,
-        ModelCapability.JSON_MODE,
-    },
     # Ollama models
     "llava*": {
         ModelCapability.TEXT_TO_TEXT,
@@ -127,22 +104,6 @@ MODEL_CAPABILITIES = {
     # Llama models
     "llama3*": {
         ModelCapability.TEXT_TO_TEXT,
-        ModelCapability.TOOL_CALLING,
-    },
-    # Multimodal models
-    "glm*": {
-        ModelCapability.TEXT_TO_TEXT,
-        ModelCapability.IMAGE_TO_TEXT,
-        ModelCapability.TOOL_CALLING,
-    },
-    "internlm*": {
-        ModelCapability.TEXT_TO_TEXT,
-        ModelCapability.IMAGE_TO_TEXT,
-        ModelCapability.TOOL_CALLING,
-    },
-    "cogvlm*": {
-        ModelCapability.TEXT_TO_TEXT,
-        ModelCapability.IMAGE_TO_TEXT,
         ModelCapability.TOOL_CALLING,
     },
 }

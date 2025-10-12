@@ -4,12 +4,14 @@ Defines data structures for handling multi-media content in LLM interactions.
 """
 
 import base64
+import logging
 import mimetypes
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional
 
+logger = logging.getLogger(__name__)
 
 class MediaType(Enum):
     """Enumeration of media types."""
@@ -67,6 +69,9 @@ class MediaContent:
 
         Returns:
             True if successful, False otherwise
+
+        Raises:
+            Exception: If failed to save the file
         """
         try:
             # Handle data URLs (data:image/jpeg;base64,...)
@@ -84,8 +89,8 @@ class MediaContent:
 
             return True
         except Exception as e:
-            print(f"Error saving media to {file_path}: {e}")
-            return False
+            logger.error("Error saving media to %s, exception: %s", file_path, e, exc_info=True)
+            raise e
 
     def get_file_extension(self) -> str:
         """
@@ -190,13 +195,7 @@ def load_media_files(file_paths: List[str]) -> List[MediaContent]:
     """
     media_content = []
     for file_path in file_paths:
-        try:
-            media_content.append(load_media_file(file_path))
-        except Exception as e:
-            # Log error but continue with other files
-            import logging
-
-            logging.warning(f"Could not load media file {file_path}: {e}")
+        media_content.append(load_media_file(file_path))
     return media_content
 
 

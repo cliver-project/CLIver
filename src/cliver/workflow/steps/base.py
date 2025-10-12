@@ -59,7 +59,8 @@ class StepExecutor(ABC):
                     logger.info(f"Retrying step {self.step.id} in {backoff_time} seconds...")
                     await asyncio.sleep(backoff_time)
                 else:
-                    logger.error(f"Step {self.step.id} failed after {max_attempts} attempts")
+                    # an exception is thrown after retries
+                    raise Exception(f"Step {self.step.id} failed after {max_attempts} attempts")
 
         # If we get here, all retries failed
         return ExecutionResult(
@@ -80,16 +81,11 @@ class StepExecutor(ABC):
         if not self.step.condition:
             return True
 
-        try:
-            # Use Jinja2 template resolution for condition evaluation
-            resolved_condition = self.resolve_variable(self.step.condition, context)
+        # Use Jinja2 template resolution for condition evaluation
+        # resolved_condition = self.resolve_variable(self.step.condition, context)
 
-            # Evaluate the condition (be very careful with this in production!)
-            # For now, we'll just do simple string/number comparisons
-            return eval(resolved_condition, {"__builtins__": {}}, {})
-        except Exception as e:
-            logger.warning(f"Error evaluating condition for step {self.step.id}: {str(e)}")
-            return False  # Fail-safe - don't execute if condition evaluation fails
+        # We don't know how to evaluate yet.
+        return True
 
 
     def resolve_variable(self, value: Any, context: ExecutionContext) -> Any:

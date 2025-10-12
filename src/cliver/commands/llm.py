@@ -1,4 +1,3 @@
-import json
 import click
 from rich import box
 from rich.table import Table
@@ -140,13 +139,12 @@ def add_llm_model(
         return
 
     # Convert key=value options to JSON string
-    options_json = None
+    options_dict = {}
     if option:
         options_dict = parse_key_value_options(option, cliver.console)
-        options_json = json.dumps(options_dict)
 
     cliver.config_manager.add_or_update_llm_model(
-        name, provider, api_key, url, options_json, name_in_provider, capabilities
+        name, provider, api_key, url, options_dict, name_in_provider, capabilities
     )
     cliver.console.print(f"Added LLM Model: {name}")
 
@@ -214,12 +212,11 @@ def update_llm_model(
         return
 
     # Convert key=value options to JSON string
-    options_json = None
+    options_dict = {}
     if option:
         options_dict = parse_key_value_options(option, cliver.console)
-        options_json = json.dumps(options_dict)
 
     cliver.config_manager.add_or_update_llm_model(
-        name, provider, api_key, url, options_json, name_in_provider, capabilities
+        name, provider, api_key, url, options_dict, name_in_provider, capabilities
     )
     cliver.console.print(f"LLM Model: {name} updated")
