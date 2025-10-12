@@ -2,9 +2,8 @@ import asyncio
 import logging
 import time
 from typing import List, Optional, Dict, Any
-
+import sys
 import click
-
 from cliver.cli import Cliver, pass_cliver, interact
 from cliver.llm import TaskExecutor
 from cliver.media_handler import MultimediaResponseHandler
@@ -339,7 +338,7 @@ async def _stream_chat(
     response_handler = MultimediaResponseHandler(media_dir)
 
     try:
-        accumulated_content = ""
+        accumulated_chunk = None
         async for chunk in task_executor.stream_user_input(
             user_input=user_input,
             images=images,
@@ -352,29 +351,30 @@ async def _stream_chat(
             params=params,
             options=options,
         ):
+            # Handle different types of chunks - some may have content, some may have tool calls
+            if accumulated_chunk is None:
+                accumulated_chunk = chunk
+            else:
+                # Concatenate the chunks using the + operator
+                accumulated_chunk = accumulated_chunk + chunk
+
             if hasattr(chunk, "content") and chunk.content:
                 # For streaming, we accumulate content and display it as it comes
-                accumulated_content += str(chunk.content)
+                chunk_content = str(chunk.content)
                 # Print each character with a small delay to simulate streaming
-                import sys
-
-                for char in str(chunk.content):
+                for char in chunk_content:
                     sys.stdout.write(char)
                     sys.stdout.flush()
-                    time.sleep(0.01)
+                    # Reduced delay for better streaming experience
+                    time.sleep(0.005)  # Faster streaming
+
 
         # After streaming is complete, process the accumulated content
-        if accumulated_content:
-            # Create a simple AIMessage for processing
-            from langchain_core.messages import AIMessage
-
-            simple_response = AIMessage(content=accumulated_content)
-
+        if accumulated_chunk:
             # Get the LLM engine used for this response
             llm_engine = task_executor.get_llm_engine(model)
-
             multimedia_response = response_handler.process_response(
-                simple_response, llm_engine=llm_engine, auto_save_media=save_media
+                accumulated_chunk, llm_engine=llm_engine, auto_save_media=save_media
             )
 
             # Display media information if any

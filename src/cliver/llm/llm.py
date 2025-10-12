@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import time
 from typing import (
     Any,
     AsyncIterator,
@@ -15,7 +14,14 @@ from typing import (
 # Create a logger for this module
 logger = logging.getLogger(__name__)
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    AIMessageChunk,
+    BaseMessageChunk,
+    HumanMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langchain_core.messages.base import BaseMessage
 from langchain_core.tools import BaseTool
 
@@ -180,7 +186,7 @@ class TaskExecutor:
         template: Optional[str] = None,
         params: dict = None,
         options: Dict[str, Any] = None,
-    ) -> AsyncIterator[BaseMessage]:
+    ) -> AsyncIterator[BaseMessageChunk]:
         """
         Stream user input through the LLM, handling tool calls if needed.
         Args:
@@ -511,19 +517,14 @@ class TaskExecutor:
         tool_error_check: Optional[
             Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]
         ] = None,
-        infer_method: Optional[Callable] = None,
         options: Dict[str, Any] = None,
     ) -> BaseMessage:
         """Handle processing messages with tool calling using a while loop."""
+
         iteration = current_iteration
-
-        # Use custom inference method if provided, otherwise use default
-        if infer_method is None:
-            infer_method = llm_engine.infer
-
         while iteration < max_iterations:
-            # Get response from LLM
-            response = await infer_method(messages, mcp_tools, options=options)
+            # keeps inferencing unless max_iterations exceeded
+            response = await llm_engine.infer(messages, mcp_tools, options=options)
             logger.debug(f"LLM response: {response}")
             # Handle different response types
             tool_calls = llm_engine.parse_tool_calls(response, model)
@@ -549,6 +550,7 @@ class TaskExecutor:
         )
 
     # returns a tuple to indicate if there is error occurs which indicates stop and a string message
+    # this may execute multiple tools in sequence in one iteration of response
     async def _execute_tool_calls(
         self,
         tool_calls: List[Dict],
@@ -631,131 +633,80 @@ class TaskExecutor:
         tool_error_check: Optional[
             Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]
         ],
-        stream_method: Optional[Callable] = None,
         options: Dict[str, Any] = None,
-    ) -> AsyncIterator[BaseMessage]:
+    ) -> AsyncIterator[BaseMessageChunk]:
         """Handle streaming messages with tool calling."""
         iteration = current_iteration
-        tool_call_indicators = [
-            'tool_calls"',
-            '"tool_calls"',
-            '{"tool_calls"',
-            "'tool_calls'",
-        ]
 
-        # Use custom streaming method if provided, otherwise use default
-        if stream_method is None:
-            stream_method = llm_engine.stream
-
+        # keeps streaming unless got the final answer
         while iteration < max_iterations:
-            # Stream response from LLM
-            accumulated_content = ""
-            tool_call_buffer = ""  # Buffer specifically for tool call detection
-            last_yield_time = 0
+            # Accumulate the message chunks using concatenation
+            accumulated_chunk = None
+            tool_calls = None
 
-            async for chunk in stream_method(messages, mcp_tools, options=options):
-                current_time = time.time()
+            try:
+                async for chunk in llm_engine.stream(messages, mcp_tools, options=options):
+                    # Accumulate the chunk using concatenation instead of a list
+                    if accumulated_chunk is None:
+                        accumulated_chunk = chunk
+                    else:
+                        # Concatenate the chunks using the + operator
+                        accumulated_chunk = accumulated_chunk + chunk
 
-                # Accumulate content from chunks to handle incomplete tool calls
-                chunk_content = ""
-                if hasattr(chunk, "content") and chunk.content:
-                    chunk_content = str(chunk.content)
-                    accumulated_content += chunk_content
+                    # Check if the chunk has tool calls immediately - if so, process them
+                    if hasattr(accumulated_chunk, "tool_calls") and accumulated_chunk.tool_calls:
+                        logger.debug("found tool calls in the accumulated chunk")
+                        tool_calls = accumulated_chunk.tool_calls
+                        break
 
-                # Check if this chunk contains tool calls
-                tool_calls = None
-
-                # First check if the chunk directly has tool_calls attribute
-                if hasattr(chunk, "tool_calls") and chunk.tool_calls:
+                    # try to parse the tool_calls from the content
                     try:
-                        logger.debug(f"Streaming chunk with tool calls: {chunk}")
-                        tool_calls = llm_engine.parse_tool_calls(chunk, model)
-                        if tool_calls is None:
-                            continue
+                        tool_calls = llm_engine.parse_tool_calls(accumulated_chunk, model)
+                        if tool_calls:
+                            break  # Found tool calls, now process them
                     except Exception as e:
                         logger.error(
                             f"Error processing tool call in streaming: {str(e)}",
                             exc_info=True,
                         )
-                        # Continue processing other chunks
-                        continue
-                else:
-                    # Add chunk content to tool call buffer for detection
-                    # Limit buffer size to prevent memory issues
-                    tool_call_buffer = (tool_call_buffer + chunk_content)[-200:]
-                    if any(
-                        tool_call_buffer.strip() in indicator
-                        for indicator in tool_call_indicators
-                    ):
-                        # it might be the case the first chunks are very small which we have no idea of if it is a tool call or not.
                         continue
 
-                    # Check if buffer suggests this is a tool call
-                    # More robust detection than just checking for a substring
-                    if any(
-                        indicator in tool_call_buffer
-                        for indicator in tool_call_indicators
-                    ):
-                        try:
-                            # Create a temporary message with accumulated content for parsing
-                            temp_message = AIMessage(content=accumulated_content)
-                            tool_calls = llm_engine.parse_tool_calls(
-                                temp_message, model
-                            )
-                            if tool_calls is None:
-                                continue
-                        except Exception as e:
-                            # If parsing fails, it might be an incomplete tool call
-                            # Continue accumulating content
-                            logger.error(
-                                f"Incomplete tool call detected, continuing accumulation: {str(e)}"
-                            )
-                            continue
+                    # If there is no tool_calls found yet, yield the chunk
+                    # If there is a tool_calls found, the tool message chunk gets ignored.
+                    yield chunk
+            except Exception as e:
+                logger.error(f"Error in streaming: {str(e)}", exc_info=True)
+                # Yield error message as a BaseMessageChunk (using AIMessageChunk)
+                # noinspection PyArgumentList
+                yield AIMessageChunk(
+                    content=f"Error in streaming: {str(e)}",
+                )
+                return
 
-                if tool_calls:
-                    # Reset buffers as we found complete tool calls
-                    accumulated_content = ""
-                    tool_call_buffer = ""
-                    # Execute tool calls (this method is async, so we need to await it)
-                    stop, result = await self._execute_tool_calls(
-                        tool_calls, messages, confirm_tool_exec, tool_error_check
-                    )
-                    if stop:
-                        # If we need to stop, yield the result as a message
-                        if result:
-                            yield AIMessage(content=result)
-                        return
-                    else:
-                        # Continue processing with the updated messages
-                        iteration += 1
-                        break  # Break inner loop to continue with next iteration
+            # If we found tool calls, execute them and continue
+            if tool_calls:
+                # Execute tool calls
+                stop, result = await self._execute_tool_calls(
+                    tool_calls, messages, confirm_tool_exec, tool_error_check
+                )
+                if stop:
+                    # If we need to stop, yield the result as a message
+                    if result:
+                        # noinspection PyArgumentList
+                        yield AIMessageChunk(content=result)
+                    return
                 else:
-                    # Only yield the chunk if we're confident it's not part of a tool call
-                    # Check that it doesn't contain tool call indicators
-                    # But also check if we've accumulated too much content without finding tool calls
-                    # Or if enough time has passed since last yield (to prevent hanging)
-                    safe_to_yield = (
-                        not any(
-                            indicator in accumulated_content
-                            for indicator in tool_call_indicators
-                        )
-                        or len(accumulated_content)
-                        > 1000  # If we've accumulated a lot, it's probably not a tool call
-                        or (current_time - last_yield_time)
-                        > 2.0  # If 2 seconds have passed, yield what we have
-                    )
-
-                    if safe_to_yield and chunk_content:
-                        yield chunk
-                        last_yield_time = current_time
-                    # Continue to next chunk without yielding if we're still unsure
-
+                    # Continue processing with the updated messages
+                    iteration += 1
+                    continue  # Continue to next iteration
             else:
-                # If we completed the async for loop without breaking, we're done
+                # No tool calls found, we're done with this iteration
+                # If we reached here, the response is complete
                 return
 
         # If we've reached max iterations
-        yield AIMessage(
+        # noinspection PyArgumentList
+        yield AIMessageChunk(
             content="Reached maximum number of iterations without a final answer."
         )
 

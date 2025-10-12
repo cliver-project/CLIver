@@ -1,7 +1,9 @@
 import logging
 from abc import ABC, abstractmethod
 from typing import AsyncIterator, List, Optional, Dict, Any
-
+import re
+import json_repair
+from langchain_core.messages import BaseMessageChunk
 from langchain_core.messages.base import BaseMessage
 from langchain_core.tools import BaseTool
 
@@ -36,11 +38,10 @@ class LLMInferenceEngine(ABC):
         messages: List[BaseMessage],
         tools: Optional[list[BaseTool]],
         options: Optional[Dict[str, Any]] = None
-    ) -> AsyncIterator[BaseMessage]:
+    ) -> AsyncIterator[BaseMessageChunk]:
         """Stream responses from the LLM."""
         # Default implementation falls back to regular inference
-        response = await self.infer(messages, tools, options)
-        yield response
+        pass
 
     def extract_media_from_response(self, response: BaseMessage) -> List[MediaContent]:
         """
@@ -144,10 +145,6 @@ Important:
             and '"tool_calls"' in str(response.content)
         ):
             try:
-                import re
-
-                import json_repair
-
                 content_str = str(response.content)
                 # Look for tool_calls pattern in the content
                 # This pattern matches the JSON structure we expect

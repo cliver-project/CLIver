@@ -2,7 +2,7 @@ import json
 import logging
 from typing import AsyncIterator, List, Optional, Dict, Any
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, BaseMessageChunk, AIMessageChunk
 from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
 from openai import OpenAI
@@ -169,16 +169,17 @@ class OpenAICompatibleInferenceEngine(LLMInferenceEngine):
         messages: list[BaseMessage],
         tools: Optional[list[BaseTool]],
         options: Optional[Dict[str, Any]] = None
-    ) -> AsyncIterator[BaseMessage]:
+    ) -> AsyncIterator[BaseMessageChunk]:
         """Stream responses from the LLM."""
-        # Convert messages to OpenAI multi-media format if needed
-        converted_messages = self._convert_messages_to_openai_format(messages)
-        _llm = await self._reconstruct_llm(self.llm, options, tools)
         try:
+            # Convert messages to OpenAI multi-media format if needed
+            converted_messages = self._convert_messages_to_openai_format(messages)
+            _llm = await self._reconstruct_llm(self.llm, options, tools)
             async for chunk in _llm.astream(converted_messages):
                 yield chunk
         except Exception as e:
-            yield AIMessage(content=f"Error: {e}", additional_kwargs={"type": "error"})
+            # noinspection PyArgumentList
+            yield AIMessageChunk(content=f"Error: {e}", additional_kwargs={"type": "error"})
 
     @staticmethod
     def _convert_messages_to_openai_format(
