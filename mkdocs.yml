@@ -1,0 +1,95 @@
+site_name: CLIver Documentation
+site_url: https://clever-cli.github.io/cliver/
+site_description: Documentation for CLIver - your powerful command-line and library tool for LLM and MCP interactions
+site_author: CLIver Team
+site_dir: dist/site
+
+# Repository
+repo_name: clever-cli/cliver
+repo_url: https://github.com/clever-cli/cliver
+edit_uri: edit/main/docs/
+
+# Copyright
+copyright: 'Copyright &copy; 2025 CLIver Team'
+
+theme:
+  name: material
+  palette:
+    # Palette toggle for light mode
+    - scheme: default
+      toggle:
+        icon: material/brightness-7 
+        name: Switch to dark mode
+    # Palette toggle for dark mode
+    - scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.expand
+    - navigation.prune
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+
+# Plugins
+plugins:
+  - search
+  - minify:
+      minify_html: true
+
+# Customization
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/clever-cli/cliver
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/cliver/
+
+# Extensions
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - meta
+  - md_in_html
+  - toc:
+      permalink: true
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+
+# Page tree
+nav:
+  - 'Home': 'index.md'
+  - 'Overview': 'overview.md'
+  - 'Installation': 'installation.md'
+  - 'Configuration': 'configuration.md'
+  - 'Chat Command': 'chat.md'
+  - 'Workflows': 'workflow.md'
+  - 'Extensibility': 'extensibility.md'
+  - 'Roadmap': 'roadmap.md'
