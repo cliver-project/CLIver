@@ -11,6 +11,8 @@ from typing import (
     Tuple,
 )
 
+from cliver.builtin_tools import get_builtin_tools, BuiltinTools
+
 # Create a logger for this module
 logger = logging.getLogger(__name__)
 
@@ -66,6 +68,8 @@ async def default_enhance_prompt(
         return [SystemMessage(content=f"Context information:\n{context}")]
     return []
 
+# builtin_tools get loaded on first usage on 'builtin_tools.tools'
+builtin_tools = BuiltinTools()
 
 class TaskExecutor:
     """
@@ -212,9 +216,8 @@ class TaskExecutor:
 
         (
             llm_engine,
-            mcp_tools,
+            llm_tools,
             messages,
-            skill_set_tools,
         ) = await self._prepare_messages_and_tools(
             enhance_prompt,
             filter_tools,
@@ -238,7 +241,7 @@ class TaskExecutor:
             messages,
             max_iterations,
             0,
-            mcp_tools,
+            llm_tools,
             confirm_tool_exec,
             tool_error_check,
             options=options,
@@ -289,22 +292,30 @@ class TaskExecutor:
         if default_enhanced_messages and len(default_enhanced_messages) > 0:
             messages.extend(default_enhanced_messages)
 
-        mcp_tools = await self.mcp_caller.get_mcp_tools()
+        llm_tools: List[BaseTool] = []
+        # mcp_tools are langchain BaseTool coming from MCP server, the name follows 'mcp_server_name#tool_name'
+        mcp_tools: List[BaseTool] = await self.mcp_caller.get_mcp_tools()
         if filter_tools:
             mcp_tools = await filter_tools(user_input, mcp_tools)
-        if not mcp_tools:
-            mcp_tools = []
+        if mcp_tools:
+            llm_tools.extend(mcp_tools)
+        # Always include builtin tools.
+        # TODO: maybe some builtin tools can be optional in the future
+        _builtin_tools = builtin_tools.tools
+        if _builtin_tools:
+            llm_tools.extend(_builtin_tools)
 
         # Apply skill sets and templates if provided
-        skill_set_tools = []
+        skill_set_tools: List[BaseTool] = []
         if skill_sets or template:
             messages, skill_set_tools = apply_skill_sets_and_template(
                 user_input, messages, skill_sets, template, params
             )
 
-        # Add skill set tools to mcp_tools if any
-        if skill_set_tools:
-            # TODO: Convert skill_set_tools to BaseTool objects
+        if skill_set_tools and len(skill_set_tools) > 0:
+            # TODO: Convert skill_set_tools to BaseTool objects and append to the tools to be sent to LLM
+            # the skill_set_tools are always used because it comes from skill set bound to the request
+            llm_tools.extend(skill_set_tools)
             # For now, we'll just log that we have skill set tools
             logger.info(f"Skill set tools to include: {skill_set_tools}")
 
@@ -420,7 +431,7 @@ class TaskExecutor:
             # Add the user input as a regular message
             messages.append(HumanMessage(content=user_input))
 
-        return llm_engine, mcp_tools, messages, skill_set_tools
+        return llm_engine, llm_tools, messages
 
     # This is the method that can be used out of box
     async def process_user_input(
@@ -473,9 +484,8 @@ class TaskExecutor:
 
         (
             llm_engine,
-            mcp_tools,
+            llm_tools,
             messages,
-            skill_set_tools,
         ) = await self._prepare_messages_and_tools(
             enhance_prompt,
             filter_tools,
@@ -499,7 +509,7 @@ class TaskExecutor:
             messages,
             max_iterations,
             0,
-            mcp_tools,
+            llm_tools,
             confirm_tool_exec,
             tool_error_check,
             options=options,
@@ -589,29 +599,34 @@ class TaskExecutor:
                     ],
                 )
                 messages.append(tool_execution_message)
+                tool_result = None
+                if not mcp_server or mcp_server == "" or mcp_server == "builtin":
+                    # should be builtin tools, so we search the tool object and call that.
+                    tool_result = builtin_tools.execute_tool(tool_name, args)
+                else:
+                    tool_result = await retry_with_confirmation_async(
+                        self.mcp_caller.call_mcp_server_tool,
+                        mcp_server,
+                        tool_name,
+                        args,
+                        confirm_on_retry=False,
+                    )
 
-                mcp_tool_result = await retry_with_confirmation_async(
-                    self.mcp_caller.call_mcp_server_tool,
-                    mcp_server,
-                    tool_name,
-                    args,
-                    confirm_on_retry=False,
-                )
                 # Format the tool result properly for ToolMessage
-                if isinstance(mcp_tool_result, list) and len(mcp_tool_result) > 0:
-                    first_result = mcp_tool_result[0]
+                if isinstance(tool_result, list) and len(tool_result) > 0:
+                    first_result = tool_result[0]
                     if isinstance(first_result, dict) and "text" in first_result:
                         tool_result_content = first_result["text"]
                     else:
-                        tool_result_content = str(mcp_tool_result)
+                        tool_result_content = str(tool_result)
                 else:
-                    tool_result_content = str(mcp_tool_result)
+                    tool_result_content = str(tool_result)
                 messages.append(
                     ToolMessage(content=tool_result_content, tool_call_id=tool_call_id)
                 )
                 if not tool_error_check:
                     tool_error_check = _tool_error_check_internal
-                error, tool_error_message = tool_error_check(tool_name, mcp_tool_result)
+                error, tool_error_message = tool_error_check(tool_name, tool_result)
                 if error:
                     messages.append(AIMessage(content=tool_error_message))
                     return error, tool_error_message

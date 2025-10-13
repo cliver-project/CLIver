@@ -1,14 +1,14 @@
 import asyncio
 import logging
 import time
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Callable
 import sys
 import click
 from cliver.cli import Cliver, pass_cliver, interact
 from cliver.llm import TaskExecutor
 from cliver.media_handler import MultimediaResponseHandler
 from cliver.model_capabilities import ModelCapability
-from cliver.util import parse_key_value_options
+from cliver.util import parse_key_value_options, create_tools_filter
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +116,11 @@ logger = logging.getLogger(__name__)
     default=False,
     help="Enable debug logging to show detailed logs in console",
 )
+@click.option(
+    "--included-tools",
+    type=str,
+    help="Pattern to filter which tools to include (supports wildcards like * and ?)",
+)
 @click.argument("query", nargs=-1)
 @pass_cliver
 def chat(
@@ -138,6 +143,7 @@ def chat(
     frequency_penalty: Optional[float],
     option: Optional[tuple],
     debug: bool = False,
+    included_tools: Optional[str] = None,
 ):
     """
     Chat with LLM models.
@@ -221,6 +227,7 @@ def chat(
             save_media,
             media_dir,
             options,
+            included_tools,
         )
     except Exception as e:
         click.echo(f"Error: {e}")
@@ -242,6 +249,7 @@ def _async_chat(
     save_media: bool = False,
     media_dir: Optional[str] = None,
     options: Dict[str, Any] = None,
+    included_tools: Optional[str] = None,
 ):
     # Create multimedia response handler
     response_handler = MultimediaResponseHandler(media_dir)
@@ -249,6 +257,11 @@ def _async_chat(
     try:
         if stream:
             # For streaming, we need to run the async generator
+            # Create the tools filter if included_tools is specified
+            tools_filter = None
+            if included_tools and len(included_tools.strip()) > 0:
+                tools_filter = create_tools_filter(included_tools)
+
             return asyncio.run(
                 _stream_chat(
                     task_executor,
@@ -264,9 +277,15 @@ def _async_chat(
                     save_media,
                     media_dir,
                     options,
+                    tools_filter,
                 )
             )
         else:
+            # Create the tools filter if included_tools is specified
+            tools_filter = None
+            if included_tools and len(included_tools.strip()) > 0:
+                tools_filter = create_tools_filter(included_tools)
+
             response = task_executor.process_user_input_sync(
                 user_input=user_input,
                 images=images,
@@ -278,6 +297,7 @@ def _async_chat(
                 template=template,
                 params=params,
                 options=options,
+                filter_tools=tools_filter,
             )
             if response:
                 # Get the LLM engine used for this response
@@ -332,6 +352,7 @@ async def _stream_chat(
     save_media: bool = False,
     media_dir: Optional[str] = None,
     options: Dict[str, Any] = None,
+    tools_filter: Optional[Callable] = None,
 ):
     """Stream the chat response character by character."""
     # Create multimedia response handler
@@ -350,6 +371,7 @@ async def _stream_chat(
             template=template,
             params=params,
             options=options,
+            filter_tools=tools_filter,
         ):
             # Handle different types of chunks - some may have content, some may have tool calls
             if accumulated_chunk is None:

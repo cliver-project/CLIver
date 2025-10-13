@@ -133,7 +133,7 @@ Important:
         """Parse tool calls from response content when LLM doesn't properly use tool binding."""
         if response is None:
             return None
-        if response.tool_calls:
+        if hasattr(response, "tool_calls") and response.tool_calls:
             return response.tool_calls
         if hasattr(response, "content") and response.content:
             if type(response.content) == dict and dict(response.content)["tool_calls"]:

@@ -1,5 +1,6 @@
 from typing import Dict, Optional, Any, Union, get_type_hints
 from langchain_mcp_adapters.client import MultiServerMCPClient
+import logging
 from langchain_mcp_adapters.sessions import (
     StdioConnection,
     SSEConnection,
@@ -11,6 +12,7 @@ from langchain_core.tools import BaseTool
 from langchain_core.messages import AIMessage, HumanMessage
 from mcp.types import CallToolResult
 
+logger = logging.getLogger(__name__)
 
 def filter_dict_for_typed_dict(source: Dict, typed_dict_type: type) -> Dict:
     """Helper method to extract values from a source dict"""
@@ -64,17 +66,16 @@ class MCPServersCaller:
         except Exception as e:
             return {"error": str(e)}
 
-    # TODO we need to make sure some arguments are required so that LLM won't return an empty argument
     async def get_mcp_tools(
         self, server: Optional[str] = None
-    ) -> Union[Dict[str, str] | list[BaseTool]]:
+    ) -> list[BaseTool]:
         """
         Call the MCP server to get tools using langchain_mcp_adapters and convert to BaseTool to be used in langchain
         """
+        tools: list[BaseTool] = []
         try:
             from langchain_mcp_adapters.tools import load_mcp_tools
 
-            tools: list[BaseTool] = []
             server_connections = {}
             if server:
                 if server not in self.mcp_client.connections:
@@ -92,7 +93,8 @@ class MCPServersCaller:
                 tools.extend(server_tools)
             return tools
         except Exception as e:
-            return {"error": str(e)}
+            logger.error("Failed to load MCP tools", exc_info=e)
+            return tools
 
     async def get_mcp_prompt(
         self, server: str, prompt_name: str, arguments: dict[str, Any] | None = None
