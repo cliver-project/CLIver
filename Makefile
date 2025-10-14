@@ -33,7 +33,7 @@ clean: ## Clean build artifacts
 	find . -type d -name __pycache__ -delete
 	find . -type f -name "*.pyc" -delete
 
-##@ Documentention
+##@ Documentation
 
 .PHONY: docs-build
 docs-build: ## Build documentation site
@@ -43,10 +43,6 @@ docs-build: ## Build documentation site
 .PHONY: docs-serve
 docs-serve: docs-build ## Serve documentation site locally
 	uv run mkdocs serve
-
-.PHONY: docs-deploy
-docs-deploy: docs-build ## Deploy documentation to GitHub Pages
-	uv run mkdocs gh-deploy
 
 ##@ Release
 

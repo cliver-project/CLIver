@@ -1,4 +1,4 @@
-name: Docs Deploy
+name: Docs Deployment
 
 on:
   push:
@@ -6,9 +6,20 @@ on:
     paths:
       - "docs/**"
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
 jobs:
-  docs-deploy:
+  build:
     runs-on: ubuntu-latest
+    outputs:
+      artifact-id: ${{ steps.upload_artifact.outputs.artifact_id }}
 
     steps:
       - uses: actions/checkout@v4
@@ -26,5 +37,25 @@ jobs:
       - name: Install dependencies
         run: make init
 
-      - name: Deploy documentation
-        run: make docs-deploy
+      - name: Build the Documentation
+        run: make docs-build
+
+      - name: Setup Pages
+        id: pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        id: upload_artifact
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: ./dist/site
+
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
