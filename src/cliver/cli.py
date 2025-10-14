@@ -132,8 +132,10 @@ class Cliver:
 
 pass_cliver = click.make_pass_decorator(Cliver)
 
+from cliver import __version__
 
 @click.group(invoke_without_command=True)
+@click.version_option(version=__version__, prog_name="cliver")
 @click.pass_context
 def cliver(ctx: click.Context):
     """
