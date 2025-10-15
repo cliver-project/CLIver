@@ -12,6 +12,7 @@ from cliver.util import parse_key_value_options, create_tools_filter
 
 logger = logging.getLogger(__name__)
 
+
 @click.command(name="chat", help="Chat with LLM models")
 @click.option(
     "--model",
@@ -151,21 +152,44 @@ def chat(
     if debug:
         # Enable debug logging
         logging.basicConfig(level=logging.DEBUG)
-        # logger.setLevel(logging.DEBUG)
         logger.debug("Debug logging enabled for chat command")
+
+    # Collect all the LLM configuration options into a dictionary
+    options = _chat_options(frequency_penalty, max_tokens, temperature, top_p)
+
+    # Process additional options provided via --option flag (key=value format)
+    if option and len(option) > 0:
+        opts_dict = parse_key_value_options(option)
+        options.update(opts_dict)
 
     # Join the query tuple into a single string to check if it's empty
     sentence = " ".join(query) if query else ""
     if len(sentence.strip()) == 0:
         # no query, let's start an interactive mode
-        interact(cliver)
+        # in interactive mode, we can cache the settings from the argument above
+        session_options: dict[str, Any] = {}
+        if model:
+            session_options['model'] = model
+        if stream:
+            session_options['stream'] = stream
+        if included_tools:
+            session_options['included_tools'] = included_tools
+        if options and len(options) > 0:
+            session_options["options"] = options
+
+        # TODO: add --system-message for the system message ?
+        interact(cliver, session_options)
         return 0
+
+    # now we can get from the session_options if any
     try:
+        _session_options = cliver.session_options or {}
+        use_model = _session_options.get("model", model)
         task_executor = cliver.task_executor
-        llm_engine = task_executor.get_llm_engine(model)
+        llm_engine = task_executor.get_llm_engine(use_model)
         if not llm_engine:
             # print message that model is not found
-            click.echo(f"Model '{model}' not found.")
+            click.echo(f"Model '{use_model}' not found.")
             return 1
 
         # Check capabilities before making calls
@@ -173,50 +197,45 @@ def chat(
             ModelCapability.FILE_UPLOAD
         ):
             logger.debug(
-                "Model '%s' does not support file uploads. Will embed file contents in the prompt.", model)
+                "Model '%s' does not support file uploads. Will embed file contents in the prompt.", use_model)
 
         if len(image) > 0 and not llm_engine.supports_capability(
             ModelCapability.IMAGE_TO_TEXT
         ):
-            click.echo(f"Model '{model}' does not support image processing.")
+            click.echo(
+                f"Model '{use_model}' does not support image processing.")
             return 1
 
         if len(audio) > 0 and not llm_engine.supports_capability(
             ModelCapability.AUDIO_TO_TEXT
         ):
-            click.echo(f"Model '{model}' does not support audio processing.")
+            click.echo(
+                f"Model '{use_model}' does not support audio processing.")
             return 1
 
         if len(video) > 0 and not llm_engine.supports_capability(
             ModelCapability.VIDEO_TO_TEXT
         ):
-            click.echo(f"Model '{model}' does not support video processing.")
+            click.echo(
+                f"Model '{use_model}' does not support video processing.")
             return 1
 
         # Convert param tuples to dictionary
         params = parse_key_value_options(param, cliver.console)
-
-        # Collect all the LLM configuration options into a dictionary
-        options = {}
-        if temperature is not None:
-            options['temperature'] = temperature
-        if max_tokens is not None:
-            options['max_tokens'] = max_tokens
-        if top_p is not None:
-            options['top_p'] = top_p
-        if frequency_penalty is not None:
-            options['frequency_penalty'] = frequency_penalty
-
-        # Process additional options provided via --option flag (key=value format)
-        if option and len(option) > 0:
-            opts_dict = parse_key_value_options(option)
-            options.update(opts_dict)
+        use_stream = _session_options.get("stream", stream)
+        use_included_tools = _session_options.get(
+            "included_tools", included_tools)
+        _llm_options: dict = _session_options.get("options", {})
+        _llm_options.update(options)
+        tools_filter = None
+        if use_included_tools and len(use_included_tools.strip()) > 0:
+            tools_filter = create_tools_filter(use_included_tools)
 
         return _async_chat(
             task_executor,
             sentence,
-            model,
-            stream,
+            use_model,
+            use_stream,
             image,
             audio,
             video,
@@ -226,12 +245,26 @@ def chat(
             params,
             save_media,
             media_dir,
-            options,
-            included_tools,
+            _llm_options,
+            tools_filter,
         )
     except Exception as e:
         click.echo(f"Error: {e}")
         return 1
+
+
+def _chat_options(frequency_penalty: float | None, max_tokens: int | None, temperature: float | None,
+                  top_p: float | None) -> dict[Any, Any]:
+    options = {}
+    if temperature is not None:
+        options['temperature'] = temperature
+    if max_tokens is not None:
+        options['max_tokens'] = max_tokens
+    if top_p is not None:
+        options['top_p'] = top_p
+    if frequency_penalty is not None:
+        options['frequency_penalty'] = frequency_penalty
+    return options
 
 
 def _async_chat(
@@ -249,7 +282,7 @@ def _async_chat(
     save_media: bool = False,
     media_dir: Optional[str] = None,
     options: Dict[str, Any] = None,
-    included_tools: Optional[str] = None,
+    tools_filter: Optional[Callable] = None,
 ):
     # Create multimedia response handler
     response_handler = MultimediaResponseHandler(media_dir)
@@ -257,11 +290,6 @@ def _async_chat(
     try:
         if stream:
             # For streaming, we need to run the async generator
-            # Create the tools filter if included_tools is specified
-            tools_filter = None
-            if included_tools and len(included_tools.strip()) > 0:
-                tools_filter = create_tools_filter(included_tools)
-
             return asyncio.run(
                 _stream_chat(
                     task_executor,
@@ -281,11 +309,6 @@ def _async_chat(
                 )
             )
         else:
-            # Create the tools filter if included_tools is specified
-            tools_filter = None
-            if included_tools and len(included_tools.strip()) > 0:
-                tools_filter = create_tools_filter(included_tools)
-
             response = task_executor.process_user_input_sync(
                 user_input=user_input,
                 images=images,
@@ -389,7 +412,6 @@ async def _stream_chat(
                     sys.stdout.flush()
                     # Reduced delay for better streaming experience
                     time.sleep(0.005)  # Faster streaming
-
 
         # After streaming is complete, process the accumulated content
         if accumulated_chunk:

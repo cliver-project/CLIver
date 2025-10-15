@@ -14,10 +14,14 @@ from cliver.model_capabilities import ModelCapability, ModelCapabilityDetector, 
 
 logger = logging.getLogger(__name__)
 
+
 class ModelOptions(BaseModel):
     temperature: float = Field(default=0.7, description="Sampling temperature")
     top_p: float = Field(default=0.3, description="Top-p sampling cutoff")
-    max_tokens: int = Field(default=4096, description="Maximum number of tokens")
+    max_tokens: int = Field(
+        default=4096, description="Maximum number of tokens")
+    frequency_penalty: float = Field(
+        default=0.1, description="Model’s tendency to repeat tokens")
     # special class-level variable to allow extra fields
     model_config = {"extra": "allow"}
 
@@ -26,10 +30,14 @@ class ModelConfig(BaseModel):
     name: str
     provider: str
     url: str
-    name_in_provider: Optional[str] = Field(default=None, description="Internal name used by provider")
-    api_key: Optional[str] = Field(default=None, description="API key for the model")
-    options: Optional[ModelOptions] = Field(default=None, description="Options for model")
-    capabilities: Optional[Set[ModelCapability]] = Field(default=None, description="Model capabilities")
+    name_in_provider: Optional[str] = Field(
+        default=None, description="Internal name used by provider")
+    api_key: Optional[str] = Field(
+        default=None, description="API key for the model")
+    options: Optional[ModelOptions] = Field(
+        default=None, description="Options for model")
+    capabilities: Optional[Set[ModelCapability]] = Field(
+        default=None, description="Model capabilities")
 
     model_config = {"extra": "allow"}
 
@@ -68,7 +76,8 @@ class ModelConfig(BaseModel):
         # Handle capabilities serialization
         if "capabilities" in result and result["capabilities"]:
             # Convert set of ModelCapability enums to list of strings
-            result["capabilities"] = [cap.value for cap in result["capabilities"]]
+            result["capabilities"] = [
+                cap.value for cap in result["capabilities"]]
 
         return result
 
@@ -93,8 +102,10 @@ class StdioMCPServerConfig(MCPServerConfig):
 
     transport: str = "stdio"
     command: str
-    args: Optional[List[str]] = Field(default=None, description="Arguments to start the stdio mcp server")
-    env: Optional[Dict[str, str]] = Field(default=None, description="Environment variables for the stdio mcp server")
+    args: Optional[List[str]] = Field(
+        default=None, description="Arguments to start the stdio mcp server")
+    env: Optional[Dict[str, str]] = Field(
+        default=None, description="Environment variables for the stdio mcp server")
 
 
 class SSEMCPServerConfig(MCPServerConfig):
@@ -102,7 +113,8 @@ class SSEMCPServerConfig(MCPServerConfig):
 
     transport: str = "sse"
     url: str
-    headers: Optional[Dict[str, str]] = Field(default=None, description="The HTTP headers to interact with the SSE MCP server")
+    headers: Optional[Dict[str, str]] = Field(
+        default=None, description="The HTTP headers to interact with the SSE MCP server")
 
 
 class StreamableHttpMCPServerConfig(MCPServerConfig):
@@ -110,7 +122,8 @@ class StreamableHttpMCPServerConfig(MCPServerConfig):
 
     transport: str = "streamable_http"
     url: str
-    headers: Optional[Dict[str, str]] = Field(default=None, description="The HTTP headers to interact with the streamable_http MCP server")
+    headers: Optional[Dict[str, str]] = Field(
+        default=None, description="The HTTP headers to interact with the streamable_http MCP server")
 
 
 class WebSocketMCPServerConfig(MCPServerConfig):
@@ -118,19 +131,24 @@ class WebSocketMCPServerConfig(MCPServerConfig):
 
     transport: str = "websocket"
     url: str
-    headers: Optional[Dict[str, str]] = Field(default=None, description="The HTTP headers to interact with the websocket MCP server")
+    headers: Optional[Dict[str, str]] = Field(
+        default=None, description="The HTTP headers to interact with the websocket MCP server")
 
 
 class SecretsConfig(BaseModel):
     vault_path: str
     references: Dict[str, str]
 
+
 class AppConfig(BaseModel):
     mcpServers: Dict[str, MCPServerConfig] = {}
-    default_server: Optional[str] = Field(default=None, description="The default MCP server")
+    default_server: Optional[str] = Field(
+        default=None, description="The default MCP server")
     models: Dict[str, ModelConfig] = {}
-    default_model: Optional[str] = Field(default=None, description="The default LLM model")
-    secrets: Optional[SecretsConfig] = Field(default=None, description="The Secrets configuration")
+    default_model: Optional[str] = Field(
+        default=None, description="The default LLM model")
+    secrets: Optional[SecretsConfig] = Field(
+        default=None, description="The Secrets configuration")
 
     def model_dump(self, **kwargs):
         """Override to exclude null values."""
@@ -140,6 +158,8 @@ class AppConfig(BaseModel):
 
 # TODO: support the configuration from others like from a k8s ConfigMap
 # TODO: shall we support yaml format as well ?
+
+
 class ConfigManager:
     """Configuration manager for Cliver client."""
 
@@ -160,7 +180,8 @@ class ConfigManager:
             Cliver configuration
         """
         if not self.config_file.exists():
-            logger.info(f"No configuration file found at {str(self.config_dir)}, using default configuration.")
+            logger.info(
+                f"No configuration file found at {str(self.config_dir)}, using default configuration.")
             return AppConfig()
 
         try:
@@ -180,10 +201,12 @@ class ConfigManager:
                             if "capabilities" in model and model["capabilities"]:
                                 # Convert list of strings to set of ModelCapability enums
                                 try:
-                                    model["capabilities"] = {ModelCapability(cap) for cap in model["capabilities"]}
+                                    model["capabilities"] = {ModelCapability(
+                                        cap) for cap in model["capabilities"]}
                                 except ValueError as e:
                                     # we tolerate the bad capabilities configuration and just ignore it.
-                                    logger.warning(f"Warning: Invalid capability in model {name}: {e}")
+                                    logger.warning(
+                                        f"Warning: Invalid capability in model {name}: {e}")
                                     model["capabilities"] = None
 
                 mcp_servers_data = config_data.get("mcpServers")
@@ -218,14 +241,16 @@ class ConfigManager:
                                     **server_config
                                 )
                             else:
-                                raise ValueError(f"Unknown transport {transport}")
+                                raise ValueError(
+                                    f"Unknown transport {transport}")
                     config_data["mcpServers"] = converted_servers
 
                 config = AppConfig(**config_data)
                 return config
         except Exception as e:
             # we don't want to tolerate this as it may lead to the whole configuration missing just because a blemish
-            logger.error("Error loading configuration: %s", e, stack_info=True, exc_info=True)
+            logger.error("Error loading configuration: %s",
+                         e, stack_info=True, exc_info=True)
             raise e
 
     def _save_config(self) -> None:
@@ -402,7 +427,8 @@ class ConfigManager:
             # Update default server if needed
             if self.config.default_server == name:
                 self.config.default_server = (
-                    None if not self.config.mcpServers else next(iter(self.config.mcpServers))
+                    None if not self.config.mcpServers else next(
+                        iter(self.config.mcpServers))
                 )
 
             # Save config
@@ -513,7 +539,8 @@ class ConfigManager:
         if capabilities:
             # Parse comma-separated capabilities into a set of ModelCapability enums
             try:
-                capability_list = [cap.strip() for cap in capabilities.split(",") if cap.strip()]
+                capability_list = [cap.strip()
+                                   for cap in capabilities.split(",") if cap.strip()]
                 capability_set = set()
                 for cap_str in capability_list:
                     # Convert string to ModelCapability enum
@@ -521,7 +548,8 @@ class ConfigManager:
                 llm.capabilities = capability_set
             except ValueError as e:
                 # we don't tolerate this because it is saving.
-                logger.error("Warning: Invalid capability specified: %s, exception: %s", capabilities, e)
+                logger.error(
+                    "Warning: Invalid capability specified: %s, exception: %s", capabilities, e)
                 raise e
 
         self._save_config()
@@ -534,7 +562,8 @@ class ConfigManager:
             # Update default model if needed
             if self.config.default_model == name:
                 self.config.default_model = (
-                    next(iter(self.config.models)) if self.config.models else None
+                    next(iter(self.config.models)
+                         ) if self.config.models else None
                 )
 
             # Save config

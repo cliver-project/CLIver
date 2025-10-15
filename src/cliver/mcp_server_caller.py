@@ -1,4 +1,4 @@
-from typing import Dict, Optional, Any, Union, get_type_hints
+from typing import Dict, Optional, Any, Union
 from langchain_mcp_adapters.client import MultiServerMCPClient
 import logging
 from langchain_mcp_adapters.sessions import (
@@ -14,9 +14,11 @@ from mcp.types import CallToolResult
 
 logger = logging.getLogger(__name__)
 
+
 def filter_dict_for_typed_dict(source: Dict, typed_dict_type: type) -> Dict:
     """Helper method to extract values from a source dict"""
-    keys = get_type_hints(typed_dict_type).keys()
+    # Use __annotations__ to get keys instead of get_type_hints() to avoid forward reference issues
+    keys = getattr(typed_dict_type, '__annotations__', {}).keys()
     return {k: source[k] for k in keys if k in source}
 
 
@@ -32,10 +34,12 @@ def _get_mcp_server_connection(server_config: Dict) -> StdioConnection | SSEConn
         sse_dict = filter_dict_for_typed_dict(server_config, SSEConnection)
         return SSEConnection(**sse_dict)
     elif transport == "streamable_http":
-        stream_dict = filter_dict_for_typed_dict(server_config, StreamableHttpConnection)
+        stream_dict = filter_dict_for_typed_dict(
+            server_config, StreamableHttpConnection)
         return StreamableHttpConnection(**stream_dict)
     elif transport == "websocket":
-        websocket_dict = filter_dict_for_typed_dict(server_config, WebsocketConnection)
+        websocket_dict = filter_dict_for_typed_dict(
+            server_config, WebsocketConnection)
         return WebsocketConnection(**websocket_dict)
     else:
         raise ValueError(f"Transport: {transport} is not supported")

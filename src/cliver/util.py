@@ -316,7 +316,6 @@ def read_file_content(file_path: str, max_size: int = 100000) -> str:
         ValueError: If the file is too large or cannot be read as text
     """
     import os
-    import re
 
     # Check if file exists
     if not os.path.exists(file_path):

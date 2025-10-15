@@ -3,7 +3,9 @@ Cliver CLI Module
 
 The main entrance of the cliver application
 """
+from typing import Dict, Any
 
+from cliver import __version__
 from shlex import split as shell_split
 import click
 import sys
@@ -46,21 +48,24 @@ class Cliver:
         self.session = None
         self.console = Console()
         self.piped = stdin_is_piped()
+        # Session options that persist across chat commands in interactive mode
+        self.session_options = {}
 
-    # TODO: we may need to maintain the selected model, and other options during the session initiation
-    def init_session(self, group: click.Group):
+    def init_session(self, group: click.Group, session_options: Dict[str, Any] = None):
         if self.piped or self.session is not None:
             return
         self.session = PromptSession(
             history=FileHistory(str(self.history_path)),
             auto_suggest=AutoSuggestFromHistory(),
-            completer=WordCompleter(self.load_commands_names(group), ignore_case=True),
+            completer=WordCompleter(
+                self.load_commands_names(group), ignore_case=True),
             style=Style.from_dict(
                 {
                     "prompt": "ansigreen bold",
                 }
             ),
         )
+        self.session_options = session_options or {}
 
     def load_commands_names(self, group: click.Group) -> list[str]:
         return commands.list_commands_names(group)
@@ -93,13 +98,17 @@ class Cliver:
                     line = self.session.prompt("Cliver> ").strip()
                     if line.lower() in ("exit", "quit", "/exit", "/quit"):
                         break
-                    if line.startswith("/") and len(line) > 1:
-                        # possibly a command
-                        line = line[1:]
+                    if line.startswith("/"):
+                        if len(line) == 1:
+                            continue
+                        else:
+                            # possibly a command
+                            line = line[1:]
                     elif not line.lower().startswith(f"{CMD_CHAT} "):
                         line = f"{CMD_CHAT} {line}"
 
-                    self.call_cmd(line)
+                    if len(line.strip()) > 0:
+                        self.call_cmd(line)
 
                 except KeyboardInterrupt:
                     self.console.print(
@@ -107,7 +116,7 @@ class Cliver:
                     )
                 except EOFError:
                     break
-                except click.exceptions.NoArgsIsHelpError as e:
+                except click.exceptions.UsageError as e:
                     self.console.print(f"{e.format_message()}")
                 except Exception as e:
                     self.console.print(f"[red]Error: {e}[/red]")
@@ -119,20 +128,26 @@ class Cliver:
         """
         Call a command with the given name and arguments.
         """
+        # Parse the command line to get parts
         parts = shell_split(line)
+        if not parts or len(parts) == 0:
+            return
+        if parts[0].lower() == "chat" and len(parts) <= 1:
+            # chat command requires at least one more
+            return
+
         cliver(args=parts, prog_name="cliver", standalone_mode=False, obj=self)
 
     def cleanup(self):
         """
         Clean up the resources opened by the application like the mcp server processes or connections to remote mcp servers, llm providers
         """
-        # TODO
-        pass
+        self.session_options = {}
+        self.session = None
 
 
 pass_cliver = click.make_pass_decorator(Cliver)
 
-from cliver import __version__
 
 @click.group(invoke_without_command=True)
 @click.version_option(version=__version__, prog_name="cliver")
@@ -151,11 +166,14 @@ def cliver(ctx: click.Context):
         interact(cli)
 
 
-def interact(cli: Cliver):
+def interact(cli: Cliver, session_options: Dict[str, Any] = None) -> None:
     """
     Start an interactive session with the AI agent.
     """
-    cli.init_session(cliver)
+    if cli.session:
+        # already initialized
+        return
+    cli.init_session(cliver, session_options)
     cli.run()
 
 

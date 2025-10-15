@@ -1,6 +1,7 @@
 import pytest
 import asyncio
 from cliver.config import ConfigManager
+from cliver.cli import Cliver
 
 
 @pytest.fixture(scope="session")
@@ -9,14 +10,6 @@ def event_loop():
     loop = asyncio.get_event_loop_policy().new_event_loop()
     yield loop
     loop.close()
-
-
-@pytest.fixture()
-def load_cliver():
-    from cliver import cli
-
-    cli.loads_commands()
-    return cli.cliver
 
 
 @pytest.fixture()
@@ -30,6 +23,19 @@ def init_config(tmp_path, monkeypatch):
 @pytest.fixture()
 def config_manager(init_config):
     return ConfigManager(init_config)
+
+
+@pytest.fixture()
+def test_cliver(init_config, config_manager):
+    return Cliver()
+
+
+@pytest.fixture()
+def load_cliver(init_config, config_manager):
+    from cliver import cli
+
+    cli.loads_commands()
+    return cli.cliver
 
 
 @pytest.fixture()
