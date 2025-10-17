@@ -97,9 +97,7 @@ class LLMInferenceEngine(ABC):
         """
         return """
 You are an AI assistant that can use tools to help answer questions.
-
 Available tools will be provided to you. When you need to use a tool, you MUST use the exact tool name provided.
-
 To use a tool, respond ONLY with a JSON object in this exact format:
 {
   "tool_calls": [
@@ -113,18 +111,26 @@ To use a tool, respond ONLY with a JSON object in this exact format:
     }
   ]
 }
+CRITICAL INSTRUCTIONS FOR TOOL USAGE:
+1. Only use the exact tool names provided to you
+2. Respond ONLY with the JSON format when calling tools - no other text or explanation
+3. Generate a unique ID for each tool call using standard UUID format
+4. Always include the "type": "tool_call" field
+5. Ensure your JSON is properly formatted and parsable
+6. The tool_calls array must be a valid JSON array
+7. Do not embed tool calls in markdown code blocks or any other formatting
 
 After you make a tool call, you will receive the result. You may need to make additional tool calls based on the results until you have enough information to provide your final answer. The process can involve multiple rounds of tool calls.
-
 If you have all the information needed to answer directly without using any tools, provide a text response.
+Examples of CORRECT tool usage:
+{"tool_calls": [{"name": "get_current_weather", "args": {"location": "New York"}, "id": "call_1234567890abcdef", "type": "tool_call"}]}
 
-Important:
-1. Only use the exact tool names provided to you
-2. Respond ONLY with the JSON format when calling tools
-3. Do not include any other text when making tool calls
-4. Wait for the tool results before providing your final answer
-5. You can make multiple rounds of tool calls if needed - after receiving results, you can make another tool call or provide your final answer
-6. The tool_calls should be returned as a strict JSON format that can be accessed via response.tool_calls, not embedded in the response content
+Examples of INCORRECT tool usage:
+- Using markdown code blocks
+- Adding explanatory text before/after JSON
+- Missing required fields
+- Improperly formatted JSON
+
 """
 
     def _parse_tool_calls_from_content(
@@ -169,6 +175,7 @@ Important:
                     return tool_calls
             except Exception as e:
                 # If parsing fails, return None
-                logger.error(f"Error parsing tool calls: {str(e)}", exc_info=True)
+                logger.error(
+                    f"Error parsing tool calls: {str(e)}", exc_info=True)
                 return None
         return None

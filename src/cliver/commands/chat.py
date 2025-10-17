@@ -8,7 +8,7 @@ from cliver.cli import Cliver, pass_cliver, interact
 from cliver.llm import TaskExecutor
 from cliver.media_handler import MultimediaResponseHandler
 from cliver.model_capabilities import ModelCapability
-from cliver.util import parse_key_value_options, create_tools_filter
+from cliver.util import parse_key_value_options, create_tools_filter, read_file_content
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +112,16 @@ logger = logging.getLogger(__name__)
     help="Additional inference options in key=value format (Inference Options)",
 )
 @click.option(
+    "--system-message",
+    type=str,
+    help="System message to append to the conversation",
+)
+@click.option(
+    "--system-message-file",
+    type=click.Path(exists=True, file_okay=True, dir_okay=False, readable=True),
+    help="File containing system message to append to the conversation",
+)
+@click.option(
     "--debug",
     is_flag=True,
     default=False,
@@ -143,6 +153,8 @@ def chat(
     top_p: Optional[float],
     frequency_penalty: Optional[float],
     option: Optional[tuple],
+    system_message: Optional[str] = None,
+    system_message_file: Optional[str] = None,
     debug: bool = False,
     included_tools: Optional[str] = None,
 ):
@@ -162,6 +174,17 @@ def chat(
         opts_dict = parse_key_value_options(option)
         options.update(opts_dict)
 
+    # Process system message - prioritize system_message_file over system_message
+    system_message_content = None
+    if system_message_file:
+        try:
+            system_message_content = read_file_content(system_message_file)
+        except Exception as e:
+            click.echo(f"Error reading system message file {system_message_file}: {e}")
+            return 1
+    elif system_message:
+        system_message_content = system_message
+
     # Join the query tuple into a single string to check if it's empty
     sentence = " ".join(query) if query else ""
     if len(sentence.strip()) == 0:
@@ -177,7 +200,9 @@ def chat(
         if options and len(options) > 0:
             session_options["options"] = options
 
-        # TODO: add --system-message for the system message ?
+        # Add system message to session options if provided
+        if system_message_content:
+            session_options['system_message_content'] = system_message_content
         interact(cliver, session_options)
         return 0
 
@@ -231,6 +256,14 @@ def chat(
         if use_included_tools and len(use_included_tools.strip()) > 0:
             tools_filter = create_tools_filter(use_included_tools)
 
+        system_message_appender = None
+        # Get system message appender from session options if not already set
+        if not system_message_content or len(system_message_content.strip()) == 0:
+            system_message_content = _session_options.get("system_message_content")
+        if system_message_content and len(system_message_content.strip()) > 0:
+            def system_message_appender():
+                return system_message_content
+
         return _async_chat(
             task_executor,
             sentence,
@@ -247,6 +280,7 @@ def chat(
             media_dir,
             _llm_options,
             tools_filter,
+            system_message_appender,
         )
     except Exception as e:
         click.echo(f"Error: {e}")
@@ -283,6 +317,7 @@ def _async_chat(
     media_dir: Optional[str] = None,
     options: Dict[str, Any] = None,
     tools_filter: Optional[Callable] = None,
+    system_message_appender=None,
 ):
     # Create multimedia response handler
     response_handler = MultimediaResponseHandler(media_dir)
@@ -306,6 +341,7 @@ def _async_chat(
                     media_dir,
                     options,
                     tools_filter,
+                    system_message_appender,
                 )
             )
         else:
@@ -321,6 +357,7 @@ def _async_chat(
                 params=params,
                 options=options,
                 filter_tools=tools_filter,
+                system_message_appender=system_message_appender,
             )
             if response:
                 # Get the LLM engine used for this response
@@ -376,6 +413,7 @@ async def _stream_chat(
     media_dir: Optional[str] = None,
     options: Dict[str, Any] = None,
     tools_filter: Optional[Callable] = None,
+    system_message_appender=None,
 ):
     """Stream the chat response character by character."""
     # Create multimedia response handler
@@ -395,6 +433,7 @@ async def _stream_chat(
             params=params,
             options=options,
             filter_tools=tools_filter,
+            system_message_appender=system_message_appender,
         ):
             # Handle different types of chunks - some may have content, some may have tool calls
             if accumulated_chunk is None:

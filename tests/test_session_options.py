@@ -6,8 +6,6 @@ This tests the session command functionality using CliRunner instead of direct a
 
 from click.testing import CliRunner
 from cliver.cli import Cliver
-from cliver.commands.session import LLM_OPTIONS_KEYS
-from cliver.config import ModelOptions
 
 
 def test_session_options_default_list(load_cliver, init_config, simple_llm_model):

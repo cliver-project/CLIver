@@ -130,7 +130,7 @@ class TaskExecutor:
         max_iterations: int = 10,
         confirm_tool_exec: bool = False,
         model: str = None,
-        system_message_override: Optional[Callable[[], str]] = None,
+        system_message_appender: Optional[Callable[[], str]] = None,
         filter_tools: Optional[
             Callable[[str, list[BaseTool]], Awaitable[list[BaseTool]]]
         ] = None,
@@ -155,7 +155,7 @@ class TaskExecutor:
                 max_iterations,
                 confirm_tool_exec,
                 model,
-                system_message_override,
+                system_message_appender,
                 filter_tools,
                 enhance_prompt,
                 tool_error_check,
@@ -176,7 +176,7 @@ class TaskExecutor:
         max_iterations: int = 10,
         confirm_tool_exec: bool = False,
         model: str = None,
-        system_message_override: Optional[Callable[[], str]] = None,
+        system_message_appender: Optional[Callable[[], str]] = None,
         filter_tools: Optional[
             Callable[[str, list[BaseTool]], Awaitable[list[BaseTool]]]
         ] = None,
@@ -202,7 +202,7 @@ class TaskExecutor:
             max_iterations (int): The maximum number of iterations.
             confirm_tool_exec(bool): Ask for confirmation on tool execution.
             model (str): The model to use, the default one will be used if not specified.
-            system_message_override: The system message override function.
+            system_message_appender: The system message appender function.
             filter_tools: The function that filters tool calls.
             enhance_prompt: The function that enhances the prompt. This works alongside the default function
                            that reads Cliver.md for context.
@@ -222,7 +222,7 @@ class TaskExecutor:
             enhance_prompt,
             filter_tools,
             model,
-            system_message_override,
+            system_message_appender,
             user_input,
             images,
             audio_files,
@@ -253,7 +253,7 @@ class TaskExecutor:
         enhance_prompt,
         filter_tools,
         model,
-        system_message_override,
+        system_message_appender,
         user_input,
         images=None,
         audio_files=None,
@@ -278,8 +278,10 @@ class TaskExecutor:
         logger.info(f"Selected LLM engine: {type(llm_engine)}")
         # Add system message to instruct the LLM about tool usage
         system_message = llm_engine.system_message()
-        if system_message_override:
-            system_message = system_message_override()
+        if system_message_appender:
+            system_message_extra = system_message_appender()
+            if system_message_extra and len(system_message_extra) > 0:
+                system_message = f"{system_message}\n{system_message_extra}"
 
         # Create initial messages with system message
         messages: list[BaseMessage] = [
@@ -444,7 +446,7 @@ class TaskExecutor:
         max_iterations: int = 10,
         confirm_tool_exec: bool = False,
         model: str = None,
-        system_message_override: Optional[Callable[[], str]] = None,
+        system_message_appender: Optional[Callable[[], str]] = None,
         filter_tools: Optional[
             Callable[[str, list[BaseTool]], Awaitable[list[BaseTool]]]
         ] = None,
@@ -470,7 +472,7 @@ class TaskExecutor:
             max_iterations (int): The maximum number of iterations.
             confirm_tool_exec(bool): Ask for confirmation on tool execution.
             model (str): The model to use, the default one will be used if not specified.
-            system_message_override: The system message override function.
+            system_message_appender: The system message appender function.
             filter_tools: The function that filters tool calls.
             enhance_prompt: The function that enhances the prompt. This works alongside the default function
                            that reads Cliver.md for context.
@@ -490,7 +492,7 @@ class TaskExecutor:
             enhance_prompt,
             filter_tools,
             model,
-            system_message_override,
+            system_message_appender,
             user_input,
             images,
             audio_files,
