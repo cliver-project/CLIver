@@ -55,7 +55,7 @@ cliver chat --model deepseek-r1 --temperature 0.2
 # Set max tokens for response
 cliver chat --max-tokens 1024
 
-# Set top_p parameter for nucleus sampling
+# Set top_p parameter for sampling
 cliver chat --top-p 0.9
 
 # Set frequency penalty
@@ -65,6 +65,8 @@ cliver chat --frequency-penalty 0.5
 ### System Prompt
 
 Set a system prompt to guide the model's behavior:
+
+> NOTE: the system message will be appended to the builtin system message if specified.
 
 ```bash
 cliver chat --system-message "You are a helpful assistant that responds in a professional manner."
@@ -108,7 +110,7 @@ cliver chat \
 ```bash
 cliver chat \
   --model deepseek-r1 \
-  --system "Help me brainstorm creative writing ideas. Be imaginative and provide detailed suggestions." \
+  --system-message "Help me brainstorm creative writing ideas. Be imaginative and provide detailed suggestions." \
   --temperature 0.8
 ```
 
@@ -116,7 +118,7 @@ cliver chat \
 ```bash
 cliver chat \
   --model qwen3-coder \
-  --system "Review this code for best practices, security issues, and potential improvements." \
+  --system-message "Review this code for best practices, security issues, and potential improvements." \
   --file /path/to/code.py
 ```
 

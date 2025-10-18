@@ -1,7 +1,4 @@
 {
-    // Use IntelliSense to learn about possible attributes.
-    // Hover to view descriptions of existing attributes.
-    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
         {
@@ -10,7 +7,7 @@
             "request": "launch",
             "cwd": "${workspaceFolder}/src",
             "program": "${workspaceFolder}/src/cliver/cliver_run.py",
-            "args": [],
+            "args": ["chat", "-m", "deepseek-r1", "what time is it in Beijing, Tokyo, London and New York now ?"],
             "console": "integratedTerminal",
             "justMyCode": false,
             "env": {
