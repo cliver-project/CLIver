@@ -1,9 +1,8 @@
 import json
 import logging
-from typing import AsyncIterator, List, Optional, Dict, Any
+from typing import List, Optional, Dict
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, BaseMessageChunk, AIMessageChunk
-from langchain_core.tools import BaseTool
+from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_openai import ChatOpenAI
 from openai import OpenAI
 
@@ -14,7 +13,6 @@ from cliver.llm.media_utils import (
     data_url_to_media_content,
 )
 from cliver.media import MediaContent, MediaType
-from cliver.model_capabilities import ModelCapability
 
 logger = logging.getLogger(__name__)
 
@@ -128,63 +126,8 @@ class OpenAICompatibleInferenceEngine(LLMInferenceEngine):
             logger.error(f"Error deleting file {file_id}: {e}")
             return False
 
-    async def infer(
-        self,
-        messages: list[BaseMessage],
-        tools: Optional[list[BaseTool]],
-        options: Optional[Dict[str, Any]] = None
-    ) -> BaseMessage:
-        try:
-            # Convert messages to OpenAI multi-media format if needed
-            converted_messages = self._convert_messages_to_openai_format(
-                messages)
-            _llm = await self._reconstruct_llm(self.llm, options, tools)
-            response = await _llm.ainvoke(converted_messages)
-            return response
-        except Exception as e:
-            return AIMessage(content=f"Error: {e}", additional_kwargs={"type": "error"})
-
-    async def _reconstruct_llm(self, _llm: ChatOpenAI, options: dict[str, Any] | None, tools: list[BaseTool] | None) -> ChatOpenAI:
-        # Create a new instance with options that override the base configuration
-        if options and len(options) > 0:
-            # Create base options from config if available
-            openai_options = self.options.copy()
-            openai_options.update(options)
-
-            _llm = ChatOpenAI(
-                model=self.config.name_in_provider or self.config.name,
-                base_url=self.config.url if self.config.url else None,
-                api_key=self.config.api_key if self.config.api_key else None,
-                **openai_options
-            )
-        if tools and len(tools) > 0:
-            # Check if the model supports tool calling
-            capabilities = self.config.get_capabilities()
-            if ModelCapability.TOOL_CALLING in capabilities:
-                _llm = _llm.bind_tools(tools, strict=True)
-        return _llm
-
-    async def stream(
-        self,
-        messages: list[BaseMessage],
-        tools: Optional[list[BaseTool]],
-        options: Optional[Dict[str, Any]] = None
-    ) -> AsyncIterator[BaseMessageChunk]:
-        """Stream responses from the LLM."""
-        try:
-            # Convert messages to OpenAI multi-media format if needed
-            converted_messages = self._convert_messages_to_openai_format(
-                messages)
-            _llm = await self._reconstruct_llm(self.llm, options, tools)
-            async for chunk in _llm.astream(converted_messages):
-                yield chunk
-        except Exception as e:
-            # noinspection PyArgumentList
-            yield AIMessageChunk(content=f"Error: {e}", additional_kwargs={"type": "error"})
-
-    @staticmethod
-    def _convert_messages_to_openai_format(
-            messages: List[BaseMessage]
+    def convert_messages_to_engine_specific(
+            self, messages: List[BaseMessage]
     ) -> List[BaseMessage]:
         """
         Convert messages to OpenAI multimedia format.

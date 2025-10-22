@@ -11,7 +11,9 @@ from typing import (
     Tuple,
 )
 
-from cliver.builtin_tools import get_builtin_tools, BuiltinTools
+from cliver.builtin_tools import BuiltinTools
+from cliver.llm.llm_utils import is_thinking
+from cliver.model_capabilities import ModelCapability
 
 # Create a logger for this module
 logger = logging.getLogger(__name__)
@@ -29,6 +31,7 @@ from langchain_core.tools import BaseTool
 
 from cliver.config import ModelConfig
 from cliver.llm.base import LLMInferenceEngine
+from cliver.llm.errors import get_friendly_error_message
 from cliver.llm.ollama_engine import OllamaLlamaInferenceEngine
 from cliver.llm.openai_engine import OpenAICompatibleInferenceEngine
 from cliver.mcp_server_caller import MCPServersCaller
@@ -263,10 +266,9 @@ class TaskExecutor:
         template=None,
         params=None,
     ):
-        logger.info(f"_prepare_messages_and_tools called with files: {files}")
-
         # Check file upload capability early, before any processing
         if files:
+            logger.debug(f"_prepare_messages_and_tools called with files: {files}")
             llm_engine = self._select_llm_engine(model)
             if hasattr(llm_engine, 'config'):
                 capabilities = llm_engine.config.get_capabilities()
@@ -275,7 +277,7 @@ class TaskExecutor:
                     logger.info("File upload is not supported for this model. Will use content embedding as fallback.")
 
         llm_engine = self._select_llm_engine(model)
-        logger.info(f"Selected LLM engine: {type(llm_engine)}")
+        logger.debug(f"Selected LLM engine: {type(llm_engine)}")
         # Add system message to instruct the LLM about tool usage
         system_message = llm_engine.system_message()
         if system_message_appender:
@@ -330,8 +332,8 @@ class TaskExecutor:
         media_content = []
 
         # Load image files
-        logger.info(f"loading images: {images}")
         if images:
+            logger.info(f"loading images: {images}")
             for image_path in images:
                 try:
                     media_content.append(load_media_file(image_path))
@@ -536,9 +538,9 @@ class TaskExecutor:
         iteration = current_iteration
         while iteration < max_iterations:
             # keeps inferencing unless max_iterations exceeded
-            response = await llm_engine.infer(messages, mcp_tools, options=options)
+            options = options or {}
+            response = await llm_engine.infer(messages, mcp_tools, **options)
             logger.debug(f"LLM response: {response}")
-            # Handle different response types
             tool_calls = llm_engine.parse_tool_calls(response, model)
             if tool_calls:
                 # as long as there is tool execution, the result will be sent back unless a fatal error happens
@@ -579,11 +581,12 @@ class TaskExecutor:
                 tool_name = tool_call["tool_name"]
                 args = tool_call["args"]
                 tool_call_id = tool_call["tool_call_id"]
+                full_tool_name = f"{mcp_server}#{tool_name}" if mcp_server else f"{tool_name}"
                 # default we don't care about confirmation and just run the tool
                 proceed = True
                 if confirm_tool_exec:
                     proceed = _confirm_tool_execution(
-                        f"This will execute tool: {tool_name} from mcp server: {mcp_server}"
+                        f"This will execute tool: {full_tool_name}"
                     )
                 if not proceed:
                     return True, f"Stopped at tool execution: {tool_call}"
@@ -593,7 +596,7 @@ class TaskExecutor:
                     content="",  # Empty content as this is a tool call
                     tool_calls=[
                         {
-                            "name": f"{mcp_server}#{tool_name}",
+                            "name": f"{full_tool_name}",
                             "args": args,
                             "id": tool_call_id,
                             "type": "tool_call",
@@ -636,7 +639,8 @@ class TaskExecutor:
             return False, "Tool calls executed successfully"
         except Exception as e:
             logger.error(f"Error processing tool call: {str(e)}", exc_info=True)
-            return True, f"Error processing tool call: {str(e)}"
+            friendly_error_msg = get_friendly_error_message(e, "Tool call processing")
+            return True, friendly_error_msg
 
     async def _stream_messages(
         self,
@@ -657,50 +661,38 @@ class TaskExecutor:
 
         # keeps streaming unless got the final answer
         while iteration < max_iterations:
-            # Accumulate the message chunks using concatenation
-            accumulated_chunk = None
+            # For proper tool call handling in streaming, we'll process differently
             tool_calls = None
-
+            accumulated_chunks = None
             try:
-                async for chunk in llm_engine.stream(messages, mcp_tools, options=options):
-                    # Accumulate the chunk using concatenation instead of a list
-                    if accumulated_chunk is None:
-                        accumulated_chunk = chunk
+                # Create an internal streaming method that can detect tool calls early
+                options = options or {}
+                async for chunk in llm_engine.stream(messages, mcp_tools, **options):
+                    # the chunk maybe part of the thinking content: '<thinking>xxx</thinking>'
+                    if not accumulated_chunks:
+                        accumulated_chunks = chunk
                     else:
-                        # Concatenate the chunks using the + operator
-                        accumulated_chunk = accumulated_chunk + chunk
+                        accumulated_chunks = accumulated_chunks + chunk
 
-                    # Check if the chunk has tool calls immediately - if so, process them
-                    if hasattr(accumulated_chunk, "tool_calls") and accumulated_chunk.tool_calls:
-                        logger.debug("found tool calls in the accumulated chunk")
-                        tool_calls = accumulated_chunk.tool_calls
-                        break
-
-                    # try to parse the tool_calls from the content
-                    try:
-                        tool_calls = llm_engine.parse_tool_calls(accumulated_chunk, model)
-                        if tool_calls:
-                            break  # Found tool calls, now process them
-                    except Exception as e:
-                        logger.error(
-                            f"Error processing tool call in streaming: {str(e)}",
-                            exc_info=True,
-                        )
+                    # we don't care about thinking content
+                    chunks_content = str(accumulated_chunks)
+                    if (llm_engine.supports_capability(ModelCapability.THINK_MODE)
+                            and (((len(chunks_content) <= 10 and "<thinking>".startswith(chunks_content))
+                                or is_thinking(chunks_content)))):
                         continue
-
-                    # If there is no tool_calls found yet, yield the chunk
-                    # If there is a tool_calls found, the tool message chunk gets ignored.
                     yield chunk
+                tool_calls = llm_engine.parse_tool_calls(accumulated_chunks, model)
             except Exception as e:
                 logger.error(f"Error in streaming: {str(e)}", exc_info=True)
+                friendly_error_msg = get_friendly_error_message(e, "LLM streaming")
                 # Yield error message as a BaseMessageChunk (using AIMessageChunk)
                 # noinspection PyArgumentList
                 yield AIMessageChunk(
-                    content=f"Error in streaming: {str(e)}",
+                    content=f"Error in streaming: {friendly_error_msg}",
                 )
                 return
 
-            # If we found tool calls, execute them and continue
+            # If we found tool calls, execute them and continue after emitting the chunks
             if tool_calls:
                 # Execute tool calls
                 stop, result = await self._execute_tool_calls(

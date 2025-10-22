@@ -75,7 +75,7 @@ class TestOpenAIEngine:
         message = HumanMessage(content="What's in this image?")
         message.media_content = [media]
 
-        converted = openai_engine._convert_messages_to_openai_format([message])
+        converted = openai_engine.convert_messages_to_engine_specific([message])
 
         assert len(converted) == 1
         converted_message = converted[0]
@@ -126,7 +126,7 @@ class TestOllamaEngine:
         message = HumanMessage(content="What's in this image?")
         message.media_content = [media]
 
-        converted = ollama_engine._convert_messages_to_ollama_format([message])
+        converted = ollama_engine.convert_messages_to_engine_specific([message])
 
         assert len(converted) == 1
         converted_message = converted[0]

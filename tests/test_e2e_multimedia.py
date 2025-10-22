@@ -10,7 +10,7 @@ from cliver.llm.llm import TaskExecutor
 from cliver.media import MediaContent, MediaType
 from cliver.config import ModelConfig
 from cliver.model_capabilities import ModelCapability
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, AIMessageChunk
 
 
 class TestE2EMultimedia:
@@ -105,12 +105,15 @@ class TestE2EMultimedia:
 
         # Mock the OpenAI streaming response
         mock_chunks = [
-            AIMessage(content="The image shows "),
-            AIMessage(content="a beautiful landscape"),
-            AIMessage(content=" with mountains and a lake."),
+            AIMessageChunk(content="The image shows "),
+            AIMessageChunk(content="a beautiful landscape"),
+            AIMessageChunk(content=" with mountains and a lake."),
         ]
 
-        async def mock_stream(*args, **kwargs):
+        async def mock_stream(messages, tools, *, callbacks=None, **kwargs):
+            # Handle the case where kwargs might be None or empty
+            if kwargs is None:
+                kwargs = {}
             for chunk in mock_chunks:
                 yield chunk
 

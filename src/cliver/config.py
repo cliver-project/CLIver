@@ -59,7 +59,7 @@ class ModelConfig(BaseModel):
     def get_model_capabilities(self) -> ModelCapabilities:
         detector = ModelCapabilityDetector()
         capabilities = detector.detect_capabilities(
-            self.provider, self.name_in_provider or self.name
+            self.provider, self.name
         )
         return capabilities
 

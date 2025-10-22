@@ -30,6 +30,7 @@ class ModelCapability(Enum):
     JSON_MODE = "json_mode"
     FUNCTION_CALLING = "function_calling"
     FILE_UPLOAD = "file_upload"
+    THINK_MODE = "think_mode"
 
 
 # Provider-specific capability mappings
@@ -55,7 +56,7 @@ PROVIDER_CAPABILITIES = {
     },
 }
 
-# Model-specific capability mappings (overrides provider defaults)
+# Model-specific capability mappings (overrides provider defaults, not complement)
 MODEL_CAPABILITIES = {
     # Ollama models
     "llava*": {
@@ -74,11 +75,7 @@ MODEL_CAPABILITIES = {
         ModelCapability.TOOL_CALLING,
     },
     # Qwen models
-    "qwen*": {
-        ModelCapability.TEXT_TO_TEXT,
-        ModelCapability.TOOL_CALLING,
-        ModelCapability.JSON_MODE,
-    },
+    # the first match wins, so make sure the shorter name is at the last one
     "qwen-vl*": {
         ModelCapability.TEXT_TO_TEXT,
         ModelCapability.IMAGE_TO_TEXT,
@@ -91,14 +88,25 @@ MODEL_CAPABILITIES = {
         ModelCapability.TOOL_CALLING,
         ModelCapability.JSON_MODE,
     },
-    # DeepSeek models
-    "deepseek*": {
+    "qwen*": {
         ModelCapability.TEXT_TO_TEXT,
         ModelCapability.TOOL_CALLING,
+        ModelCapability.JSON_MODE,
+    },
+    # DeepSeek models
+    # the first match wins, so make sure the shorter name is at the last one
+    "deepseek-r1*": {
+        ModelCapability.TEXT_TO_TEXT,
+        ModelCapability.TOOL_CALLING,
+        ModelCapability.THINK_MODE,
     },
     "deepseek-vl*": {
         ModelCapability.TEXT_TO_TEXT,
         ModelCapability.IMAGE_TO_TEXT,
+        ModelCapability.TOOL_CALLING,
+    },
+    "deepseek*": {
+        ModelCapability.TEXT_TO_TEXT,
         ModelCapability.TOOL_CALLING,
     },
     # Llama models
@@ -139,6 +147,7 @@ class ModelCapabilities:
             "video_output": ModelCapability.TEXT_TO_VIDEO in self.capabilities,
             "tool_calling": ModelCapability.TOOL_CALLING in self.capabilities,
             "file_upload": ModelCapability.FILE_UPLOAD in self.capabilities,
+            "think_mode": ModelCapability.THINK_MODE in self.capabilities,
         }
 
 
@@ -152,7 +161,7 @@ class ModelCapabilityDetector:
 
         Args:
             provider: The provider name (e.g., 'openai', 'ollama')
-            model_name: The model name (e.g., 'gpt-4', 'llama3')
+            model_name: The model name (e.g., 'qwen', 'deepseek')
 
         Returns:
             ModelCapabilities object with detected capabilities
