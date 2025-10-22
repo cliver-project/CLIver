@@ -5,6 +5,10 @@ on:
     branches: [main]
     paths:
       - "docs/**"
+      - "mkdocs.yml"
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -16,46 +20,34 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-    outputs:
-      artifact-id: ${{ steps.upload_artifact.outputs.artifact_id }}
-
     steps:
       - uses: actions/checkout@v4
-
       - name: Install uv
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
           cache-dependency-glob: "uv.lock"
-
       - uses: actions/setup-python@v4
         with:
           python-version: '3.13'
-
       - name: Install dependencies
         run: make init
-
       - name: Build the Documentation
         run: make docs-build
 
       - name: Setup Pages
         id: pages
         uses: actions/configure-pages@v5
-
       - name: Upload artifact
         id: upload_artifact
         uses: actions/upload-pages-artifact@v4
         with:
           path: ./dist/site
-
-  deploy:
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

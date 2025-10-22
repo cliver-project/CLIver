@@ -1,12 +1,12 @@
 site_name: CLIver Documentation
-site_url: https://clever-cli.github.io/cliver/
+site_url: https://cliver-project.github.io/CLIver/
 site_description: Documentation for CLIver - your powerful command-line and library tool for LLM and MCP interactions
 site_author: CLIver Team
 site_dir: dist/site
 
 # Repository
-repo_name: clever-cli/cliver
-repo_url: https://github.com/clever-cli/cliver
+repo_name: cliver-project/CLIver
+repo_url: https://github.com/cliver-project/CLIver
 edit_uri: edit/main/docs/
 
 # Copyright
@@ -48,7 +48,7 @@ plugins:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/clever-cli/cliver
+      link: https://github.com/cliver-project/CLIver
     - icon: fontawesome/brands/python
       link: https://pypi.org/project/cliver/
 
@@ -93,3 +93,4 @@ nav:
   - 'Workflows': 'workflow.md'
   - 'Extensibility': 'extensibility.md'
   - 'Roadmap': 'roadmap.md'
+  - 'Session': 'session.md'
