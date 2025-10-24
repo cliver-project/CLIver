@@ -82,11 +82,12 @@ class WorkflowExecutor:
 
         # Use lock only for execution state management to prevent concurrent execution of same execution_id
         with self._execution_lock:
-            # Create execution context
+            # Create execution context with initial inputs from workflow definition
+            initial_inputs = workflow.get_initial_inputs(inputs)
             context = ExecutionContext(
                 workflow_name=workflow.name,
-                inputs=inputs or {},
-                variables=inputs or {},
+                inputs=initial_inputs,
+                variables=initial_inputs.copy(),
                 execution_id=execution_id,
                 current_step=None,
                 outputs={},

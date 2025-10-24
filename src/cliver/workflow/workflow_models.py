@@ -8,6 +8,14 @@ from pydantic import BaseModel, Field
 from enum import Enum
 
 
+class InputParameter(BaseModel):
+    """Input parameter definition with metadata."""
+    name: str = Field(..., description="Name of the input parameter")
+    description: Optional[str] = Field(None, description="Description of the input parameter")
+    type: Optional[str] = Field(None, description="Expected type of the input parameter")
+    default: Optional[Any] = Field(None, description="Default value for the input parameter")
+
+
 class StepType(str, Enum):
     """Enumeration of step types."""
     FUNCTION = "function"
@@ -94,8 +102,37 @@ class Workflow(BaseModel):
     version: Optional[str] = Field(None, description="Version of the workflow")
     author: Optional[str] = Field(None, description="Author of the workflow")
     # we define the input variable names in the workflow definition, and pass the value on execution.
-    inputs: Optional[List[str]] = Field(None, description="Input variable names for the workflow")
+    inputs: Optional[List[InputParameter]] = Field(None, description="Input parameters for the workflow")
     steps: List[Step] = Field(default_factory=list, description="Steps in the workflow")
+
+    def get_initial_inputs(self, provided_inputs: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Get initial input values with defaults applied.
+
+        Args:
+            provided_inputs: Dictionary of input values provided at execution time
+
+        Returns:
+            Dictionary of input values with defaults applied for missing values
+        """
+        if not self.inputs:
+            return provided_inputs or {}
+
+        result = {}
+        provided_inputs = provided_inputs or {}
+
+        # Apply defaults and provided values
+        for input_param in self.inputs:
+            if input_param.name in provided_inputs:
+                # Use provided value
+                result[input_param.name] = provided_inputs[input_param.name]
+            elif input_param.default is not None:
+                # Use default value
+                result[input_param.name] = input_param.default
+            else:
+                # No value provided and no default - set to None
+                result[input_param.name] = None
+
+        return result
 
 
 class ExecutionContext(BaseModel):
