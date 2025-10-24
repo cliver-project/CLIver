@@ -18,7 +18,7 @@ theme:
     # Palette toggle for light mode
     - scheme: default
       toggle:
-        icon: material/brightness-7 
+        icon: material/brightness-7
         name: Switch to dark mode
     # Palette toggle for dark mode
     - scheme: slate
@@ -37,6 +37,7 @@ theme:
     - search.highlight
     - content.code.copy
     - content.code.annotate
+    - content.tooltips
 
 # Plugins
 plugins:
@@ -51,6 +52,13 @@ extra:
       link: https://github.com/cliver-project/CLIver
     - icon: fontawesome/brands/python
       link: https://pypi.org/project/cliver/
+  # Enable mermaid.js
+  mermaid:
+    version: "9.4.3"
+
+# Custom javascript
+extra_javascript:
+  - javascripts/mermaid-zoom.js
 
 # Extensions
 markdown_extensions:
@@ -82,6 +90,13 @@ markdown_extensions:
   - pymdownx.tasklist:
       custom_checkbox: true
   - pymdownx.tilde
+  - pymdownx.snippets:
+      base_path: docs
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
 
 # Page tree
 nav:
@@ -92,5 +107,5 @@ nav:
   - 'Chat Command': 'chat.md'
   - 'Workflows': 'workflow.md'
   - 'Extensibility': 'extensibility.md'
-  - 'Roadmap': 'roadmap.md'
   - 'Session': 'session.md'
+  - 'Roadmap': 'roadmap.md'

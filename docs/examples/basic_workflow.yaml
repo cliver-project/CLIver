@@ -1,0 +1,25 @@
+name: research_analysis
+description: Research a topic and provide analysis
+inputs:
+  - topic
+steps:
+  - id: research_topic
+    name: Research Topic
+    type: llm
+    prompt: "Research the topic: {{ inputs.topic }}"
+    model: deepseek-r1  # Can also use 'qwen' as an alternative
+    outputs: [research]
+
+  - id: analyze_findings
+    name: Analyze Findings
+    type: llm
+    prompt: "Analyze the research findings: {{ research_topic.research }}"
+    model: deepseek-r1  # Can also use 'qwen' as an alternative
+    outputs: [analysis]
+
+  - id: generate_report
+    name: Generate Report
+    type: llm
+    prompt: "Generate a final report based on the analysis: {{ analyze_findings.analysis }} for topic {{ inputs.topic }}"
+    model: deepseek-r1  # Can also use 'qwen' as an alternative
+    outputs: [report]

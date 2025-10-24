@@ -6,7 +6,7 @@ description: Introduction to CLIver - your powerful command-line and library too
 # CLIver Overview
 
 CLIver is an AI-powered command-line interface tool that enhances your terminal experience with intelligent capabilities.
-It integrates with MCP (Model Coordination Protocol) servers and various LLM providers to provide an interactive CLI experience.
+It integrates with MCP (Model Context Protocol) servers and various LLM providers to provide an interactive CLI experience.
 
 ## Design Goals
 
@@ -34,13 +34,37 @@ CLIver operates in two primary modes:
 
 ## Architecture
 
-CLIver follows a modular architecture that allows for easy extension and customization:
+CLIver follows a modular architecture that allows for easy extension:
 
-- **Core Engine**: Handles the main logic and coordination between components
-- **LLM Adapters**: Connect to different language model providers through a unified interface
-- **MCP Clients**: Interface with Model Context Protocol servers for extended context and tools
-- **Workflow Engine**: Execute predefined workflows with inputs, outputs, and conditional logic
-- **Configuration System**: Flexible configuration through YAML/JSON files and environment variables
+<figure markdown>
+
+```mermaid
+graph TD
+    A[CLIver Application] --> B[Configuration Manager]
+    A --> C[Task Executor]
+    A --> D[CLI Interface]
+
+    B --> E[LLM Model Config]
+    B --> F[MCP Server Config]
+
+    C --> G[LLM Inference Engines]
+    C --> H[MCP Tools Integration]
+    C --> I[Workflow Engine]
+
+    G --> J[Ollama Provider]
+    G --> K[OpenAI Provider]
+    G --> L[Other LLM Providers]
+
+    style A fill:#e1f5fe
+    style B fill:#f3e5f5
+    style C fill:#f3e5f5
+    style D fill:#f3e5f5
+    style G fill:#e8f5e8
+    style H fill:#e8f5e8
+    style I fill:#e8f5e8
+```
+
+</figure>
 
 ## Getting Started
 

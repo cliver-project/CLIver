@@ -1,0 +1,45 @@
+name: code_review_workflow
+description: A workflow for code review process
+inputs:
+  - file_path
+steps:
+  - id: read_code
+    name: Read Code
+    type: llm
+    prompt: "Read the code from file: {{ inputs.file_path }}"
+    model: deepseek-r1
+    files:
+      - "{{ inputs.file_path }}"
+    template: read_code
+    outputs: [code_content]
+
+  - id: analyze_code
+    name: Analyze Code
+    type: llm
+    prompt: "Analyze the code for issues: {{ read_code.code_content }}"
+    model: deepseek-r1
+    template: analyze_code
+    params:
+      code: "{{ read_code.code_content }}"
+    outputs: [analysis]
+
+  - id: security_check
+    name: Security Check
+    type: llm
+    prompt: "Perform security checks on: {{ read_code.code_content }}"
+    model: deepseek-r1
+    template: security_check
+    params:
+      code: "{{ read_code.code_content }}"
+    outputs: [security_report]
+
+  - id: generate_report
+    name: Generate Report
+    type: llm
+    prompt: "Generate final review report from analysis and security findings"
+    model: deepseek-r1
+    template: code_review_report
+    params:
+      analysis: "{{ analyze_code.analysis }}"
+      security: "{{ security_check.security_report }}"
+    outputs: [final_report]

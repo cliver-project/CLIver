@@ -37,6 +37,7 @@ dev = [
     "mypy>=1.0.0",
     "ruff>=0.0.270",
     "black>=25.1.0",
+    "pymdown-extensions>=10.16.1",
 ]
 
 docs = [

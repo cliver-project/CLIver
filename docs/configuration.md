@@ -5,7 +5,7 @@ description: Configure CLIver for LLM providers, MCP servers, and future secrets
 
 # Configuration Guide
 
-This guide covers how to configure CLIver for different LLM providers, Model Context Protocol (MCP) servers, and future secrets management.
+This guide covers how to configure CLIver for different LLM providers, Model Context Protocol (MCP) servers, and secrets management.
 
 ## Configuration Overview
 
@@ -19,61 +19,42 @@ CLIver supports flexible configuration through multiple methods:
 The default configuration file is located at `~/.cliver/config.json`. You can create this file manually or let CLIver generate it on first run:
 
 ```json
-{
-  "models": {
-        "deepseek-r1": {
-            "name_in_provider": "deepseek-r1:14b",
-            "provider": "openai",
-            "api_key": "dummy",
-            "url": "http://127.0.0.1:8080"
-        },
-        "llama3": {
-            "name_in_provider": "llama3.2:latest",
-            "provider": "ollama",
-            "api_key": "dummy",
-            "url": "http://127.0.0.1:11434"
-        }
-    },
-    "mcpServers": {
-        "time": {
-            "args": [
-                "mcp-server-time",
-                "--local-timezone=Asia/Shanghai"
-            ],
-            "command": "uvx",
-            "env": {},
-            "transport": "stdio"
-        }
-    }
-}
+--8<-- "examples/cliver_config.json"
 ```
 
-## LLM Configuration
+### Sample Configuration Explanation
 
-Besides the basic configuration items for each LLM model, you can define inference options and capabilities:
+The sample configuration file above demonstrates the key components of CLIver's configuration:
 
-```json
-{
-  "models": {
-        "deepseek-r1": {
-            "name_in_provider": "deepseek-r1:14b",
-            "provider": "openai",
-            "api_key": "dummy",
-            "url": "http://127.0.0.1:8080",
-            "temperature": 0.7,
-            "max_tokens": 2048
-        },
-        "llama3": {
-            "name_in_provider": "llama3.2:latest",
-            "provider": "ollama",
-            "api_key": "dummy",
-            "url": "http://127.0.0.1:11434",
-            "temperature": 0.3,
-            "top_p": 0.7
-        }
-    }
-}
-```
+- **models**: Defines the LLM models available to CLIver
+  - `deepseek-r1`: An example using the OpenAI provider with:
+    - `name_in_provider`: The model name as known to the provider
+    - `provider`: The LLM provider type (openai, ollama, etc.)
+    - `api_key`: API key retrieved from environment variables using Jinja2 templating
+    - `url`: Endpoint for the LLM service
+  - `llama3`: An example using the Ollama provider with:
+    - `name_in_provider`: The model name as known to Ollama
+    - `provider`: Specifies the Ollama provider
+    - `api_key`: API key retrieved from system keyring using Jinja2 templating
+    - `url`: Endpoint for the Ollama service
+
+- **mcpServers**: Configures Model Context Protocol (MCP) servers that extend CLIver's capabilities
+  - `time`: An example MCP server for time-related queries with:
+    - `args`: Command-line arguments for the MCP server
+    - `command`: The command to execute the MCP server
+    - `env`: Environment variables for the MCP server (empty in this example)
+    - `transport`: Communication method (stdio for standard input/output)
+
+#### Template Support and Secrets Management
+
+CLIver supports Jinja2 templating in configuration files for dynamic value resolution:
+
+- **Environment Variables**: Use `{{ env.VARIABLE_NAME }}` syntax to reference environment variables
+- **Keyring Storage**: Use `{{ keyring('KEY_NAME') }}` syntax to retrieve secrets from the system keyring
+- **Default Values**: Provide fallback values using the pipe operator, e.g., `{{ env.OPENAI_API_KEY | 'dummy' }}`
+
+This approach keeps sensitive information secure while allowing flexible configuration management.
+
 
 ## Configuration Validation
 

@@ -4,280 +4,145 @@ description: Define and execute complex workflows using YAML configuration files
 ---
 
 # Workflow Definition
+CLIver has a simple workflow engine to allow you to define and execute multi-step operations using YAML files.
+Each step can be one of the following `4` types:
 
-CLIver's workflow system allows you to define and execute complex multi-step operations using YAML configuration files. Workflows enable automation of repeated tasks, complex interactions, and integration between different LLMs and tools.
+- `llm`:        LLM inference request with defined inputs
+- `function`:   Python function calls
+- `human`:      Human interaction to confirm before going to next step
+- `workflow`:   Call other workflow for a complex sub task
 
 ## Workflow Structure
 
 A workflow is defined in a YAML file with the following top-level keys:
 
-- `name`: A descriptive name for the workflow
+- `name`: A descriptive name for the workflow (must be globally unique)
 - `description`: A brief description of what the workflow does
-- `inputs`: Input parameters for the workflow
+- `version`: Version of the workflow (optional)
+- `author`: Author of the workflow (optional)
+- `inputs`: List of input variable names for the workflow (optional)
 - `steps`: An ordered list of steps to execute
-- `outputs`: How to handle the final output
 
 ## Basic Workflow Example
 
-Here's a simple workflow that summarizes a document:
+Here's a simple workflow that analyzes a topic:
 
 ```yaml
-name: Document Summarizer
-description: Summarizes a document using an LLM
-inputs:
-  document_path:
-    type: string
-    description: Path to the document to summarize
-    required: true
-  model:
-    type: string
-    description: Model to use for summarization
-    default: "gpt-4-turbo"
-
-steps:
-  - name: read_document
-    action: file.read
-    parameters:
-      path: "{{ inputs.document_path }}"
-
-  - name: summarize
-    action: llm.chat
-    parameters:
-      model: "{{ inputs.model }}"
-      messages:
-        - role: system
-          content: "Provide a concise summary of the following document."
-        - role: user
-          content: "{{ steps.read_document.output }}"
-      temperature: 0.3
-      max_tokens: 500
-
-outputs:
-  summary: "{{ steps.summarize.output }}"
+--8<-- "examples/basic_workflow.yaml"
 ```
+
 
 ## Workflow Steps
 
 Each step in a workflow has the following properties:
 
-- `name`: A unique identifier for the step
-- `action`: The action to perform (e.g., `llm.chat`, `file.read`, `mcp.call`)
-- `parameters`: Parameters to pass to the action
-- `condition`: (Optional) A condition to determine if the step should execute
+- `id`: A unique identifier for the step (required)
+- `name`: A descriptive name for the step (required)
+- `type`: The type of step (required, one of: `llm`, `function`, `human`, `workflow`)
+- `description`: A description of what the step does (optional)
+- `inputs`: Input variables for the step (optional)
+- `outputs`: Output variable names from the step (optional)
+- `retry`: Retry policy configuration (optional)
+- `timeout`: Timeout in seconds (optional)
+- `on_error`: Action to take on error (optional, `fail` or `continue`)
+- `condition`: Condition expression for step execution (optional)
+- `skipped`: Whether the step is skipped (optional, default: false)
 
 ### Available Actions
 
-#### llm.chat
+#### LLM Steps
 Interact with a language model:
 
 ```yaml
-- name: generate_response
-  action: llm.chat
-  parameters:
-    model: gpt-4-turbo
-    messages:
-      - role: system
-        content: "You are a helpful assistant."
-      - role: user
-        content: "What are the key points in: {{ document_content }}"
-    temperature: 0.7
-    max_tokens: 1000
+--8<-- "examples/llm_step.yaml"
 ```
 
-#### file.read
-Read a file from the filesystem:
+LLM steps support the following properties:
+- `prompt`: The prompt to send to the LLM
+- `model`: The LLM model to use (optional, defaults to the model configured in your CLIver setup, e.g., 'deepseek-r1' or 'qwen')
+- `stream`: Whether to stream the response (optional, default: false)
+- `images`: Image files to send with the message (optional)
+- `audio_files`: Audio files to send with the message (optional)
+- `video_files`: Video files to send with the message (optional)
+- `files`: General files to upload for tools (optional)
+- `skill_sets`: Skill sets to apply (optional)
+- `template`: Template to use for the prompt (optional)
+- `params`: Parameters for skill sets and templates (optional)
+
+#### Function Steps
+Execute Python functions:
 
 ```yaml
-- name: read_input
-  action: file.read
-  parameters:
-    path: "{{ inputs.input_file }}"
-    encoding: "utf-8"
+--8<-- "examples/function_step.yaml"
 ```
 
-#### file.write
-Write content to a file:
 
-```yaml
-- name: save_output
-  action: file.write
-  parameters:
-    path: "{{ inputs.output_file }}"
-    content: "{{ steps.process.output }}"
-    encoding: "utf-8"
-```
+Function steps support the following properties:
+- `function`: Module path to the function to execute (required)
 
-#### mcp.call
-Call an MCP server:
+#### Human Steps
+Wait for human interaction:
 
-```yaml
-- name: get_context
-  action: mcp.call
-  parameters:
-    server: "local-mcp-server"
-    operation: "getResource"
-    parameters:
-      type: "secret"
-      name: "api-key"
-```
+--8<-- "examples/human_step.yaml"
+
+Human steps support the following properties:
+- `prompt`: Prompt to show to the user (required)
+- `auto_confirm`: Automatically confirm without user input (optional, default: false)
+
+#### Workflow Steps
+Call other workflows:
+
+--8<-- "examples/workflow_step.yaml"
+
+Workflow steps support the following properties:
+- `workflow`: Workflow name or path to the workflow file to execute (required)
+- `workflow_inputs`: Inputs for the sub-workflow (optional)
 
 ## Variables and Templates
 
-CLIver uses a template system to reference values from different parts of the workflow:
+CLIver uses a Jinja2-based template system to reference values from different parts of the workflow:
 
 - `{{ inputs.variable_name }}`: Reference an input parameter
-- `{{ steps.step_name.output }}`: Reference the output of a previous step
-- `{{ constants.value }}`: Reference a constant value
+- `{{ step_id.output_name }}`: Reference the output of a previous step by step ID and output name
+- `{{ step_id.outputs.output_name }}`: Alternative way to reference step outputs
+- Environment variables are also available in templates
 
 ### Example with Variables
 
 ```yaml
-name: Code Review Workflow
-description: Reviews code and provides suggestions
-inputs:
-  code_file:
-    type: string
-    description: Path to the code file to review
-    required: true
-  model:
-    type: string
-    description: Model to use for code review
-    default: "gpt-4-turbo"
-
-steps:
-  - name: read_code
-    action: file.read
-    parameters:
-      path: "{{ inputs.code_file }}"
-
-  - name: review_code
-    action: llm.chat
-    parameters:
-      model: "{{ inputs.model }}"
-      messages:
-        - role: system
-          content: |
-            You are an expert code reviewer. Identify potential bugs, 
-            performance issues, security vulnerabilities, and suggest improvements.
-        - role: user
-          content: |
-            Review this code and provide feedback:
-            ```{{ get_file_extension(inputs.code_file) }}
-            {{ steps.read_code.output }}
-            ```
-      temperature: 0.3
-      max_tokens: 1500
-
-  - name: format_review
-    action: llm.chat
-    parameters:
-      model: "{{ inputs.model }}"
-      messages:
-        - role: system
-          content: "Format the code review into a structured markdown report."
-        - role: user
-          content: "{{ steps.review_code.output }}"
-      temperature: 0.2
-
-outputs:
-  review_report: "{{ steps.format_review.output }}"
-  original_code: "{{ steps.read_code.output }}"
+--8<-- "examples/code_review_workflow.yaml"
 ```
 
 ## Conditional Steps
 
-Use conditions to make workflows more flexible:
+Use conditions to make workflows more flexible. Conditions are evaluated using Jinja2 templating:
 
 ```yaml
-steps:
-  - name: analyze_sentiment
-    action: llm.chat
-    parameters:
-      model: gpt-4-turbo
-      messages:
-        - role: user
-          content: "Analyze the sentiment of: {{ inputs.text }}"
-  
-  - name: positive_feedback
-    action: llm.chat
-    condition: "sentiment == 'positive'"
-    parameters:
-      model: gpt-4-turbo
-      messages:
-        - role: system
-          content: "Provide encouragement based on positive sentiment."
-        - role: user
-          content: "{{ inputs.text }}"
-  
-  - name: improvement_suggestions
-    action: llm.chat
-    condition: "sentiment == 'negative'"
-    parameters:
-      model: gpt-4-turbo
-      messages:
-        - role: system
-          content: "Provide constructive suggestions for improvement."
-        - role: user
-          content: "{{ inputs.text }}"
+--8<-- "examples/conditional_step.yaml"
 ```
+
+Note: The current implementation has basic support for conditions, but full conditional branching (if/else) is not yet fully implemented.
 
 ## Loops in Workflows
 
-For processing multiple items, you can use loops:
-
-```yaml
-name: Multi-Document Processing
-description: Process multiple documents in sequence
-inputs:
-  document_paths:
-    type: array
-    description: List of document paths to process
-    required: true
-
-steps:
-  - name: process_documents
-    action: loop
-    parameters:
-      items: "{{ inputs.document_paths }}"
-      step:
-        name: single_document
-        action: llm.chat
-        parameters:
-          model: gpt-4-turbo
-          messages:
-            - role: system
-              content: "Summarize the following document."
-            - role: user
-              content: "{{ item }}"
-          temperature: 0.3
-          max_tokens: 300
-
-outputs:
-  summaries: "{{ steps.process_documents.output }}"
-```
+Note: Loop support is not yet fully implemented in the current workflow engine. To process multiple items, you can create separate steps for each item or use LLM steps with prompts that handle multiple items at once.
 
 ## Local Directory Implementation
 
-Workflows can be organized in local directories for better management:
+Workflows can be organized in local directories for better management. CLIver looks for workflows in the following directories:
+
+1. `.cliver/workflows` in the current directory
+2. `~/.config/cliver/workflows` (user configuration directory)
 
 ```
-workflows/
-├── general/
-│   ├── document-processor.yaml
-│   └── code-reviewer.yaml
-├── business/
-│   ├── report-generator.yaml
-│   └── email-responder.yaml
-└── development/
-    ├── pull-request-reviewer.yaml
-    └── bug-analyzer.yaml
+.cliver/
+└── workflows/
+    ├── example_workflow.yaml
+    ├── code_review_workflow.yaml
+    └── research_workflow.yaml
 ```
 
-To execute a workflow from a specific directory:
-
-```bash
-cliver workflow run --path workflows/general/document-processor.yaml --input document_path=/path/to/doc.txt
-```
+Workflows are identified by their `name` field, not by their file name. You can organize workflow files in subdirectories as needed.
 
 ## Running Workflows
 
@@ -285,88 +150,61 @@ cliver workflow run --path workflows/general/document-processor.yaml --input doc
 
 ```bash
 # Run a workflow with input parameters
-cliver workflow run --path /path/to/workflow.yaml --input document_path=/path/to/doc.txt --input model=gpt-4-turbo
-
-# Run with inputs from a JSON file
-cliver workflow run --path /path/to/workflow.yaml --inputs-file /path/to/inputs.json
+cliver workflow run workflow_name -i document_path=/path/to/doc.txt -i model=deepseek-r1
+# Can also use -i model=qwen as an alternative
 
 # Dry run to validate the workflow without executing
-cliver workflow run --path /path/to/workflow.yaml --dry-run
+cliver workflow run workflow_name --dry-run
+
+# Resume a paused workflow execution
+cliver workflow run workflow_name -e execution_id
 ```
 
 ### From Python Library
 
 ```python
-from cliver import WorkflowRunner
+from cliver.workflow.workflow_manager_local import LocalDirectoryWorkflowManager
+from cliver.workflow.workflow_executor import WorkflowExecutor
+import asyncio
 
-runner = WorkflowRunner()
-result = runner.execute_workflow(
-    workflow_path="/path/to/workflow.yaml",
-    inputs={
-        "document_path": "/path/to/doc.txt",
-        "model": "gpt-4-turbo"
-    }
-)
-print(result)
+# Create workflow manager and executor (requires a TaskExecutor instance)
+# workflow_manager = LocalDirectoryWorkflowManager()
+# workflow_executor = WorkflowExecutor(task_executor, workflow_manager)
+
+# Execute workflow (in an async context)
+# result = await workflow_executor.execute_workflow(
+#     workflow_name="workflow_name",
+#     inputs={
+#         "document_path": "/path/to/doc.txt",
+#         "model": "deepseek-r1"  # Can also use "qwen" as an alternative
+#     }
+# )
+# print(result)
 ```
 
-## Built-in Workflows
+## Available Workflows
 
-CLIver comes with several built-in workflows for common tasks:
-
-- `document-summarizer`: Summarizes documents
-- `code-reviewer`: Reviews code for issues and improvements
-- `email-responder`: Generates email responses
-- `report-builder`: Creates structured reports
-- `content-analyzer`: Analyzes content for sentiment, keywords, etc.
-
-To list available built-in workflows:
+To list available workflows in your configured workflow directories:
 
 ```bash
-cliver workflow list --built-in
+cliver workflow list
 ```
+
+Workflows are loaded from the following directories:
+1. `.cliver/workflows` in the current directory
+2. `~/.config/cliver/workflows` (user configuration directory)
+
+You can place your workflow YAML files in either of these directories to make them available.
 
 ## Error Handling
 
-Workflows can define error handling behavior:
+Workflows can define error handling behavior using retry policies and on_error actions:
 
-```yaml
-name: Robust Document Processor
-description: Processes documents with error handling
-inputs:
-  document_path: ...
+--8<-- "examples/error_handling.yaml"
 
-steps:
-  - name: read_document
-    action: file.read
-    parameters:
-      path: "{{ inputs.document_path }}"
-    on_error:
-      fallback: "Could not read document, using default content"
-      retry: 3
-      retry_delay: 5
-
-  - name: process_document
-    action: llm.chat
-    parameters:
-      model: gpt-4-turbo
-      messages:
-        - role: user
-          content: "Process this: {{ steps.read_document.output }}"
-    on_error:
-      fallback_action: error_handler
-
-  - name: error_handler
-    action: llm.chat
-    condition: "error_occurred"
-    parameters:
-      model: gpt-4-turbo
-      messages:
-        - role: system
-          content: "Generate a helpful error message."
-        - role: user
-          content: "An error occurred while processing. Provide a user-friendly error message."
-```
+Error handling properties:
+- `retry`: Retry policy configuration with `max_attempts`, `backoff_factor`, and `max_backoff`
+- `on_error`: Action to take on error (`fail` or `continue`)
 
 ## Next Steps
 

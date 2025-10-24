@@ -1,0 +1,27 @@
+{
+  "models": {
+        "deepseek-r1": {
+            "name_in_provider": "deepseek-r1:14b",
+            "provider": "openai",
+            "api_key": "{{ env.OPENAI_API_KEY) | 'dummy' }}",
+            "url": "http://127.0.0.1:8080"
+        },
+        "llama3": {
+            "name_in_provider": "llama3.2:latest",
+            "provider": "ollama",
+            "api_key": "{{ keyring('OLLAMA_API_KEY') | 'dummy' }}",
+            "url": "http://127.0.0.1:11434"
+        }
+    },
+    "mcpServers": {
+        "time": {
+            "args": [
+                "mcp-server-time",
+                "--local-timezone=Asia/Shanghai"
+            ],
+            "command": "uvx",
+            "env": {},
+            "transport": "stdio"
+        }
+    }
+}

@@ -1,0 +1,6 @@
+- id: get_confirmation
+  name: Get Confirmation
+  type: human
+  prompt: "Continue with the analysis?"
+  auto_confirm: false
+  outputs: [confirmed]

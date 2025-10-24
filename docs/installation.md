@@ -11,7 +11,7 @@ This guide will walk you through installing CLIver on your system, whether you w
 
 Before installing CLIver, ensure your system meets the following requirements:
 
-- **Python Version**: Python 3.8 or higher
+- **Python Version**: Python 3.10 or higher
 - **Operating System**: Linux
 
 ## Quick Installation
@@ -39,13 +39,13 @@ You should see the installed version number.
 To install the latest development version from GitHub:
 
 ```bash
-pip install git+https://github.com/your-username/cliver.git
+pip install git+https://github.com/cliver-project/CLIver.git
 ```
 
 Or clone and install:
 
 ```bash
-git clone https://github.com/your-username/cliver.git
+git clone https://github.com/cliver-project/CLIver.git
 cd cliver
 pip install -e .
 ```

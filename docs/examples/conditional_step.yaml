@@ -1,0 +1,8 @@
+steps:
+  - id: check_score
+    name: Check Score
+    type: llm
+    prompt: "Analyze the sentiment of: {{ inputs.text }}"
+    model: deepseek-r1
+    outputs: [sentiment]
+    condition: "{{ inputs.score }} >= 0.7"

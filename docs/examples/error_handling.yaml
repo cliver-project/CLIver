@@ -1,0 +1,23 @@
+name: robust_document_processor
+description: Processes documents with error handling
+inputs:
+  - document_path
+steps:
+  - id: read_document
+    name: Read Document
+    type: llm
+    prompt: "Read document from: {{ inputs.document_path }}"
+    retry:
+      max_attempts: 3
+      backoff_factor: 1.0
+      max_backoff: 60.0
+    on_error: fail
+    outputs: [content]
+
+  - id: process_document
+    name: Process Document
+    type: llm
+    prompt: "Process this document content: {{ read_document.content }}"
+    model: deepseek-r1
+    on_error: continue
+    outputs: [processed_content]

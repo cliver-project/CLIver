@@ -1,0 +1,7 @@
+- id: process_data
+  name: Process Data
+  type: function
+  function: my_module.my_function
+  inputs:
+    data: "{{ previous_step.result }}"
+  outputs: [processed_data]
