@@ -90,9 +90,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import yaml
-from jinja2 import Template as JinjaTemplate
 from langchain_core.messages import BaseMessage
 
+from cliver.template_utils import render_template_if_needed
 from cliver.util import get_config_dir
 
 logger = logging.getLogger(__name__)
@@ -151,9 +151,8 @@ class SkillSet:
         if params:
             combined_params.update(params)
 
-        # Use Jinja2 templating for parameter substitution
-        template = JinjaTemplate(self.system_message)
-        return template.render(**combined_params)
+        # Use global Jinja2 environment for parameter substitution
+        return render_template_if_needed(self.system_message, combined_params)
 
     def get_tools_with_params(
         self, params: Dict[str, str] = None
@@ -166,7 +165,7 @@ class SkillSet:
         are replaced with actual values from the provided params or default
         parameters defined in the skill set using Jinja2 templating.
 
-        Each tool will have an mcp_server field, and the name will be formatted
+        Each tool will have a mcp_server field, and the name will be formatted
         as "mcp_server#tool_name" when sent to the LLM.
 
         Args:
@@ -184,13 +183,12 @@ class SkillSet:
         for tool in self.tools:
             # Create a copy of the tool definition
             tool_copy = tool.copy()
-            # Substitute parameters in tool parameters using Jinja2
+            # Substitute parameters in tool parameters using global Jinja2 environment
             if "parameters" in tool_copy:
                 for param_key, param_value in tool_copy["parameters"].items():
                     if isinstance(param_value, str):
-                        # Use Jinja2 templating for parameter substitution
-                        template = JinjaTemplate(param_value)
-                        tool_copy["parameters"][param_key] = template.render(**combined_params)
+                        # Use global Jinja2 environment for parameter substitution
+                        tool_copy["parameters"][param_key] = render_template_if_needed(param_value, combined_params)
             tools.append(tool_copy)
         return tools
 
@@ -235,9 +233,8 @@ class Template:
         if not self.content:
             return self.content
 
-        # Use Jinja2 templating for parameter substitution
-        template = JinjaTemplate(self.content)
-        return template.render(**params if params else {})
+        # Use global Jinja2 environment for parameter substitution
+        return render_template_if_needed(self.content, params)
 
 
 def load_skill_set(skill_set_name: str) -> Optional[SkillSet]:
