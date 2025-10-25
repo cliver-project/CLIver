@@ -20,6 +20,8 @@ from rich.panel import Panel
 from cliver.config import ConfigManager
 from cliver.llm import TaskExecutor
 from cliver import commands
+from cliver.workflow.workflow_manager_local import LocalDirectoryWorkflowManager
+from cliver.workflow.workflow_executor import WorkflowExecutor
 from cliver.util import get_config_dir, stdin_is_piped, read_piped_input
 from cliver.constants import *
 
@@ -43,6 +45,16 @@ class Cliver:
             mcp_servers=self.config_manager.list_mcp_servers_for_mcp_caller(),
             default_model=self.config_manager.get_llm_model(),
         )
+
+        # Initialize workflow components
+        workflow_config = self.config_manager.config.workflow
+        workflow_dirs = workflow_config.workflow_dirs if workflow_config else None
+        self.workflow_manager = LocalDirectoryWorkflowManager(workflow_dirs)
+        self.workflow_executor = WorkflowExecutor(
+            task_executor=self.task_executor,
+            workflow_manager=self.workflow_manager
+        )
+
         # prepare console for interaction
         self.history_path = self.config_dir / "history"
         self.session = None

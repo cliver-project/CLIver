@@ -37,11 +37,9 @@ def run_workflow(
         # Convert input tuples to dictionary
         _inputs = dict(inputs) if inputs else {}
 
-        # Create workflow manager with default workflow directories
-        workflow_manager = LocalDirectoryWorkflowManager()
-
-        # Create workflow executor
-        workflow_executor = WorkflowExecutor(cliver.task_executor, workflow_manager)
+        # Use Cliver's workflow manager and executor
+        workflow_manager = cliver.workflow_manager
+        workflow_executor = cliver.workflow_executor
 
         if dry_run:
             # Load and display workflow info
@@ -89,8 +87,8 @@ def run_workflow(
 def list_workflows(cliver: Cliver):
     """List available workflows."""
     try:
-        # Create workflow manager with default workflow directories
-        workflow_manager = LocalDirectoryWorkflowManager()
+        # Use Cliver's workflow manager
+        workflow_manager = cliver.workflow_manager
 
         # List workflows
         workflows = workflow_manager.list_workflows()
@@ -115,11 +113,9 @@ def list_workflows(cliver: Cliver):
 def remove_execution(cliver: Cliver, workflow_name: str, execution_id: str):
     """Remove a workflow execution state."""
     try:
-        # Create workflow manager with default workflow directories
-        workflow_manager = LocalDirectoryWorkflowManager()
-
-        # Create workflow executor
-        workflow_executor = WorkflowExecutor(cliver.task_executor, workflow_manager)
+        # Use Cliver's workflow manager and executor
+        workflow_manager = cliver.workflow_manager
+        workflow_executor = cliver.workflow_executor
 
         # Check if the workflow exists
         _workflow = workflow_manager.load_workflow(workflow_name)
@@ -151,11 +147,9 @@ def remove_execution(cliver: Cliver, workflow_name: str, execution_id: str):
 def execution_status(cliver: Cliver):
     """Show status of workflow executions."""
     try:
-        # Create workflow manager with default workflow directories
-        workflow_manager = LocalDirectoryWorkflowManager()
-
-        # Create workflow executor
-        workflow_executor = WorkflowExecutor(cliver.task_executor, workflow_manager)
+        # Use Cliver's workflow manager and executor
+        workflow_manager = cliver.workflow_manager
+        workflow_executor = cliver.workflow_executor
 
         # List all workflows to get their names
         workflows = workflow_manager.list_workflows()
@@ -188,11 +182,9 @@ def execution_status(cliver: Cliver):
 def clear_executions(cliver: Cliver):
     """Clear all workflow execution states."""
     try:
-        # Create workflow manager with default workflow directories
-        workflow_manager = LocalDirectoryWorkflowManager()
-
-        # Create workflow executor
-        workflow_executor = WorkflowExecutor(cliver.task_executor, workflow_manager)
+        # Use Cliver's workflow manager and executor
+        workflow_manager = cliver.workflow_manager
+        workflow_executor = cliver.workflow_executor
 
         # List all workflows to get their names
         workflows = workflow_manager.list_workflows()

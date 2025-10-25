@@ -134,11 +134,16 @@ class WebSocketMCPServerConfig(MCPServerConfig):
     headers: Optional[Dict[str, str]] = Field(
         default=None, description="The HTTP headers to interact with the websocket MCP server")
 
-
-class SecretsConfig(BaseModel):
-    vault_path: str
-    references: Dict[str, str]
-
+class WorkflowConfig(BaseModel):
+    """Configuration for workflow execution."""
+    workflow_dirs: Optional[List[str]] = Field(
+        default=None,
+        description="List of directories to search for workflows. Defaults to .cliver/workflows and ~/.config/cliver/workflows"
+    )
+    cache_dir: Optional[str] = Field(
+        default=None,
+        description="Directory for caching workflow execution results. Defaults to ~/.config/cliver/workflow_cache"
+    )
 
 class AppConfig(BaseModel):
     mcpServers: Dict[str, MCPServerConfig] = {}
@@ -147,8 +152,8 @@ class AppConfig(BaseModel):
     models: Dict[str, ModelConfig] = {}
     default_model: Optional[str] = Field(
         default=None, description="The default LLM model")
-    secrets: Optional[SecretsConfig] = Field(
-        default=None, description="The Secrets configuration")
+    workflow: Optional[WorkflowConfig] = Field(
+        default=None, description="Workflow configuration")
 
     def model_dump(self, **kwargs):
         """Override to exclude null values."""
@@ -158,7 +163,6 @@ class AppConfig(BaseModel):
 
 # TODO: support the configuration from others like from a k8s ConfigMap
 # TODO: shall we support yaml format as well ?
-
 
 class ConfigManager:
     """Configuration manager for Cliver client."""
@@ -245,6 +249,11 @@ class ConfigManager:
                                     f"Unknown transport {transport}")
                     config_data["mcpServers"] = converted_servers
 
+                # Handle workflow configuration
+                if "workflow" in config_data and isinstance(config_data["workflow"], dict):
+                    # Convert dict to WorkflowConfig
+                    config_data["workflow"] = WorkflowConfig(**config_data["workflow"])
+
                 config = AppConfig(**config_data)
                 return config
         except Exception as e:
@@ -280,6 +289,11 @@ class ConfigManager:
                     # and exclude redundant name
                     serialized_models[name] = model.model_dump()
                 config_data["models"] = serialized_models
+
+            # Handle workflow configuration serialization
+            if "workflow" in config_data and self.config.workflow:
+                # Use the workflow config's own model_dump
+                config_data["workflow"] = self.config.workflow.model_dump()
 
             with open(self.config_file, "w") as f:
                 json.dump(config_data, f, indent=4, sort_keys=True)
