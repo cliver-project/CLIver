@@ -43,7 +43,7 @@ class Cliver:
         self.task_executor = TaskExecutor(
             llm_models=self.config_manager.list_llm_models(),
             mcp_servers=self.config_manager.list_mcp_servers_for_mcp_caller(),
-            default_model=self.config_manager.get_llm_model(),
+            default_model=self.config_manager.get_llm_model().name if self.config_manager.get_llm_model() else None,
         )
 
         # Initialize workflow components

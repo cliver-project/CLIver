@@ -83,7 +83,7 @@ class TaskExecutor:
         self,
         llm_models: Dict[str, ModelConfig],
         mcp_servers: Dict[str, Dict],
-        default_model: Optional[ModelConfig] = None,
+        default_model: Optional[str] = None,
     ):
         self.llm_models = llm_models
         self.default_model = default_model
@@ -105,10 +105,11 @@ class TaskExecutor:
         return llm_engine
 
     def _get_llm_model(self, model: str | None) -> ModelConfig:
+        _model = None
         if model:
             _model = self.llm_models.get(model)
-        else:
-            _model = self.default_model
+        elif self.default_model:
+            _model = self.llm_models.get(self.default_model)
         return _model
 
     def get_llm_engine(self, model: str = None) -> LLMInferenceEngine:

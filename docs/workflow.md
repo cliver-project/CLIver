@@ -152,23 +152,7 @@ cliver workflow run workflow_name -e execution_id
 ### From Python Library
 
 ```python
-from cliver.workflow.workflow_manager_local import LocalDirectoryWorkflowManager
-from cliver.workflow.workflow_executor import WorkflowExecutor
-import asyncio
-
-# Create workflow manager and executor (requires a TaskExecutor instance)
-# workflow_manager = LocalDirectoryWorkflowManager()
-# workflow_executor = WorkflowExecutor(task_executor, workflow_manager)
-
-# Execute workflow (in an async context)
-# result = await workflow_executor.execute_workflow(
-#     workflow_name="workflow_name",
-#     inputs={
-#         "document_path": "/path/to/doc.txt",
-#         "author": "CLIver Team"
-#     }
-# )
-# print(result)
+--8<-- "examples/run_workflow.py"
 ```
 
 ## Available Workflows
