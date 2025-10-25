@@ -31,6 +31,9 @@ def run_workflow(
 ):
     """Run a workflow with the given inputs."""
     try:
+        if not workflow_identifier or len(workflow_identifier) == 0:
+            click.echo(f"No workflow identifier provided, aborting.")
+            return 1
         # Convert input tuples to dictionary
         _inputs = dict(inputs) if inputs else {}
 

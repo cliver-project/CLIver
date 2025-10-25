@@ -40,20 +40,22 @@ CLIver follows a modular architecture that allows for easy extension:
 
 ```mermaid
 graph TD
-    A[CLIver Application] --> B[Configuration Manager]
-    A --> C[Task Executor]
+    A[CLIver Class] --> B[ConfigManager]
+    A --> C[TaskExecutor]
     A --> D[CLI Interface]
 
     B --> E[LLM Model Config]
     B --> F[MCP Server Config]
 
     C --> G[LLM Inference Engines]
-    C --> H[MCP Tools Integration]
+    C --> H[MCP & Builtin Tools Integration]
     C --> I[Workflow Engine]
 
     G --> J[Ollama Provider]
     G --> K[OpenAI Provider]
     G --> L[Other LLM Providers]
+
+    H --> M[MCPServersCaller]
 
     style A fill:#e1f5fe
     style B fill:#f3e5f5

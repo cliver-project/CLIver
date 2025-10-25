@@ -27,23 +27,23 @@ The default configuration file is located at `~/.cliver/config.json`. You can cr
 The sample configuration file above demonstrates the key components of CLIver's configuration:
 
 - **models**: Defines the LLM models available to CLIver
-  - `deepseek-r1`: An example using the OpenAI provider with:
-    - `name_in_provider`: The model name as known to the provider
-    - `provider`: The LLM provider type (openai, ollama, etc.)
-    - `api_key`: API key retrieved from environment variables using Jinja2 templating
-    - `url`: Endpoint for the LLM service
-  - `llama3`: An example using the Ollama provider with:
-    - `name_in_provider`: The model name as known to Ollama
-    - `provider`: Specifies the Ollama provider
-    - `api_key`: API key retrieved from system keyring using Jinja2 templating
-    - `url`: Endpoint for the Ollama service
+      - `deepseek-r1`: An example using the OpenAI provider with:
+        - `name_in_provider`: The model name as known to the provider
+        - `provider`: The LLM provider type (openai, ollama, etc.)
+        - `api_key`: API key retrieved from environment variables using Jinja2 templating
+        - `url`: Endpoint for the LLM service
+    - `llama3`: An example using the Ollama provider with:
+        - `name_in_provider`: The model name as known to Ollama
+        - `provider`: Specifies the Ollama provider
+        - `api_key`: API key retrieved from system keyring using Jinja2 templating
+        - `url`: Endpoint for the Ollama service
 
 - **mcpServers**: Configures Model Context Protocol (MCP) servers that extend CLIver's capabilities
-  - `time`: An example MCP server for time-related queries with:
-    - `args`: Command-line arguments for the MCP server
-    - `command`: The command to execute the MCP server
-    - `env`: Environment variables for the MCP server (empty in this example)
-    - `transport`: Communication method (stdio for standard input/output)
+    - `time`: An example MCP server for time-related queries with:
+        - `args`: Command-line arguments for the MCP server
+        - `command`: The command to execute the MCP server
+        - `env`: Environment variables for the MCP server (empty in this example)
+        - `transport`: Communication method (stdio for standard input/output)
 
 #### Template Support and Secrets Management
 

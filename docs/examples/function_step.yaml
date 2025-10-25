@@ -2,6 +2,6 @@
   name: Process Data
   type: function
   function: my_module.my_function
-  inputs:
+  inputs: # inputs as the arguments passed to the function
     data: "{{ previous_step.result }}"
   outputs: [processed_data]

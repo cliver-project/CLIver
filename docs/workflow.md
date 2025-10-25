@@ -20,7 +20,7 @@ A workflow is defined in a YAML file with the following top-level keys:
 - `description`: A brief description of what the workflow does
 - `version`: Version of the workflow (optional)
 - `author`: Author of the workflow (optional)
-- `inputs`: List of input variable names for the workflow (optional)
+- `inputs`: List of input parameters for the workflow with metadata (optional)
 - `steps`: An ordered list of steps to execute
 
 ## Basic Workflow Example
@@ -48,6 +48,16 @@ Each step in a workflow has the following properties:
 - `condition`: Condition expression for step execution (optional)
 - `skipped`: Whether the step is skipped (optional, default: false)
 
+Each input parameter supports the following properties:
+
+- `name`: The name of the input parameter (required)
+- `description`: A description of the parameter's purpose (optional)
+- `type`: The expected type of the parameter (optional)
+- `default`: A default value to use if none is provided (optional)
+
+When executing a workflow, if an input parameter has a default value defined and no value is provided, the default will be used.
+If no default is specified and no value is provided, the parameter will be set to `None`.
+
 ### Available Actions
 
 #### LLM Steps
@@ -58,6 +68,7 @@ Interact with a language model:
 ```
 
 LLM steps support the following properties:
+
 - `prompt`: The prompt to send to the LLM
 - `model`: The LLM model to use (optional, defaults to the model configured in your CLIver setup, e.g., 'deepseek-r1' or 'qwen')
 - `stream`: Whether to stream the response (optional, default: false)
@@ -70,62 +81,40 @@ LLM steps support the following properties:
 - `params`: Parameters for skill sets and templates (optional)
 
 #### Function Steps
+
 Execute Python functions:
 
 ```yaml
 --8<-- "examples/function_step.yaml"
 ```
 
-
 Function steps support the following properties:
+
 - `function`: Module path to the function to execute (required)
 
 #### Human Steps
 Wait for human interaction:
 
+```yaml
 --8<-- "examples/human_step.yaml"
+```
 
 Human steps support the following properties:
+
 - `prompt`: Prompt to show to the user (required)
 - `auto_confirm`: Automatically confirm without user input (optional, default: false)
 
 #### Workflow Steps
 Call other workflows:
 
+```yaml
 --8<-- "examples/workflow_step.yaml"
+```
 
 Workflow steps support the following properties:
+
 - `workflow`: Workflow name or path to the workflow file to execute (required)
 - `workflow_inputs`: Inputs for the sub-workflow (optional)
-
-## Variables and Templates
-
-CLIver uses a Jinja2-based template system to reference values from different parts of the workflow:
-
-- `{{ inputs.variable_name }}`: Reference an input parameter
-- `{{ step_id.output_name }}`: Reference the output of a previous step by step ID and output name
-- `{{ step_id.outputs.output_name }}`: Alternative way to reference step outputs
-- Environment variables are also available in templates
-
-### Example with Variables
-
-```yaml
---8<-- "examples/code_review_workflow.yaml"
-```
-
-## Conditional Steps
-
-Use conditions to make workflows more flexible. Conditions are evaluated using Jinja2 templating:
-
-```yaml
---8<-- "examples/conditional_step.yaml"
-```
-
-Note: The current implementation has basic support for conditions, but full conditional branching (if/else) is not yet fully implemented.
-
-## Loops in Workflows
-
-Note: Loop support is not yet fully implemented in the current workflow engine. To process multiple items, you can create separate steps for each item or use LLM steps with prompts that handle multiple items at once.
 
 ## Local Directory Implementation
 
@@ -150,7 +139,7 @@ Workflows are identified by their `name` field, not by their file name. You can 
 
 ```bash
 # Run a workflow with input parameters
-cliver workflow run workflow_name -i document_path=/path/to/doc.txt -i model=deepseek-r1
+cliver workflow run workflow_name -i document_path=/path/to/doc.txt
 # Can also use -i model=qwen as an alternative
 
 # Dry run to validate the workflow without executing
@@ -176,7 +165,7 @@ import asyncio
 #     workflow_name="workflow_name",
 #     inputs={
 #         "document_path": "/path/to/doc.txt",
-#         "model": "deepseek-r1"  # Can also use "qwen" as an alternative
+#         "author": "CLIver Team"
 #     }
 # )
 # print(result)
@@ -190,7 +179,10 @@ To list available workflows in your configured workflow directories:
 cliver workflow list
 ```
 
+> NOTE: In current implementation, it uses local files based for the workflow definition and execution cache.
+
 Workflows are loaded from the following directories:
+
 1. `.cliver/workflows` in the current directory
 2. `~/.config/cliver/workflows` (user configuration directory)
 
@@ -200,9 +192,13 @@ You can place your workflow YAML files in either of these directories to make th
 
 Workflows can define error handling behavior using retry policies and on_error actions:
 
+```yaml
 --8<-- "examples/error_handling.yaml"
+```
+
 
 Error handling properties:
+
 - `retry`: Retry policy configuration with `max_attempts`, `backoff_factor`, and `max_backoff`
 - `on_error`: Action to take on error (`fail` or `continue`)
 

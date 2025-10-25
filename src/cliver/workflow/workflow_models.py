@@ -39,7 +39,7 @@ class OnErrorAction(str, Enum):
 
 class BaseStep(BaseModel):
     """Base step model."""
-    id: str = Field(..., description="Unique identifier for the step")
+    id: str = Field(..., description="Unique identifier for the step. No spaces allowed")
     name: str = Field(..., description="Descriptive name of the step")
     type: StepType = Field(..., description="Type of the step")
     description: Optional[str] = Field(None, description="Description of the step")

@@ -1,14 +1,17 @@
 name: research_analysis
 description: Research a topic and provide analysis
 inputs:
-  - topic
+  - name: topic
+    description: "The topic to research"
+    type: "string"
+    default: "How AI will change human's life"
 steps:
   - id: research_topic
     name: Research Topic
     type: llm
     prompt: "Research the topic: {{ inputs.topic }}"
     model: deepseek-r1  # Can also use 'qwen' as an alternative
-    outputs: [research]
+    outputs: [research] # it then can be access via `research_topic.research`
 
   - id: analyze_findings
     name: Analyze Findings
