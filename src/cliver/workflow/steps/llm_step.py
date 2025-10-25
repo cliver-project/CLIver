@@ -43,7 +43,6 @@ class LLMStepExecutor(StepExecutor):
             llm_params = {
                 "user_input": resolved_prompt,
                 "model": self.resolve_variable(self.step.model, context) if self.step.model else None,
-                "stream": self.step.stream,
                 "images": [self.resolve_variable(img, context) for img in self.step.images] if self.step.images else [],
                 "audio_files": [self.resolve_variable(audio, context) for audio in self.step.audio_files] if self.step.audio_files else [],
                 "video_files": [self.resolve_variable(video, context) for video in self.step.video_files] if self.step.video_files else [],
