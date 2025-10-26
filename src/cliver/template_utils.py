@@ -54,6 +54,9 @@ _jinja_env = Environment(loader=BaseLoader())
 _jinja_env.globals['env'] = _get_cliver_env_vars()
 _jinja_env.globals['keyring'] = _get_secret_from_keyring
 
+def get_jinja_env() -> Environment:
+    return _jinja_env
+
 # more global contexts can be added here.
 
 def render_template_if_needed(template_str: str, params: Dict[str, Any] = None) -> str:

@@ -6,8 +6,8 @@ import click
 from typing import Optional
 
 from cliver.cli import Cliver, pass_cliver
-from cliver.workflow.workflow_manager_local import LocalDirectoryWorkflowManager
 from cliver.workflow.workflow_executor import WorkflowExecutor
+from cliver.commands.console_callback_handler import ConsoleCallbackHandler
 
 
 @click.group(name="workflow", help="Manage and execute workflows")
@@ -21,13 +21,15 @@ def workflow():
 @click.option("--inputs", "-i", multiple=True, type=(str, str), help="Input variables (key=value)")
 @click.option("--execution-id", "-e", help="Execution ID for resuming")
 @click.option("--dry-run", "-d", is_flag=True, help="Show what would be executed without running")
+@click.option("--verbose", "-v", is_flag=True, help="Show detailed execution progress")
 @pass_cliver
 def run_workflow(
     cliver: Cliver,
     workflow_identifier: str,
     inputs: tuple,
     execution_id: Optional[str],
-    dry_run: bool
+    dry_run: bool,
+    verbose: bool
 ):
     """Run a workflow with the given inputs."""
     try:
@@ -39,7 +41,16 @@ def run_workflow(
 
         # Use Cliver's workflow manager and executor
         workflow_manager = cliver.workflow_manager
-        workflow_executor = cliver.workflow_executor
+        # Create workflow executor with console callback handler if verbose is enabled
+        if verbose:
+            callback_handler = ConsoleCallbackHandler()
+            workflow_executor = WorkflowExecutor(
+                task_executor=cliver.task_executor,
+                workflow_manager=workflow_manager,
+                callback_handler=callback_handler
+            )
+        else:
+            workflow_executor = cliver.workflow_executor
 
         if dry_run:
             # Load and display workflow info

@@ -9,6 +9,8 @@ from typing import Any
 
 from abc import ABC, abstractmethod
 from jinja2 import Environment, StrictUndefined
+
+from cliver import template_utils
 from cliver.workflow.workflow_models import BaseStep, ExecutionContext, ExecutionResult
 
 logger = logging.getLogger(__name__)
@@ -18,8 +20,7 @@ class StepExecutor(ABC):
 
     def __init__(self, step: BaseStep):
         self.step = step
-        # Create a reusable Jinja2 environment for template resolution
-        self._jinja_env = Environment(undefined=StrictUndefined)
+        self._jinja_env = template_utils.get_jinja_env()
 
     @abstractmethod
     async def execute(self, context: ExecutionContext) -> ExecutionResult:
@@ -66,7 +67,8 @@ class StepExecutor(ABC):
         return ExecutionResult(
             step_id=self.step.id,
             success=False,
-            error=f"Step failed after {max_attempts} attempts: {str(last_exception)}"
+            error=f"Step failed after {max_attempts} attempts: {str(last_exception)}",
+            execution_time=0.0
         )
 
     def evaluate_condition(self, context: ExecutionContext) -> bool:
@@ -113,9 +115,6 @@ class StepExecutor(ABC):
                 template_context.update(context.inputs)
                 # Also add inputs as a key to support inputs.variable_name syntax
                 template_context["inputs"] = context.inputs
-
-            # Add environment variables as fallback
-            template_context.update(os.environ)
 
             # Handle nested dictionary access with dot notation
             extended_context = template_context.copy()

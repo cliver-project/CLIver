@@ -53,6 +53,7 @@ class FunctionStepExecutor(StepExecutor):
             # Parse the function path
             module_path, function_name = _parse_function(self.step.function)
             # Import the module
+            #TODO: we may need to define some packages that are allowed to load the module, and user should define the package as well.
             module = importlib.import_module(module_path)
 
             # Get the function, the getattr will raise exception if the function_name does not exist.
