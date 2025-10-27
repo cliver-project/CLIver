@@ -48,6 +48,47 @@ Each step in a workflow has the following properties:
 - `condition`: Condition expression for step execution (optional)
 - `skipped`: Whether the step is skipped (optional, default: false)
 
+## Variable Access in Workflows
+
+Workflows support a powerful variable access system that allows steps to reference data from previous steps, workflow inputs, and other sources. Variables are accessed using Jinja2 templating syntax with specific formats for different types of data.
+
+### Variable Access Formats
+
+CLIver provides a clean and organized way to access variables in workflows:
+
+1. **Workflow Inputs**: Access workflow-level input parameters
+   ```yaml
+   inputs:
+     user_name: "{{ inputs.user_name }}"
+   ```
+
+2. **Step Outputs**: Access outputs from previous steps
+   ```yaml
+   inputs:
+     analysis_result: "{{ previous_step.outputs.result }}"
+   ```
+
+3. **Step Inputs**: Access inputs from previous steps
+   ```yaml
+   inputs:
+     original_greeting: "{{ previous_step.inputs.greeting }}"
+   ```
+
+### Example: Using Variable Access
+
+Here's a complete example showing how to use the variable access formats:
+
+```yaml
+--8<-- "examples/variable_access_example.yaml"
+```
+
+### Best Practices
+
+1. Use the explicit variable access formats for clarity and maintainability
+2. Always specify which step and which type of data you're accessing
+3. Test your workflows to ensure variable references resolve correctly
+4. Use descriptive step IDs to make variable references more readable
+
 Each input parameter supports the following properties:
 
 - `name`: The name of the input parameter (required)

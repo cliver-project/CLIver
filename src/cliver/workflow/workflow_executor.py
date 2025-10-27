@@ -14,7 +14,7 @@ from typing import Dict, Any, Optional
 from cliver.workflow.persistence import LocalCacheProvider, PersistenceProvider
 from cliver.workflow.workflow_manager_base import WorkflowManager
 from cliver.workflow.workflow_models import (
-    ExecutionContext, WorkflowExecutionState, StepType, OnErrorAction
+    ExecutionContext, WorkflowExecutionState, StepType, OnErrorAction, StepExecutionInfo
 )
 from cliver.workflow.steps.base import StepExecutor
 from cliver.workflow.steps.function_step import FunctionStepExecutor
@@ -93,10 +93,8 @@ class WorkflowExecutor:
             context = ExecutionContext(
                 workflow_name=workflow.name,
                 inputs=initial_inputs,
-                variables=initial_inputs.copy(),
                 execution_id=execution_id,
                 current_step=None,
-                outputs={},
             )
 
             # Try to load existing execution state
@@ -120,11 +118,18 @@ class WorkflowExecutor:
                             completed_step_id
                         )
                         if step_result and step_result.outputs:
-                            context.outputs.update(step_result.outputs)
-                            context.step_outputs[completed_step_id] = step_result.outputs
-                            context.variables.update(step_result.outputs)
-                            # Also add step outputs under the step ID for nested access
-                            context.variables[completed_step_id] = {"outputs": step_result.outputs}
+                            # Track step inputs that were resolved (for completed steps)
+                            # Note: We don't have access to the original step object here, so we can't track inputs
+                            # This is a limitation of the current resume implementation
+
+                            # Update context with step execution info
+                            # We'll need to reconstruct the StepExecutionInfo, but we don't have the original inputs
+                            context.steps[completed_step_id] = StepExecutionInfo(
+                                id=completed_step_id,
+                                name=f"Step {completed_step_id}",  # We don't have the actual name
+                                type=StepType.FUNCTION,  # We don't have the actual type
+                                outputs=step_result.outputs
+                            )
 
                     # Update status to running
                     execution_state.status = "running"
@@ -201,13 +206,14 @@ class WorkflowExecutor:
 
                 # Handle step result
                 if step_result.success:
-                    # Update context with step outputs
-                    context.outputs.update(step_result.outputs)
-                    context.step_outputs[step.id] = step_result.outputs
-                    context.step_outputs[step.id] = {"outputs": step_result.outputs}
-                    context.variables.update(step_result.outputs)
-                    # Also add step outputs under the step ID for nested access
-                    context.variables[step.id] = {"outputs": step_result.outputs}
+                    # Update context with step execution info
+                    context.steps[step.id] = StepExecutionInfo(
+                        id=step.id,
+                        name=step.name,
+                        type=step.type,
+                        inputs=step.inputs,
+                        outputs=step_result.outputs
+                    )
                     execution_state.completed_steps.append(step.id)
                     logger.info(f"Step {step.id} completed successfully")
 

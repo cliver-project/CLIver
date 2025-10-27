@@ -111,6 +111,9 @@ class LLMStepExecutor(StepExecutor):
             if media_references:
                 outputs["media"] = media_references
 
+            # Add llm_params to outputs for debugging and tracking
+            outputs["llm_input"] = llm_params
+
             return ExecutionResult(
                 step_id=self.step.id,
                 outputs=outputs,

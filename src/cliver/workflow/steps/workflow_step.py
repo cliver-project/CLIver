@@ -43,10 +43,12 @@ class WorkflowStepExecutor(StepExecutor):
                     resolved_value = self.resolve_variable(value, context)
                     workflow_inputs[key] = resolved_value
             else:
-                # If no specific inputs defined, pass all context variables
+                # If no specific inputs defined, pass all context inputs and step outputs
                 workflow_inputs.update(context.inputs)
-                workflow_inputs.update(context.outputs)
-                workflow_inputs.update(context.variables)
+                # Add outputs from all completed steps
+                for step_info in context.steps.values():
+                    if step_info.outputs:
+                        workflow_inputs.update(step_info.outputs)
 
             # Execute the sub-workflow
             execution_result = await self.workflow_executor.execute_workflow(
@@ -56,25 +58,38 @@ class WorkflowStepExecutor(StepExecutor):
 
             # Prepare outputs from sub-workflow results
             outputs = {}
+            if hasattr(execution_result, 'context') and execution_result.context:
+                # Add outputs from all completed steps in the sub-workflow
+                for step_info in execution_result.context.steps.values():
+                    if step_info.outputs:
+                        outputs.update(step_info.outputs)
+
+            # Extract specific outputs if defined in the step
             if self.step.outputs:
-                # Map specific outputs if defined
-                for output_name in self.step.outputs:
-                    if output_name in execution_result.outputs:
-                        outputs[output_name] = execution_result.outputs[output_name]
+                final_outputs = {}
+                if len(self.step.outputs) == 1:
+                    # Single output - if the outputs dict has the same key, use that value directly
+                    # Otherwise, assign the entire outputs dict to that output name
+                    output_name = self.step.outputs[0]
+                    if output_name in outputs:
+                        final_outputs[output_name] = outputs[output_name]
                     else:
-                        logger.warning(
-                            f"Output {output_name} not found in sub-workflow result for step {self.step.id}"
-                        )
+                        final_outputs[output_name] = outputs
+                else:
+                    # Multiple outputs - extract specific keys from the outputs dict
+                    for output_name in self.step.outputs:
+                        if output_name in outputs:
+                            final_outputs[output_name] = outputs[output_name]
             else:
-                # Pass through all sub-workflow outputs
-                outputs.update(execution_result.outputs)
+                # No specific outputs defined - pass through all outputs
+                final_outputs = outputs
 
             return ExecutionResult(
                 step_id=self.step.id,
-                outputs=outputs,
-                success=execution_result.success,
-                error=execution_result.error,
-                execution_time=execution_result.execution_time,
+                outputs=final_outputs,
+                success=execution_result.success if execution_result else False,
+                error=execution_result.error if execution_result else "No execution result",
+                execution_time=execution_result.execution_time if execution_result else 0.0,
             )
 
         except Exception as e:

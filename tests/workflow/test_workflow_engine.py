@@ -10,7 +10,7 @@ import yaml
 
 from cliver.workflow.workflow_models import (
     Workflow, ExecutionContext, ExecutionResult,
-    FunctionStep, LLMStep, WorkflowStep, StepType
+    FunctionStep, LLMStep, WorkflowStep, StepType, StepExecutionInfo
 )
 from cliver.workflow.workflow_manager_local import LocalDirectoryWorkflowManager
 from cliver.workflow.workflow_executor import WorkflowExecutor
@@ -301,13 +301,25 @@ class TestWorkflowStepExecutor:
         context = ExecutionContext(
             workflow_name="test",
             inputs={"data": "input data"},
-            variables={"func_step.result": "processed result"},
-            outputs={"func_step.result": "processed result"}
+            steps={
+                "func_step": StepExecutionInfo(
+                    id="func_step",
+                    name="Function Step",
+                    type=StepType.FUNCTION,
+                    outputs={"result": "processed result"}
+                )
+            }
         )
 
         # Mock the workflow executor's execute_workflow method
+        mock_step_info = Mock()
+        mock_step_info.outputs = {"sub_result": "Sub-workflow result"}
+
+        mock_context = Mock()
+        mock_context.steps = {"sub_step": mock_step_info}
+
         mock_result = Mock()
-        mock_result.outputs = {"sub_result": "Sub-workflow result"}
+        mock_result.context = mock_context
         mock_result.success = True
         mock_result.error = None
         mock_result.execution_time = 0.1
@@ -417,10 +429,11 @@ class TestLocalDirectoryWorkflowManager:
 
                 # Verify the final result - now returns WorkflowExecutionState
                 assert result.status == "completed"
-                assert "result" in result.context.outputs
-                assert "analysis" in result.context.outputs
-                assert result.context.outputs["result"] == "Function result"
-                assert result.context.outputs["analysis"] == "LLM analysis"
+                # Check that step execution info is stored correctly
+                assert "func_step" in result.context.steps
+                assert "llm_step" in result.context.steps
+                assert result.context.steps["func_step"].outputs["result"] == "Function result"
+                assert result.context.steps["llm_step"].outputs["analysis"] == "LLM analysis"
 
                 # Verify each executor was called
                 mock_func_executor.execute_with_retry.assert_called_once()

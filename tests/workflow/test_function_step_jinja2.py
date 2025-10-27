@@ -23,9 +23,7 @@ def test_jinja2_template_resolution():
     # Create context with variables
     context = ExecutionContext(
         workflow_name="test_workflow",
-        inputs={},
-        outputs={},
-        variables={"name": "World"}
+        inputs={"name": "World"}
     )
 
     # Test template resolution
@@ -50,9 +48,7 @@ def test_jinja2_nested_context_resolution():
     # Create context with nested outputs
     context = ExecutionContext(
         workflow_name="test_workflow",
-        inputs={},
-        outputs={"data": {"key": "nested_value"}},
-        variables={}
+        inputs={"data": {"key": "nested_value"}}
     )
 
     # Test nested template resolution
@@ -80,9 +76,7 @@ def test_jinja2_environment_variable_fallback():
     # Create context without the variable
     context = ExecutionContext(
         workflow_name="test_workflow",
-        inputs={},
-        outputs={},
-        variables={}
+        inputs={}
     )
 
     # Test environment variable fallback
@@ -110,9 +104,7 @@ def test_jinja2_deeply_nested_context():
     # Create context with deeply nested outputs
     context = ExecutionContext(
         workflow_name="test_workflow",
-        inputs={},
-        outputs={"a": {"b": {"c": {"d": "deep_value"}}}},
-        variables={}
+        inputs={"a": {"b": {"c": {"d": "deep_value"}}}}
     )
 
     # Test deeply nested template resolution

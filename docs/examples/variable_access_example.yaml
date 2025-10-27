@@ -1,0 +1,33 @@
+name: variable_access_example
+description: Example workflow demonstrating variable access formats
+inputs:
+  - name: topic
+    description: "Topic to analyze"
+    type: "string"
+steps:
+  - id: research
+    name: Research Topic
+    type: llm
+    prompt: "Research the topic: {{ inputs.topic }}"
+    outputs: [findings]
+
+  - id: analyze
+    name: Analyze Findings
+    type: function
+    function: my_module.analyze_results
+    inputs:
+      # Access workflow input
+      topic: "{{ inputs.topic }}"
+      # Access previous step output
+      data: "{{ research.outputs.findings }}"
+    outputs: [analysis]
+
+  - id: report
+    name: Generate Report
+    type: llm
+    prompt: |
+      Based on the analysis of {{ inputs.topic }}:
+      {{ analyze.outputs.analysis }}
+
+      Create a comprehensive report.
+    outputs: [report]

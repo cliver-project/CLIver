@@ -6,6 +6,7 @@ import click
 from typing import Optional
 
 from cliver.cli import Cliver, pass_cliver
+from cliver.util import parse_key_value_options
 from cliver.workflow.workflow_executor import WorkflowExecutor
 from cliver.commands.console_callback_handler import ConsoleCallbackHandler
 
@@ -18,7 +19,7 @@ def workflow():
 
 @workflow.command(name="run", help="Run a workflow")
 @click.argument("workflow_identifier")
-@click.option("--inputs", "-i", multiple=True, type=(str, str), help="Input variables (key=value)")
+@click.option("--inputs", "-i", multiple=True, type=str, help="Input variables (key=value)")
 @click.option("--execution-id", "-e", help="Execution ID for resuming")
 @click.option("--dry-run", "-d", is_flag=True, help="Show what would be executed without running")
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed execution progress")
@@ -37,7 +38,10 @@ def run_workflow(
             click.echo(f"No workflow identifier provided, aborting.")
             return 1
         # Convert input tuples to dictionary
-        _inputs = dict(inputs) if inputs else {}
+        _inputs = {}
+        if inputs and len(inputs) > 0:
+            opts_dict = parse_key_value_options(inputs)
+            _inputs.update(opts_dict)
 
         # Use Cliver's workflow manager and executor
         workflow_manager = cliver.workflow_manager
@@ -79,10 +83,12 @@ def run_workflow(
 
         if result.status == "completed":
             click.echo("Workflow completed successfully!")
-            if result.context.outputs:
-                click.echo("Outputs:")
-                for key, value in result.context.outputs.items():
-                    click.echo(f"  {key}: {value}")
+            # Display outputs from all completed steps
+            for step_id, step_info in result.context.steps.items():
+                click.echo(f"Outputs of step: {step_info.name}")
+                if step_info.outputs:
+                    for key, value in step_info.outputs.items():
+                        click.echo(f"  {step_id}.{key}: \n{value}\n")
             return 0
         else:
             click.echo(f"Workflow failed with status {result.status}: {result.error}")

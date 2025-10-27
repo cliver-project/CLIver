@@ -132,21 +132,11 @@ class TestNestedStepOutputs:
                 # Verify the final result
                 assert result.status == "completed"
 
-                # Check that outputs are stored in the flat structure
-                assert "result" in result.context.outputs
-                assert result.context.outputs["result"] == "Processed result from step 2"
-
-                # Check that step outputs are stored in the nested structure
-                assert "step1" in result.context.step_outputs
-                assert "step2" in result.context.step_outputs
-                assert result.context.step_outputs["step1"]["result"] == "Computed result from step 1"
-                assert result.context.step_outputs["step2"]["result"] == "Processed result from step 2"
-
-                # Check that step outputs are also available in the variables context for nested access
-                assert "step1" in result.context.variables
-                assert "step2" in result.context.variables
-                assert result.context.variables["step1"]["outputs"]["result"] == "Computed result from step 1"
-                assert result.context.variables["step2"]["outputs"]["result"] == "Processed result from step 2"
+                # Check that step execution info is stored correctly
+                assert "step1" in result.context.steps
+                assert "step2" in result.context.steps
+                assert result.context.steps["step1"].outputs["result"] == "Computed result from step 1"
+                assert result.context.steps["step2"].outputs["result"] == "Processed result from step 2"
 
         finally:
             # Clean up temporary directory
@@ -248,17 +238,11 @@ class TestNestedStepOutputs:
                 # Verify that nested outputs are properly maintained when resuming
                 assert resumed_result.status == "completed"
 
-                # Check that step outputs are stored in the nested structure after resume
-                assert "step1" in resumed_result.context.step_outputs
-                assert "step2" in resumed_result.context.step_outputs
-                assert resumed_result.context.step_outputs["step1"]["result"] == "Computed result from step 1"
-                assert resumed_result.context.step_outputs["step2"]["result"] == "Processed result from step 2"
-
-                # Check that step outputs are also available in the variables context for nested access
-                assert "step1" in resumed_result.context.variables
-                assert "step2" in resumed_result.context.variables
-                assert resumed_result.context.variables["step1"]["outputs"]["result"] == "Computed result from step 1"
-                assert resumed_result.context.variables["step2"]["outputs"]["result"] == "Processed result from step 2"
+                # Check that step execution info is stored correctly after resume
+                assert "step1" in resumed_result.context.steps
+                assert "step2" in resumed_result.context.steps
+                assert resumed_result.context.steps["step1"].outputs["result"] == "Computed result from step 1"
+                assert resumed_result.context.steps["step2"].outputs["result"] == "Processed result from step 2"
 
         finally:
             # Clean up temporary directory

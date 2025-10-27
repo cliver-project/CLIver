@@ -5,10 +5,10 @@ import asyncio
 import logging
 import time
 import os
+import copy
 from typing import Any
 
 from abc import ABC, abstractmethod
-from jinja2 import Environment, StrictUndefined
 
 from cliver import template_utils
 from cliver.workflow.workflow_models import BaseStep, ExecutionContext, ExecutionResult
@@ -101,20 +101,30 @@ class StepExecutor(ABC):
             Resolved value
         """
         if isinstance(value, str):
-            # Create a context dict for variable resolution
+            # Create a context dict for variable resolution with new hierarchical structure
             template_context = {}
 
-            # Add variables, outputs, and inputs to the template context
-            if context.variables:
-                template_context.update(context.variables)
-            if context.outputs:
-                template_context.update(context.outputs)
-            if context.step_outputs:
-                template_context.update(context.step_outputs)
+            # Add workflow inputs at the root level
             if context.inputs:
-                template_context.update(context.inputs)
-                # Also add inputs as a key to support inputs.variable_name syntax
                 template_context["inputs"] = context.inputs
+
+            # Build the new hierarchical structure for step access from the steps dict
+            step_entries = {}
+            for step_id, step_info in context.steps.items():
+                if step_id not in step_entries:
+                    step_entries[step_id] = {}
+                # Add step inputs if available
+                if step_info.inputs:
+                    step_entries[step_id]["inputs"] = step_info.inputs
+                # Add step outputs if available
+                if step_info.outputs:
+                    step_entries[step_id]["outputs"] = step_info.outputs
+
+            # Merge step entries into template context
+            template_context.update(step_entries)
+
+            # Add environment variables as fallback
+            template_context.update(os.environ)
 
             # Handle nested dictionary access with dot notation
             extended_context = template_context.copy()
@@ -122,9 +132,15 @@ class StepExecutor(ABC):
             def _add_nested_keys(prefix, obj):
                 """Recursively add nested keys with dot notation."""
                 if isinstance(obj, dict):
+                    # Add the dictionary itself as a key (for accessing the whole dict)
+                    if prefix:
+                        extended_context[prefix] = obj
+
+                    # Add nested keys with dot notation
                     for nested_key, nested_val in obj.items():
                         new_key = f"{prefix}.{nested_key}" if prefix else nested_key
                         extended_context[new_key] = nested_val
+                        # If the nested value is also a dict, recursively process it
                         if isinstance(nested_val, dict):
                             _add_nested_keys(new_key, nested_val)
 
@@ -132,6 +148,14 @@ class StepExecutor(ABC):
             for key, val in template_context.items():
                 if isinstance(val, dict):
                     _add_nested_keys(key, val)
+
+            # Also process the root level for direct access to inputs
+            if "inputs" in template_context and isinstance(template_context["inputs"], dict):
+                for key, val in template_context["inputs"].items():
+                    extended_context[key] = val
+                    # Process nested keys for inputs as well
+                    if isinstance(val, dict):
+                        _add_nested_keys(key, val)
 
             # Use Jinja2 templating for variable resolution
             try:

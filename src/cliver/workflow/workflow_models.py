@@ -99,7 +99,7 @@ class Workflow(BaseModel):
     """Workflow definition model."""
     name: str = Field(..., description="Name of the workflow.(Global unique so that it can be used for search by name)")
     description: Optional[str] = Field(None, description="Description of the workflow")
-    version: Optional[str] = Field(None, description="Version of the workflow")
+    version: Optional[float] = Field(None, description="Version of the workflow")
     author: Optional[str] = Field(None, description="Author of the workflow")
     # we define the input variable names in the workflow definition, and pass the value on execution.
     inputs: Optional[List[InputParameter]] = Field(None, description="Input parameters for the workflow")
@@ -135,14 +135,21 @@ class Workflow(BaseModel):
         return result
 
 
+class StepExecutionInfo(BaseModel):
+    """Information about a step's execution including inputs and outputs."""
+    id: str = Field(..., description="Step ID")
+    name: str = Field(..., description="Step name")
+    type: StepType = Field(..., description="Step type")
+    inputs: Optional[Dict[str, Any]] = Field(None, description="Input variables for the step")
+    outputs: Optional[Dict[str, Any]] = Field(None, description="Output variables from the step")
+
+
 class ExecutionContext(BaseModel):
     """Execution context for workflow execution."""
     workflow_name: str = Field(..., description="Name of the workflow being executed")
     execution_id: str = Field(None, description="Unique execution identifier")
     inputs: Dict[str, Any] = Field(default_factory=dict, description="Input variables")
-    outputs: Dict[str, Any] = Field(default_factory=dict, description="Output variables from steps")
-    step_outputs: Dict[str, Dict[str, Any]] = Field(default_factory=dict, description="Nested output variables from steps by step ID")
-    variables: Dict[str, Any] = Field(default_factory=dict, description="All variables in execution context")
+    steps: Dict[str, StepExecutionInfo] = Field(default_factory=dict, description="Execution information for each step by step ID")
     current_step: Optional[str] = Field(None, description="Currently executing step ID")
 
 
