@@ -3,13 +3,13 @@ from rich import box
 from rich.table import Table
 
 from cliver.cli import Cliver, pass_cliver
-from cliver.util import parse_key_value_options
 from cliver.config import (
     SSEMCPServerConfig,
     StdioMCPServerConfig,
     StreamableHttpMCPServerConfig,
     WebSocketMCPServerConfig,
 )
+from cliver.util import parse_key_value_options
 
 
 @click.group(name="mcp", help="Manage MCP Servers")
@@ -33,7 +33,11 @@ def list_mcp_servers(cliver: Cliver):
         for name, _mcp_server in mcp_servers.items():
             if isinstance(_mcp_server, StdioMCPServerConfig):
                 info = f"{_mcp_server.command} {_mcp_server.args or ''} {_mcp_server.env or ''}"
-            elif isinstance(_mcp_server, SSEMCPServerConfig) or isinstance(_mcp_server, StreamableHttpMCPServerConfig) or isinstance(_mcp_server, WebSocketMCPServerConfig):
+            elif (
+                isinstance(_mcp_server, SSEMCPServerConfig)
+                or isinstance(_mcp_server, StreamableHttpMCPServerConfig)
+                or isinstance(_mcp_server, WebSocketMCPServerConfig)
+            ):
                 info = f"{_mcp_server.url} {_mcp_server.headers or ''}"
             else:
                 info = "Unknown server type"
@@ -113,7 +117,11 @@ def set_mcp_server(
             # Parse env variables from key=value format
             env_dict = parse_key_value_options(env, cliver.console)
             mcp_server.env = env_dict
-    elif isinstance(mcp_server, SSEMCPServerConfig) or isinstance(mcp_server, StreamableHttpMCPServerConfig) or isinstance(mcp_server, WebSocketMCPServerConfig):
+    elif (
+        isinstance(mcp_server, SSEMCPServerConfig)
+        or isinstance(mcp_server, StreamableHttpMCPServerConfig)
+        or isinstance(mcp_server, WebSocketMCPServerConfig)
+    ):
         if url:
             mcp_server.url = url
         if header:
@@ -200,35 +208,27 @@ def add_mcp_server(
             env=env_dict,
         )
     elif transport == "sse":
-        cliver.console.print(
-            "Warning: SSE transport is deprecated, consider using streamable instead"
-        )
+        cliver.console.print("Warning: SSE transport is deprecated, consider using streamable instead")
         if url is None:
             cliver.console.print("URL is required for sse transport")
             return
         # Parse headers from key=value format
         header_dict = parse_key_value_options(header, cliver.console)
-        cliver.config_manager.add_or_update_sse_mcp_server(
-            name=name, url=url, headers=header_dict
-        )
+        cliver.config_manager.add_or_update_sse_mcp_server(name=name, url=url, headers=header_dict)
     elif transport == "streamable":
         if url is None:
             cliver.console.print("URL is required for streamable transport")
             return
         # Parse headers from key=value format
         header_dict = parse_key_value_options(header, cliver.console)
-        cliver.config_manager.add_or_update_streamable_mcp_server(
-            name=name, url=url, headers=header_dict
-        )
+        cliver.config_manager.add_or_update_streamable_mcp_server(name=name, url=url, headers=header_dict)
     elif transport == "websocket":
         if url is None:
             cliver.console.print("URL is required for websocket transport")
             return
         # Parse headers from key=value format
         header_dict = parse_key_value_options(header, cliver.console)
-        cliver.config_manager.add_or_update_websocket_mcp_server(
-            name=name, url=url, headers=header_dict
-        )
+        cliver.config_manager.add_or_update_websocket_mcp_server(name=name, url=url, headers=header_dict)
     else:
         click.echo(f"Unsupported MCP server transport: {transport}")
     cliver.console.print(f"Added MCP server: {name} of transport {transport}")

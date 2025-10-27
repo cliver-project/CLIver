@@ -1,23 +1,29 @@
 """
 Tests for the Cliver Workflow Engine with mocked results.
 """
-import pytest
-import asyncio
-from unittest.mock import AsyncMock, Mock, patch
-from pathlib import Path
+
 import tempfile
+from pathlib import Path
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 import yaml
 
-from cliver.workflow.workflow_models import (
-    Workflow, ExecutionContext, ExecutionResult,
-    FunctionStep, LLMStep, WorkflowStep, StepType, StepExecutionInfo
-)
-from cliver.workflow.workflow_manager_local import LocalDirectoryWorkflowManager
-from cliver.workflow.workflow_executor import WorkflowExecutor
+from cliver.llm import TaskExecutor
 from cliver.workflow.steps.function_step import FunctionStepExecutor
 from cliver.workflow.steps.llm_step import LLMStepExecutor
 from cliver.workflow.steps.workflow_step import WorkflowStepExecutor
-from cliver.llm import TaskExecutor
+from cliver.workflow.workflow_executor import WorkflowExecutor
+from cliver.workflow.workflow_manager_local import LocalDirectoryWorkflowManager
+from cliver.workflow.workflow_models import (
+    ExecutionContext,
+    ExecutionResult,
+    FunctionStep,
+    LLMStep,
+    StepExecutionInfo,
+    StepType,
+    WorkflowStep,
+)
 
 
 @pytest.fixture
@@ -31,14 +37,16 @@ def workflow_manager(mock_task_executor):
     """Create a LocalDirectoryWorkflowManager with mock dependencies."""
     return LocalDirectoryWorkflowManager()
 
+
 @pytest.fixture
 def workflow_executor(workflow_manager, mock_task_executor):
     """Create a WorkflowExecutor with mock dependencies."""
     from cliver.workflow.persistence.local_cache import LocalCacheProvider
+
     return WorkflowExecutor(
         task_executor=mock_task_executor,
         workflow_manager=workflow_manager,
-        persistence_provider=LocalCacheProvider()
+        persistence_provider=LocalCacheProvider(),
     )
 
 
@@ -51,11 +59,8 @@ class TestFunctionStepExecutor:
             id="test_func",
             name="Test Function",
             function="cliver.workflow.examples.process_results",
-            inputs={
-                "greeting": "Hello",
-                "analysis": "Test analysis"
-            },
-            outputs=["result"]
+            inputs={"greeting": "Hello", "analysis": "Test analysis"},
+            outputs=["result"],
         )
         executor = FunctionStepExecutor(function_step)
         assert executor.step == function_step
@@ -67,11 +72,8 @@ class TestFunctionStepExecutor:
             id="test_func",
             name="Test Function",
             function="cliver.workflow.examples.process_results",
-            inputs={
-                "greeting": "Hello",
-                "analysis": "Test analysis"
-            },
-            outputs=["result"]
+            inputs={"greeting": "Hello", "analysis": "Test analysis"},
+            outputs=["result"],
         )
         executor = FunctionStepExecutor(function_step)
 
@@ -80,11 +82,11 @@ class TestFunctionStepExecutor:
             workflow_name="test",
             inputs={"user_name": "John"},
             variables={"user_name": "John"},
-            outputs={"analysis": "Test analysis"}
+            outputs={"analysis": "Test analysis"},
         )
 
         # Mock the function execution by patching the module import and function
-        with patch('cliver.workflow.steps.function_step.importlib.import_module') as mock_import:
+        with patch("cliver.workflow.steps.function_step.importlib.import_module") as mock_import:
             # Create a mock module
             mock_module = Mock()
             mock_import.return_value = mock_module
@@ -109,10 +111,8 @@ class TestFunctionStepExecutor:
             id="test_func_async",
             name="Test Async Function",
             function="cliver.workflow.examples.async_compute_something",
-            inputs={
-                "greeting": "Hello"
-            },
-            outputs=["result"]
+            inputs={"greeting": "Hello"},
+            outputs=["result"],
         )
         executor = FunctionStepExecutor(function_step)
 
@@ -120,14 +120,14 @@ class TestFunctionStepExecutor:
         context = ExecutionContext(
             workflow_name="test",
             inputs={"greeting": "Hello"},
-            variables={"greeting": "Hello"}
+            variables={"greeting": "Hello"},
         )
 
         # Mock the async function execution
         async def mock_async_function(**kwargs):
             return "Async result"
 
-        with patch('cliver.workflow.steps.function_step.importlib.import_module') as mock_import:
+        with patch("cliver.workflow.steps.function_step.importlib.import_module") as mock_import:
             # Create a mock module
             mock_module = Mock()
             mock_import.return_value = mock_module
@@ -155,7 +155,7 @@ class TestLLMStepExecutor:
             name="Test LLM",
             prompt="Analyze {{ inputs.topic }}",
             model="gpt-3.5-turbo",
-            outputs=["analysis"]
+            outputs=["analysis"],
         )
         executor = LLMStepExecutor(llm_step, mock_task_executor)
         assert executor.step == llm_step
@@ -169,7 +169,7 @@ class TestLLMStepExecutor:
             name="Test LLM",
             prompt="Analyze {{ inputs.topic }}",
             model="gpt-3.5-turbo",
-            outputs=["analysis"]
+            outputs=["analysis"],
         )
         executor = LLMStepExecutor(llm_step, mock_task_executor)
 
@@ -177,7 +177,7 @@ class TestLLMStepExecutor:
         context = ExecutionContext(
             workflow_name="test",
             inputs={"topic": "AI technologies"},
-            variables={"topic": "AI technologies"}
+            variables={"topic": "AI technologies"},
         )
 
         # Mock the resolve_variable method for different parameters
@@ -188,7 +188,7 @@ class TestLLMStepExecutor:
                 return "gpt-3.5-turbo"
             return value
 
-        with patch.object(executor, 'resolve_variable', side_effect=mock_resolve_variable):
+        with patch.object(executor, "resolve_variable", side_effect=mock_resolve_variable):
             # Mock the task executor's process_user_input method
             mock_response = Mock()
             mock_response.content = "Analysis of AI technologies: Machine learning, deep learning, and neural networks."
@@ -201,7 +201,10 @@ class TestLLMStepExecutor:
             assert result.success is True
             assert result.step_id == "test_llm"
             assert "analysis" in result.outputs
-            assert result.outputs["analysis"] == "Analysis of AI technologies: Machine learning, deep learning, and neural networks."
+            assert (
+                result.outputs["analysis"]
+                == "Analysis of AI technologies: Machine learning, deep learning, and neural networks."
+            )
 
             # Verify the task executor was called with correct parameters
             mock_task_executor.process_user_input.assert_called_once()
@@ -218,16 +221,12 @@ class TestLLMStepExecutor:
             name="Test LLM Stream",
             prompt="Generate creative ideas",
             stream=True,
-            outputs=["ideas"]
+            outputs=["ideas"],
         )
         executor = LLMStepExecutor(llm_step, mock_task_executor)
 
         # Create context
-        context = ExecutionContext(
-            workflow_name="test",
-            inputs={},
-            variables={}
-        )
+        context = ExecutionContext(workflow_name="test", inputs={}, variables={})
 
         # Mock the resolve_variable method for different parameters
         def mock_resolve_variable(value, context):
@@ -237,10 +236,20 @@ class TestLLMStepExecutor:
                 return True
             return value
 
-        with patch.object(executor, 'resolve_variable', side_effect=mock_resolve_variable):
+        with patch.object(executor, "resolve_variable", side_effect=mock_resolve_variable):
             # Mock the task executor's stream_user_input method
             async def mock_stream():
-                chunks = ["Creative ", "ideas ", "for ", "AI: ", "1. ", "Chatbots", " 2. ", "Image ", "generation"]
+                chunks = [
+                    "Creative ",
+                    "ideas ",
+                    "for ",
+                    "AI: ",
+                    "1. ",
+                    "Chatbots",
+                    " 2. ",
+                    "Image ",
+                    "generation",
+                ]
                 for chunk in chunks:
                     mock_chunk = Mock()
                     mock_chunk.content = chunk
@@ -267,10 +276,8 @@ class TestWorkflowStepExecutor:
             id="test_workflow",
             name="Test Workflow",
             workflow="sub_workflow.yaml",
-            workflow_inputs={
-                "input_data": "{{ func_step.result }}"
-            },
-            outputs=["sub_result"]
+            workflow_inputs={"input_data": "{{ func_step.result }}"},
+            outputs=["sub_result"],
         )
         # Create a mock workflow executor
         mock_workflow_executor = Mock()
@@ -286,10 +293,8 @@ class TestWorkflowStepExecutor:
             id="test_workflow",
             name="Test Workflow",
             workflow="sub_workflow.yaml",
-            workflow_inputs={
-                "input_data": "processed result"
-            },
-            outputs=["sub_result"]
+            workflow_inputs={"input_data": "processed result"},
+            outputs=["sub_result"],
         )
 
         # Create a mock workflow executor
@@ -306,9 +311,9 @@ class TestWorkflowStepExecutor:
                     id="func_step",
                     name="Function Step",
                     type=StepType.FUNCTION,
-                    outputs={"result": "processed result"}
+                    outputs={"result": "processed result"},
                 )
-            }
+            },
         )
 
         # Mock the workflow executor's execute_workflow method
@@ -358,11 +363,8 @@ class TestLocalDirectoryWorkflowManager:
                     "name": "Function Step",
                     "type": "function",
                     "function": "cliver.workflow.examples.process_results",
-                    "inputs": {
-                        "greeting": "Hello",
-                        "analysis": "Test"
-                    },
-                    "outputs": ["result"]
+                    "inputs": {"greeting": "Hello", "analysis": "Test"},
+                    "outputs": ["result"],
                 },
                 {
                     "id": "llm_step",
@@ -370,9 +372,9 @@ class TestLocalDirectoryWorkflowManager:
                     "type": "llm",
                     "prompt": "Analyze topic",
                     "model": "gpt-3.5-turbo",
-                    "outputs": ["analysis"]
-                }
-            ]
+                    "outputs": ["analysis"],
+                },
+            ],
         }
 
         # Create a temporary directory for workflow files
@@ -383,33 +385,37 @@ class TestLocalDirectoryWorkflowManager:
 
             # Create a workflow file in the temporary directory
             workflow_file = Path(temp_dir.name) / "test_workflow.yaml"
-            with open(workflow_file, 'w') as f:
+            with open(workflow_file, "w") as f:
                 yaml.dump(workflow_data, f)
 
             # Refresh the workflow manager cache
             workflow_manager.refresh_workflows()
 
             # Mock the step executor creation to return mocked executors
-            with patch.object(WorkflowExecutor, '_create_step_executor') as mock_create:
+            with patch.object(WorkflowExecutor, "_create_step_executor") as mock_create:
                 # Create mock executors with predefined results
                 mock_func_executor = AsyncMock()
-                mock_func_executor.execute_with_retry = AsyncMock(return_value=ExecutionResult(
-                    step_id="func_step",
-                    outputs={"result": "Function result"},
-                    success=True,
-                    error=None,
-                    execution_time=0.1
-                ))
+                mock_func_executor.execute_with_retry = AsyncMock(
+                    return_value=ExecutionResult(
+                        step_id="func_step",
+                        outputs={"result": "Function result"},
+                        success=True,
+                        error=None,
+                        execution_time=0.1,
+                    )
+                )
                 mock_func_executor.evaluate_condition = Mock(return_value=True)
 
                 mock_llm_executor = AsyncMock()
-                mock_llm_executor.execute_with_retry = AsyncMock(return_value=ExecutionResult(
-                    step_id="llm_step",
-                    outputs={"analysis": "LLM analysis"},
-                    success=True,
-                    error=None,
-                    execution_time=0.2
-                ))
+                mock_llm_executor.execute_with_retry = AsyncMock(
+                    return_value=ExecutionResult(
+                        step_id="llm_step",
+                        outputs={"analysis": "LLM analysis"},
+                        success=True,
+                        error=None,
+                        execution_time=0.2,
+                    )
+                )
                 mock_llm_executor.evaluate_condition = Mock(return_value=True)
 
                 # Configure the mock to return different executors for different step types

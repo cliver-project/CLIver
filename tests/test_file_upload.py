@@ -2,14 +2,15 @@
 Test module for file upload functionality in CLIver.
 """
 
-import pytest
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import AsyncMock, Mock
 
+import pytest
+from langchain_core.messages import AIMessage
+
+from cliver.config import ModelConfig
 from cliver.llm.llm import TaskExecutor
 from cliver.llm.openai_engine import OpenAICompatibleInferenceEngine
-from cliver.config import ModelConfig
 from cliver.model_capabilities import ModelCapability
-from langchain_core.messages import AIMessage
 
 
 class TestFileUpload:
@@ -60,7 +61,7 @@ class TestFileUpload:
         response = task_executor.process_user_input_sync(
             user_input="Analyze these files",
             files=["test.txt", "data.csv"],
-            model="gpt-4"
+            model="gpt-4",
         )
 
         # Verify the response

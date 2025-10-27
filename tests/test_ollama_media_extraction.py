@@ -2,15 +2,16 @@
 Test module for Ollama-specific media extraction in CLIver.
 """
 
-import pytest
 import json
 from unittest.mock import Mock
 
+import pytest
+from langchain_core.messages import AIMessage
+
+from cliver.config import ModelConfig
 from cliver.llm.ollama_engine import OllamaLlamaInferenceEngine
 from cliver.media import MediaType
-from cliver.config import ModelConfig
 from cliver.model_capabilities import ModelCapability
-from langchain_core.messages import AIMessage
 
 
 class TestOllamaSpecificMediaExtraction:
@@ -66,7 +67,7 @@ class TestOllamaSpecificMediaExtraction:
         image_response = {
             "images": [
                 "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==",
-                "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBAQE"
+                "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBAQE",
             ]
         }
         response = AIMessage(content=json.dumps(image_response))
@@ -86,9 +87,9 @@ class TestOllamaSpecificMediaExtraction:
             additional_kwargs={
                 "images": [
                     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==",
-                    "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBAQE"
+                    "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBAQE",
                 ]
-            }
+            },
         )
 
         media_content = ollama_engine.extract_media_from_response(response)
@@ -103,7 +104,12 @@ class TestOllamaSpecificMediaExtraction:
         # Structured content response (more for input messages, but we handle it)
         structured_content = [
             {"type": "text", "text": "What's in this image?"},
-            {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBAQE"}}
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBAQE"
+                },
+            },
         ]
         response = AIMessage(content=structured_content)
 
@@ -117,7 +123,10 @@ class TestOllamaSpecificMediaExtraction:
         # Structured content with HTTP URL
         structured_content = [
             {"type": "text", "text": "What's in this image?"},
-            {"type": "image_url", "image_url": {"url": "https://example.com/image.jpg"}}
+            {
+                "type": "image_url",
+                "image_url": {"url": "https://example.com/image.jpg"},
+            },
         ]
         response = AIMessage(content=structured_content)
 

@@ -3,12 +3,12 @@ Cliver CLI Module
 
 The main entrance of the cliver application
 """
-from typing import Dict, Any
 
-from cliver import __version__
-from shlex import split as shell_split
-import click
 import sys
+from shlex import split as shell_split
+from typing import Any, Dict
+
+import click
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import WordCompleter
@@ -17,13 +17,13 @@ from prompt_toolkit.styles import Style
 from rich.console import Console
 from rich.panel import Panel
 
+from cliver import __version__, commands
 from cliver.config import ConfigManager
+from cliver.constants import CMD_CHAT
 from cliver.llm import TaskExecutor
-from cliver import commands
-from cliver.workflow.workflow_manager_local import LocalDirectoryWorkflowManager
+from cliver.util import get_config_dir, read_piped_input, stdin_is_piped
 from cliver.workflow.workflow_executor import WorkflowExecutor
-from cliver.util import get_config_dir, stdin_is_piped, read_piped_input
-from cliver.constants import *
+from cliver.workflow.workflow_manager_local import LocalDirectoryWorkflowManager
 
 
 class Cliver:
@@ -51,8 +51,7 @@ class Cliver:
         workflow_dirs = workflow_config.workflow_dirs if workflow_config else None
         self.workflow_manager = LocalDirectoryWorkflowManager(workflow_dirs)
         self.workflow_executor = WorkflowExecutor(
-            task_executor=self.task_executor,
-            workflow_manager=self.workflow_manager
+            task_executor=self.task_executor, workflow_manager=self.workflow_manager
         )
 
         # prepare console for interaction
@@ -69,8 +68,7 @@ class Cliver:
         self.session = PromptSession(
             history=FileHistory(str(self.history_path)),
             auto_suggest=AutoSuggestFromHistory(),
-            completer=WordCompleter(
-                self.load_commands_names(group), ignore_case=True),
+            completer=WordCompleter(self.load_commands_names(group), ignore_case=True),
             style=Style.from_dict(
                 {
                     "prompt": "ansigreen bold",
@@ -87,11 +85,9 @@ class Cliver:
         if self.piped:
             user_data = read_piped_input()
             if user_data is None:
-                self.console.print(
-                    "[bold yellow]No data received from stdin.[/bold yellow]"
-                )
+                self.console.print("[bold yellow]No data received from stdin.[/bold yellow]")
             else:
-                if not user_data.lower() in ("exit", "quit"):
+                if user_data.lower() not in ("exit", "quit"):
                     self.call_cmd(user_data)
         else:
             self.console.print(
@@ -100,9 +96,8 @@ class Cliver:
                     border_style="blue",
                 )
             )
-            self.console.print(
-                "Type [bold green]/help[/bold green] to see available commands or start typing to interact with the AI."
-            )
+            self.console.print("Type [bold green]/help[/bold green] to see available commands or start")
+            self.console.print("typing to interact with the AI.")
 
             while True:
                 try:
@@ -123,9 +118,7 @@ class Cliver:
                         self.call_cmd(line)
 
                 except KeyboardInterrupt:
-                    self.console.print(
-                        "\n[yellow]Use 'exit' or 'quit' to exit[/yellow]"
-                    )
+                    self.console.print("\n[yellow]Use 'exit' or 'quit' to exit[/yellow]")
                 except EOFError:
                     break
                 except click.exceptions.UsageError as e:
@@ -152,7 +145,8 @@ class Cliver:
 
     def cleanup(self):
         """
-        Clean up the resources opened by the application like the mcp server processes or connections to remote mcp servers, llm providers
+        Clean up the resources opened by the application like the mcp server processes
+        or connections to remote mcp servers, llm providers
         """
         self.session_options = {}
         self.session = None

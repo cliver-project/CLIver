@@ -3,13 +3,16 @@ Workflow models for Cliver Workflow Engine.
 
 This module defines the Pydantic models for workflow definitions, steps, and execution context.
 """
-from typing import Any, Dict, List, Optional, Union
-from pydantic import BaseModel, Field
+
 from enum import Enum
+from typing import Any, Dict, List, Optional, Union
+
+from pydantic import BaseModel, Field
 
 
 class InputParameter(BaseModel):
     """Input parameter definition with metadata."""
+
     name: str = Field(..., description="Name of the input parameter")
     description: Optional[str] = Field(None, description="Description of the input parameter")
     type: Optional[str] = Field(None, description="Expected type of the input parameter")
@@ -18,6 +21,7 @@ class InputParameter(BaseModel):
 
 class StepType(str, Enum):
     """Enumeration of step types."""
+
     FUNCTION = "function"
     LLM = "llm"
     WORKFLOW = "workflow"
@@ -26,6 +30,7 @@ class StepType(str, Enum):
 
 class RetryPolicy(BaseModel):
     """Retry policy for steps."""
+
     max_attempts: int = Field(3, description="Maximum number of retry attempts")
     backoff_factor: float = Field(1.0, description="Backoff factor for exponential retry")
     max_backoff: float = Field(60.0, description="Maximum delay between retries in seconds")
@@ -33,12 +38,14 @@ class RetryPolicy(BaseModel):
 
 class OnErrorAction(str, Enum):
     """Actions to take when a step fails."""
+
     FAIL = "fail"
     CONTINUE = "continue"
 
 
 class BaseStep(BaseModel):
     """Base step model."""
+
     id: str = Field(..., description="Unique identifier for the step. No spaces allowed")
     name: str = Field(..., description="Descriptive name of the step")
     type: StepType = Field(..., description="Type of the step")
@@ -58,12 +65,14 @@ class BaseStep(BaseModel):
 
 class FunctionStep(BaseStep):
     """Function step model."""
+
     type: StepType = StepType.FUNCTION
     function: str = Field(..., description="Module path to the function to execute")
 
 
 class LLMStep(BaseStep):
     """LLM step model."""
+
     type: StepType = StepType.LLM
     prompt: str = Field(..., description="Prompt for the LLM")
     model: Optional[str] = Field(None, description="LLM model to use")
@@ -79,6 +88,7 @@ class LLMStep(BaseStep):
 
 class WorkflowStep(BaseStep):
     """Workflow step model."""
+
     type: StepType = StepType.WORKFLOW
     workflow: str = Field(..., description="Workflow name or path to the workflow file to execute")
     workflow_inputs: Optional[Dict[str, Any]] = Field(None, description="Inputs for the sub-workflow")
@@ -86,6 +96,7 @@ class WorkflowStep(BaseStep):
 
 class HumanStep(BaseStep):
     """Human step model."""
+
     type: StepType = StepType.HUMAN
     prompt: str = Field(..., description="Prompt to show to the user")
     auto_confirm: bool = Field(False, description="Automatically confirm without user input")
@@ -97,7 +108,11 @@ Step = Union[FunctionStep, LLMStep, WorkflowStep, HumanStep]
 
 class Workflow(BaseModel):
     """Workflow definition model."""
-    name: str = Field(..., description="Name of the workflow.(Global unique so that it can be used for search by name)")
+
+    name: str = Field(
+        ...,
+        description="Name of the workflow.(Global unique so that it can be used for search by name)",
+    )
     description: Optional[str] = Field(None, description="Description of the workflow")
     version: Optional[float] = Field(None, description="Version of the workflow")
     author: Optional[str] = Field(None, description="Author of the workflow")
@@ -137,6 +152,7 @@ class Workflow(BaseModel):
 
 class StepExecutionInfo(BaseModel):
     """Information about a step's execution including inputs and outputs."""
+
     id: str = Field(..., description="Step ID")
     name: str = Field(..., description="Step name")
     type: StepType = Field(..., description="Step type")
@@ -146,15 +162,20 @@ class StepExecutionInfo(BaseModel):
 
 class ExecutionContext(BaseModel):
     """Execution context for workflow execution."""
+
     workflow_name: str = Field(..., description="Name of the workflow being executed")
     execution_id: str = Field(None, description="Unique execution identifier")
     inputs: Dict[str, Any] = Field(default_factory=dict, description="Input variables")
-    steps: Dict[str, StepExecutionInfo] = Field(default_factory=dict, description="Execution information for each step by step ID")
+    steps: Dict[str, StepExecutionInfo] = Field(
+        default_factory=dict,
+        description="Execution information for each step by step ID",
+    )
     current_step: Optional[str] = Field(None, description="Currently executing step ID")
 
 
 class ExecutionResult(BaseModel):
     """Result of a step execution."""
+
     step_id: str = Field(..., description="ID of the executed step")
     outputs: Dict[str, Any] = Field(default_factory=dict, description="Output variables from the step")
     success: bool = Field(True, description="Whether the step execution was successful")
@@ -164,6 +185,7 @@ class ExecutionResult(BaseModel):
 
 class WorkflowExecutionState(BaseModel):
     """State of a workflow execution."""
+
     workflow_name: str = Field(..., description="Name of the workflow")
     execution_id: str = Field(..., description="Unique execution identifier")
     current_step_index: int = Field(0, description="Index of the current step")

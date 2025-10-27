@@ -14,7 +14,8 @@ logger = logging.getLogger(__name__)
 
 
 class ConsoleCallbackHandler(WorkflowCallbackHandler):
-    """Console implementation of the workflow callback handler that prints status updates."""
+    """Console implementation of the workflow callback handler that prints status
+    updates."""
 
     async def on_step_start(self, step_id: str, step_name: str, step_type: str) -> None:
         """Called when a step is about to start execution."""
@@ -32,10 +33,18 @@ class ConsoleCallbackHandler(WorkflowCallbackHandler):
         """Called when a workflow starts execution."""
         click.echo(f"[WORKFLOW] Starting workflow: {workflow_name} (ID: {execution_id})")
 
-    async def on_workflow_complete(self, workflow_name: str, execution_id: str, status: str,
-                                 error: Optional[str] = None) -> None:
+    async def on_workflow_complete(
+        self,
+        workflow_name: str,
+        execution_id: str,
+        status: str,
+        error: Optional[str] = None,
+    ) -> None:
         """Called when a workflow completes execution."""
         if error:
-            click.echo(f"[WORKFLOW] Workflow {workflow_name} (ID: {execution_id}) completed with status: {status} - Error: {error}")
+            click.echo(
+                f"[WORKFLOW] Workflow {workflow_name} (ID: {execution_id}) completed with "
+                f"status: {status} - Error: {error}"
+            )
         else:
             click.echo(f"[WORKFLOW] Workflow {workflow_name} (ID: {execution_id}) completed with status: {status}")

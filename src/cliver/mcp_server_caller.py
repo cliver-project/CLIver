@@ -1,15 +1,16 @@
-from typing import Dict, Optional, Any, Union
-from langchain_mcp_adapters.client import MultiServerMCPClient
 import logging
+from typing import Any, Dict, Optional, Union
+
+from langchain_core.documents.base import Blob
+from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.tools import BaseTool
+from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.sessions import (
-    StdioConnection,
     SSEConnection,
+    StdioConnection,
     StreamableHttpConnection,
     WebsocketConnection,
 )
-from langchain_core.documents.base import Blob
-from langchain_core.tools import BaseTool
-from langchain_core.messages import AIMessage, HumanMessage
 from mcp.types import CallToolResult
 
 logger = logging.getLogger(__name__)
@@ -18,13 +19,15 @@ logger = logging.getLogger(__name__)
 def filter_dict_for_typed_dict(source: Dict, typed_dict_type: type) -> Dict:
     """Helper method to extract values from a source dict"""
     # Use __annotations__ to get keys instead of get_type_hints() to avoid forward reference issues
-    keys = getattr(typed_dict_type, '__annotations__', {}).keys()
+    keys = getattr(typed_dict_type, "__annotations__", {}).keys()
     return {k: source[k] for k in keys if k in source}
 
 
-def _get_mcp_server_connection(server_config: Dict) -> StdioConnection | SSEConnection | StreamableHttpConnection | WebsocketConnection:
+def _get_mcp_server_connection(
+    server_config: Dict,
+) -> StdioConnection | SSEConnection | StreamableHttpConnection | WebsocketConnection:
     """Get the connection configuration for an MCP server."""
-    if not "transport" in server_config:
+    if "transport" not in server_config:
         raise ValueError(f"Transport not defined in {str(server_config)}")
     transport = server_config["transport"]
     if transport == "stdio":
@@ -34,12 +37,10 @@ def _get_mcp_server_connection(server_config: Dict) -> StdioConnection | SSEConn
         sse_dict = filter_dict_for_typed_dict(server_config, SSEConnection)
         return SSEConnection(**sse_dict)
     elif transport == "streamable_http":
-        stream_dict = filter_dict_for_typed_dict(
-            server_config, StreamableHttpConnection)
+        stream_dict = filter_dict_for_typed_dict(server_config, StreamableHttpConnection)
         return StreamableHttpConnection(**stream_dict)
     elif transport == "websocket":
-        websocket_dict = filter_dict_for_typed_dict(
-            server_config, WebsocketConnection)
+        websocket_dict = filter_dict_for_typed_dict(server_config, WebsocketConnection)
         return WebsocketConnection(**websocket_dict)
     else:
         raise ValueError(f"Transport: {transport} is not supported")
@@ -59,20 +60,14 @@ class MCPServersCaller:
             }
         )
 
-    async def get_mcp_resource(
-        self, server: str, resource_path: str = None
-    ) -> Union[Dict[str, str] | list[Blob]]:
+    async def get_mcp_resource(self, server: str, resource_path: str = None) -> Union[Dict[str, str] | list[Blob]]:
         """Call the MCP server to get resources using langchain_mcp_adapters."""
         try:
-            return await self.mcp_client.get_resources(
-                server_name=server, uris=resource_path
-            )
+            return await self.mcp_client.get_resources(server_name=server, uris=resource_path)
         except Exception as e:
             return {"error": str(e)}
 
-    async def get_mcp_tools(
-        self, server: Optional[str] = None
-    ) -> list[BaseTool]:
+    async def get_mcp_tools(self, server: Optional[str] = None) -> list[BaseTool]:
         """
         Call the MCP server to get tools using langchain_mcp_adapters and convert to BaseTool to be used in langchain
         """
@@ -84,7 +79,8 @@ class MCPServersCaller:
             if server:
                 if server not in self.mcp_client.connections:
                     raise ValueError(
-                        f"Couldn't find a server with name '{server}', expected one of '{list(self.mcp_client.connections.keys())}'"
+                        f"Couldn't find a server with name '{server}', expected one of "
+                        f"'{list(self.mcp_client.connections.keys())}'"
                     )
                 server_connections[server] = self.mcp_client.connections[server]
             else:
@@ -104,9 +100,7 @@ class MCPServersCaller:
         self, server: str, prompt_name: str, arguments: dict[str, Any] | None = None
     ) -> list[HumanMessage | AIMessage]:
         """Call the MCP server to get prompt using langchain_mcp_adapters."""
-        return await self.mcp_client.get_prompt(
-            server_name=server, prompt_name=prompt_name, arguments=arguments
-        )
+        return await self.mcp_client.get_prompt(server_name=server, prompt_name=prompt_name, arguments=arguments)
 
     async def call_mcp_server_tool(
         self, server: str, tool_name: str, args: Dict[str, Any] = None
@@ -114,20 +108,12 @@ class MCPServersCaller:
         """Call an MCP tool using langchain_mcp_adapters."""
         try:
             if server not in self.mcp_servers:
-                return [
-                    {"error": f"Server '{server}' not found in configured MCP servers"}
-                ]
+                return [{"error": f"Server '{server}' not found in configured MCP servers"}]
 
             async with self.mcp_client.session(server_name=server) as mcp_session:
-                result: CallToolResult = await mcp_session.call_tool(
-                    name=tool_name, arguments=args
-                )
+                result: CallToolResult = await mcp_session.call_tool(name=tool_name, arguments=args)
                 if result.isError:
-                    return [
-                        {
-                            "error": f"Failed to call tool {tool_name} in mcp server {server}"
-                        }
-                    ]
+                    return [{"error": f"Failed to call tool {tool_name} in mcp server {server}"}]
                 return [c.model_dump() for c in result.content]
 
         except Exception as e:

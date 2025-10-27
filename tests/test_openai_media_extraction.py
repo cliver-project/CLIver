@@ -2,15 +2,16 @@
 Test module for OpenAI-specific media extraction in CLIver.
 """
 
-import pytest
 import json
 from unittest.mock import Mock
 
+import pytest
+from langchain_core.messages import AIMessage
+
+from cliver.config import ModelConfig
 from cliver.llm.openai_engine import OpenAICompatibleInferenceEngine
 from cliver.media import MediaType
-from cliver.config import ModelConfig
 from cliver.model_capabilities import ModelCapability
-from langchain_core.messages import AIMessage
 
 
 class TestOpenAISpecificMediaExtraction:
@@ -66,7 +67,7 @@ class TestOpenAISpecificMediaExtraction:
         dalle_response = {
             "data": [
                 {"url": "https://oaidalleprodscus.blob.core.windows.net/private/org-X/blah1.png"},
-                {"url": "https://oaidalleprodscus.blob.core.windows.net/private/org-X/blah2.png"}
+                {"url": "https://oaidalleprodscus.blob.core.windows.net/private/org-X/blah2.png"},
             ]
         }
         response = AIMessage(content=json.dumps(dalle_response))
@@ -105,9 +106,9 @@ class TestOpenAISpecificMediaExtraction:
             additional_kwargs={
                 "image_urls": [
                     "https://example.com/image1.png",
-                    "https://example.com/image2.jpg"
+                    "https://example.com/image2.jpg",
                 ]
-            }
+            },
         )
 
         media_content = openai_engine.extract_media_from_response(response)
@@ -122,7 +123,12 @@ class TestOpenAISpecificMediaExtraction:
         # Structured content response (more for input messages, but we handle it)
         structured_content = [
             {"type": "text", "text": "What's in this image?"},
-            {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBAQE"}}
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBAQE"
+                },
+            },
         ]
         response = AIMessage(content=structured_content)
 
@@ -136,7 +142,10 @@ class TestOpenAISpecificMediaExtraction:
         # Structured content with HTTP URL
         structured_content = [
             {"type": "text", "text": "What's in this image?"},
-            {"type": "image_url", "image_url": {"url": "https://example.com/image.jpg"}}
+            {
+                "type": "image_url",
+                "image_url": {"url": "https://example.com/image.jpg"},
+            },
         ]
         response = AIMessage(content=structured_content)
 

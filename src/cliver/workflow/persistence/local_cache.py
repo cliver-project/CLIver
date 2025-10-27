@@ -1,17 +1,20 @@
 """
 Local cache persistence for Cliver workflow engine.
 """
+
 import json
 import logging
 import os
 import threading
 from collections import OrderedDict
 from pathlib import Path
-from typing import Optional, Dict, Any
-from cliver.workflow.workflow_models import WorkflowExecutionState, ExecutionResult
+from typing import Any, Dict, Optional
+
 from cliver.workflow.persistence.base import CacheProvider
+from cliver.workflow.workflow_models import ExecutionResult, WorkflowExecutionState
 
 logger = logging.getLogger(__name__)
+
 
 class LocalCacheProvider(CacheProvider):
     """Thread-safe local file-based cache for workflow execution state.
@@ -31,8 +34,8 @@ class LocalCacheProvider(CacheProvider):
         """
         if cache_dir is None:
             # Default to user cache directory
-            cache_home = os.environ.get('XDG_CACHE_HOME') or os.path.join(os.path.expanduser('~'), '.cache')
-            cache_dir = os.path.join(cache_home, 'cliver')
+            cache_home = os.environ.get("XDG_CACHE_HOME") or os.path.join(os.path.expanduser("~"), ".cache")
+            cache_dir = os.path.join(cache_home, "cliver")
 
         self.cache_dir = Path(cache_dir)
         self._ensure_cache_dir()
@@ -96,7 +99,7 @@ class LocalCacheProvider(CacheProvider):
                 state_dict = state.model_dump()
 
                 # Write to file
-                with open(cache_file, 'w') as f:
+                with open(cache_file, "w") as f:
                     json.dump(state_dict, f, indent=2, default=str)
 
                 logger.debug(f"Saved execution state to {cache_file}")
@@ -129,7 +132,7 @@ class LocalCacheProvider(CacheProvider):
                     return None
 
                 # Read from file
-                with open(cache_file, 'r') as f:
+                with open(cache_file, "r") as f:
                     state_dict = json.load(f)
 
                 # Convert dict to WorkflowExecutionState
@@ -166,6 +169,7 @@ class LocalCacheProvider(CacheProvider):
 
                     # Remove entire execution directory
                     import shutil
+
                     shutil.rmtree(execution_dir)
                     logger.debug(f"Removed execution directory {execution_dir}")
                     return True
@@ -204,14 +208,14 @@ class LocalCacheProvider(CacheProvider):
                                 # Look for state.json file
                                 state_file = execution_dir / "state.json"
                                 if state_file.exists():
-                                    with open(state_file, 'r') as f:
+                                    with open(state_file, "r") as f:
                                         state_dict = json.load(f)
 
                                     executions[execution_id] = {
-                                        'workflow_name': state_dict.get('workflow_name'),
-                                        'status': state_dict.get('status'),
-                                        'current_step_index': state_dict.get('current_step_index'),
-                                        'completed_steps': state_dict.get('completed_steps', []),
+                                        "workflow_name": state_dict.get("workflow_name"),
+                                        "status": state_dict.get("status"),
+                                        "current_step_index": state_dict.get("current_step_index"),
+                                        "completed_steps": state_dict.get("completed_steps", []),
                                     }
                             except Exception as e:
                                 logger.warning(f"Failed to read execution state from {execution_dir}: {e}")
@@ -242,6 +246,7 @@ class LocalCacheProvider(CacheProvider):
                 if workflow_dir.is_dir():
                     try:
                         import shutil
+
                         shutil.rmtree(workflow_dir)
                         count += 1
                     except Exception as e:
@@ -267,7 +272,13 @@ class LocalCacheProvider(CacheProvider):
             return None
         return str(self._get_execution_dir(workflow_name, execution_id))
 
-    def save_step_result(self, workflow_name: str, execution_id: str, step_id: str, result: ExecutionResult) -> bool:
+    def save_step_result(
+        self,
+        workflow_name: str,
+        execution_id: str,
+        step_id: str,
+        result: ExecutionResult,
+    ) -> bool:
         """Save step execution result to cache.
 
         Args:
@@ -300,7 +311,7 @@ class LocalCacheProvider(CacheProvider):
                 result_dict = result.model_dump()
 
                 # Write to file
-                with open(result_file, 'w') as f:
+                with open(result_file, "w") as f:
                     json.dump(result_dict, f, indent=2, default=str)
 
                 logger.debug(f"Saved step result to {result_file}")
@@ -337,7 +348,7 @@ class LocalCacheProvider(CacheProvider):
                     return None
 
                 # Read from file
-                with open(result_file, 'r') as f:
+                with open(result_file, "r") as f:
                     result_dict = json.load(f)
 
                 # Convert dict to ExecutionResult

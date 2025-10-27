@@ -1,11 +1,17 @@
 """
 Workflow step implementation.
 """
+
 import logging
 import time
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING
+
 from cliver.workflow.steps.base import StepExecutor
-from cliver.workflow.workflow_models import WorkflowStep, ExecutionContext, ExecutionResult
+from cliver.workflow.workflow_models import (
+    ExecutionContext,
+    ExecutionResult,
+    WorkflowStep,
+)
 
 if TYPE_CHECKING:
     from cliver.workflow.workflow_executor import WorkflowExecutor
@@ -52,13 +58,12 @@ class WorkflowStepExecutor(StepExecutor):
 
             # Execute the sub-workflow
             execution_result = await self.workflow_executor.execute_workflow(
-                workflow_name=self.step.workflow,
-                inputs=workflow_inputs
+                workflow_name=self.step.workflow, inputs=workflow_inputs
             )
 
             # Prepare outputs from sub-workflow results
             outputs = {}
-            if hasattr(execution_result, 'context') and execution_result.context:
+            if hasattr(execution_result, "context") and execution_result.context:
                 # Add outputs from all completed steps in the sub-workflow
                 for step_info in execution_result.context.steps.values():
                     if step_info.outputs:
@@ -99,5 +104,5 @@ class WorkflowStepExecutor(StepExecutor):
                 step_id=self.step.id,
                 success=False,
                 error=str(e),
-                execution_time=execution_time
+                execution_time=execution_time,
             )

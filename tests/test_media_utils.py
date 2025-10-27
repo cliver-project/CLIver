@@ -3,11 +3,12 @@ Test module for media utilities in CLIver.
 """
 
 import pytest
+
 from cliver.llm.media_utils import (
-    extract_data_urls,
     data_url_to_media_content,
+    extract_data_urls,
     extract_media_from_json,
-    get_file_extension
+    get_file_extension,
 )
 from cliver.media import MediaType
 
@@ -36,7 +37,10 @@ class TestMediaUtils:
         assert media.type == MediaType.IMAGE
         assert media.mime_type == "image/png"
         assert media.filename == "test_image.png"
-        assert "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==" in media.data
+        assert (
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=="
+            in media.data
+        )
 
         # Test with invalid data URL
         invalid_url = "not a data url"
@@ -57,7 +61,7 @@ class TestMediaUtils:
             "media_content": [
                 {
                     "mime_type": "image/png",
-                    "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=="
+                    "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==",
                 }
             ]
         }

@@ -3,6 +3,7 @@ Default callback handler implementation for workflow execution notifications.
 """
 
 from typing import Optional
+
 from cliver.workflow.callback_handler import WorkflowCallbackHandler
 from cliver.workflow.workflow_models import ExecutionResult
 
@@ -22,7 +23,12 @@ class DefaultCallbackHandler(WorkflowCallbackHandler):
         """Called when a workflow starts execution."""
         pass
 
-    async def on_workflow_complete(self, workflow_name: str, execution_id: str, status: str,
-                                 error: Optional[str] = None) -> None:
+    async def on_workflow_complete(
+        self,
+        workflow_name: str,
+        execution_id: str,
+        status: str,
+        error: Optional[str] = None,
+    ) -> None:
         """Called when a workflow completes execution."""
         pass

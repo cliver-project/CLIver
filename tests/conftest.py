@@ -1,7 +1,9 @@
-import pytest
 import asyncio
-from cliver.config import ConfigManager
+
+import pytest
+
 from cliver.cli import Cliver
+from cliver.config import ConfigManager
 
 
 @pytest.fixture(scope="session")
@@ -50,6 +52,4 @@ def simple_mcp_server(init_config, config_manager):
 
 @pytest.fixture()
 def simple_llm_model(init_config, config_manager):
-    config_manager.add_or_update_llm_model(
-        "llama3.2", "ollama", "xx", "http://localhost:11434", "", "llama3.2:latest"
-    )
+    config_manager.add_or_update_llm_model("llama3.2", "ollama", "xx", "http://localhost:11434", "", "llama3.2:latest")

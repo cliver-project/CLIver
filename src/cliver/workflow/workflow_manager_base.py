@@ -1,11 +1,13 @@
 """
 Abstract base class for Workflow Manager in Cliver workflow engine.
 """
+
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Dict, Union, Optional
+from typing import Dict, Optional, Union
 
 from cliver.workflow.workflow_models import Workflow
+
 
 class WorkflowManager(ABC):
     """Abstract base class for workflow managers."""

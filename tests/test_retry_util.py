@@ -1,5 +1,7 @@
-import pytest
 from unittest.mock import patch
+
+import pytest
+
 from cliver.util import retry_with_confirmation
 
 
@@ -69,7 +71,5 @@ def test_retry_with_confirmation_function_args():
             return "Correct arguments"
         raise Exception("Wrong arguments")
 
-    result = retry_with_confirmation(
-        function_with_args, 1, 2, c=3, max_retries=1, confirm_on_retry=False
-    )
+    result = retry_with_confirmation(function_with_args, 1, 2, c=3, max_retries=1, confirm_on_retry=False)
     assert result == "Correct arguments"

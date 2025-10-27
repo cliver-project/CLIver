@@ -1,19 +1,25 @@
-from dotenv import load_dotenv
-
-load_dotenv()
-
-from cliver.llm import TaskExecutor
-from cliver.media_handler import MultimediaResponseHandler, MultimediaResponse
-
 import importlib.metadata
 import pathlib
 import sys
+
+from dotenv import load_dotenv
+
+from cliver.llm import TaskExecutor
+from cliver.media_handler import MultimediaResponse, MultimediaResponseHandler
+
+load_dotenv()
+
+# Export for public API
+TaskExecutor = TaskExecutor
+MultimediaResponse = MultimediaResponse
+MultimediaResponseHandler = MultimediaResponseHandler
 
 # For Python 3.11+, use built-in tomllib
 if sys.version_info >= (3, 11):
     import tomllib
 else:
     import tomli as tomllib
+
 
 # noinspection PyBroadException
 def get_version() -> str:
@@ -30,5 +36,6 @@ def get_version() -> str:
             return data["project"]["version"]
         except Exception:
             return "0.0.1+dev"
+
 
 __version__ = get_version()

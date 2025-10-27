@@ -2,15 +2,17 @@
 Test module for multi-media support in CLIver.
 """
 
-import pytest
 from unittest.mock import AsyncMock, Mock
-from cliver.llm.openai_engine import OpenAICompatibleInferenceEngine
-from cliver.llm.ollama_engine import OllamaLlamaInferenceEngine
-from cliver.llm.llm import TaskExecutor
-from cliver.media import MediaContent, MediaType, load_media_file
-from cliver.config import ModelConfig
-from cliver.model_capabilities import ModelCapability
+
+import pytest
 from langchain_core.messages import HumanMessage
+
+from cliver.config import ModelConfig
+from cliver.llm.llm import TaskExecutor
+from cliver.llm.ollama_engine import OllamaLlamaInferenceEngine
+from cliver.llm.openai_engine import OpenAICompatibleInferenceEngine
+from cliver.media import MediaContent, MediaType, load_media_file
+from cliver.model_capabilities import ModelCapability
 
 
 class TestMediaContent:

@@ -11,13 +11,6 @@ from typing import (
     Tuple,
 )
 
-from cliver.builtin_tools import BuiltinTools
-from cliver.llm.llm_utils import is_thinking
-from cliver.model_capabilities import ModelCapability
-
-# Create a logger for this module
-logger = logging.getLogger(__name__)
-
 from langchain_core.messages import (
     AIMessage,
     AIMessageChunk,
@@ -29,15 +22,21 @@ from langchain_core.messages import (
 from langchain_core.messages.base import BaseMessage
 from langchain_core.tools import BaseTool
 
+from cliver.builtin_tools import BuiltinTools
 from cliver.config import ModelConfig
 from cliver.llm.base import LLMInferenceEngine
 from cliver.llm.errors import get_friendly_error_message
+from cliver.llm.llm_utils import is_thinking
 from cliver.llm.ollama_engine import OllamaLlamaInferenceEngine
 from cliver.llm.openai_engine import OpenAICompatibleInferenceEngine
 from cliver.mcp_server_caller import MCPServersCaller
 from cliver.media import load_media_file
+from cliver.model_capabilities import ModelCapability
 from cliver.prompt_enhancer import apply_skill_sets_and_template
 from cliver.util import read_context_files, retry_with_confirmation_async
+
+# Create a logger for this module
+logger = logging.getLogger(__name__)
 
 
 def create_llm_engine(model: ModelConfig) -> Optional[LLMInferenceEngine]:
@@ -50,9 +49,7 @@ def create_llm_engine(model: ModelConfig) -> Optional[LLMInferenceEngine]:
 
 ## TODO: we need to improve this to take consideration of user_input and even call some mcp tools
 ## TODO: We may need to parsed the structured context file and do embedding to get only related sections.
-async def default_enhance_prompt(
-    user_input: str, mcp_caller: MCPServersCaller
-) -> list[BaseMessage]:
+async def default_enhance_prompt(user_input: str, mcp_caller: MCPServersCaller) -> list[BaseMessage]:
     """
     Default enhancement function that reads context files for context.
     By default, it looks for Cliver.md but can be configured to look for other files.
@@ -71,8 +68,10 @@ async def default_enhance_prompt(
         return [SystemMessage(content=f"Context information:\n{context}")]
     return []
 
+
 # builtin_tools get loaded on first usage on 'builtin_tools.tools'
 builtin_tools = BuiltinTools()
+
 
 class TaskExecutor:
     """
@@ -135,15 +134,9 @@ class TaskExecutor:
         confirm_tool_exec: bool = False,
         model: str = None,
         system_message_appender: Optional[Callable[[], str]] = None,
-        filter_tools: Optional[
-            Callable[[str, list[BaseTool]], Awaitable[list[BaseTool]]]
-        ] = None,
-        enhance_prompt: Optional[
-            Callable[[str, MCPServersCaller], Awaitable[list[BaseMessage]]]
-        ] = None,
-        tool_error_check: Optional[
-            Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]
-        ] = None,
+        filter_tools: Optional[Callable[[str, list[BaseTool]], Awaitable[list[BaseTool]]]] = None,
+        enhance_prompt: Optional[Callable[[str, MCPServersCaller], Awaitable[list[BaseMessage]]]] = None,
+        tool_error_check: Optional[Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]] = None,
         skill_sets: List[str] = None,
         template: Optional[str] = None,
         params: dict = None,
@@ -181,15 +174,9 @@ class TaskExecutor:
         confirm_tool_exec: bool = False,
         model: str = None,
         system_message_appender: Optional[Callable[[], str]] = None,
-        filter_tools: Optional[
-            Callable[[str, list[BaseTool]], Awaitable[list[BaseTool]]]
-        ] = None,
-        enhance_prompt: Optional[
-            Callable[[str, MCPServersCaller], Awaitable[list[BaseMessage]]]
-        ] = None,
-        tool_error_check: Optional[
-            Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]
-        ] = None,
+        filter_tools: Optional[Callable[[str, list[BaseTool]], Awaitable[list[BaseTool]]]] = None,
+        enhance_prompt: Optional[Callable[[str, MCPServersCaller], Awaitable[list[BaseMessage]]]] = None,
+        tool_error_check: Optional[Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]] = None,
         skill_sets: List[str] = None,
         template: Optional[str] = None,
         params: dict = None,
@@ -271,9 +258,10 @@ class TaskExecutor:
         if files:
             logger.debug(f"_prepare_messages_and_tools called with files: {files}")
             llm_engine = self._select_llm_engine(model)
-            if hasattr(llm_engine, 'config'):
+            if hasattr(llm_engine, "config"):
                 capabilities = llm_engine.config.get_capabilities()
                 from cliver.model_capabilities import ModelCapability
+
                 if ModelCapability.FILE_UPLOAD not in capabilities:
                     logger.info("File upload is not supported for this model. Will use content embedding as fallback.")
 
@@ -291,9 +279,7 @@ class TaskExecutor:
             SystemMessage(content=system_message),
         ]
         # Always apply the default enhancement function to get context from Cliver.md
-        default_enhanced_messages = await default_enhance_prompt(
-            user_input, self.mcp_caller
-        )
+        default_enhanced_messages = await default_enhance_prompt(user_input, self.mcp_caller)
         if default_enhanced_messages and len(default_enhanced_messages) > 0:
             messages.extend(default_enhanced_messages)
 
@@ -368,15 +354,19 @@ class TaskExecutor:
             if model_config:
                 capabilities = model_config.get_capabilities()
                 from cliver.model_capabilities import ModelCapability
+
                 file_upload_supported = ModelCapability.FILE_UPLOAD in capabilities
 
             if not file_upload_supported:
-                logger.info("File upload is not supported for this model. Will embed file contents in the prompt instead.")
+                logger.info(
+                    "File upload is not supported for this model. Will embed file contents in the prompt instead."
+                )
                 # Fallback: embed file contents directly in the prompt
                 for file_path in files:
                     try:
                         # Import here to avoid circular imports
                         from cliver.util import read_file_content
+
                         file_content = read_file_content(file_path)
                         embedded_files_content.append((file_path, file_content))
                         logger.info(f"Embedded content of file {file_path} in prompt")
@@ -387,7 +377,7 @@ class TaskExecutor:
                 for file_path in files:
                     try:
                         # Check if this is an OpenAI engine that supports file uploads
-                        if hasattr(llm_engine, 'upload_file'):
+                        if hasattr(llm_engine, "upload_file"):
                             file_id = llm_engine.upload_file(file_path)
                             if file_id:
                                 uploaded_file_ids.append(file_id)
@@ -397,7 +387,10 @@ class TaskExecutor:
                         else:
                             logger.info(f"LLM engine doesn't support file uploads, skipping {file_path}")
                     except Exception as e:
-                        logger.warning(f"Could not upload file {file_path}: {e}. Please check the configuration if the capability is enabled.")
+                        logger.warning(
+                            f"Could not upload file {file_path}: {e}. Please check the "
+                            f"configuration if the capability is enabled."
+                        )
                 logger.info(f"Completed file uploads. Uploaded file IDs: {uploaded_file_ids}")
 
         # Add the user input with media content and file references
@@ -407,6 +400,7 @@ class TaskExecutor:
 
             # Add media content using shared utility function
             from cliver.media import add_media_content_to_message_parts
+
             add_media_content_to_message_parts(content_parts, media_content)
 
             # Add file references for uploaded files
@@ -414,21 +408,25 @@ class TaskExecutor:
                 content_parts.append(
                     {
                         "type": "text",
-                        "text": f"\n\nUploaded files for reference: {', '.join(uploaded_file_ids)}"
+                        "text": f"\n\nUploaded files for reference: {', '.join(uploaded_file_ids)}",
                     }
                 )
 
             # Add embedded file contents for models that don't support file uploads
             if embedded_files_content:
-                content_parts.append({
-                    "type": "text",
-                    "text": "\n\nThe following files have been provided for context:"
-                })
-                for file_path, file_content in embedded_files_content:
-                    content_parts.append({
+                content_parts.append(
+                    {
                         "type": "text",
-                        "text": f"\n\nFile: {file_path}\nContent:\n```\n{file_content}\n```"
-                    })
+                        "text": "\n\nThe following files have been provided for context:",
+                    }
+                )
+                for file_path, file_content in embedded_files_content:
+                    content_parts.append(
+                        {
+                            "type": "text",
+                            "text": f"\n\nFile: {file_path}\nContent:\n```\n{file_content}\n```",
+                        }
+                    )
 
             human_message = HumanMessage(content=content_parts)
             messages.append(human_message)
@@ -450,15 +448,9 @@ class TaskExecutor:
         confirm_tool_exec: bool = False,
         model: str = None,
         system_message_appender: Optional[Callable[[], str]] = None,
-        filter_tools: Optional[
-            Callable[[str, list[BaseTool]], Awaitable[list[BaseTool]]]
-        ] = None,
-        enhance_prompt: Optional[
-            Callable[[str, MCPServersCaller], Awaitable[list[BaseMessage]]]
-        ] = None,
-        tool_error_check: Optional[
-            Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]
-        ] = None,
+        filter_tools: Optional[Callable[[str, list[BaseTool]], Awaitable[list[BaseTool]]]] = None,
+        enhance_prompt: Optional[Callable[[str, MCPServersCaller], Awaitable[list[BaseMessage]]]] = None,
+        tool_error_check: Optional[Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]] = None,
         skill_sets: List[str] = None,
         template: Optional[str] = None,
         params: dict = None,
@@ -529,9 +521,7 @@ class TaskExecutor:
         current_iteration: int,
         mcp_tools: list[BaseTool],
         confirm_tool_exec: bool,
-        tool_error_check: Optional[
-            Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]
-        ] = None,
+        tool_error_check: Optional[Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]] = None,
         options: Dict[str, Any] = None,
     ) -> BaseMessage:
         """Handle processing messages with tool calling using a while loop."""
@@ -560,9 +550,7 @@ class TaskExecutor:
             # If no tool calls, return the response
             return response
 
-        return AIMessage(
-            content="Reached maximum number of iterations without a final answer."
-        )
+        return AIMessage(content="Reached maximum number of iterations without a final answer.")
 
     # returns a tuple to indicate if there is error occurs which indicates stop and a string message
     # this may execute multiple tools in sequence in one iteration of response
@@ -571,9 +559,7 @@ class TaskExecutor:
         tool_calls: List[Dict],
         messages: List[BaseMessage],
         confirm_tool_exec: bool,
-        tool_error_check: Optional[
-            Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]
-        ],
+        tool_error_check: Optional[Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]],
     ) -> Tuple[bool, str | None]:
         """Execute tool calls and return a Tuple with sent bool and result."""
         try:
@@ -586,9 +572,7 @@ class TaskExecutor:
                 # default we don't care about confirmation and just run the tool
                 proceed = True
                 if confirm_tool_exec:
-                    proceed = _confirm_tool_execution(
-                        f"This will execute tool: {full_tool_name}"
-                    )
+                    proceed = _confirm_tool_execution(f"This will execute tool: {full_tool_name}")
                 if not proceed:
                     return True, f"Stopped at tool execution: {tool_call}"
 
@@ -627,9 +611,7 @@ class TaskExecutor:
                         tool_result_content = str(tool_result)
                 else:
                     tool_result_content = str(tool_result)
-                messages.append(
-                    ToolMessage(content=tool_result_content, tool_call_id=tool_call_id)
-                )
+                messages.append(ToolMessage(content=tool_result_content, tool_call_id=tool_call_id))
                 if not tool_error_check:
                     tool_error_check = _tool_error_check_internal
                 error, tool_error_message = tool_error_check(tool_name, tool_result)
@@ -652,9 +634,7 @@ class TaskExecutor:
         current_iteration: int,
         mcp_tools: list[BaseTool],
         confirm_tool_exec: bool,
-        tool_error_check: Optional[
-            Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]
-        ],
+        tool_error_check: Optional[Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]],
         options: Dict[str, Any] = None,
     ) -> AsyncIterator[BaseMessageChunk]:
         """Handle streaming messages with tool calling."""
@@ -677,9 +657,10 @@ class TaskExecutor:
 
                     # we don't care about thinking content
                     chunks_content = str(accumulated_chunks)
-                    if (llm_engine.supports_capability(ModelCapability.THINK_MODE)
-                            and (((len(chunks_content) <= 10 and "<thinking>".startswith(chunks_content))
-                                or is_thinking(chunks_content)))):
+                    if llm_engine.supports_capability(ModelCapability.THINK_MODE) and (
+                        (len(chunks_content) <= 10 and "<thinking>".startswith(chunks_content))
+                        or is_thinking(chunks_content)
+                    ):
                         continue
                     yield chunk
                 tool_calls = llm_engine.parse_tool_calls(accumulated_chunks, model)
@@ -696,9 +677,7 @@ class TaskExecutor:
             # If we found tool calls, execute them and continue after emitting the chunks
             if tool_calls:
                 # Execute tool calls
-                stop, result = await self._execute_tool_calls(
-                    tool_calls, messages, confirm_tool_exec, tool_error_check
-                )
+                stop, result = await self._execute_tool_calls(tool_calls, messages, confirm_tool_exec, tool_error_check)
                 if stop:
                     # If we need to stop, yield the result as a message
                     if result:
@@ -716,18 +695,15 @@ class TaskExecutor:
 
         # If we've reached max iterations
         # noinspection PyArgumentList
-        yield AIMessageChunk(
-            content="Reached maximum number of iterations without a final answer."
-        )
+        yield AIMessageChunk(content="Reached maximum number of iterations without a final answer.")
 
 
-def _tool_error_check_internal(
-    tool_name: str, mcp_tool_result: list[Dict[str, Any]]
-) -> Tuple[bool, str | None]:
+def _tool_error_check_internal(tool_name: str, mcp_tool_result: list[Dict[str, Any]]) -> Tuple[bool, str | None]:
     if any("error" in r for r in mcp_tool_result):
         return (
             True,
-            f"Error calling tool {tool_name}: {mcp_tool_result[0].get('error')}, you may need to check the tool arguments and run it again.",
+            f"Error calling tool {tool_name}: {mcp_tool_result[0].get('error')}, you may "
+            f"need to check the tool arguments and run it again.",
         )
     return False, None
 

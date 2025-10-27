@@ -1,14 +1,16 @@
 import asyncio
 import logging
-import time
-from typing import List, Optional, Dict, Any, Callable
 import sys
+import time
+from typing import Any, Callable, Dict, List, Optional
+
 import click
-from cliver.cli import Cliver, pass_cliver, interact
+
+from cliver.cli import Cliver, interact, pass_cliver
 from cliver.llm import TaskExecutor
 from cliver.media_handler import MultimediaResponseHandler
 from cliver.model_capabilities import ModelCapability
-from cliver.util import parse_key_value_options, create_tools_filter, read_file_content
+from cliver.util import create_tools_filter, parse_key_value_options, read_file_content
 
 logger = logging.getLogger(__name__)
 
@@ -192,17 +194,17 @@ def chat(
         # in interactive mode, we can cache the settings from the argument above
         session_options: dict[str, Any] = {}
         if model:
-            session_options['model'] = model
+            session_options["model"] = model
         if stream:
-            session_options['stream'] = stream
+            session_options["stream"] = stream
         if included_tools:
-            session_options['included_tools'] = included_tools
+            session_options["included_tools"] = included_tools
         if options and len(options) > 0:
             session_options["options"] = options
 
         # Add system message to session options if provided
         if system_message_content:
-            session_options['system_message_content'] = system_message_content
+            session_options["system_message_content"] = system_message_content
         interact(cliver, session_options)
         return 0
 
@@ -218,38 +220,28 @@ def chat(
             return 1
 
         # Check capabilities before making calls
-        if len(file) > 0 and not llm_engine.supports_capability(
-            ModelCapability.FILE_UPLOAD
-        ):
+        if len(file) > 0 and not llm_engine.supports_capability(ModelCapability.FILE_UPLOAD):
             logger.debug(
-                "Model '%s' does not support file uploads. Will embed file contents in the prompt.", use_model)
+                "Model '%s' does not support file uploads. Will embed file contents in the prompt.",
+                use_model,
+            )
 
-        if len(image) > 0 and not llm_engine.supports_capability(
-            ModelCapability.IMAGE_TO_TEXT
-        ):
-            click.echo(
-                f"Model '{use_model}' does not support image processing.")
+        if len(image) > 0 and not llm_engine.supports_capability(ModelCapability.IMAGE_TO_TEXT):
+            click.echo(f"Model '{use_model}' does not support image processing.")
             return 1
 
-        if len(audio) > 0 and not llm_engine.supports_capability(
-            ModelCapability.AUDIO_TO_TEXT
-        ):
-            click.echo(
-                f"Model '{use_model}' does not support audio processing.")
+        if len(audio) > 0 and not llm_engine.supports_capability(ModelCapability.AUDIO_TO_TEXT):
+            click.echo(f"Model '{use_model}' does not support audio processing.")
             return 1
 
-        if len(video) > 0 and not llm_engine.supports_capability(
-            ModelCapability.VIDEO_TO_TEXT
-        ):
-            click.echo(
-                f"Model '{use_model}' does not support video processing.")
+        if len(video) > 0 and not llm_engine.supports_capability(ModelCapability.VIDEO_TO_TEXT):
+            click.echo(f"Model '{use_model}' does not support video processing.")
             return 1
 
         # Convert param tuples to dictionary
         params = parse_key_value_options(param, cliver.console)
         use_stream = _session_options.get("stream", stream)
-        use_included_tools = _session_options.get(
-            "included_tools", included_tools)
+        use_included_tools = _session_options.get("included_tools", included_tools)
         _llm_options: dict = _session_options.get("options", {})
         _llm_options.update(options)
         tools_filter = None
@@ -261,6 +253,7 @@ def chat(
         if not system_message_content or len(system_message_content.strip()) == 0:
             system_message_content = _session_options.get("system_message_content")
         if system_message_content and len(system_message_content.strip()) > 0:
+
             def system_message_appender():
                 return system_message_content
 
@@ -287,17 +280,21 @@ def chat(
         return 1
 
 
-def _chat_options(frequency_penalty: float | None, max_tokens: int | None, temperature: float | None,
-                  top_p: float | None) -> dict[Any, Any]:
+def _chat_options(
+    frequency_penalty: float | None,
+    max_tokens: int | None,
+    temperature: float | None,
+    top_p: float | None,
+) -> dict[Any, Any]:
     options = {}
     if temperature is not None:
-        options['temperature'] = temperature
+        options["temperature"] = temperature
     if max_tokens is not None:
-        options['max_tokens'] = max_tokens
+        options["max_tokens"] = max_tokens
     if top_p is not None:
-        options['top_p'] = top_p
+        options["top_p"] = top_p
     if frequency_penalty is not None:
-        options['frequency_penalty'] = frequency_penalty
+        options["frequency_penalty"] = frequency_penalty
     return options
 
 
@@ -386,9 +383,7 @@ def _async_chat(
     except ValueError as e:
         if "File upload is not supported" in str(e):
             click.echo(f"Error: {e}")
-            click.echo(
-                "Will use content embedding as fallback."
-            )
+            click.echo("Will use content embedding as fallback.")
         else:
             raise
         return 1
@@ -435,7 +430,8 @@ async def _stream_chat(
             filter_tools=tools_filter,
             system_message_appender=system_message_appender,
         ):
-            # Handle different types of chunks - some may have content, some may have tool calls
+            # Handle different types of chunks - some may have content, some may have
+            # tool calls
             if accumulated_chunk is None:
                 accumulated_chunk = chunk
             else:
@@ -478,9 +474,7 @@ async def _stream_chat(
     except ValueError as e:
         if "File upload is not supported" in str(e):
             click.echo(f"Error: {e}")
-            click.echo(
-                "Will use content embedding as fallback."
-            )
+            click.echo("Will use content embedding as fallback.")
         else:
             raise
         return 1

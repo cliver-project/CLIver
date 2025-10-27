@@ -10,9 +10,7 @@ from cliver.cli import Cliver, pass_cliver
 
 @click.command()
 @click.option("--model", "-m", help="Model name to check capabilities for")
-@click.option(
-    "--detailed", "-d", is_flag=True, help="Show detailed modality capabilities"
-)
+@click.option("--detailed", "-d", is_flag=True, help="Show detailed modality capabilities")
 @pass_cliver
 def capabilities(cli: Cliver, model: str = None, detailed: bool = False):
     """Display model capabilities."""

@@ -1,19 +1,19 @@
 """
 Base classes for workflow steps.
 """
+
 import asyncio
 import logging
-import time
 import os
-import copy
-from typing import Any
-
+import time
 from abc import ABC, abstractmethod
+from typing import Any
 
 from cliver import template_utils
 from cliver.workflow.workflow_models import BaseStep, ExecutionContext, ExecutionResult
 
 logger = logging.getLogger(__name__)
+
 
 class StepExecutor(ABC):
     """Abstract base class for step executors."""
@@ -56,19 +56,19 @@ class StepExecutor(ABC):
 
                 if attempt < max_attempts - 1:  # Not the last attempt
                     # Calculate backoff with exponential factor
-                    backoff_time = min(backoff_factor * (2 ** attempt), max_backoff)
+                    backoff_time = min(backoff_factor * (2**attempt), max_backoff)
                     logger.info(f"Retrying step {self.step.id} in {backoff_time} seconds...")
                     await asyncio.sleep(backoff_time)
                 else:
                     # an exception is thrown after retries
-                    raise Exception(f"Step {self.step.id} failed after {max_attempts} attempts")
+                    raise Exception(f"Step {self.step.id} failed after {max_attempts} attempts") from last_exception
 
         # If we get here, all retries failed
         return ExecutionResult(
             step_id=self.step.id,
             success=False,
             error=f"Step failed after {max_attempts} attempts: {str(last_exception)}",
-            execution_time=0.0
+            execution_time=0.0,
         )
 
     def evaluate_condition(self, context: ExecutionContext) -> bool:
@@ -88,7 +88,6 @@ class StepExecutor(ABC):
 
         # We don't know how to evaluate yet.
         return True
-
 
     def resolve_variable(self, value: Any, context: ExecutionContext) -> Any:
         """Resolve variable references in input values using Jinja2 templating.
@@ -181,7 +180,8 @@ class StepExecutor(ABC):
                 outputs[self.step.outputs[0]] = result
             else:
                 if isinstance(result, dict):
-                    # If result is dict and multiple outputs, extract specified keys that only exists in the step.outputs definitions
+                    # If result is dict and multiple outputs, extract specified keys that only
+                    # exists in the step.outputs definitions
                     for output_name in self.step.outputs:
                         if output_name in result:
                             outputs[output_name] = result[output_name]
@@ -190,7 +190,8 @@ class StepExecutor(ABC):
                         if i < len(result):
                             outputs[output_name] = result[i]
                 else:
-                    # not a dict/list/tuple result , and we expect it should be because we have multiple expected outputs
+                    # not a dict/list/tuple result, and we expect it should be because we
+                    # have multiple expected outputs
                     #    we just assign the result to all the expected outputs.
                     # Multiple outputs with non-dict result - this is ambiguous
                     logger.warning(

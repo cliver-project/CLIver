@@ -3,8 +3,8 @@ from rich import box
 from rich.table import Table
 
 from cliver.cli import Cliver, pass_cliver
+from cliver.model_capabilities import ModelCapability, ProviderEnum
 from cliver.util import parse_key_value_options
-from cliver.model_capabilities import ProviderEnum, ModelCapability
 
 
 @click.group(name="llm", help="Manage LLM Models")
@@ -33,11 +33,7 @@ def list_llm_models(cliver: Cliver):
             capabilities = model.get_capabilities()
 
             # Format capabilities as a comma-separated string
-            capabilities_str = (
-                ", ".join([cap.value for cap in capabilities])
-                if capabilities
-                else "N/A"
-            )
+            capabilities_str = ", ".join([cap.value for cap in capabilities]) if capabilities else "N/A"
 
             # Check if file upload is supported
             file_upload_supported = ModelCapability.FILE_UPLOAD in capabilities

@@ -1,14 +1,16 @@
 """
 Workflow command for Cliver CLI.
 """
+
 import asyncio
-import click
 from typing import Optional
 
+import click
+
 from cliver.cli import Cliver, pass_cliver
+from cliver.commands.console_callback_handler import ConsoleCallbackHandler
 from cliver.util import parse_key_value_options
 from cliver.workflow.workflow_executor import WorkflowExecutor
-from cliver.commands.console_callback_handler import ConsoleCallbackHandler
 
 
 @click.group(name="workflow", help="Manage and execute workflows")
@@ -30,12 +32,12 @@ def run_workflow(
     inputs: tuple,
     execution_id: Optional[str],
     dry_run: bool,
-    verbose: bool
+    verbose: bool,
 ):
     """Run a workflow with the given inputs."""
     try:
         if not workflow_identifier or len(workflow_identifier) == 0:
-            click.echo(f"No workflow identifier provided, aborting.")
+            click.echo("No workflow identifier provided, aborting.")
             return 1
         # Convert input tuples to dictionary
         _inputs = {}
@@ -51,7 +53,7 @@ def run_workflow(
             workflow_executor = WorkflowExecutor(
                 task_executor=cliver.task_executor,
                 workflow_manager=workflow_manager,
-                callback_handler=callback_handler
+                callback_handler=callback_handler,
             )
         else:
             workflow_executor = cliver.workflow_executor
@@ -67,7 +69,7 @@ def run_workflow(
                 click.echo(f"Description: {_workflow.description}")
             click.echo(f"Steps: {len(_workflow.steps)}")
             for i, step in enumerate(_workflow.steps):
-                click.echo(f"  {i+1}. {step.name} ({step.type.value})")
+                click.echo(f"  {i + 1}. {step.name} ({step.type.value})")
             return 0
 
         # Execute workflow
@@ -75,7 +77,7 @@ def run_workflow(
             _result = await workflow_executor.execute_workflow(
                 workflow_name=workflow_identifier,
                 inputs=_inputs,
-                execution_id=execution_id
+                execution_id=execution_id,
             )
             return _result
 
@@ -123,7 +125,10 @@ def list_workflows(cliver: Cliver):
         return 1
 
 
-@workflow.command(name="remove", help="Remove a workflow execution state by workflow name and execution ID")
+@workflow.command(
+    name="remove",
+    help="Remove a workflow execution state by workflow name and execution ID",
+)
 @click.argument("workflow_name")
 @click.argument("execution_id")
 @pass_cliver
@@ -184,9 +189,9 @@ def execution_status(cliver: Cliver):
 
         click.echo("Workflow executions:")
         for execution_id, metadata in all_executions.items():
-            status = metadata.get('status', 'unknown')
-            workflow_name = metadata.get('workflow_name', 'unknown')
-            completed_steps = len(metadata.get('completed_steps', []))
+            status = metadata.get("status", "unknown")
+            workflow_name = metadata.get("workflow_name", "unknown")
+            completed_steps = len(metadata.get("completed_steps", []))
             click.echo(f"  {execution_id}: {workflow_name} ({status}) - {completed_steps} steps completed")
 
     except Exception as e:

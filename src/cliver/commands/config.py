@@ -43,7 +43,6 @@ def show_config(cliver: Cliver):
     try:
         config_data = cliver.config_manager.config
         if config_data:
-            import json
             cliver.console.print_json(data=config_data)
         else:
             cliver.console.print("No configuration found.")

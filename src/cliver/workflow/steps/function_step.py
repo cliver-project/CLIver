@@ -1,13 +1,18 @@
 """
 Function step implementation.
 """
+
 import asyncio
 import importlib
 import logging
 import time
 
 from cliver.workflow.steps.base import StepExecutor
-from cliver.workflow.workflow_models import FunctionStep, ExecutionContext, ExecutionResult
+from cliver.workflow.workflow_models import (
+    ExecutionContext,
+    ExecutionResult,
+    FunctionStep,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -22,12 +27,12 @@ def _parse_function(function: str) -> tuple:
     Returns:
         Tuple of (module_path, function_name)
     """
-    if '.' not in function:
+    if "." not in function:
         raise ValueError(f"Invalid function path: {function}")
 
-    parts = function.split('.')
+    parts = function.split(".")
     function_name = parts[-1]
-    module_path = '.'.join(parts[:-1])
+    module_path = ".".join(parts[:-1])
 
     return module_path, function_name
 
@@ -53,7 +58,8 @@ class FunctionStepExecutor(StepExecutor):
             # Parse the function path
             module_path, function_name = _parse_function(self.step.function)
             # Import the module
-            #TODO: we may need to define some packages that are allowed to load the module, and user should define the package as well.
+            # TODO: we may need to define some packages that are allowed to load the module,
+            # and user should define the package as well.
             module = importlib.import_module(module_path)
 
             # Get the function, the getattr will raise exception if the function_name does not exist.
@@ -82,7 +88,7 @@ class FunctionStepExecutor(StepExecutor):
                 outputs=outputs,
                 success=True,
                 error=None,
-                execution_time=execution_time
+                execution_time=execution_time,
             )
 
         except Exception as e:
@@ -92,5 +98,5 @@ class FunctionStepExecutor(StepExecutor):
                 step_id=self.step.id,
                 success=False,
                 error=str(e),
-                execution_time=execution_time
+                execution_time=execution_time,
             )

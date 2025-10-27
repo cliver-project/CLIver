@@ -1,9 +1,11 @@
 """
 Tests for Jinja2 template support in function step.
 """
+
 import os
+
 from cliver.workflow.steps.function_step import FunctionStepExecutor
-from cliver.workflow.workflow_models import FunctionStep, ExecutionContext
+from cliver.workflow.workflow_models import ExecutionContext, FunctionStep
 
 
 def test_jinja2_template_resolution():
@@ -14,17 +16,14 @@ def test_jinja2_template_resolution():
         name="Test Step",
         function="test_module.test_function",
         inputs={"param": "Hello {{ name }}!"},
-        outputs=["result"]
+        outputs=["result"],
     )
 
     # Create executor
     executor = FunctionStepExecutor(step)
 
     # Create context with variables
-    context = ExecutionContext(
-        workflow_name="test_workflow",
-        inputs={"name": "World"}
-    )
+    context = ExecutionContext(workflow_name="test_workflow", inputs={"name": "World"})
 
     # Test template resolution
     resolved = executor.resolve_variable("Hello {{ name }}!", context)
@@ -39,17 +38,14 @@ def test_jinja2_nested_context_resolution():
         name="Test Step",
         function="test_module.test_function",
         inputs={"param": "Value: {{ data.key }}"},
-        outputs=["result"]
+        outputs=["result"],
     )
 
     # Create executor
     executor = FunctionStepExecutor(step)
 
     # Create context with nested outputs
-    context = ExecutionContext(
-        workflow_name="test_workflow",
-        inputs={"data": {"key": "nested_value"}}
-    )
+    context = ExecutionContext(workflow_name="test_workflow", inputs={"data": {"key": "nested_value"}})
 
     # Test nested template resolution
     resolved = executor.resolve_variable("Value: {{ data.key }}", context)
@@ -64,7 +60,7 @@ def test_jinja2_environment_variable_fallback():
         name="Test Step",
         function="test_module.test_function",
         inputs={"param": "Env: {{ TEST_ENV_VAR }}"},
-        outputs=["result"]
+        outputs=["result"],
     )
 
     # Create executor
@@ -74,10 +70,7 @@ def test_jinja2_environment_variable_fallback():
     os.environ["TEST_ENV_VAR"] = "env_value"
 
     # Create context without the variable
-    context = ExecutionContext(
-        workflow_name="test_workflow",
-        inputs={}
-    )
+    context = ExecutionContext(workflow_name="test_workflow", inputs={})
 
     # Test environment variable fallback
     resolved = executor.resolve_variable("Env: {{ TEST_ENV_VAR }}", context)
@@ -95,17 +88,14 @@ def test_jinja2_deeply_nested_context():
         name="Test Step",
         function="test_module.test_function",
         inputs={"param": "{{ a.b.c.d }}"},
-        outputs=["result"]
+        outputs=["result"],
     )
 
     # Create executor
     executor = FunctionStepExecutor(step)
 
     # Create context with deeply nested outputs
-    context = ExecutionContext(
-        workflow_name="test_workflow",
-        inputs={"a": {"b": {"c": {"d": "deep_value"}}}}
-    )
+    context = ExecutionContext(workflow_name="test_workflow", inputs={"a": {"b": {"c": {"d": "deep_value"}}}})
 
     # Test deeply nested template resolution
     resolved = executor.resolve_variable("{{ a.b.c.d }}", context)

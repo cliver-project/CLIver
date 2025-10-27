@@ -12,8 +12,8 @@ from typing import Any, Dict, List, Optional, Union
 
 from langchain_core.messages import BaseMessage
 
-from cliver.media import MediaContent, MediaType, get_file_extension
 from cliver.llm.base import LLMInferenceEngine
+from cliver.media import MediaContent, MediaType, get_file_extension
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +79,10 @@ class MultimediaResponseHandler:
         self.save_directory.mkdir(parents=True, exist_ok=True)
 
     def process_response(
-        self, response: Union[str, BaseMessage], llm_engine: Optional['LLMInferenceEngine'] = None, auto_save_media: bool = False
+        self,
+        response: Union[str, BaseMessage],
+        llm_engine: Optional["LLMInferenceEngine"] = None,
+        auto_save_media: bool = False,
     ) -> MultimediaResponse:
         """
         Process a response from an LLM, handling both text and multimedia content.
@@ -98,15 +101,15 @@ class MultimediaResponseHandler:
         # Handle BaseMessage response
         text_content = ""
 
-        if hasattr(response, 'content'):
+        if hasattr(response, "content"):
             if isinstance(response.content, str):
                 text_content = response.content
             elif isinstance(response.content, list):
                 # Handle structured content (like OpenAI's multimodal format)
                 for item in response.content:
                     if isinstance(item, dict):
-                        if item.get('type') == 'text':
-                            text_content += item.get('text', '')
+                        if item.get("type") == "text":
+                            text_content += item.get("text", "")
                         # TODO: Handle other content types if needed
 
         # Extract media content using the LLM engine if provided
@@ -121,7 +124,7 @@ class MultimediaResponseHandler:
         multimedia_response = MultimediaResponse(
             text_content=text_content,
             media_content=media_content,
-            raw_response=response
+            raw_response=response,
         )
 
         # Auto-save media if requested
@@ -132,10 +135,7 @@ class MultimediaResponseHandler:
 
         return multimedia_response
 
-
-    def save_media_content(
-        self, response: MultimediaResponse, prefix: str = "cliver_media"
-    ) -> List[str]:
+    def save_media_content(self, response: MultimediaResponse, prefix: str = "cliver_media") -> List[str]:
         """
         Save media content from a response to local files.
 
@@ -172,9 +172,9 @@ class MultimediaResponseHandler:
 
     @staticmethod
     def display_response(
-            response: MultimediaResponse,
+        response: MultimediaResponse,
         show_text: bool = True,
-        show_media_info: bool = True
+        show_media_info: bool = True,
     ):
         """
         Display a multimedia response.
@@ -192,14 +192,14 @@ class MultimediaResponseHandler:
         if show_media_info and response.has_media():
             output.append(f"\n[Media Content: {len(response.media_content)} items]")
             for i, media in enumerate(response.media_content):
-                info = f"  {i+1}. {media.type.value}"
+                info = f"  {i + 1}. {media.type.value}"
                 if media.filename:
                     info += f" ({media.filename})"
                 if media.mime_type:
                     info += f" [{media.mime_type}]"
                 output.append(info)
 
-        return '\n'.join(output)
+        return "\n".join(output)
 
     @staticmethod
     def get_response_summary(response: MultimediaResponse) -> Dict[str, Any]:
@@ -213,18 +213,19 @@ class MultimediaResponseHandler:
             Dictionary with response summary
         """
         return {
-            'has_text': response.has_text(),
-            'text_length': len(response.text_content) if response.text_content else 0,
-            'has_media': response.has_media(),
-            'media_count': len(response.media_content),
-            'media_types': [media.type.value for media in response.media_content],
-            'media_filenames': [media.filename for media in response.media_content if media.filename]
+            "has_text": response.has_text(),
+            "text_length": len(response.text_content) if response.text_content else 0,
+            "has_media": response.has_media(),
+            "media_count": len(response.media_content),
+            "media_types": [media.type.value for media in response.media_content],
+            "media_filenames": [media.filename for media in response.media_content if media.filename],
         }
+
 
 def save_response_media(
     response: Union[str, BaseMessage, MultimediaResponse],
     save_directory: Optional[str] = None,
-    prefix: str = "cliver_media"
+    prefix: str = "cliver_media",
 ) -> List[str]:
     """
     Convenience function to save media from a response.

@@ -5,8 +5,8 @@ This module provides common functionality for extracting media content
 from LLM responses across different providers.
 """
 
-import re
 import logging
+import re
 from typing import List, Optional
 
 from cliver.media import MediaContent, MediaType, get_file_extension
@@ -25,7 +25,7 @@ def extract_data_urls(text: str) -> List[str]:
         List of data URLs found in the text
     """
     # Pattern to match data URLs
-    data_url_pattern = r'data:[^,\s]+;base64,[A-Za-z0-9+/=]+'
+    data_url_pattern = r"data:[^,\s]+;base64,[A-Za-z0-9+/=]+"
     return re.findall(data_url_pattern, text)
 
 
@@ -41,11 +41,11 @@ def _determine_media_type_and_filename(mime_type: str, filename_base: str) -> tu
         Tuple of (MediaType, filename)
     """
     # Determine media type from MIME type
-    if mime_type.startswith('image/'):
+    if mime_type.startswith("image/"):
         media_type = MediaType.IMAGE
-    elif mime_type.startswith('audio/'):
+    elif mime_type.startswith("audio/"):
         media_type = MediaType.AUDIO
-    elif mime_type.startswith('video/'):
+    elif mime_type.startswith("video/"):
         media_type = MediaType.VIDEO
     else:
         # Unknown media type
@@ -69,13 +69,13 @@ def data_url_to_media_content(data_url: str, filename_base: str) -> Optional[Med
     Returns:
         MediaContent object or None if invalid
     """
-    if not data_url.startswith('data:'):
+    if not data_url.startswith("data:"):
         return None
 
     # Split data URL into parts
     try:
-        mime_part, base64_data = data_url.split(',', 1)
-        mime_type = mime_part.split(':')[1].split(';')[0]
+        mime_part, base64_data = data_url.split(",", 1)
+        mime_type = mime_part.split(":")[1].split(";")[0]
 
         # Determine media type and filename
         media_type, filename = _determine_media_type_and_filename(mime_type, filename_base)
@@ -85,7 +85,7 @@ def data_url_to_media_content(data_url: str, filename_base: str) -> Optional[Med
             data=base64_data,
             mime_type=mime_type,
             filename=filename,
-            source="llm_response"
+            source="llm_response",
         )
     except Exception as e:
         logger.warning(f"Error converting data URL to MediaContent: {e}")
@@ -108,10 +108,10 @@ def extract_media_from_json(parsed_content: dict, source_prefix: str = "llm") ->
     # Check for media content in structured response
     if isinstance(parsed_content, dict):
         # Look for common patterns in LLM responses
-        media_items = parsed_content.get('media_content', [])
-        if not media_items and 'data' in parsed_content:
+        media_items = parsed_content.get("media_content", [])
+        if not media_items and "data" in parsed_content:
             # Some APIs return media in a 'data' field
-            data_items = parsed_content.get('data', [])
+            data_items = parsed_content.get("data", [])
             if isinstance(data_items, list):
                 media_items = data_items
 
@@ -137,8 +137,8 @@ def dict_to_media_content(data: dict, filename_base: str) -> Optional[MediaConte
         MediaContent object or None if invalid
     """
     # Extract required fields
-    mime_type = data.get('mime_type', '')
-    base64_data = data.get('data', '')
+    mime_type = data.get("mime_type", "")
+    base64_data = data.get("data", "")
 
     if not mime_type or not base64_data:
         return None
@@ -151,5 +151,5 @@ def dict_to_media_content(data: dict, filename_base: str) -> Optional[MediaConte
         data=base64_data,
         mime_type=mime_type,
         filename=filename,
-        source="llm_json_response"
+        source="llm_json_response",
     )

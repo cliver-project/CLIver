@@ -2,15 +2,17 @@
 End-to-end test for multimedia support in CLIver.
 """
 
-import pytest
 import asyncio
 from unittest.mock import AsyncMock, Mock, patch
-from cliver.llm.openai_engine import OpenAICompatibleInferenceEngine
-from cliver.llm.llm import TaskExecutor
-from cliver.media import MediaContent, MediaType
-from cliver.config import ModelConfig
-from cliver.model_capabilities import ModelCapability
+
+import pytest
 from langchain_core.messages import AIMessage, AIMessageChunk
+
+from cliver.config import ModelConfig
+from cliver.llm.llm import TaskExecutor
+from cliver.llm.openai_engine import OpenAICompatibleInferenceEngine
+from cliver.media import MediaContent, MediaType
+from cliver.model_capabilities import ModelCapability
 
 
 class TestE2EMultimedia:
@@ -40,9 +42,7 @@ class TestE2EMultimedia:
         engine.llm = AsyncMock()
 
         # Mock the OpenAI response
-        mock_response = AIMessage(
-            content="The image shows a beautiful landscape with mountains and a lake."
-        )
+        mock_response = AIMessage(content="The image shows a beautiful landscape with mountains and a lake.")
         # We're using the regular infer method now since we've enhanced it to handle multimedia
         engine.infer = AsyncMock(return_value=mock_response)
 
@@ -73,10 +73,7 @@ class TestE2EMultimedia:
             )
 
             # Verify the response
-            assert (
-                response.content
-                == "The image shows a beautiful landscape with mountains and a lake."
-            )
+            assert response.content == "The image shows a beautiful landscape with mountains and a lake."
             # Verify that infer was called
             engine.infer.assert_called_once()
 

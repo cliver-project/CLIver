@@ -1,17 +1,20 @@
 """
 Local directory-based implementation of Workflow Manager for Cliver workflow engine.
 """
+
 import logging
 import threading
-import yaml
 from pathlib import Path
-from typing import Dict, Optional, Union, List
+from typing import Dict, List, Optional, Union
 
+import yaml
+
+from cliver.util import get_config_dir
 from cliver.workflow.workflow_manager_base import WorkflowManager
 from cliver.workflow.workflow_models import Workflow
-from cliver.util import get_config_dir
 
 logger = logging.getLogger(__name__)
+
 
 def _get_default_workflow_dirs() -> List[Path]:
     """Get the default workflow directories.
@@ -47,7 +50,7 @@ def _load_workflow_raw(workflow_file: Union[str, Path]) -> Optional[Workflow]:
     if not workflow_path.exists():
         return None
 
-    with open(workflow_path, 'r') as f:
+    with open(workflow_path, "r") as f:
         workflow_data = yaml.safe_load(f)
 
     # Convert to Workflow model
@@ -131,7 +134,10 @@ class LocalDirectoryWorkflowManager(WorkflowManager):
                     continue
                 _workflows_from_dir = _load_workflows_from_directory(workflow_dir)
                 if _workflows_from_dir:
-                    for name, _workflow in _workflows_from_dir.items():  # Fixed iteration
+                    for (
+                        name,
+                        _workflow,
+                    ) in _workflows_from_dir.items():  # Fixed iteration
                         if name not in workflows:  # Fixed condition check
                             workflows[name] = _workflow
             self._workflows = workflows

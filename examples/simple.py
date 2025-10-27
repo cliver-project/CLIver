@@ -1,6 +1,7 @@
-from cliver.config import ModelConfig, StdioMCPServerConfig
 from cliver import TaskExecutor
+from cliver.config import ModelConfig, StdioMCPServerConfig
 from cliver.model_capabilities import ModelCapability
+
 
 # Example usage
 async def run_example():
@@ -11,7 +12,7 @@ async def run_example():
             provider="ollama",
             url="http://localhost:11434",
             name_in_provider="qwen2.5:latest",
-            capabilities={ModelCapability.TEXT_TO_TEXT, ModelCapability.TOOL_CALLING}
+            capabilities={ModelCapability.TEXT_TO_TEXT, ModelCapability.TOOL_CALLING},
         )
     }
 
@@ -28,7 +29,7 @@ async def run_example():
     executor = TaskExecutor(
         llm_models=llm_models,
         mcp_servers={name: server.model_dump() for name, server in mcp_servers.items()},
-        default_model="qwen"
+        default_model="qwen",
     )
 
     # Process a user query
@@ -38,7 +39,7 @@ async def run_example():
     print(result)
     print("\n===\n")
 
-    if hasattr(result, 'content') and result.content:
+    if hasattr(result, "content") and result.content:
         print("\nFinal answer:")
         print(str(result.content))
         print("\n===\n")

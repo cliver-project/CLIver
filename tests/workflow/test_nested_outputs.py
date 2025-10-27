@@ -1,23 +1,20 @@
 """
 Tests for nested step outputs in the Cliver Workflow Engine.
 """
-import pytest
-import asyncio
-from unittest.mock import AsyncMock, Mock, patch
-from pathlib import Path
+
 import tempfile
+from pathlib import Path
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 import yaml
 
-from cliver.workflow.workflow_models import (
-    Workflow, ExecutionContext, ExecutionResult,
-    FunctionStep, LLMStep, WorkflowStep, StepType
-)
-from cliver.workflow.workflow_manager_local import LocalDirectoryWorkflowManager
-from cliver.workflow.workflow_executor import WorkflowExecutor
-from cliver.workflow.steps.function_step import FunctionStepExecutor
-from cliver.workflow.steps.llm_step import LLMStepExecutor
-from cliver.workflow.steps.workflow_step import WorkflowStepExecutor
 from cliver.llm import TaskExecutor
+from cliver.workflow.workflow_executor import WorkflowExecutor
+from cliver.workflow.workflow_manager_local import LocalDirectoryWorkflowManager
+from cliver.workflow.workflow_models import (
+    ExecutionResult,
+)
 
 
 @pytest.fixture
@@ -36,10 +33,11 @@ def workflow_manager(mock_task_executor, workflow_path):
 def workflow_executor(workflow_manager, mock_task_executor, workflow_cache_path):
     """Create a WorkflowExecutor with mock dependencies."""
     from cliver.workflow.persistence.local_cache import LocalCacheProvider
+
     return WorkflowExecutor(
         task_executor=mock_task_executor,
         workflow_manager=workflow_manager,
-        persistence_provider=LocalCacheProvider(cache_dir=workflow_cache_path)
+        persistence_provider=LocalCacheProvider(cache_dir=workflow_cache_path),
     )
 
 
@@ -59,10 +57,8 @@ class TestNestedStepOutputs:
                     "name": "First Step",
                     "type": "function",
                     "function": "cliver.workflow.examples.compute_something",
-                    "inputs": {
-                        "greeting": "Hello World"
-                    },
-                    "outputs": ["result"]
+                    "inputs": {"greeting": "Hello World"},
+                    "outputs": ["result"],
                 },
                 {
                     "id": "step2",
@@ -71,11 +67,11 @@ class TestNestedStepOutputs:
                     "function": "cliver.workflow.examples.process_results",
                     "inputs": {
                         "greeting": "{{ step1.result }}",
-                        "analysis": "Test analysis"
+                        "analysis": "Test analysis",
                     },
-                    "outputs": ["result"]
-                }
-            ]
+                    "outputs": ["result"],
+                },
+            ],
         }
 
         # Create a temporary directory for workflow files
@@ -86,33 +82,37 @@ class TestNestedStepOutputs:
 
             # Create a workflow file in the temporary directory
             workflow_file = Path(temp_dir.name) / "test_nested_outputs.yaml"
-            with open(workflow_file, 'w') as f:
+            with open(workflow_file, "w") as f:
                 yaml.dump(workflow_data, f)
 
             # Refresh the workflow manager cache
             workflow_manager.refresh_workflows()
 
             # Mock the step executor creation to return mocked executors
-            with patch.object(WorkflowExecutor, '_create_step_executor') as mock_create:
+            with patch.object(WorkflowExecutor, "_create_step_executor") as mock_create:
                 # Create mock executors with predefined results
                 mock_step1_executor = AsyncMock()
-                mock_step1_executor.execute_with_retry = AsyncMock(return_value=ExecutionResult(
-                    step_id="step1",
-                    outputs={"result": "Computed result from step 1"},
-                    success=True,
-                    error=None,
-                    execution_time=0.1
-                ))
+                mock_step1_executor.execute_with_retry = AsyncMock(
+                    return_value=ExecutionResult(
+                        step_id="step1",
+                        outputs={"result": "Computed result from step 1"},
+                        success=True,
+                        error=None,
+                        execution_time=0.1,
+                    )
+                )
                 mock_step1_executor.evaluate_condition = Mock(return_value=True)
 
                 mock_step2_executor = AsyncMock()
-                mock_step2_executor.execute_with_retry = AsyncMock(return_value=ExecutionResult(
-                    step_id="step2",
-                    outputs={"result": "Processed result from step 2"},
-                    success=True,
-                    error=None,
-                    execution_time=0.1
-                ))
+                mock_step2_executor.execute_with_retry = AsyncMock(
+                    return_value=ExecutionResult(
+                        step_id="step2",
+                        outputs={"result": "Processed result from step 2"},
+                        success=True,
+                        error=None,
+                        execution_time=0.1,
+                    )
+                )
                 mock_step2_executor.evaluate_condition = Mock(return_value=True)
 
                 # Configure the mock to return different executors for different steps
@@ -155,10 +155,8 @@ class TestNestedStepOutputs:
                     "name": "First Step",
                     "type": "function",
                     "function": "cliver.workflow.examples.compute_something",
-                    "inputs": {
-                        "greeting": "Hello World"
-                    },
-                    "outputs": ["result"]
+                    "inputs": {"greeting": "Hello World"},
+                    "outputs": ["result"],
                 },
                 {
                     "id": "step2",
@@ -167,11 +165,11 @@ class TestNestedStepOutputs:
                     "function": "cliver.workflow.examples.process_results",
                     "inputs": {
                         "greeting": "{{ step1.result }}",
-                        "analysis": "Test analysis"
+                        "analysis": "Test analysis",
                     },
-                    "outputs": ["result"]
-                }
-            ]
+                    "outputs": ["result"],
+                },
+            ],
         }
 
         # Create a temporary directory for workflow files
@@ -182,33 +180,37 @@ class TestNestedStepOutputs:
 
             # Create a workflow file in the temporary directory
             workflow_file = Path(temp_dir.name) / "test_resume_nested_outputs.yaml"
-            with open(workflow_file, 'w') as f:
+            with open(workflow_file, "w") as f:
                 yaml.dump(workflow_data, f)
 
             # Refresh the workflow manager cache
             workflow_manager.refresh_workflows()
 
             # Mock the step executor creation to return mocked executors
-            with patch.object(WorkflowExecutor, '_create_step_executor') as mock_create:
+            with patch.object(WorkflowExecutor, "_create_step_executor") as mock_create:
                 # Create mock executors with predefined results
                 mock_step1_executor = AsyncMock()
-                mock_step1_executor.execute_with_retry = AsyncMock(return_value=ExecutionResult(
-                    step_id="step1",
-                    outputs={"result": "Computed result from step 1"},
-                    success=True,
-                    error=None,
-                    execution_time=0.1
-                ))
+                mock_step1_executor.execute_with_retry = AsyncMock(
+                    return_value=ExecutionResult(
+                        step_id="step1",
+                        outputs={"result": "Computed result from step 1"},
+                        success=True,
+                        error=None,
+                        execution_time=0.1,
+                    )
+                )
                 mock_step1_executor.evaluate_condition = Mock(return_value=True)
 
                 mock_step2_executor = AsyncMock()
-                mock_step2_executor.execute_with_retry = AsyncMock(return_value=ExecutionResult(
-                    step_id="step2",
-                    outputs={"result": "Processed result from step 2"},
-                    success=True,
-                    error=None,
-                    execution_time=0.1
-                ))
+                mock_step2_executor.execute_with_retry = AsyncMock(
+                    return_value=ExecutionResult(
+                        step_id="step2",
+                        outputs={"result": "Processed result from step 2"},
+                        success=True,
+                        error=None,
+                        execution_time=0.1,
+                    )
+                )
                 mock_step2_executor.evaluate_condition = Mock(return_value=True)
 
                 # Configure the mock to return different executors for different steps
@@ -224,7 +226,9 @@ class TestNestedStepOutputs:
 
                 # Execute the workflow with a specific execution ID
                 execution_id = "test-execution-id"
-                result = await workflow_executor.execute_workflow("test_resume_nested_outputs", execution_id=execution_id)
+                result = await workflow_executor.execute_workflow(
+                    "test_resume_nested_outputs", execution_id=execution_id
+                )
 
                 # Verify the initial execution
                 assert result.status == "completed"

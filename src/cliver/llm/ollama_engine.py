@@ -7,10 +7,7 @@ from langchain_ollama import ChatOllama as Ollama
 
 from cliver.config import ModelConfig
 from cliver.llm.base import LLMInferenceEngine
-from cliver.llm.media_utils import (
-    extract_data_urls,
-    data_url_to_media_content
-)
+from cliver.llm.media_utils import data_url_to_media_content, extract_data_urls
 from cliver.media import MediaContent, MediaType
 
 logger = logging.getLogger(__name__)
@@ -30,9 +27,7 @@ class OllamaLlamaInferenceEngine(LLMInferenceEngine):
             **self.options,
         )
 
-    def convert_messages_to_engine_specific(
-            self, messages: List[BaseMessage]
-    ) -> List[BaseMessage]:
+    def convert_messages_to_engine_specific(self, messages: List[BaseMessage]) -> List[BaseMessage]:
         """
         Convert messages to Ollama multimedia format.
 
@@ -99,7 +94,7 @@ class OllamaLlamaInferenceEngine(LLMInferenceEngine):
         """
         media_content = []
 
-        if not response or not hasattr(response, 'content'):
+        if not response or not hasattr(response, "content"):
             return media_content
 
         content = response.content
@@ -118,24 +113,26 @@ class OllamaLlamaInferenceEngine(LLMInferenceEngine):
 
             # Try to parse as JSON for structured responses (tool calls, etc.)
             try:
-                if content.strip().startswith('{') or content.strip().startswith('['):
+                if content.strip().startswith("{") or content.strip().startswith("["):
                     parsed_content = json.loads(content)
 
                     # Check for image generation or tool responses with base64 data
                     # Ollama may return: {"images": ["base64data", ...]}
-                    if isinstance(parsed_content, dict) and 'images' in parsed_content:
-                        image_items = parsed_content.get('images', [])
+                    if isinstance(parsed_content, dict) and "images" in parsed_content:
+                        image_items = parsed_content.get("images", [])
                         if isinstance(image_items, list):
                             for i, image_data in enumerate(image_items):
                                 if isinstance(image_data, str):
                                     # Handle base64 encoded images
-                                    media_content.append(MediaContent(
-                                        type=MediaType.IMAGE,
-                                        data=image_data,
-                                        mime_type="image/png",  # Default assumption
-                                        filename=f"ollama_image_{i}.png",
-                                        source="ollama_image_generation"
-                                    ))
+                                    media_content.append(
+                                        MediaContent(
+                                            type=MediaType.IMAGE,
+                                            data=image_data,
+                                            mime_type="image/png",  # Default assumption
+                                            filename=f"ollama_image_{i}.png",
+                                            source="ollama_image_generation",
+                                        )
+                                    )
             except (json.JSONDecodeError, Exception):
                 # Not JSON or invalid format, continue
                 pass
@@ -146,47 +143,50 @@ class OllamaLlamaInferenceEngine(LLMInferenceEngine):
             # This is typically for INPUT messages, not responses, but we check anyway
             for item in content:
                 if isinstance(item, dict):
-                    if item.get('type') == 'image_url':
-                        image_url = item.get('image_url', {}).get('url', '')
+                    if item.get("type") == "image_url":
+                        image_url = item.get("image_url", {}).get("url", "")
                         if image_url:
                             try:
                                 # Handle data URLs in structured content
-                                if image_url.startswith('data:'):
+                                if image_url.startswith("data:"):
                                     media = data_url_to_media_content(image_url, "ollama_structured_image")
                                     if media:
                                         media_content.append(media)
                                 # Handle HTTP URLs
-                                elif image_url.startswith('http'):
+                                elif image_url.startswith("http"):
                                     # Create a placeholder MediaContent for URL
-                                    media_content.append(MediaContent(
-                                        type=MediaType.IMAGE,
-                                        data=f"Ollama image URL: {image_url}",
-                                        mime_type="image/png",  # Default assumption
-                                        filename="ollama_image_from_url.png",
-                                        source="ollama_structured_content"
-                                    ))
+                                    media_content.append(
+                                        MediaContent(
+                                            type=MediaType.IMAGE,
+                                            data=f"Ollama image URL: {image_url}",
+                                            mime_type="image/png",  # Default assumption
+                                            filename="ollama_image_from_url.png",
+                                            source="ollama_structured_content",
+                                        )
+                                    )
                             except Exception as e:
                                 logger.warning(f"Error processing image URL: {e}")
 
         # Check for additional attributes that might contain media
         # Ollama might put image data or other media in additional_kwargs
-        if hasattr(response, 'additional_kwargs') and isinstance(response.additional_kwargs, dict):
+        if hasattr(response, "additional_kwargs") and isinstance(response.additional_kwargs, dict):
             additional_kwargs = response.additional_kwargs
 
             # Check for images in additional_kwargs (similar to input format)
-            if 'images' in additional_kwargs:
-                images = additional_kwargs['images']
+            if "images" in additional_kwargs:
+                images = additional_kwargs["images"]
                 if isinstance(images, list):
                     for i, image_data in enumerate(images):
                         if isinstance(image_data, str):
                             # Handle base64 encoded images
-                            media_content.append(MediaContent(
-                                type=MediaType.IMAGE,
-                                data=image_data,
-                                mime_type="image/png",
-                                filename=f"ollama_tool_image_{i}.png",
-                                source="ollama_tool_response"
-                            ))
+                            media_content.append(
+                                MediaContent(
+                                    type=MediaType.IMAGE,
+                                    data=image_data,
+                                    mime_type="image/png",
+                                    filename=f"ollama_tool_image_{i}.png",
+                                    source="ollama_tool_response",
+                                )
+                            )
 
         return media_content
-

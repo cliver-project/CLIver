@@ -1,10 +1,12 @@
 """
 Human step implementation.
 """
+
 import logging
 import time
+
 from cliver.workflow.steps.base import StepExecutor
-from cliver.workflow.workflow_models import HumanStep, ExecutionContext, ExecutionResult
+from cliver.workflow.workflow_models import ExecutionContext, ExecutionResult, HumanStep
 
 logger = logging.getLogger(__name__)
 
@@ -18,9 +20,9 @@ def _get_user_confirmation() -> bool:
     while True:
         try:
             response = input("Continue? (y/n): ").strip().lower()
-            if response in ['y', 'yes']:
+            if response in ["y", "yes"]:
                 return True
-            elif response in ['n', 'no']:
+            elif response in ["n", "no"]:
                 return False
             else:
                 print("Please enter 'y' for yes or 'n' for no.")
@@ -55,7 +57,7 @@ class HumanStepExecutor(StepExecutor):
                     outputs={"confirmed": True},
                     success=True,
                     error=None,
-                    execution_time=0.0
+                    execution_time=0.0,
                 )
 
             # Show prompt to user
@@ -73,8 +75,8 @@ class HumanStepExecutor(StepExecutor):
                 step_id=self.step.id,
                 outputs=outputs,
                 success=True,
-                error = None,
-                execution_time = execution_time
+                error=None,
+                execution_time=execution_time,
             )
 
         except Exception as e:
@@ -84,5 +86,5 @@ class HumanStepExecutor(StepExecutor):
                 step_id=self.step.id,
                 success=False,
                 error=str(e),
-                execution_time=execution_time
+                execution_time=execution_time,
             )

@@ -41,9 +41,7 @@ def test_add_stdio_mcp_server(load_cliver, init_config):
     assert result.exit_code == 0
     assert "uvx ['blender-mcp']" in result.output
     # update it
-    result = CliRunner().invoke(
-        load_cliver, ["mcp", "set", "--name", "blender", "--command", "npx"]
-    )
+    result = CliRunner().invoke(load_cliver, ["mcp", "set", "--name", "blender", "--command", "npx"])
     assert result.exit_code == 0
     assert "Updated MCP server: blender" in result.output
     result = CliRunner().invoke(load_cliver, ["mcp", "list"])
@@ -51,9 +49,7 @@ def test_add_stdio_mcp_server(load_cliver, init_config):
     assert "npx ['blender-mcp']" in result.output
 
     # remove it
-    result = CliRunner().invoke(
-        load_cliver, ["mcp", "remove", "--name", "blender"]
-    )
+    result = CliRunner().invoke(load_cliver, ["mcp", "remove", "--name", "blender"])
     assert result.exit_code == 0
     assert "Removed MCP server: blender" in result.output
 
@@ -122,9 +118,7 @@ def test_add_llm_simple(load_cliver, init_config):
     assert "vllm" in result.output
 
     # remove it
-    result = CliRunner().invoke(
-        load_cliver, ["llm", "remove", "--name", "deepseek"]
-    )
+    result = CliRunner().invoke(load_cliver, ["llm", "remove", "--name", "deepseek"])
     assert result.exit_code == 0
     assert "Removed LLM Model: deepseek" in result.output
     result = CliRunner().invoke(load_cliver, ["llm", "list"])

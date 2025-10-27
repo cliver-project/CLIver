@@ -1,11 +1,11 @@
 """Error handling utilities for LLM connections and responses."""
 
 import logging
-from openai import APIConnectionError
-from httpx import ConnectError, TimeoutException
 import socket
 import ssl
 
+from httpx import ConnectError, TimeoutException
+from openai import APIConnectionError
 
 logger = logging.getLogger(__name__)
 
@@ -13,10 +13,10 @@ logger = logging.getLogger(__name__)
 def is_connection_error(error: Exception) -> bool:
     """
     Check if the error is related to network connection issues.
-    
+
     Args:
         error: Exception to check
-        
+
     Returns:
         True if the error is a connection-related error
     """
@@ -36,17 +36,16 @@ def is_connection_error(error: Exception) -> bool:
 def get_connection_error_message(error: Exception) -> str:
     """
     Get a user-friendly error message for connection-related errors.
-    
+
     Args:
         error: The exception that occurred
-        
+
     Returns:
         A user-friendly error message
     """
     if is_connection_error(error):
-        error_type = type(error).__name__
         original_message = str(error)
-        
+
         # More specific messages based on the error type
         if isinstance(error, APIConnectionError):
             return (
@@ -79,7 +78,7 @@ def get_connection_error_message(error: Exception) -> str:
                 f"Connection error: {original_message}. "
                 "Please check your network connection and the LLM provider's availability."
             )
-    
+
     # If it's not a connection error, return the original error
     return str(error)
 
@@ -87,20 +86,20 @@ def get_connection_error_message(error: Exception) -> str:
 def get_friendly_error_message(error: Exception, context: str = "LLM operation") -> str:
     """
     Get a user-friendly error message for various types of errors.
-    
+
     Args:
         error: The exception that occurred
         context: Context of where the error occurred
-        
+
     Returns:
         A user-friendly error message
     """
     if is_connection_error(error):
         return get_connection_error_message(error)
-    
+
     # Handle other specific error types
     error_type = type(error).__name__
-    
+
     if error_type == "AuthenticationError":
         return (
             "Authentication error: Invalid API key or authentication credentials. "
@@ -122,10 +121,7 @@ def get_friendly_error_message(error: Exception, context: str = "LLM operation")
             "Please check your model name and configuration."
         )
     elif error_type == "ServiceUnavailableError":
-        return (
-            "Service unavailable: The LLM provider's service is currently unavailable. "
-            "Please try again later."
-        )
-    
+        return "Service unavailable: The LLM provider's service is currently unavailable. Please try again later."
+
     # Generic error message
     return f"{context} failed: {error_type} - {str(error)}. Please check your configuration and connection."

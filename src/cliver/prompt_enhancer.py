@@ -154,9 +154,7 @@ class SkillSet:
         # Use global Jinja2 environment for parameter substitution
         return render_template_if_needed(self.system_message, combined_params)
 
-    def get_tools_with_params(
-        self, params: Dict[str, str] = None
-    ) -> List[Dict[str, Any]]:
+    def get_tools_with_params(self, params: Dict[str, str] = None) -> List[Dict[str, Any]]:
         """
         Get tools with parameter substitution.
 
@@ -375,7 +373,7 @@ def apply_skill_sets_and_template(
         ...     params={"language": "python"}
         ... )
     """
-    from langchain_core.messages import SystemMessage, HumanMessage
+    from langchain_core.messages import HumanMessage, SystemMessage
 
     tools_to_include = []
 

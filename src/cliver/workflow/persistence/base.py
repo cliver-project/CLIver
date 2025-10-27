@@ -3,8 +3,9 @@ Abstract base classes for Cliver workflow persistence providers.
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, Any
-from cliver.workflow.workflow_models import WorkflowExecutionState, ExecutionResult
+from typing import Any, Dict, Optional
+
+from cliver.workflow.workflow_models import ExecutionResult, WorkflowExecutionState
 
 
 class PersistenceProvider(ABC):
@@ -49,7 +50,13 @@ class PersistenceProvider(ABC):
         pass
 
     @abstractmethod
-    def save_step_result(self, workflow_name: str, execution_id: str, step_id: str, result: ExecutionResult) -> bool:
+    def save_step_result(
+        self,
+        workflow_name: str,
+        execution_id: str,
+        step_id: str,
+        result: ExecutionResult,
+    ) -> bool:
         """Save step execution result to cache.
 
         Args:

@@ -1,6 +1,7 @@
 """Comprehensive tests for all config, mcp, and llm commands after restructuring to top-level commands."""
 
 import json
+
 from click.testing import CliRunner
 
 
@@ -378,10 +379,7 @@ def test_mcp_server_remove(load_cliver, init_config):
     assert "test_server" in result.output
 
     # Remove it
-    result = CliRunner().invoke(
-        load_cliver,
-        ["mcp", "remove", "--name", "test_server"]
-    )
+    result = CliRunner().invoke(load_cliver, ["mcp", "remove", "--name", "test_server"])
     assert result.exit_code == 0
     assert "Removed MCP server: test_server" in result.output
 
@@ -414,10 +412,7 @@ def test_llm_model_remove(load_cliver, init_config):
     assert "test_model" in result.output
 
     # Remove it
-    result = CliRunner().invoke(
-        load_cliver,
-        ["llm", "remove", "--name", "test_model"]
-    )
+    result = CliRunner().invoke(load_cliver, ["llm", "remove", "--name", "test_model"])
     assert result.exit_code == 0
     assert "Removed LLM Model: test_model" in result.output
 

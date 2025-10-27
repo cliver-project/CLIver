@@ -9,23 +9,28 @@ import logging
 import threading
 import time
 import uuid
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
-from cliver.workflow.persistence import LocalCacheProvider, PersistenceProvider
-from cliver.workflow.workflow_manager_base import WorkflowManager
-from cliver.workflow.workflow_models import (
-    ExecutionContext, WorkflowExecutionState, StepType, OnErrorAction, StepExecutionInfo
-)
-from cliver.workflow.steps.base import StepExecutor
-from cliver.workflow.steps.function_step import FunctionStepExecutor
-from cliver.workflow.steps.llm_step import LLMStepExecutor
-from cliver.workflow.steps.workflow_step import WorkflowStepExecutor
-from cliver.workflow.steps.human_step import HumanStepExecutor
+from cliver.llm import TaskExecutor
 from cliver.workflow.callback_handler import WorkflowCallbackHandler
 from cliver.workflow.default_callback_handler import DefaultCallbackHandler
-from cliver.llm import TaskExecutor
+from cliver.workflow.persistence import LocalCacheProvider, PersistenceProvider
+from cliver.workflow.steps.base import StepExecutor
+from cliver.workflow.steps.function_step import FunctionStepExecutor
+from cliver.workflow.steps.human_step import HumanStepExecutor
+from cliver.workflow.steps.llm_step import LLMStepExecutor
+from cliver.workflow.steps.workflow_step import WorkflowStepExecutor
+from cliver.workflow.workflow_manager_base import WorkflowManager
+from cliver.workflow.workflow_models import (
+    ExecutionContext,
+    OnErrorAction,
+    StepExecutionInfo,
+    StepType,
+    WorkflowExecutionState,
+)
 
 logger = logging.getLogger(__name__)
+
 
 class WorkflowExecutor:
     """
@@ -37,7 +42,7 @@ class WorkflowExecutor:
         task_executor: TaskExecutor,
         workflow_manager: WorkflowManager,
         persistence_provider: Optional[PersistenceProvider] = None,
-        callback_handler: Optional[WorkflowCallbackHandler] = None
+        callback_handler: Optional[WorkflowCallbackHandler] = None,
     ):
         """
         Initialize the thread-safe WorkflowExecutor.
@@ -59,7 +64,7 @@ class WorkflowExecutor:
         self,
         workflow_name: str,
         inputs: Optional[Dict[str, Any]] = None,
-        execution_id: Optional[str] = None
+        execution_id: Optional[str] = None,
     ) -> Optional[WorkflowExecutionState]:
         """
         Thread-safe execute a workflow.
@@ -113,9 +118,7 @@ class WorkflowExecutor:
                     # Load step results for completed steps to ensure context is properly populated
                     for completed_step_id in execution_state.completed_steps:
                         step_result = self.persistence_provider.load_step_result(
-                            workflow.name,
-                            execution_id,
-                            completed_step_id
+                            workflow.name, execution_id, completed_step_id
                         )
                         if step_result and step_result.outputs:
                             # Track step inputs that were resolved (for completed steps)
@@ -128,7 +131,7 @@ class WorkflowExecutor:
                                 id=completed_step_id,
                                 name=f"Step {completed_step_id}",  # We don't have the actual name
                                 type=StepType.FUNCTION,  # We don't have the actual type
-                                outputs=step_result.outputs
+                                outputs=step_result.outputs,
                             )
 
                     # Update status to running
@@ -145,7 +148,7 @@ class WorkflowExecutor:
                         completed_steps=[],
                         status="running",
                         error=None,
-                        execution_time=0.0
+                        execution_time=0.0,
                     )
                     # Save initial state
                     self.persistence_provider.save_execution_state(execution_state)
@@ -160,7 +163,7 @@ class WorkflowExecutor:
                     completed_steps=[],
                     status="running",
                     error=None,
-                    execution_time=0.0
+                    execution_time=0.0,
                 )
                 # Save initial state
                 self.persistence_provider.save_execution_state(execution_state)
@@ -212,19 +215,14 @@ class WorkflowExecutor:
                         name=step.name,
                         type=step.type,
                         inputs=step.inputs,
-                        outputs=step_result.outputs
+                        outputs=step_result.outputs,
                     )
                     execution_state.completed_steps.append(step.id)
                     logger.info(f"Step {step.id} completed successfully")
 
                     # Save step result to cache
                     # TODO: check it later that do we need it anymore as the outputs have been stored in the context!?
-                    self.persistence_provider.save_step_result(
-                        workflow.name,
-                        execution_id,
-                        step.id,
-                        step_result
-                    )
+                    self.persistence_provider.save_step_result(workflow.name, execution_id, step.id, step_result)
 
                     # Update execution state
                     execution_state.context = context
@@ -245,7 +243,9 @@ class WorkflowExecutor:
                     on_error_action = step.on_error or OnErrorAction.FAIL
                     if on_error_action == OnErrorAction.FAIL:
                         # Notify callback handler that workflow failed
-                        await self.callback_handler.on_workflow_complete(workflow.name, execution_id, "failed", step_result.error)
+                        await self.callback_handler.on_workflow_complete(
+                            workflow.name, execution_id, "failed", step_result.error
+                        )
                         return execution_state
                     elif on_error_action == OnErrorAction.CONTINUE:
                         logger.warning(f"Step {step.id} failed but continuing: {step_result.error}")
@@ -289,13 +289,15 @@ class WorkflowExecutor:
             # Get cache directory for this step
             cache_dir = None
             # TODO: maybe a better way to support other caching the step results like to some store services.
-            if (self.persistence_provider and
-                hasattr(self.persistence_provider, 'get_execution_cache_dir') and
-                hasattr(step, 'workflow_name') and hasattr(step, 'execution_id') and
-                step.workflow_name and step.execution_id):
-                cache_dir = self.persistence_provider.get_execution_cache_dir(
-                    step.workflow_name, step.execution_id
-                )
+            if (
+                self.persistence_provider
+                and hasattr(self.persistence_provider, "get_execution_cache_dir")
+                and hasattr(step, "workflow_name")
+                and hasattr(step, "execution_id")
+                and step.workflow_name
+                and step.execution_id
+            ):
+                cache_dir = self.persistence_provider.get_execution_cache_dir(step.workflow_name, step.execution_id)
             return LLMStepExecutor(step, self.task_executor, cache_dir)
         elif step.type == StepType.WORKFLOW:
             return WorkflowStepExecutor(step, self)
@@ -362,7 +364,7 @@ class WorkflowExecutor:
         return await self.execute_workflow(
             workflow_name=workflow_name,
             inputs=state.context.inputs,
-            execution_id=execution_id
+            execution_id=execution_id,
         )
 
     def get_execution_state(self, workflow_name: str, execution_id: str) -> Optional[WorkflowExecutionState]:
@@ -404,7 +406,9 @@ class WorkflowExecutor:
                 result = self.persistence_provider.save_execution_state(state)
                 # Notify callback handler that workflow was cancelled
                 if result:
-                    asyncio.create_task(self.callback_handler.on_workflow_complete(workflow_name, execution_id, "cancelled"))
+                    asyncio.create_task(
+                        self.callback_handler.on_workflow_complete(workflow_name, execution_id, "cancelled")
+                    )
                 return result
             return False
 

@@ -1,6 +1,6 @@
-import os
 import tempfile
 from pathlib import Path
+
 from cliver.util import read_context_files
 
 

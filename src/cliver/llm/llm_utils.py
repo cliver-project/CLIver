@@ -1,10 +1,12 @@
 import logging
-from typing import Optional
 import re
+from typing import Optional
+
 import json_repair
 from langchain_core.messages.base import BaseMessage
 
 logger = logging.getLogger(__name__)
+
 
 def parse_tool_calls_from_content(response: BaseMessage) -> Optional[list[dict]]:
     """Parse tool calls from response content when LLM doesn't properly use tool binding."""
@@ -16,11 +18,7 @@ def parse_tool_calls_from_content(response: BaseMessage) -> Optional[list[dict]]
         if isinstance(response.content, dict) and "tool_calls" in response.content:
             content_dict = dict(response.content)
             return content_dict.get("tool_calls", [])
-    if (
-        hasattr(response, "content")
-        and response.content
-        and '"tool_calls"' in str(response.content)
-    ):
+    if hasattr(response, "content") and response.content and '"tool_calls"' in str(response.content):
         try:
             content_str = str(response.content)
 
@@ -47,10 +45,10 @@ def parse_tool_calls_from_content(response: BaseMessage) -> Optional[list[dict]]
                 return tool_calls
         except Exception as e:
             # If parsing fails, return None
-            logger.debug(
-                f"Error parsing tool calls: {str(e)}", exc_info=True)
+            logger.debug(f"Error parsing tool calls: {str(e)}", exc_info=True)
             return None
     return None
+
 
 def is_thinking(content: str) -> bool:
     """Check if content is thinking."""
@@ -68,10 +66,11 @@ def is_thinking(content: str) -> bool:
     else:
         return False
 
+
 def is_thinking_content(content: str) -> bool:
     """Check if content indicates thinking mode."""
     thinking_patterns = [
-        r'<thinking>.*?</thinking>',      # <thinking>...</thinking>
+        r"<thinking>.*?</thinking>",  # <thinking>...</thinking>
     ]
 
     for pattern in thinking_patterns:
@@ -79,15 +78,16 @@ def is_thinking_content(content: str) -> bool:
             return True
     return False
 
+
 def remove_thinking_sections(content: str) -> str:
     """Remove thinking sections from content to find tool calls in the remaining text."""
     # Remove thinking sections
     thinking_patterns = [
-        r'<thinking>.*?</thinking>',
+        r"<thinking>.*?</thinking>",
     ]
 
     clean_content = content
     for pattern in thinking_patterns:
-        clean_content = re.sub(pattern, '', clean_content, flags=re.IGNORECASE | re.DOTALL)
+        clean_content = re.sub(pattern, "", clean_content, flags=re.IGNORECASE | re.DOTALL)
 
     return clean_content

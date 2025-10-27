@@ -1,16 +1,18 @@
 """
 LLM step implementation.
 """
+
 import logging
 import time
 from pathlib import Path
 from typing import Optional
+
 from langchain_core.messages import AIMessage
 
 from cliver import MultimediaResponseHandler
-from cliver.workflow.steps.base import StepExecutor
-from cliver.workflow.workflow_models import LLMStep, ExecutionContext, ExecutionResult
 from cliver.llm import TaskExecutor
+from cliver.workflow.steps.base import StepExecutor
+from cliver.workflow.workflow_models import ExecutionContext, ExecutionResult, LLMStep
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +20,12 @@ logger = logging.getLogger(__name__)
 class LLMStepExecutor(StepExecutor):
     """Executor for LLM steps."""
 
-    def __init__(self, step: LLMStep, task_executor: TaskExecutor, cache_dir: Optional[str] = None):
+    def __init__(
+        self,
+        step: LLMStep,
+        task_executor: TaskExecutor,
+        cache_dir: Optional[str] = None,
+    ):
         super().__init__(step)
         self.step = step
         self.task_executor = task_executor
@@ -44,12 +51,20 @@ class LLMStepExecutor(StepExecutor):
                 "user_input": resolved_prompt,
                 "model": self.resolve_variable(self.step.model, context) if self.step.model else None,
                 "images": [self.resolve_variable(img, context) for img in self.step.images] if self.step.images else [],
-                "audio_files": [self.resolve_variable(audio, context) for audio in self.step.audio_files] if self.step.audio_files else [],
-                "video_files": [self.resolve_variable(video, context) for video in self.step.video_files] if self.step.video_files else [],
+                "audio_files": [self.resolve_variable(audio, context) for audio in self.step.audio_files]
+                if self.step.audio_files
+                else [],
+                "video_files": [self.resolve_variable(video, context) for video in self.step.video_files]
+                if self.step.video_files
+                else [],
                 "files": [self.resolve_variable(file, context) for file in self.step.files] if self.step.files else [],
-                "skill_sets": [self.resolve_variable(skill, context) for skill in self.step.skill_sets] if self.step.skill_sets else [],
+                "skill_sets": [self.resolve_variable(skill, context) for skill in self.step.skill_sets]
+                if self.step.skill_sets
+                else [],
                 "template": self.resolve_variable(self.step.template, context) if self.step.template else None,
-                "params": {k: self.resolve_variable(v, context) for k, v in self.step.params.items()} if self.step.params else {}
+                "params": {k: self.resolve_variable(v, context) for k, v in self.step.params.items()}
+                if self.step.params
+                else {},
             }
 
             # Execute the LLM call
@@ -75,7 +90,7 @@ class LLMStepExecutor(StepExecutor):
                 response, llm_engine=llm_engine, auto_save_media=False
             )
 
-            result_content = response.content if hasattr(response, 'content') else str(response)
+            result_content = response.content if hasattr(response, "content") else str(response)
 
             # Handle multimedia content caching if cache directory is provided
             media_references = {}
@@ -94,7 +109,9 @@ class LLMStepExecutor(StepExecutor):
 
                     # Save the media file in the appropriate subdirectory
                     try:
-                        file_path = media_type_dir / (media.filename or f"{media_type}_{len(media_references.get(media_type, []))}")
+                        file_path = media_type_dir / (
+                            media.filename or f"{media_type}_{len(media_references.get(media_type, []))}"
+                        )
                         media.save(file_path)
                         if media_type not in media_references:
                             media_references[media_type] = []
@@ -119,7 +136,7 @@ class LLMStepExecutor(StepExecutor):
                 outputs=outputs,
                 success=True,
                 error=None,
-                execution_time=execution_time
+                execution_time=execution_time,
             )
 
         except Exception as e:
@@ -129,5 +146,5 @@ class LLMStepExecutor(StepExecutor):
                 step_id=self.step.id,
                 success=False,
                 error=str(e),
-                execution_time=execution_time
+                execution_time=execution_time,
             )

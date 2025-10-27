@@ -2,15 +2,16 @@
 Test module for LLM-specific media extraction in CLIver.
 """
 
-import pytest
 from unittest.mock import Mock
 
-from cliver.llm.openai_engine import OpenAICompatibleInferenceEngine
-from cliver.llm.ollama_engine import OllamaLlamaInferenceEngine
-from cliver.media import MediaType
-from cliver.config import ModelConfig
-from cliver.model_capabilities import ModelCapability
+import pytest
 from langchain_core.messages import AIMessage
+
+from cliver.config import ModelConfig
+from cliver.llm.ollama_engine import OllamaLlamaInferenceEngine
+from cliver.llm.openai_engine import OpenAICompatibleInferenceEngine
+from cliver.media import MediaType
+from cliver.model_capabilities import ModelCapability
 
 
 class TestLLMMediaExtraction:
@@ -89,8 +90,8 @@ class TestLLMMediaExtraction:
     def test_engines_inherit_extract_method(self, openai_engine, ollama_engine):
         """Test that both engines inherit the extract_media_from_response method."""
         # Both engines should have the method from the base class
-        assert hasattr(openai_engine, 'extract_media_from_response')
-        assert hasattr(ollama_engine, 'extract_media_from_response')
+        assert hasattr(openai_engine, "extract_media_from_response")
+        assert hasattr(ollama_engine, "extract_media_from_response")
 
         # Test with empty response
         empty_response = AIMessage(content="")

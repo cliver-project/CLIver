@@ -2,11 +2,12 @@
 Test module for multimedia response handler in CLIver.
 """
 
-import pytest
 import tempfile
 
-from cliver.media_handler import MultimediaResponseHandler, MultimediaResponse
+import pytest
+
 from cliver.media import MediaContent, MediaType
+from cliver.media_handler import MultimediaResponse, MultimediaResponseHandler
 
 
 class TestMultimediaResponseHandler:
@@ -63,12 +64,9 @@ class TestMultimediaResponseHandler:
             type=MediaType.IMAGE,
             data="base64data",
             mime_type="image/jpeg",
-            filename="test.jpg"
+            filename="test.jpg",
         )
-        response = MultimediaResponse(
-            text_content="Here's an image:",
-            media_content=[media]
-        )
+        response = MultimediaResponse(text_content="Here's an image:", media_content=[media])
         output = handler.display_response(response)
         assert "Here's an image:" in output
         assert "[Media Content: 1 items]" in output
@@ -81,28 +79,25 @@ class TestMultimediaResponseHandler:
         # Test text-only response
         response = MultimediaResponse(text_content="Hello, world!")
         summary = handler.get_response_summary(response)
-        assert summary['has_text'] == True
-        assert summary['text_length'] == 13
-        assert summary['has_media'] == False
-        assert summary['media_count'] == 0
+        assert summary["has_text"]
+        assert summary["text_length"] == 13
+        assert not summary["has_media"]
+        assert summary["media_count"] == 0
 
         # Test response with media
         media = MediaContent(
             type=MediaType.IMAGE,
             data="base64data",
             mime_type="image/jpeg",
-            filename="test.jpg"
+            filename="test.jpg",
         )
-        response = MultimediaResponse(
-            text_content="Here's an image:",
-            media_content=[media]
-        )
+        response = MultimediaResponse(text_content="Here's an image:", media_content=[media])
         summary = handler.get_response_summary(response)
-        assert summary['has_text'] == True
-        assert summary['has_media'] == True
-        assert summary['media_count'] == 1
-        assert summary['media_types'] == ['image']
-        assert summary['media_filenames'] == ['test.jpg']
+        assert summary["has_text"]
+        assert summary["has_media"]
+        assert summary["media_count"] == 1
+        assert summary["media_types"] == ["image"]
+        assert summary["media_filenames"] == ["test.jpg"]
 
 
 if __name__ == "__main__":

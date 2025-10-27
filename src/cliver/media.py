@@ -13,6 +13,7 @@ from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+
 class MediaType(Enum):
     """Enumeration of media types."""
 
@@ -24,16 +25,16 @@ class MediaType(Enum):
 
 # Shared MIME type to file extension mapping
 _MIME_TO_EXTENSION = {
-    'image/jpeg': '.jpg',
-    'image/png': '.png',
-    'image/gif': '.gif',
-    'image/webp': '.webp',
-    'audio/wav': '.wav',
-    'audio/mp3': '.mp3',
-    'audio/mpeg': '.mp3',
-    'video/mp4': '.mp4',
-    'video/quicktime': '.mov',
-    'video/x-msvideo': '.avi',
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/gif": ".gif",
+    "image/webp": ".webp",
+    "audio/wav": ".wav",
+    "audio/mp3": ".mp3",
+    "audio/mpeg": ".mp3",
+    "video/mp4": ".mp4",
+    "video/quicktime": ".mov",
+    "video/x-msvideo": ".avi",
 }
 
 
@@ -47,7 +48,7 @@ def get_file_extension(mime_type: str) -> str:
     Returns:
         File extension including the dot (e.g., '.jpg')
     """
-    return _MIME_TO_EXTENSION.get(mime_type, '.bin')
+    return _MIME_TO_EXTENSION.get(mime_type, ".bin")
 
 
 @dataclass
@@ -75,8 +76,8 @@ class MediaContent:
         """
         try:
             # Handle data URLs (data:image/jpeg;base64,...)
-            if self.data.startswith('data:'):
-                base64_data = self.data.split(',', 1)[1] if ',' in self.data else self.data
+            if self.data.startswith("data:"):
+                base64_data = self.data.split(",", 1)[1] if "," in self.data else self.data
             else:
                 base64_data = self.data
 
@@ -84,7 +85,7 @@ class MediaContent:
             binary_data = base64.b64decode(base64_data)
 
             # Write to file
-            with open(file_path, 'wb') as f:
+            with open(file_path, "wb") as f:
                 f.write(binary_data)
 
             return True
@@ -112,8 +113,9 @@ def load_media_file(source: str) -> MediaContent:
     Returns:
         MediaContent object with base64 encoded data
     """
-    import requests
     from urllib.parse import urlparse
+
+    import requests
 
     # Check if source is a URL
     parsed_url = urlparse(source)
@@ -130,24 +132,24 @@ def load_media_file(source: str) -> MediaContent:
             file_data = response.content
 
             # Try to get filename from URL or Content-Disposition header
-            if 'content-disposition' in response.headers:
-                content_disposition = response.headers['content-disposition']
-                if 'filename=' in content_disposition:
-                    filename = content_disposition.split('filename=')[1].strip('"')
+            if "content-disposition" in response.headers:
+                content_disposition = response.headers["content-disposition"]
+                if "filename=" in content_disposition:
+                    filename = content_disposition.split("filename=")[1].strip('"')
 
             if not filename:
                 # Extract filename from URL path
                 url_path = parsed_url.path
-                filename = url_path.split('/')[-1] if '/' in url_path else source.split('/')[-1]
+                filename = url_path.split("/")[-1] if "/" in url_path else source.split("/")[-1]
 
             # Get mime type from response headers or guess from filename
-            if 'content-type' in response.headers:
-                mime_type = response.headers['content-type'].split(';')[0]  # Remove charset info
+            if "content-type" in response.headers:
+                mime_type = response.headers["content-type"].split(";")[0]  # Remove charset info
             else:
                 mime_type, _ = mimetypes.guess_type(filename)
 
         except requests.RequestException as e:
-            raise ValueError(f"Failed to download media from URL {source}: {e}")
+            raise ValueError(f"Failed to download media from URL {source}: {e}") from e
     else:
         # Load from local file
         path = Path(source)
@@ -179,7 +181,11 @@ def load_media_file(source: str) -> MediaContent:
     encoded_data = base64.b64encode(file_data).decode("utf-8")
 
     return MediaContent(
-        type=media_type, data=encoded_data, mime_type=mime_type, filename=filename, source="url" if is_url else "local"
+        type=media_type,
+        data=encoded_data,
+        mime_type=mime_type,
+        filename=filename,
+        source="url" if is_url else "local",
     )
 
 
@@ -212,9 +218,7 @@ def add_media_content_to_message_parts(content_parts: List[Dict], media_content:
             content_parts.append(
                 {
                     "type": "image_url",
-                    "image_url": {
-                        "url": f"data:{media.mime_type};base64,{media.data}"
-                    },
+                    "image_url": {"url": f"data:{media.mime_type};base64,{media.data}"},
                 }
             )
         # For audio/video, add as text descriptions

@@ -4,6 +4,7 @@ Callback handler interface for workflow execution notifications.
 
 from abc import ABC, abstractmethod
 from typing import Optional
+
 from cliver.workflow.workflow_models import ExecutionResult
 
 
@@ -43,8 +44,13 @@ class WorkflowCallbackHandler(ABC):
         pass
 
     @abstractmethod
-    async def on_workflow_complete(self, workflow_name: str, execution_id: str, status: str,
-                                 error: Optional[str] = None) -> None:
+    async def on_workflow_complete(
+        self,
+        workflow_name: str,
+        execution_id: str,
+        status: str,
+        error: Optional[str] = None,
+    ) -> None:
         """Called when a workflow completes execution.
 
         Args:

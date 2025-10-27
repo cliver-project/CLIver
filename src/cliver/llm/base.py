@@ -1,9 +1,10 @@
 import logging
-from abc import ABC, abstractmethod
-from typing import AsyncIterator, List, Optional, Any
 import uuid
+from abc import ABC, abstractmethod
+from typing import Any, AsyncIterator, List, Optional
+
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import BaseMessageChunk, AIMessageChunk, AIMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessageChunk
 from langchain_core.messages.base import BaseMessage
 from langchain_core.tools import BaseTool
 
@@ -14,6 +15,7 @@ from cliver.media import MediaContent
 from cliver.model_capabilities import ModelCapability
 
 logger = logging.getLogger(__name__)
+
 
 class LLMInferenceEngine(ABC):
     def __init__(self, config: ModelConfig):
@@ -26,10 +28,10 @@ class LLMInferenceEngine(ABC):
 
     # This method focus on the real LLM inference only.
     async def infer(
-            self,
-            messages: list[BaseMessage],
-            tools: Optional[list[BaseTool]],
-            **kwargs: Any,
+        self,
+        messages: list[BaseMessage],
+        tools: Optional[list[BaseTool]],
+        **kwargs: Any,
     ) -> BaseMessage:
         try:
             # Convert messages to LLM engine format if needed
@@ -39,14 +41,20 @@ class LLMInferenceEngine(ABC):
             return response
         except Exception as e:
             logger.debug(f"Error in infer: {str(e)}", exc_info=True)
-            friendly_error_msg = [get_friendly_error_message(e, "LLM inference"), f"\tmodel: {self.config.name}"]
-            return AIMessage(content=f"Error: {"\n".join(friendly_error_msg)}", additional_kwargs={"type": "error"})
+            friendly_error_msg = [
+                get_friendly_error_message(e, "LLM inference"),
+                f"\tmodel: {self.config.name}",
+            ]
+            return AIMessage(
+                content=f"Error: {'\n'.join(friendly_error_msg)}",
+                additional_kwargs={"type": "error"},
+            )
 
     async def stream(
         self,
         messages: List[BaseMessage],
         tools: Optional[list[BaseTool]],
-        ** kwargs: Any,
+        **kwargs: Any,
     ) -> AsyncIterator[BaseMessageChunk]:
         """Stream responses from the LLM."""
         try:
@@ -58,9 +66,15 @@ class LLMInferenceEngine(ABC):
                 yield chunk
         except Exception as e:
             logger.debug(f"Error in OpenAI stream: {str(e)}", exc_info=True)
-            friendly_error_msg = [get_friendly_error_message(e, "OpenAI inference"), f"\tmodel: {self.config.name}"]
+            friendly_error_msg = [
+                get_friendly_error_message(e, "OpenAI inference"),
+                f"\tmodel: {self.config.name}",
+            ]
             # noinspection PyArgumentList
-            yield AIMessageChunk(content=f"Error: {"\n".join(friendly_error_msg)}", additional_kwargs={"type": "error"})
+            yield AIMessageChunk(
+                content=f"Error: {'\n'.join(friendly_error_msg)}",
+                additional_kwargs={"type": "error"},
+            )
 
     @abstractmethod
     def convert_messages_to_engine_specific(self, messages: List[BaseMessage]) -> List[BaseMessage]:
@@ -167,7 +181,8 @@ For models that don't support structured tool calling, respond with JSON in this
 
 CRITICAL INSTRUCTIONS FOR TOOL USAGE:
 1. Only use the exact tool names provided to you
-2. When calling tools, your response should contain ONLY the tool call format - no additional text unless providing a final answer
+2. When calling tools, your response should contain ONLY the tool call format - no additional
+text unless providing a final answer
 3. Generate a unique ID for each tool call using standard UUID format if not using formal tool calling
 4. Always include the "type": "tool_call" field in JSON format
 5. Ensure your JSON is properly formatted and parsable
@@ -178,7 +193,9 @@ CRITICAL INSTRUCTIONS FOR TOOL USAGE:
 
 {thinking_part2}
 
-After you make a tool call, you will receive the result. You may need to make additional tool calls based on the results until you have enough information to provide your final answer. The process can involve multiple rounds of tool calls.
+After you make a tool call, you will receive the result. You may need to make additional tool calls
+based on the results until you have enough information to provide your final answer. The process
+can involve multiple rounds of tool calls.
 If you have all the information needed to answer directly without using any tools, provide a text response.
 """
 

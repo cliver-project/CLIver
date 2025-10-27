@@ -7,13 +7,14 @@ import stat
 import sys
 import time
 from pathlib import Path
-from typing import Any, List, Optional, Callable, Awaitable
-
-from cliver.constants import *
+from typing import Any, Awaitable, Callable, List, Optional
 
 from langchain_core.tools import BaseTool
 
+from cliver.constants import APP_NAME, CONFIG_DIR
+
 logger = logging.getLogger(__name__)
+
 
 def get_config_dir() -> Path:
     """
@@ -38,7 +39,7 @@ def stdin_is_piped():
         mode = os.fstat(fd).st_mode
         # True if stdin is a FIFO (pipe)
         return not os.isatty(fd) and stat.S_ISFIFO(mode)
-    except Exception as ignored:
+    except Exception:
         return True
 
 
@@ -79,7 +80,6 @@ def retry_with_confirmation(
         The last exception raised by the function if all
         retries are exhausted
     """
-    import asyncio
 
     last_exception = None
 
@@ -106,7 +106,10 @@ def retry_with_confirmation(
     # If we get here, all retries were exhausted
     raise last_exception
 
-async def create_tools_filter(pattern: Optional[str] = None) -> Optional[Callable[[str, List[BaseTool]], Awaitable[List[BaseTool]]]]:
+
+async def create_tools_filter(
+    pattern: Optional[str] = None,
+) -> Optional[Callable[[str, List[BaseTool]], Awaitable[List[BaseTool]]]]:
     """
     Create a filter function that can be used to filter tools based on a pattern,
     while ensuring builtin tools are always included.
@@ -293,9 +296,7 @@ def parse_key_value_options(option_list: tuple, console=None) -> dict:
         else:
             # Print warning if console is provided
             if console:
-                console.print(
-                    f"Warning: Invalid option format '{opt}', expected key=value"
-                )
+                console.print(f"Warning: Invalid option format '{opt}', expected key=value")
 
     return options_dict
 
@@ -327,16 +328,16 @@ def read_file_content(file_path: str, max_size: int = 100000) -> str:
         raise ValueError(f"File is too large ({file_size} bytes). Maximum allowed size is {max_size} bytes.")
 
     # Try to read as text with common encodings
-    encodings = ['utf-8', 'utf-16', 'latin-1']
+    encodings = ["utf-8", "utf-16", "latin-1"]
 
     for encoding in encodings:
         try:
-            with open(file_path, 'r', encoding=encoding) as f:
+            with open(file_path, "r", encoding=encoding) as f:
                 content = f.read()
                 return content
         except UnicodeDecodeError:
             continue
         except Exception as e:
-            raise ValueError(f"Error reading file {file_path}: {str(e)}")
+            raise ValueError(f"Error reading file {file_path}: {str(e)}") from e
 
     raise ValueError(f"Unable to read file {file_path} with any of the supported encodings: {encodings}")

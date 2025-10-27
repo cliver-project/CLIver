@@ -2,15 +2,19 @@
 Configuration module for Cliver client.
 """
 
-import logging
 import json
+import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Union, Any
+from typing import Any, Dict, List, Optional, Set, Union
 
 from pydantic import BaseModel, Field
 
 # Import model capabilities
-from cliver.model_capabilities import ModelCapability, ModelCapabilityDetector, ModelCapabilities
+from cliver.model_capabilities import (
+    ModelCapabilities,
+    ModelCapability,
+    ModelCapabilityDetector,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -18,10 +22,8 @@ logger = logging.getLogger(__name__)
 class ModelOptions(BaseModel):
     temperature: float = Field(default=0.7, description="Sampling temperature")
     top_p: float = Field(default=0.3, description="Top-p sampling cutoff")
-    max_tokens: int = Field(
-        default=4096, description="Maximum number of tokens")
-    frequency_penalty: float = Field(
-        default=0.1, description="Model’s tendency to repeat tokens")
+    max_tokens: int = Field(default=4096, description="Maximum number of tokens")
+    frequency_penalty: float = Field(default=0.1, description="Model’s tendency to repeat tokens")
     # special class-level variable to allow extra fields
     model_config = {"extra": "allow"}
 
@@ -30,14 +32,10 @@ class ModelConfig(BaseModel):
     name: str
     provider: str
     url: str
-    name_in_provider: Optional[str] = Field(
-        default=None, description="Internal name used by provider")
-    api_key: Optional[str] = Field(
-        default=None, description="API key for the model")
-    options: Optional[ModelOptions] = Field(
-        default=None, description="Options for model")
-    capabilities: Optional[Set[ModelCapability]] = Field(
-        default=None, description="Model capabilities")
+    name_in_provider: Optional[str] = Field(default=None, description="Internal name used by provider")
+    api_key: Optional[str] = Field(default=None, description="API key for the model")
+    options: Optional[ModelOptions] = Field(default=None, description="Options for model")
+    capabilities: Optional[Set[ModelCapability]] = Field(default=None, description="Model capabilities")
 
     model_config = {"extra": "allow"}
 
@@ -58,9 +56,7 @@ class ModelConfig(BaseModel):
 
     def get_model_capabilities(self) -> ModelCapabilities:
         detector = ModelCapabilityDetector()
-        capabilities = detector.detect_capabilities(
-            self.provider, self.name
-        )
+        capabilities = detector.detect_capabilities(self.provider, self.name)
         return capabilities
 
     # we need to override this for persistence purpose to skip null values on saving
@@ -76,8 +72,7 @@ class ModelConfig(BaseModel):
         # Handle capabilities serialization
         if "capabilities" in result and result["capabilities"]:
             # Convert set of ModelCapability enums to list of strings
-            result["capabilities"] = [
-                cap.value for cap in result["capabilities"]]
+            result["capabilities"] = [cap.value for cap in result["capabilities"]]
 
         return result
 
@@ -102,10 +97,8 @@ class StdioMCPServerConfig(MCPServerConfig):
 
     transport: str = "stdio"
     command: str
-    args: Optional[List[str]] = Field(
-        default=None, description="Arguments to start the stdio mcp server")
-    env: Optional[Dict[str, str]] = Field(
-        default=None, description="Environment variables for the stdio mcp server")
+    args: Optional[List[str]] = Field(default=None, description="Arguments to start the stdio mcp server")
+    env: Optional[Dict[str, str]] = Field(default=None, description="Environment variables for the stdio mcp server")
 
 
 class SSEMCPServerConfig(MCPServerConfig):
@@ -114,7 +107,8 @@ class SSEMCPServerConfig(MCPServerConfig):
     transport: str = "sse"
     url: str
     headers: Optional[Dict[str, str]] = Field(
-        default=None, description="The HTTP headers to interact with the SSE MCP server")
+        default=None, description="The HTTP headers to interact with the SSE MCP server"
+    )
 
 
 class StreamableHttpMCPServerConfig(MCPServerConfig):
@@ -123,7 +117,9 @@ class StreamableHttpMCPServerConfig(MCPServerConfig):
     transport: str = "streamable_http"
     url: str
     headers: Optional[Dict[str, str]] = Field(
-        default=None, description="The HTTP headers to interact with the streamable_http MCP server")
+        default=None,
+        description="The HTTP headers to interact with the streamable_http MCP server",
+    )
 
 
 class WebSocketMCPServerConfig(MCPServerConfig):
@@ -132,28 +128,31 @@ class WebSocketMCPServerConfig(MCPServerConfig):
     transport: str = "websocket"
     url: str
     headers: Optional[Dict[str, str]] = Field(
-        default=None, description="The HTTP headers to interact with the websocket MCP server")
+        default=None,
+        description="The HTTP headers to interact with the websocket MCP server",
+    )
+
 
 class WorkflowConfig(BaseModel):
     """Configuration for workflow execution."""
+
     workflow_dirs: Optional[List[str]] = Field(
         default=None,
-        description="List of directories to search for workflows. Defaults to .cliver/workflows and ~/.config/cliver/workflows"
+        description="List of directories to search for workflows. Defaults to "
+        ".cliver/workflows and ~/.config/cliver/workflows",
     )
     cache_dir: Optional[str] = Field(
         default=None,
-        description="Directory for caching workflow execution results. Defaults to ~/.config/cliver/workflow_cache"
+        description="Directory for caching workflow execution results. Defaults to ~/.config/cliver/workflow_cache",
     )
+
 
 class AppConfig(BaseModel):
     mcpServers: Dict[str, MCPServerConfig] = {}
-    default_server: Optional[str] = Field(
-        default=None, description="The default MCP server")
+    default_server: Optional[str] = Field(default=None, description="The default MCP server")
     models: Dict[str, ModelConfig] = {}
-    default_model: Optional[str] = Field(
-        default=None, description="The default LLM model")
-    workflow: Optional[WorkflowConfig] = Field(
-        default=None, description="Workflow configuration")
+    default_model: Optional[str] = Field(default=None, description="The default LLM model")
+    workflow: Optional[WorkflowConfig] = Field(default=None, description="Workflow configuration")
 
     def model_dump(self, **kwargs):
         """Override to exclude null values."""
@@ -161,8 +160,10 @@ class AppConfig(BaseModel):
         # Remove null values
         return {k: v for k, v in data.items() if v is not None}
 
+
 # TODO: support the configuration from others like from a k8s ConfigMap
 # TODO: shall we support yaml format as well ?
+
 
 class ConfigManager:
     """Configuration manager for Cliver client."""
@@ -184,8 +185,7 @@ class ConfigManager:
             Cliver configuration
         """
         if not self.config_file.exists():
-            logger.info(
-                f"No configuration file found at {str(self.config_dir)}, using default configuration.")
+            logger.info(f"No configuration file found at {str(self.config_dir)}, using default configuration.")
             return AppConfig()
 
         try:
@@ -205,12 +205,10 @@ class ConfigManager:
                             if "capabilities" in model and model["capabilities"]:
                                 # Convert list of strings to set of ModelCapability enums
                                 try:
-                                    model["capabilities"] = {ModelCapability(
-                                        cap) for cap in model["capabilities"]}
+                                    model["capabilities"] = {ModelCapability(cap) for cap in model["capabilities"]}
                                 except ValueError as e:
                                     # we tolerate the bad capabilities configuration and just ignore it.
-                                    logger.warning(
-                                        f"Warning: Invalid capability in model {name}: {e}")
+                                    logger.warning(f"Warning: Invalid capability in model {name}: {e}")
                                     model["capabilities"] = None
 
                 mcp_servers_data = config_data.get("mcpServers")
@@ -226,27 +224,18 @@ class ConfigManager:
                             server_config = {"name": name, **server_dict}
                             if transport == "stdio":
                                 # Convert dict to StdioMCPServerConfig
-                                converted_servers[name] = StdioMCPServerConfig(
-                                    **server_config
-                                )
+                                converted_servers[name] = StdioMCPServerConfig(**server_config)
                             elif transport == "sse":
                                 # Convert dict to SSEMCPServerConfig
-                                converted_servers[name] = SSEMCPServerConfig(
-                                    **server_config
-                                )
+                                converted_servers[name] = SSEMCPServerConfig(**server_config)
                             elif transport == "streamable_http":
                                 # Convert dict to StreamableHttpMCPServerConfig
-                                converted_servers[name] = StreamableHttpMCPServerConfig(
-                                    **server_config
-                                )
+                                converted_servers[name] = StreamableHttpMCPServerConfig(**server_config)
                             elif transport == "websocket":
                                 # Convert dict to WebSocketMCPServerConfig
-                                converted_servers[name] = WebSocketMCPServerConfig(
-                                    **server_config
-                                )
+                                converted_servers[name] = WebSocketMCPServerConfig(**server_config)
                             else:
-                                raise ValueError(
-                                    f"Unknown transport {transport}")
+                                raise ValueError(f"Unknown transport {transport}")
                     config_data["mcpServers"] = converted_servers
 
                 # Handle workflow configuration
@@ -258,8 +247,7 @@ class ConfigManager:
                 return config
         except Exception as e:
             # we don't want to tolerate this as it may lead to the whole configuration missing just because a blemish
-            logger.error("Error loading configuration: %s",
-                         e, stack_info=True, exc_info=True)
+            logger.error("Error loading configuration: %s", e, stack_info=True, exc_info=True)
             raise e
 
     def _save_config(self) -> None:
@@ -328,9 +316,7 @@ class ConfigManager:
         server = StdioMCPServerConfig(**server_config)
         self.add_or_update_server(name, server)
 
-    def add_or_update_server(
-        self, name: str, server: Union[Dict, MCPServerConfig]
-    ) -> None:
+    def add_or_update_server(self, name: str, server: Union[Dict, MCPServerConfig]) -> None:
         """Add or update a server in the configuration.
 
         Args:
@@ -355,9 +341,7 @@ class ConfigManager:
         if name in self.config.mcpServers:
             existing_server = self.config.mcpServers[name]
             if existing_server.transport != server.transport:
-                raise ValueError(
-                    f"Server with name {name} already exists with a different type."
-                )
+                raise ValueError(f"Server with name {name} already exists with a different type.")
             # Update existing server
             self.config.mcpServers[name] = server
         else:
@@ -370,9 +354,7 @@ class ConfigManager:
         # Save config
         self._save_config()
 
-    def add_or_update_sse_mcp_server(
-        self, name: str, url: str, headers: Optional[Dict[str, str]] = None
-    ) -> None:
+    def add_or_update_sse_mcp_server(self, name: str, url: str, headers: Optional[Dict[str, str]] = None) -> None:
         """Add a SSE server to the configuration (deprecated, use streamable instead).
 
         Args:
@@ -406,9 +388,7 @@ class ConfigManager:
         server = StreamableHttpMCPServerConfig(**server_config)
         self.add_or_update_server(name, server)
 
-    def add_or_update_websocket_mcp_server(
-        self, name: str, url: str, headers: Optional[Dict[str, str]] = None
-    ) -> None:
+    def add_or_update_websocket_mcp_server(self, name: str, url: str, headers: Optional[Dict[str, str]] = None) -> None:
         """Add a WebSocket server to the configuration.
 
         Args:
@@ -440,10 +420,7 @@ class ConfigManager:
 
             # Update default server if needed
             if self.config.default_server == name:
-                self.config.default_server = (
-                    None if not self.config.mcpServers else next(
-                        iter(self.config.mcpServers))
-                )
+                self.config.default_server = None if not self.config.mcpServers else next(iter(self.config.mcpServers))
 
             # Save config
             self._save_config()
@@ -504,9 +481,7 @@ class ConfigManager:
         """
         # Convert Pydantic models to dictionaries for compatibility with
         # MCP server caller
-        return {
-            name: server.model_dump() for name, server in self.config.mcpServers.items()
-        }
+        return {name: server.model_dump() for name, server in self.config.mcpServers.items()}
 
     def list_llm_models(self) -> Dict[str, ModelConfig]:
         """List all LLM Models"""
@@ -553,8 +528,7 @@ class ConfigManager:
         if capabilities:
             # Parse comma-separated capabilities into a set of ModelCapability enums
             try:
-                capability_list = [cap.strip()
-                                   for cap in capabilities.split(",") if cap.strip()]
+                capability_list = [cap.strip() for cap in capabilities.split(",") if cap.strip()]
                 capability_set = set()
                 for cap_str in capability_list:
                     # Convert string to ModelCapability enum
@@ -563,7 +537,10 @@ class ConfigManager:
             except ValueError as e:
                 # we don't tolerate this because it is saving.
                 logger.error(
-                    "Warning: Invalid capability specified: %s, exception: %s", capabilities, e)
+                    "Warning: Invalid capability specified: %s, exception: %s",
+                    capabilities,
+                    e,
+                )
                 raise e
 
         self._save_config()
@@ -575,10 +552,7 @@ class ConfigManager:
 
             # Update default model if needed
             if self.config.default_model == name:
-                self.config.default_model = (
-                    next(iter(self.config.models)
-                         ) if self.config.models else None
-                )
+                self.config.default_model = next(iter(self.config.models)) if self.config.models else None
 
             # Save config
             self._save_config()
