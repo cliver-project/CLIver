@@ -33,8 +33,7 @@ class DockerRunInput(BaseModel):
     )
     env: Optional[Dict[str, str]] = Field(
         default=None,
-        description="Environment variables to set in the container "
-        '(e.g., {"MY_VAR": "value", "DEBUG": "true"}).',
+        description='Environment variables to set in the container (e.g., {"MY_VAR": "value", "DEBUG": "true"}).',
     )
     workdir: Optional[str] = Field(
         default=None,
@@ -82,10 +81,7 @@ class DockerRunTool(BaseTool):
         # Detect runtime
         rt = self._detect_runtime(runtime)
         if not rt:
-            return (
-                "Error: No container runtime found. "
-                "Use 'setup_docker' to check your environment."
-            )
+            return "Error: No container runtime found. Use 'setup_docker' to check your environment."
 
         timeout_s = min(timeout or DEFAULT_TIMEOUT_S, MAX_TIMEOUT_S)
 
@@ -137,11 +133,7 @@ class DockerRunTool(BaseTool):
             output = "\n".join(output_parts) if output_parts else "(no output)"
 
             if result.returncode != 0:
-                return (
-                    f"Container exited with code {result.returncode}\n"
-                    f"Image: {image}\n"
-                    f"Runtime: {rt}\n\n{output}"
-                )
+                return f"Container exited with code {result.returncode}\nImage: {image}\nRuntime: {rt}\n\n{output}"
 
             return f"Container completed successfully.\nImage: {image}\nRuntime: {rt}\n\n{output}"
 

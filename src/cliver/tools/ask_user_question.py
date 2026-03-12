@@ -13,9 +13,7 @@ class QuestionOption(BaseModel):
     """An option for a question."""
 
     label: str = Field(description="The display text for this option. Should be concise (1-5 words).")
-    description: str = Field(
-        description="Explanation of what this option means or what will happen if chosen."
-    )
+    description: str = Field(description="Explanation of what this option means or what will happen if chosen.")
 
 
 class Question(BaseModel):
@@ -34,9 +32,7 @@ class Question(BaseModel):
 class AskUserQuestionInput(BaseModel):
     """Input schema for the ask_user_question tool."""
 
-    question: str = Field(
-        description="The question to ask the user. Should be clear and specific."
-    )
+    question: str = Field(description="The question to ask the user. Should be clear and specific.")
     options: Optional[List[QuestionOption]] = Field(
         default=None,
         description="Optional: Available choices for this question. "
@@ -78,7 +74,7 @@ class AskUserQuestionTool(BaseTool):
                     print(f"  [{i}] {label}")
                     if desc:
                         print(f"      {desc}")
-                print(f"  [0] Other (type custom response)")
+                print("  [0] Other (type custom response)")
                 print()
 
                 response = input("  Your choice (number or text): ").strip()

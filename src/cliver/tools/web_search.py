@@ -1,6 +1,5 @@
 """Built-in web_search tool for searching the web."""
 
-import json
 import logging
 import urllib.parse
 import urllib.request
@@ -70,9 +69,9 @@ class WebSearchTool(BaseTool):
         with urllib.request.urlopen(req, timeout=15) as response:
             html = response.read().decode("utf-8", errors="replace")
 
-        return self._parse_duckduckgo_lite(html, num_results)
+        return self._parse_duckduckgo_lite(html, query, num_results)
 
-    def _parse_duckduckgo_lite(self, html: str, num_results: int) -> str:
+    def _parse_duckduckgo_lite(self, html: str, query: str, num_results: int) -> str:
         """Parse DuckDuckGo Lite results from HTML."""
         results = []
         # DuckDuckGo Lite returns results in a table format

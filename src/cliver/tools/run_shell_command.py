@@ -101,7 +101,7 @@ class RunShellCommandTool(BaseTool):
         except subprocess.TimeoutExpired:
             return f"Error: Command timed out after {timeout_s:.0f} seconds."
         except FileNotFoundError:
-            return f"Error: Command not found or shell not available."
+            return "Error: Command not found or shell not available."
         except Exception as e:
             logger.error(f"Error executing command: {e}")
             return f"Error executing command: {e}"
