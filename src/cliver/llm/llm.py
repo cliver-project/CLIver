@@ -22,7 +22,6 @@ from langchain_core.messages import (
 from langchain_core.messages.base import BaseMessage
 from langchain_core.tools import BaseTool
 
-from cliver.builtin_tools import BuiltinTools
 from cliver.config import ModelConfig
 from cliver.llm.base import LLMInferenceEngine
 from cliver.llm.errors import get_friendly_error_message
@@ -33,6 +32,7 @@ from cliver.mcp_server_caller import MCPServersCaller
 from cliver.media import load_media_file
 from cliver.model_capabilities import ModelCapability
 from cliver.prompt_enhancer import apply_skill_sets_and_template
+from cliver.tool_registry import ToolRegistry
 from cliver.util import read_context_files, retry_with_confirmation_async
 
 # Create a logger for this module
@@ -69,8 +69,8 @@ async def default_enhance_prompt(user_input: str, mcp_caller: MCPServersCaller) 
     return []
 
 
-# builtin_tools get loaded on first usage on 'builtin_tools.tools'
-builtin_tools = BuiltinTools()
+# Tool registry with keyword-based filtering, loaded on first use
+tool_registry = ToolRegistry()
 
 
 class TaskExecutor:
@@ -292,9 +292,8 @@ class TaskExecutor:
             mcp_tools = await filter_tools(user_input, mcp_tools)
         if mcp_tools:
             llm_tools.extend(mcp_tools)
-        # Always include builtin tools.
-        # TODO: maybe some builtin tools can be optional in the future
-        _builtin_tools = builtin_tools.tools
+        # Include builtin tools filtered by relevance to user input
+        _builtin_tools = tool_registry.get_tools(user_input=user_input)
         if _builtin_tools:
             llm_tools.extend(_builtin_tools)
 
@@ -594,7 +593,7 @@ class TaskExecutor:
                 tool_result = None
                 if not mcp_server or mcp_server == "" or mcp_server == "builtin":
                     # should be builtin tools, so we search the tool object and call that.
-                    tool_result = builtin_tools.execute_tool(tool_name, args)
+                    tool_result = tool_registry.execute_tool(tool_name, args)
                 else:
                     tool_result = await retry_with_confirmation_async(
                         self.mcp_caller.call_mcp_server_tool,
