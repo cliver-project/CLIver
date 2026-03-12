@@ -55,6 +55,7 @@ class Cliver:
         )
 
         # prepare console for interaction
+        self.config_dir.mkdir(parents=True, exist_ok=True)
         self.history_path = self.config_dir / "history"
         self.session = None
         self.console = Console()
@@ -108,15 +109,22 @@ class Cliver:
                     if line.startswith("/"):
                         if len(line) == 1:
                             continue
+                        cmd = line[1:]
+                        if cmd.lower().startswith("help"):
+                            # /help -> --help, /help llm -> llm --help, /help llm list -> llm list --help
+                            args = cmd[4:].strip()
+                            line = f"{args} --help".strip()
                         else:
                             # possibly a command
-                            line = line[1:]
+                            line = cmd
                     elif not line.lower().startswith(f"{CMD_CHAT} "):
                         line = f"{CMD_CHAT} {line}"
 
                     if len(line.strip()) > 0:
                         self.call_cmd(line)
 
+                except SystemExit:
+                    pass
                 except KeyboardInterrupt:
                     self.console.print("\n[yellow]Use 'exit' or 'quit' to exit[/yellow]")
                 except EOFError:

@@ -39,7 +39,7 @@ def _load_commands_from_dir(
     log: bool = False,
 ) -> None:
     if commands_dir and not os.path.exists(commands_dir):
-        logger.warning("Commands directory: %s does not exist", commands_dir)
+        os.makedirs(commands_dir, exist_ok=True)
         return
     for filename in os.listdir(commands_dir):
         if filename.endswith(".py"):
