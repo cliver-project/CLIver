@@ -19,17 +19,20 @@ logger = logging.getLogger(__name__)
 
 # OpenAI compatible inference engine
 class OpenAICompatibleInferenceEngine(LLMInferenceEngine):
-    def __init__(self, config: ModelConfig):
-        super().__init__(config)
+    def __init__(self, config: ModelConfig, user_agent: str = None):
+        super().__init__(config, user_agent=user_agent)
         self.options = {}
         if self.config and self.config.options:
             self.options = self.config.options.model_dump()
+
+        default_headers = {"User-Agent": user_agent} if user_agent else None
 
         # Initialize OpenAI client for file operations
         if self.config.api_key:
             self.openai_client = OpenAI(
                 api_key=self.config.api_key,
                 base_url=self.config.url if self.config.url else None,
+                default_headers=default_headers,
             )
         else:
             self.openai_client = None
@@ -41,6 +44,7 @@ class OpenAICompatibleInferenceEngine(LLMInferenceEngine):
             model=self.config.name_in_provider or self.config.name,
             base_url=self.config.url,
             api_key=self.config.api_key,
+            default_headers=default_headers,
             **self.options,
         )
 

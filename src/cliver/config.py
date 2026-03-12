@@ -153,6 +153,7 @@ class AppConfig(BaseModel):
     models: Dict[str, ModelConfig] = {}
     default_model: Optional[str] = Field(default=None, description="The default LLM model")
     workflow: Optional[WorkflowConfig] = Field(default=None, description="Workflow configuration")
+    user_agent: Optional[str] = Field(default="CLIver", description="User-Agent header for LLM provider HTTP requests")
 
     def model_dump(self, **kwargs):
         """Override to exclude null values."""

@@ -18,8 +18,9 @@ logger = logging.getLogger(__name__)
 
 
 class LLMInferenceEngine(ABC):
-    def __init__(self, config: ModelConfig):
+    def __init__(self, config: ModelConfig, user_agent: str = None):
         self.config = config or {}
+        self.user_agent = user_agent
         self.llm = None
 
     def supports_capability(self, capability: ModelCapability) -> bool:

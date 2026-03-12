@@ -39,11 +39,11 @@ from cliver.util import read_context_files, retry_with_confirmation_async
 logger = logging.getLogger(__name__)
 
 
-def create_llm_engine(model: ModelConfig) -> Optional[LLMInferenceEngine]:
+def create_llm_engine(model: ModelConfig, user_agent: str = None) -> Optional[LLMInferenceEngine]:
     if model.provider == "ollama":
-        return OllamaLlamaInferenceEngine(model)
+        return OllamaLlamaInferenceEngine(model, user_agent=user_agent)
     elif model.provider == "openai":
-        return OpenAICompatibleInferenceEngine(model)
+        return OpenAICompatibleInferenceEngine(model, user_agent=user_agent)
     return None
 
 
@@ -83,9 +83,11 @@ class TaskExecutor:
         llm_models: Dict[str, ModelConfig],
         mcp_servers: Dict[str, Dict],
         default_model: Optional[str] = None,
+        user_agent: Optional[str] = None,
     ):
         self.llm_models = llm_models
         self.default_model = default_model
+        self.user_agent = user_agent
         self.mcp_caller = MCPServersCaller(mcp_servers=mcp_servers)
         self.llm_engines: Dict[str, LLMInferenceEngine] = {}
 
@@ -99,7 +101,7 @@ class TaskExecutor:
         if _model.name in self.llm_engines:
             llm_engine = self.llm_engines[_model.name]
         else:
-            llm_engine = create_llm_engine(_model)
+            llm_engine = create_llm_engine(_model, user_agent=self.user_agent)
             self.llm_engines[_model.name] = llm_engine
         return llm_engine
 

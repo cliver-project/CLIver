@@ -15,15 +15,18 @@ logger = logging.getLogger(__name__)
 
 # Ollama inference engine
 class OllamaLlamaInferenceEngine(LLMInferenceEngine):
-    def __init__(self, config: ModelConfig):
-        super().__init__(config)
+    def __init__(self, config: ModelConfig, user_agent: str = None):
+        super().__init__(config, user_agent=user_agent)
         self.options = {}
         if self.config and self.config.options:
             self.options = self.config.options.model_dump()
 
+        client_kwargs = {"headers": {"User-Agent": user_agent}} if user_agent else {}
+
         self.llm = Ollama(
             model=self.config.name_in_provider or self.config.name,
             base_url=self.config.url,
+            client_kwargs=client_kwargs,
             **self.options,
         )
 
