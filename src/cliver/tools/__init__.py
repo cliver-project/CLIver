@@ -4,3 +4,4 @@
 #
 from cliver.tools.read_file import read_file  # noqa: F401
 from cliver.tools.write_file import write_file  # noqa: F401
+from cliver.tools.grep_search import grep_search  # noqa: F401
