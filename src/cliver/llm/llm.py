@@ -24,6 +24,7 @@ from langchain_core.tools import BaseTool
 
 from cliver.config import ModelConfig
 from cliver.llm.base import LLMInferenceEngine
+from cliver.llm.deepseek_engine import DeepSeekInferenceEngine
 from cliver.llm.errors import get_friendly_error_message
 from cliver.llm.llm_utils import is_thinking
 from cliver.llm.ollama_engine import OllamaLlamaInferenceEngine
@@ -43,6 +44,10 @@ def create_llm_engine(model: ModelConfig, user_agent: str = None) -> Optional[LL
     if model.provider == "ollama":
         return OllamaLlamaInferenceEngine(model, user_agent=user_agent)
     elif model.provider == "openai":
+        # Route to model-specific engines for providers with API quirks
+        name = (model.name_in_provider or model.name).lower()
+        if name.startswith("deepseek"):
+            return DeepSeekInferenceEngine(model, user_agent=user_agent)
         return OpenAICompatibleInferenceEngine(model, user_agent=user_agent)
     return None
 

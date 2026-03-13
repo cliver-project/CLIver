@@ -57,8 +57,9 @@ PROVIDER_CAPABILITIES = {
 }
 
 # Model-specific capability mappings (overrides provider defaults, not complement)
+# The first match wins, so more specific patterns must come before shorter ones.
 MODEL_CAPABILITIES = {
-    # Ollama models
+    # Ollama vision models
     "llava*": {
         ModelCapability.TEXT_TO_TEXT,
         ModelCapability.IMAGE_TO_TEXT,
@@ -74,48 +75,113 @@ MODEL_CAPABILITIES = {
         ModelCapability.IMAGE_TO_TEXT,
         ModelCapability.TOOL_CALLING,
     },
-    # Qwen models
-    # the first match wins, so make sure the shorter name is at the last one
+    # Qwen models (Alibaba)
+    # Qwen3-Omni: text, image, audio, video input; text + audio output
+    "qwen3-omni*": {
+        ModelCapability.TEXT_TO_TEXT,
+        ModelCapability.IMAGE_TO_TEXT,
+        ModelCapability.AUDIO_TO_TEXT,
+        ModelCapability.VIDEO_TO_TEXT,
+        ModelCapability.TEXT_TO_AUDIO,
+        ModelCapability.TOOL_CALLING,
+        ModelCapability.JSON_MODE,
+        ModelCapability.THINK_MODE,
+    },
+    # Qwen VL (vision-language): text + image input
     "qwen-vl*": {
         ModelCapability.TEXT_TO_TEXT,
         ModelCapability.IMAGE_TO_TEXT,
         ModelCapability.TOOL_CALLING,
         ModelCapability.JSON_MODE,
+        ModelCapability.THINK_MODE,
     },
+    "qwen3.5*": {
+        ModelCapability.TEXT_TO_TEXT,
+        ModelCapability.IMAGE_TO_TEXT,
+        ModelCapability.TOOL_CALLING,
+        ModelCapability.JSON_MODE,
+        ModelCapability.THINK_MODE,
+    },
+    # Qwen audio: text + audio input
     "qwen-audio*": {
         ModelCapability.TEXT_TO_TEXT,
         ModelCapability.AUDIO_TO_TEXT,
         ModelCapability.TOOL_CALLING,
         ModelCapability.JSON_MODE,
     },
+    # Qwen3 and later: thinking mode (hybrid reasoning) enabled by default
+    "qwen3*": {
+        ModelCapability.TEXT_TO_TEXT,
+        ModelCapability.TOOL_CALLING,
+        ModelCapability.JSON_MODE,
+        ModelCapability.THINK_MODE,
+    },
+    # Qwen (older versions): no thinking mode
     "qwen*": {
         ModelCapability.TEXT_TO_TEXT,
         ModelCapability.TOOL_CALLING,
         ModelCapability.JSON_MODE,
     },
     # DeepSeek models
-    # the first match wins, so make sure the shorter name is at the last one
+    # DeepSeek-R1 / deepseek-reasoner: thinking mode with reasoning_content field
+    "deepseek-reasoner*": {
+        ModelCapability.TEXT_TO_TEXT,
+        ModelCapability.TOOL_CALLING,
+        ModelCapability.THINK_MODE,
+    },
     "deepseek-r1*": {
         ModelCapability.TEXT_TO_TEXT,
         ModelCapability.TOOL_CALLING,
         ModelCapability.THINK_MODE,
     },
+    # DeepSeek-VL: vision-language model
     "deepseek-vl*": {
         ModelCapability.TEXT_TO_TEXT,
         ModelCapability.IMAGE_TO_TEXT,
         ModelCapability.TOOL_CALLING,
     },
+    # DeepSeek V3.1+: supports thinking mode (hybrid) and JSON
+    "deepseek-v3*": {
+        ModelCapability.TEXT_TO_TEXT,
+        ModelCapability.TOOL_CALLING,
+        ModelCapability.JSON_MODE,
+        ModelCapability.THINK_MODE,
+    },
+    # DeepSeek (generic fallback, e.g. deepseek-chat)
     "deepseek*": {
         ModelCapability.TEXT_TO_TEXT,
         ModelCapability.TOOL_CALLING,
+        ModelCapability.JSON_MODE,
     },
     # GLM models (Zhipu AI)
+    # GLM-4.6V / GLM-4.5: vision + native tool calling
+    "glm-4.6v*": {
+        ModelCapability.TEXT_TO_TEXT,
+        ModelCapability.IMAGE_TO_TEXT,
+        ModelCapability.VIDEO_TO_TEXT,
+        ModelCapability.TOOL_CALLING,
+        ModelCapability.JSON_MODE,
+    },
+    "glm-4.5*": {
+        ModelCapability.TEXT_TO_TEXT,
+        ModelCapability.IMAGE_TO_TEXT,
+        ModelCapability.TOOL_CALLING,
+        ModelCapability.JSON_MODE,
+        ModelCapability.THINK_MODE,
+    },
+    "glm-4.7*": {
+        ModelCapability.TEXT_TO_TEXT,
+        ModelCapability.TOOL_CALLING,
+        ModelCapability.JSON_MODE,
+        ModelCapability.THINK_MODE,
+    },
+    # GLM-4 (generic): text + tool calling
     "glm*": {
         ModelCapability.TEXT_TO_TEXT,
         ModelCapability.TOOL_CALLING,
         ModelCapability.JSON_MODE,
     },
-    # Llama models
+    # Llama models (Meta)
     "llama3*": {
         ModelCapability.TEXT_TO_TEXT,
         ModelCapability.TOOL_CALLING,
