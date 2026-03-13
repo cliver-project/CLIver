@@ -27,10 +27,13 @@ class OpenAICompatibleInferenceEngine(LLMInferenceEngine):
 
         default_headers = {"User-Agent": user_agent} if user_agent else None
 
+        # Resolve API key (supports vault:<service>:<key> references)
+        resolved_api_key = self.config.get_api_key()
+
         # Initialize OpenAI client for file operations
-        if self.config.api_key:
+        if resolved_api_key:
             self.openai_client = OpenAI(
-                api_key=self.config.api_key,
+                api_key=resolved_api_key,
                 base_url=self.config.url if self.config.url else None,
                 default_headers=default_headers,
             )
@@ -43,7 +46,7 @@ class OpenAICompatibleInferenceEngine(LLMInferenceEngine):
         self.llm = ChatOpenAI(
             model=self.config.name_in_provider or self.config.name,
             base_url=self.config.url,
-            api_key=self.config.api_key,
+            api_key=resolved_api_key,
             default_headers=default_headers,
             **self.options,
         )

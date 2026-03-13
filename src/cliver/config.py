@@ -15,6 +15,7 @@ from cliver.model_capabilities import (
     ModelCapability,
     ModelCapabilityDetector,
 )
+from cliver.secret_resolver import resolve_secret
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,17 @@ class ModelConfig(BaseModel):
             caps.discard(ModelCapability.THINK_MODE)
 
         return caps
+
+    def get_api_key(self) -> Optional[str]:
+        """
+        Resolve the API key, supporting vault references.
+
+        Returns the resolved API key:
+        - Plain text: returned as-is
+        - "vault:<service>:<key>": resolved from system keyring/keychain
+        - None: if not configured or resolution fails
+        """
+        return resolve_secret(self.api_key)
 
     def get_model_capabilities(self) -> ModelCapabilities:
         detector = ModelCapabilityDetector()

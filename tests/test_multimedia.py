@@ -49,6 +49,7 @@ class TestOpenAIEngine:
         config.name_in_provider = "gpt-4-vision"
         config.url = "https://api.openai.com/v1"
         config.api_key = "test-key"
+        config.get_api_key = Mock(return_value="test-key")
         config.options = None
 
         # Mock capabilities
