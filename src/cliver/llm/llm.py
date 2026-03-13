@@ -661,13 +661,20 @@ class TaskExecutor:
                     else:
                         accumulated_chunks = accumulated_chunks + chunk
 
-                    # Filter out thinking content (<think> or <thinking> blocks)
-                    chunks_content = str(accumulated_chunks)
-                    if llm_engine.supports_capability(ModelCapability.THINK_MODE) and (
-                        (len(chunks_content) <= 7 and "<think".startswith(chunks_content))
-                        or is_thinking(chunks_content)
-                    ):
-                        continue
+                    # Filter out thinking/reasoning content from stream output.
+                    # Reasoning may arrive via additional_kwargs (structured API field)
+                    # or as <think>/<thinking> tags in content (raw model output).
+                    if llm_engine.supports_capability(ModelCapability.THINK_MODE):
+                        # Check for structured reasoning in additional_kwargs
+                        chunk_kwargs = getattr(chunk, "additional_kwargs", {}) or {}
+                        if chunk_kwargs.get("reasoning_content") or chunk_kwargs.get("reasoning"):
+                            continue
+                        # Check for <think> tags in accumulated content
+                        chunks_content = str(accumulated_chunks)
+                        if (len(chunks_content) <= 7 and "<think".startswith(chunks_content)) or is_thinking(
+                            chunks_content
+                        ):
+                            continue
                     yield chunk
                 tool_calls = llm_engine.parse_tool_calls(accumulated_chunks, model)
             except Exception as e:

@@ -142,10 +142,6 @@ class LLMInferenceEngine(ABC):
         """
         sections = [self._section_identity()]
         sections.append(self._section_tool_usage())
-
-        if self.supports_capability(ModelCapability.THINK_MODE):
-            sections.append(self._section_thinking_mode())
-
         sections.append(self._section_interaction_guidelines())
         sections.append(self._section_response_format())
 
@@ -197,18 +193,6 @@ class LLMInferenceEngine(ABC):
             "based on the results until you have enough information to provide a final answer. "
             "This process can involve multiple rounds.\n\n"
             "If you already have enough information, respond directly without calling any tools."
-        )
-
-    @staticmethod
-    def _section_thinking_mode() -> str:
-        return (
-            "# Thinking Mode\n\n"
-            "You have thinking/reasoning capabilities enabled. "
-            "For complex problems, you may reason step-by-step internally "
-            "before providing your final answer.\n\n"
-            "Your thinking content will be automatically handled by the client — "
-            "use your native reasoning format. After reasoning, provide your "
-            "final answer or tool call."
         )
 
     @staticmethod

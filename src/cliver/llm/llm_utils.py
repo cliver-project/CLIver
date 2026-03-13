@@ -85,3 +85,57 @@ def is_thinking_content(content: str) -> bool:
 def remove_thinking_sections(content: str) -> str:
     """Remove thinking sections from content to find tool calls in the remaining text."""
     return _THINK_REMOVE_PATTERN.sub("", content)
+
+
+_THINK_EXTRACT_PATTERN = re.compile(
+    r"<think(?:ing)?>(.*?)(?:</think(?:ing)?>|$)",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def extract_reasoning(message: BaseMessage) -> Optional[str]:
+    """
+    Extract reasoning/thinking content from an LLM response.
+
+    Follows the qwen-code pattern:
+    1. Check additional_kwargs for 'reasoning_content' (DeepSeek API)
+    2. Check additional_kwargs for 'reasoning' (OpenAI Responses API / vLLM)
+    3. Fall back to parsing <think>/<thinking> tags from content
+
+    Args:
+        message: The LLM response message
+
+    Returns:
+        The reasoning text if found, None otherwise
+    """
+    if message is None:
+        return None
+
+    kwargs = getattr(message, "additional_kwargs", {}) or {}
+
+    # Primary: structured reasoning field from API (DeepSeek native API)
+    reasoning = kwargs.get("reasoning_content")
+    if reasoning:
+        return reasoning
+
+    # Secondary: 'reasoning' field (OpenAI Responses API / vLLM)
+    reasoning = kwargs.get("reasoning")
+    if isinstance(reasoning, str) and reasoning:
+        return reasoning
+    if isinstance(reasoning, dict):
+        # OpenAI Responses API wraps reasoning in a dict with 'content' list
+        content_list = reasoning.get("content", [])
+        if content_list:
+            parts = [item.get("text", "") for item in content_list if isinstance(item, dict)]
+            text = "".join(parts)
+            if text:
+                return text
+
+    # Fallback: parse <think>/<thinking> tags from content
+    content = getattr(message, "content", None)
+    if content and isinstance(content, str):
+        match = _THINK_EXTRACT_PATTERN.search(content)
+        if match:
+            return match.group(1).strip()
+
+    return None
