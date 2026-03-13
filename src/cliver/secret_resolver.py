@@ -3,7 +3,7 @@ Secret resolver for CLIver.
 
 Resolves secret references to actual values. Supports:
 - Plain text: used as-is (e.g., "sk-abc123")
-- Vault reference: "vault:<service-name>:<key-name>" reads from system keyring/keychain
+- Keyring reference: "keyring:<service-name>:<key-name>" reads from system keyring/keychain
 """
 
 import logging
@@ -11,17 +11,17 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-VAULT_PREFIX = "vault:"
+KEYRING_PREFIX = "keyring:"
 
 
 def resolve_secret(value: Optional[str]) -> Optional[str]:
     """
-    Resolve a secret value that may be a vault reference.
+    Resolve a secret value that may be a keyring reference.
 
     Args:
         value: The raw value from config. Can be:
             - None: returns None
-            - "vault:<service>:<key>": reads from system keyring/keychain
+            - "keyring:<service>:<key>": reads from system keyring/keychain
             - Any other string: returned as-is (plain text)
 
     Returns:
@@ -30,13 +30,13 @@ def resolve_secret(value: Optional[str]) -> Optional[str]:
     if value is None:
         return None
 
-    if not value.startswith(VAULT_PREFIX):
+    if not value.startswith(KEYRING_PREFIX):
         return value
 
-    # Parse vault:<service-name>:<key-name>
-    parts = value[len(VAULT_PREFIX) :].split(":", 1)
+    # Parse keyring:<service-name>:<key-name>
+    parts = value[len(KEYRING_PREFIX) :].split(":", 1)
     if len(parts) != 2 or not parts[0] or not parts[1]:
-        logger.error(f"Invalid vault reference format: '{value}'. Expected 'vault:<service-name>:<key-name>'")
+        logger.error(f"Invalid keyring reference format: '{value}'. Expected 'keyring:<service-name>:<key-name>'")
         return None
 
     service_name, key_name = parts
@@ -69,7 +69,7 @@ def _read_from_keyring(service_name: str, key_name: str) -> Optional[str]:
             )
         return secret
     except ImportError:
-        logger.error("The 'keyring' package is required for vault references. Install it with: pip install keyring")
+        logger.error("The 'keyring' package is required for keyring references. Install it with: pip install keyring")
         return None
     except Exception as e:
         logger.error(f"Failed to read from keyring (service='{service_name}', key='{key_name}'): {e}")

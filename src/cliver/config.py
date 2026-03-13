@@ -67,11 +67,11 @@ class ModelConfig(BaseModel):
 
     def get_api_key(self) -> Optional[str]:
         """
-        Resolve the API key, supporting vault references.
+        Resolve the API key, supporting keyring references.
 
         Returns the resolved API key:
         - Plain text: returned as-is
-        - "vault:<service>:<key>": resolved from system keyring/keychain
+        - "keyring:<service>:<key>": resolved from system keyring/keychain
         - None: if not configured or resolution fails
         """
         return resolve_secret(self.api_key)
