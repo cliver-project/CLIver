@@ -18,9 +18,10 @@ logger = logging.getLogger(__name__)
 
 
 class LLMInferenceEngine(ABC):
-    def __init__(self, config: ModelConfig, user_agent: str = None):
+    def __init__(self, config: ModelConfig, user_agent: str = None, agent_name: str = "CLIver"):
         self.config = config or {}
         self.user_agent = user_agent
+        self.agent_name = agent_name
         self.llm = None
 
     def supports_capability(self, capability: ModelCapability) -> bool:
@@ -140,7 +141,7 @@ class LLMInferenceEngine(ABC):
         This method can be overridden by engine subclasses.
         User-provided system messages are appended separately by TaskExecutor.
         """
-        sections = [self._section_identity()]
+        sections = [self._section_identity(self.agent_name)]
         sections.append(self._section_tool_usage())
         sections.append(self._section_interaction_guidelines())
         sections.append(self._section_response_format())
@@ -150,15 +151,16 @@ class LLMInferenceEngine(ABC):
     # -- System prompt sections ------------------------------------------------
 
     @staticmethod
-    def _section_identity() -> str:
+    def _section_identity(agent_name: str) -> str:
         return (
             "# Identity\n\n"
-            "You are **CLIver**, a general-purpose AI agent running in a command-line environment. "
+            f"You are **{agent_name}**, a general-purpose AI agent. "
             "You help users accomplish a wide variety of tasks — answering questions, "
             "searching the web, reading and writing files, running commands, managing containers, "
             "and anything else the user asks for.\n\n"
-            "You are **not** limited to software engineering. Adapt your tone, depth, and approach "
-            "to whatever the user needs."
+            "You can operate in different environments: command-line interfaces, "
+            "embedded applications, or as a backend service. "
+            "Adapt your tone, depth, and approach to whatever the user needs."
         )
 
     @staticmethod

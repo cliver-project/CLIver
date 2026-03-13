@@ -44,15 +44,17 @@ logger = logging.getLogger(__name__)
 MAX_CONSECUTIVE_ERRORS = 3
 
 
-def create_llm_engine(model: ModelConfig, user_agent: str = None) -> Optional[LLMInferenceEngine]:
+def create_llm_engine(
+    model: ModelConfig, user_agent: str = None, agent_name: str = "CLIver"
+) -> Optional[LLMInferenceEngine]:
     if model.provider == "ollama":
-        return OllamaLlamaInferenceEngine(model, user_agent=user_agent)
+        return OllamaLlamaInferenceEngine(model, user_agent=user_agent, agent_name=agent_name)
     elif model.provider == "openai":
         # Route to model-specific engines for providers with API quirks
         name = (model.name_in_provider or model.name).lower()
         if name.startswith("deepseek"):
-            return DeepSeekInferenceEngine(model, user_agent=user_agent)
-        return OpenAICompatibleInferenceEngine(model, user_agent=user_agent)
+            return DeepSeekInferenceEngine(model, user_agent=user_agent, agent_name=agent_name)
+        return OpenAICompatibleInferenceEngine(model, user_agent=user_agent, agent_name=agent_name)
     return None
 
 
@@ -93,10 +95,12 @@ class TaskExecutor:
         mcp_servers: Dict[str, Dict],
         default_model: Optional[str] = None,
         user_agent: Optional[str] = None,
+        agent_name: str = "CLIver",
     ):
         self.llm_models = llm_models
         self.default_model = default_model
         self.user_agent = user_agent
+        self.agent_name = agent_name
         self.mcp_caller = MCPServersCaller(mcp_servers=mcp_servers)
         self.llm_engines: Dict[str, LLMInferenceEngine] = {}
 
@@ -110,7 +114,7 @@ class TaskExecutor:
         if _model.name in self.llm_engines:
             llm_engine = self.llm_engines[_model.name]
         else:
-            llm_engine = create_llm_engine(_model, user_agent=self.user_agent)
+            llm_engine = create_llm_engine(_model, user_agent=self.user_agent, agent_name=self.agent_name)
             self.llm_engines[_model.name] = llm_engine
         return llm_engine
 

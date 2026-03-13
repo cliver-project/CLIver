@@ -170,6 +170,7 @@ class WorkflowConfig(BaseModel):
 
 
 class AppConfig(BaseModel):
+    agent_name: str = Field(default="CLIver", description="The display name of the AI agent")
     mcpServers: Dict[str, MCPServerConfig] = {}
     default_server: Optional[str] = Field(default=None, description="The default MCP server")
     models: Dict[str, ModelConfig] = {}

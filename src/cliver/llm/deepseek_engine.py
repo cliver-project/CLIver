@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 
 
 class DeepSeekInferenceEngine(OpenAICompatibleInferenceEngine):
-    def __init__(self, config: ModelConfig, user_agent: str = None):
-        super().__init__(config, user_agent=user_agent)
+    def __init__(self, config: ModelConfig, user_agent: str = None, agent_name: str = "CLIver"):
+        super().__init__(config, user_agent=user_agent, agent_name=agent_name)
 
     def convert_messages_to_engine_specific(self, messages: List[BaseMessage]) -> List[BaseMessage]:
         """
