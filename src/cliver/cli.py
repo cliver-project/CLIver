@@ -181,6 +181,26 @@ def cliver(ctx: click.Context):
         interact(cli)
 
 
+@cliver.command(name="help", hidden=True)
+@click.argument("command", nargs=-1)
+@click.pass_context
+def help_command(ctx: click.Context, command: tuple):
+    """Show help for cliver or a specific command."""
+    group = cliver
+    # Walk down subcommand chain: cliver help model list → model list --help
+    for cmd_name in command:
+        sub = group.get_command(ctx, cmd_name)
+        if sub is None:
+            click.echo(f"No such command '{cmd_name}'.")
+            return
+        if isinstance(sub, click.Group):
+            group = sub
+        else:
+            click.echo(sub.get_help(ctx))
+            return
+    click.echo(group.get_help(ctx))
+
+
 def interact(cli: Cliver, session_options: Dict[str, Any] = None) -> None:
     """
     Start an interactive session with the AI agent.
