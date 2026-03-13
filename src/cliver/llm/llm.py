@@ -661,10 +661,10 @@ class TaskExecutor:
                     else:
                         accumulated_chunks = accumulated_chunks + chunk
 
-                    # we don't care about thinking content
+                    # Filter out thinking content (<think> or <thinking> blocks)
                     chunks_content = str(accumulated_chunks)
                     if llm_engine.supports_capability(ModelCapability.THINK_MODE) and (
-                        (len(chunks_content) <= 10 and "<thinking>".startswith(chunks_content))
+                        (len(chunks_content) <= 7 and "<think".startswith(chunks_content))
                         or is_thinking(chunks_content)
                     ):
                         continue

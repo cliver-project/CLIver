@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Any, Dict, List, Optional, Union
 from uuid import UUID
 
@@ -6,16 +7,22 @@ from langchain_core.callbacks import AsyncCallbackHandler
 from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.outputs import ChatGenerationChunk, GenerationChunk, LLMResult
 
-from cliver.llm.llm_utils import parse_tool_calls_from_content, remove_thinking_sections
+from cliver.llm.llm_utils import is_thinking, parse_tool_calls_from_content, remove_thinking_sections
 
 logger = logging.getLogger(__name__)
+
+# Regex to extract the inner content from a thinking block
+_THINK_EXTRACT = re.compile(
+    r"<think(?:ing)?>(.*?)(?:</think(?:ing)?>|$)",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 class CliverAsyncCallbackHandler(AsyncCallbackHandler):
     """
     Async callback handler for streaming mode that handles:
     - Tool call extraction
-    - Thinking mode support with '<thinking>...</thinking>' and other patterns
+    - Thinking mode support with '<think>...</think>' and '<thinking>...</thinking>' tags
     - Proper error handling and logging
     """
 
@@ -38,32 +45,15 @@ class CliverAsyncCallbackHandler(AsyncCallbackHandler):
         **kwargs: Any,
     ) -> None:
         """Handle new tokens and detect thinking mode."""
-        # Accumulate the token
         self.accumulated_content += token
 
-        # Always check for both opening and closing tags
-        lower_content = self.accumulated_content.lower()
+        # Detect thinking state using the shared utility
+        self.is_thinking_mode = is_thinking(self.accumulated_content)
 
-        # Look for opening <thinking> tag
-        thinking_start = lower_content.find("<thinking>")
-        thinking_end = lower_content.find("</thinking>")
-
-        # Determine thinking mode state
-        if thinking_start != -1:
-            if thinking_end != -1 and thinking_end > thinking_start:
-                # We have both start and end tags, and end comes after start
-                self.is_thinking_mode = False
-                # Extract the thinking content
-                self.thinking_content = self.accumulated_content[thinking_start + 10 : thinking_end]
-            else:
-                # We have start tag but no end tag (or end tag comes before start)
-                self.is_thinking_mode = True
-                # Extract current thinking content
-                if len(self.accumulated_content) > thinking_start + 10:
-                    self.thinking_content = self.accumulated_content[thinking_start + 10 :]
-        else:
-            # No start tag found
-            self.is_thinking_mode = False
+        # Extract thinking content if present
+        match = _THINK_EXTRACT.search(self.accumulated_content)
+        if match:
+            self.thinking_content = match.group(1)
 
     async def on_llm_end(self, result: LLMResult, **kwargs: Any) -> None:
         """Handle LLM end event and extract final results."""

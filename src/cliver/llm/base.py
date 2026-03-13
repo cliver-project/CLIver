@@ -203,17 +203,12 @@ class LLMInferenceEngine(ABC):
     def _section_thinking_mode() -> str:
         return (
             "# Thinking Mode\n\n"
-            "You support a thinking mode for complex reasoning. "
-            "When a problem requires careful analysis, use a `<thinking>` section "
-            "**at the beginning** of your response:\n\n"
-            "```\n"
-            "<thinking>\n"
-            "Your step-by-step reasoning here...\n"
-            "</thinking>\n"
-            "```\n\n"
-            "After the thinking section, provide your final answer or tool call. "
-            "Use thinking mode when the task involves multi-step logic, trade-offs, "
-            "or when you need to plan before acting."
+            "You have thinking/reasoning capabilities enabled. "
+            "For complex problems, you may reason step-by-step internally "
+            "before providing your final answer.\n\n"
+            "Your thinking content will be automatically handled by the client — "
+            "use your native reasoning format. After reasoning, provide your "
+            "final answer or tool call."
         )
 
     @staticmethod

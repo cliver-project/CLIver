@@ -50,44 +50,38 @@ def parse_tool_calls_from_content(response: BaseMessage) -> Optional[list[dict]]
     return None
 
 
+# Supported thinking tag formats:
+#   <think>...</think>    — DeepSeek, Qwen3, GLM-4.5/4.7 (standard)
+#   <thinking>...</thinking> — legacy / custom models
+_THINK_OPEN_TAGS = ["<think>", "<thinking>"]
+_THINK_CLOSE_TAGS = ["</think>", "</thinking>"]
+_THINK_REMOVE_PATTERN = re.compile(
+    r"<think(?:ing)?>.*?</think(?:ing)?>",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
 def is_thinking(content: str) -> bool:
-    """Check if content is thinking."""
-    # Look for opening <thinking> tag
+    """Check if content is currently inside an unclosed thinking block."""
     lower_content = content.lower()
-    thinking_start = lower_content.find("<thinking>")
-    thinking_end = lower_content.find("</thinking>")
-    if thinking_start != -1:
-        if thinking_end != -1 and thinking_end > thinking_start:
-            # We have both start and end tags, and end comes after start
-            return False
-        else:
-            # We have start tag but no end tag (or end tag comes before start)
-            return True
-    else:
+    # Find the last opening tag
+    last_open = max(lower_content.rfind(tag) for tag in _THINK_OPEN_TAGS)
+    if last_open == -1:
         return False
+    # Check if there's a closing tag after the last opening tag
+    for tag in _THINK_CLOSE_TAGS:
+        close_pos = lower_content.find(tag, last_open)
+        if close_pos != -1:
+            return False
+    # Open tag found but no closing tag after it
+    return True
 
 
 def is_thinking_content(content: str) -> bool:
-    """Check if content indicates thinking mode."""
-    thinking_patterns = [
-        r"<thinking>.*?</thinking>",  # <thinking>...</thinking>
-    ]
-
-    for pattern in thinking_patterns:
-        if re.search(pattern, content, re.IGNORECASE | re.DOTALL):
-            return True
-    return False
+    """Check if content contains a complete thinking block."""
+    return bool(_THINK_REMOVE_PATTERN.search(content))
 
 
 def remove_thinking_sections(content: str) -> str:
     """Remove thinking sections from content to find tool calls in the remaining text."""
-    # Remove thinking sections
-    thinking_patterns = [
-        r"<thinking>.*?</thinking>",
-    ]
-
-    clean_content = content
-    for pattern in thinking_patterns:
-        clean_content = re.sub(pattern, "", clean_content, flags=re.IGNORECASE | re.DOTALL)
-
-    return clean_content
+    return _THINK_REMOVE_PATTERN.sub("", content)

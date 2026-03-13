@@ -36,23 +36,33 @@ class ModelConfig(BaseModel):
     api_key: Optional[str] = Field(default=None, description="API key for the model")
     options: Optional[ModelOptions] = Field(default=None, description="Options for model")
     capabilities: Optional[Set[ModelCapability]] = Field(default=None, description="Model capabilities")
+    think_mode: Optional[bool] = Field(
+        default=None,
+        description="Override thinking mode: true to enable, false to disable, null to auto-detect from model name.",
+    )
 
     model_config = {"extra": "allow"}
 
     def get_capabilities(self) -> Set[ModelCapability]:
         """
         Get the model's capabilities. If not explicitly set, detect based on
-        provider and model name.
+        provider and model name. Applies think_mode override if configured.
 
         Returns:
             Set of ModelCapability enums representing the model's capabilities
         """
         if self.capabilities is not None:
-            return self.capabilities
+            caps = set(self.capabilities)
+        else:
+            caps = set(self.get_model_capabilities().capabilities)
 
-        # If capabilities not explicitly set, detect them
-        capabilities = self.get_model_capabilities()
-        return capabilities.capabilities
+        # Apply think_mode override from config
+        if self.think_mode is True:
+            caps.add(ModelCapability.THINK_MODE)
+        elif self.think_mode is False:
+            caps.discard(ModelCapability.THINK_MODE)
+
+        return caps
 
     def get_model_capabilities(self) -> ModelCapabilities:
         detector = ModelCapabilityDetector()
