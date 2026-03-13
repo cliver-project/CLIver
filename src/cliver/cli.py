@@ -164,7 +164,31 @@ class Cliver:
 pass_cliver = click.make_pass_decorator(Cliver)
 
 
-@click.group(invoke_without_command=True)
+class CliverGroup(click.Group):
+    """Custom Click group that treats unrecognized commands as chat queries.
+
+    e.g., `cliver "tell me a joke"` is equivalent to `cliver chat "tell me a joke"`
+    """
+
+    def resolve_command(self, ctx, args):
+        # If first arg matches a registered command, resolve normally
+        cmd_name = args[0] if args else None
+        if cmd_name and cmd_name in self.commands:
+            return super().resolve_command(ctx, args)
+
+        # Check for flags like --help, --version (start with -)
+        if cmd_name and cmd_name.startswith("-"):
+            return super().resolve_command(ctx, args)
+
+        # Unrecognized first arg — treat entire args as a chat query
+        if args:
+            args = ["chat"] + list(args)
+            return super().resolve_command(ctx, args)
+
+        return super().resolve_command(ctx, args)
+
+
+@click.group(cls=CliverGroup, invoke_without_command=True)
 @click.version_option(version=__version__, prog_name="cliver")
 @click.pass_context
 def cliver(ctx: click.Context):
@@ -177,7 +201,7 @@ def cliver(ctx: click.Context):
         ctx.obj = cli
 
     if ctx.invoked_subcommand is None:
-        # If no subcommand is invoked, show the help message
+        # If no subcommand is invoked, start interactive mode
         interact(cli)
 
 
