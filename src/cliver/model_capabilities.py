@@ -109,6 +109,12 @@ MODEL_CAPABILITIES = {
         ModelCapability.TEXT_TO_TEXT,
         ModelCapability.TOOL_CALLING,
     },
+    # GLM models (Zhipu AI)
+    "glm*": {
+        ModelCapability.TEXT_TO_TEXT,
+        ModelCapability.TOOL_CALLING,
+        ModelCapability.JSON_MODE,
+    },
     # Llama models
     "llama3*": {
         ModelCapability.TEXT_TO_TEXT,

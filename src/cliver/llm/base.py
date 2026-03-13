@@ -251,8 +251,11 @@ class LLMInferenceEngine(ABC):
 
     async def _reconstruct_llm(self, _llm: BaseChatModel, tools: Optional[list[BaseTool]]) -> BaseChatModel:
         if tools and len(tools) > 0:
-            # Check if the model supports tool calling
             capabilities = self.config.get_capabilities()
             if ModelCapability.TOOL_CALLING in capabilities:
-                _llm = _llm.bind_tools(tools, strict=True)
+                # Only use strict=True for providers that fully support OpenAI's
+                # strict function calling (native OpenAI). Most OpenAI-compatible
+                # providers (DeepSeek, Qwen, GLM, vLLM) don't support it.
+                use_strict = ModelCapability.FUNCTION_CALLING in capabilities
+                _llm = _llm.bind_tools(tools, strict=use_strict)
         return _llm
