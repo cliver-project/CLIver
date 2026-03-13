@@ -27,15 +27,19 @@ def create_tool_progress_handler(console: Console) -> ToolEventHandler:
     Returns:
         A ToolEventHandler callback for use with TaskExecutor
     """
+    # Track whether we're inside a tool execution block for spacing
+    state = {"in_block": False}
 
     def handler(event: ToolEvent) -> None:
         icon = _STATUS_ICONS.get(event.event_type, "")
         tool = f"[cyan]{event.tool_name}[/cyan]"
 
         if event.event_type == ToolEventType.TOOL_START:
+            if not state["in_block"]:
+                console.print()  # blank line before first tool in a batch
+                state["in_block"] = True
             args_preview = ""
             if event.args:
-                # Show a compact preview of the arguments
                 parts = []
                 for k, v in event.args.items():
                     val = str(v)
@@ -48,6 +52,8 @@ def create_tool_progress_handler(console: Console) -> ToolEventHandler:
         elif event.event_type == ToolEventType.TOOL_END:
             duration = f"[dim]{event.duration_ms:.0f}ms[/dim]" if event.duration_ms else ""
             console.print(f"  {icon} {tool} {duration}")
+            state["in_block"] = False
+            console.print()  # blank line after completion
 
         elif event.event_type == ToolEventType.TOOL_ERROR:
             duration = f"[dim]{event.duration_ms:.0f}ms[/dim]" if event.duration_ms else ""
@@ -55,5 +61,7 @@ def create_tool_progress_handler(console: Console) -> ToolEventHandler:
             console.print(f"  {icon} {tool} {duration}")
             if error_msg:
                 console.print(f"      {error_msg}")
+            state["in_block"] = False
+            console.print()  # blank line after error
 
     return handler
