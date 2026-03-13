@@ -7,16 +7,16 @@ from cliver.model_capabilities import ModelCapability, ProviderEnum
 from cliver.util import parse_key_value_options
 
 
-@click.group(name="llm", help="Manage LLM Models")
+@click.group(name="model", help="Manage LLM Models")
 @click.pass_context
-def llm(ctx: click.Context):
+def model(ctx: click.Context):
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
         ctx.exit()
 
 
 # noinspection PyUnresolvedReferences
-@llm.command(name="list", help="List LLM Models")
+@model.command(name="list", help="List LLM Models")
 @pass_cliver
 def list_llm_models(cliver: Cliver):
     models = cliver.config_manager.list_llm_models()
@@ -52,7 +52,7 @@ def list_llm_models(cliver: Cliver):
 
 
 # noinspection PyUnresolvedReferences
-@llm.command(name="remove", help="Remove a LLM Model")
+@model.command(name="remove", help="Remove a LLM Model")
 @click.option(
     "--name",
     "-n",
@@ -71,7 +71,7 @@ def remove_llm_model(cliver: Cliver, name: str):
 
 
 # noinspection PyUnresolvedReferences
-@llm.command(name="add", help="Add a LLM Model")
+@model.command(name="add", help="Add a LLM Model")
 @click.option(
     "--name",
     "-n",
@@ -146,7 +146,7 @@ def add_llm_model(
 
 
 # noinspection PyUnresolvedReferences
-@llm.command(name="set", help="Update a LLM Model")
+@model.command(name="set", help="Update a LLM Model")
 @click.option(
     "--name",
     "-n",

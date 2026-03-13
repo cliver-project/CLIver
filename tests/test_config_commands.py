@@ -1,4 +1,4 @@
-"""Comprehensive tests for all config, mcp, and llm commands after restructuring to top-level commands."""
+"""Comprehensive tests for all config, mcp, and model commands after restructuring to top-level commands."""
 
 import yaml
 from click.testing import CliRunner
@@ -207,7 +207,7 @@ def test_llm_model_add_with_options(load_cliver, init_config):
     result = CliRunner().invoke(
         load_cliver,
         [
-            "llm",
+            "model",
             "add",
             "--name",
             "test_model",
@@ -227,7 +227,7 @@ def test_llm_model_add_with_options(load_cliver, init_config):
     assert "Added LLM Model: test_model" in result.output
 
     # Verify the model was added correctly
-    result = CliRunner().invoke(load_cliver, ["llm", "list"])
+    result = CliRunner().invoke(load_cliver, ["model", "list"])
     assert result.exit_code == 0
     assert "test_model" in result.output
     assert "ollama" in result.output
@@ -239,7 +239,7 @@ def test_llm_model_set_options(load_cliver, init_config):
     CliRunner().invoke(
         load_cliver,
         [
-            "llm",
+            "model",
             "add",
             "--name",
             "test_model",
@@ -256,7 +256,7 @@ def test_llm_model_set_options(load_cliver, init_config):
     result = CliRunner().invoke(
         load_cliver,
         [
-            "llm",
+            "model",
             "set",
             "--name",
             "test_model",
@@ -270,7 +270,7 @@ def test_llm_model_set_options(load_cliver, init_config):
     assert "LLM Model: test_model updated" in result.output
 
     # Verify updates
-    result = CliRunner().invoke(load_cliver, ["llm", "list"])
+    result = CliRunner().invoke(load_cliver, ["model", "list"])
     assert result.exit_code == 0
     assert "test_model" in result.output
 
@@ -313,7 +313,7 @@ def test_config_file_format(load_cliver, init_config):
     CliRunner().invoke(
         load_cliver,
         [
-            "llm",
+            "model",
             "add",
             "--name",
             "test_model",
@@ -394,7 +394,7 @@ def test_llm_model_remove(load_cliver, init_config):
     CliRunner().invoke(
         load_cliver,
         [
-            "llm",
+            "model",
             "add",
             "--name",
             "test_model",
@@ -406,17 +406,17 @@ def test_llm_model_remove(load_cliver, init_config):
     )
 
     # Verify it exists
-    result = CliRunner().invoke(load_cliver, ["llm", "list"])
+    result = CliRunner().invoke(load_cliver, ["model", "list"])
     assert result.exit_code == 0
     assert "test_model" in result.output
 
     # Remove it
-    result = CliRunner().invoke(load_cliver, ["llm", "remove", "--name", "test_model"])
+    result = CliRunner().invoke(load_cliver, ["model", "remove", "--name", "test_model"])
     assert result.exit_code == 0
     assert "Removed LLM Model: test_model" in result.output
 
     # Verify it's gone
-    result = CliRunner().invoke(load_cliver, ["llm", "list"])
+    result = CliRunner().invoke(load_cliver, ["model", "list"])
     assert result.exit_code == 0
     assert "test_model" not in result.output
 

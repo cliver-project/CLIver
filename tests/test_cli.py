@@ -60,13 +60,13 @@ def test_add_stdio_mcp_server(load_cliver, init_config):
 
 
 def test_list_llm_empty(load_cliver, init_config):
-    result = CliRunner().invoke(load_cliver, ["llm", "list"])
+    result = CliRunner().invoke(load_cliver, ["model", "list"])
     assert result.exit_code == 0
     assert "No LLM Models configured." in result.output
 
 
 def test_list_llm_simple(load_cliver, simple_llm_model):
-    result = CliRunner().invoke(load_cliver, ["llm", "list"])
+    result = CliRunner().invoke(load_cliver, ["model", "list"])
     assert result.exit_code == 0
     assert "llama3.2" in result.output
     assert "ollama" in result.output
@@ -77,7 +77,7 @@ def test_add_llm_simple(load_cliver, init_config):
     result = CliRunner().invoke(
         load_cliver,
         [
-            "llm",
+            "model",
             "add",
             "--name",
             "deepseek",
@@ -91,7 +91,7 @@ def test_add_llm_simple(load_cliver, init_config):
     )
     assert result.exit_code == 0
     assert "Added LLM Model: deepseek" in result.output
-    result = CliRunner().invoke(load_cliver, ["llm", "list"])
+    result = CliRunner().invoke(load_cliver, ["model", "list"])
     assert result.exit_code == 0
     assert "deepseek" in result.output
     assert "ollama" in result.output
@@ -100,7 +100,7 @@ def test_add_llm_simple(load_cliver, init_config):
     result = CliRunner().invoke(
         load_cliver,
         [
-            "llm",
+            "model",
             "set",
             "--name",
             "deepseek",
@@ -112,15 +112,15 @@ def test_add_llm_simple(load_cliver, init_config):
     )
     assert result.exit_code == 0
     assert "LLM Model: deepseek updated" in result.output
-    result = CliRunner().invoke(load_cliver, ["llm", "list"])
+    result = CliRunner().invoke(load_cliver, ["model", "list"])
     assert result.exit_code == 0
     assert "deepseek" in result.output
     assert "vllm" in result.output
 
     # remove it
-    result = CliRunner().invoke(load_cliver, ["llm", "remove", "--name", "deepseek"])
+    result = CliRunner().invoke(load_cliver, ["model", "remove", "--name", "deepseek"])
     assert result.exit_code == 0
     assert "Removed LLM Model: deepseek" in result.output
-    result = CliRunner().invoke(load_cliver, ["llm", "list"])
+    result = CliRunner().invoke(load_cliver, ["model", "list"])
     assert result.exit_code == 0
     assert "No LLM Models configured." in result.output

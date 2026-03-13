@@ -177,3 +177,8 @@ TODO.md
 .vscode
 
 temp/
+.claude/
+.cliver/
+
+CLAUDE.md
+claude.prompt.txt

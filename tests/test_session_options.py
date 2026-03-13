@@ -19,7 +19,7 @@ def test_session_options_default_list(load_cliver, init_config, simple_llm_model
     result = runner.invoke(
         load_cliver,
         [
-            "llm",
+            "model",
             "add",
             "--name",
             "test-model",
@@ -81,7 +81,7 @@ def test_session_options_update_via_command(load_cliver, init_config, simple_llm
     result = runner.invoke(
         load_cliver,
         [
-            "llm",
+            "model",
             "add",
             "--name",
             "test-model",
@@ -166,7 +166,7 @@ def test_session_options_reset_command(load_cliver, init_config, simple_llm_mode
     result = runner.invoke(
         load_cliver,
         [
-            "llm",
+            "model",
             "add",
             "--name",
             "test-model",
@@ -254,7 +254,7 @@ def test_session_options_individual_updates(load_cliver, init_config, simple_llm
     result = runner.invoke(
         load_cliver,
         [
-            "llm",
+            "model",
             "add",
             "--name",
             "test-model",
