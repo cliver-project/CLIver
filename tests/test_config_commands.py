@@ -1,7 +1,6 @@
 """Comprehensive tests for all config, mcp, and llm commands after restructuring to top-level commands."""
 
-import json
-
+import yaml
 from click.testing import CliRunner
 
 
@@ -328,9 +327,9 @@ def test_config_file_format(load_cliver, init_config):
     )
 
     # Check the config file format
-    config_file = init_config / "config.json"
+    config_file = init_config / "config.yaml"
     with open(config_file, "r") as f:
-        config_data = json.load(f)
+        config_data = yaml.safe_load(f)
 
     # Verify no redundant name fields
     assert "test_stdio" in config_data["mcpServers"]

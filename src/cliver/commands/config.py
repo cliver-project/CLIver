@@ -1,4 +1,5 @@
 import click
+import yaml
 
 from cliver.cli import Cliver, pass_cliver
 
@@ -43,7 +44,13 @@ def show_config(cliver: Cliver):
     try:
         config_data = cliver.config_manager.config
         if config_data:
-            cliver.console.print_json(data=config_data.model_dump())
+            output = yaml.dump(
+                config_data.model_dump(),
+                default_flow_style=False,
+                sort_keys=False,
+                allow_unicode=True,
+            )
+            cliver.console.print(output)
         else:
             cliver.console.print("No configuration found.")
     except Exception as e:

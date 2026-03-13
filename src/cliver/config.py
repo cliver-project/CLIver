@@ -2,11 +2,11 @@
 Configuration module for Cliver client.
 """
 
-import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Union
 
+import yaml
 from pydantic import BaseModel, Field
 
 # Import model capabilities
@@ -163,7 +163,6 @@ class AppConfig(BaseModel):
 
 
 # TODO: support the configuration from others like from a k8s ConfigMap
-# TODO: shall we support yaml format as well ?
 
 
 class ConfigManager:
@@ -176,11 +175,11 @@ class ConfigManager:
             config_dir: Configuration directory
         """
         self.config_dir = config_dir
-        self.config_file = self.config_dir / "config.json"
+        self.config_file = self.config_dir / "config.yaml"
         self.config = self._load_config()
 
     def _load_config(self) -> AppConfig:
-        """Load configuration from file.
+        """Load configuration from YAML file.
 
         Returns:
             Cliver configuration
@@ -191,101 +190,84 @@ class ConfigManager:
 
         try:
             with open(self.config_file, "r") as f:
-                file_content = f.read()
-                # Check if the file is empty
-                if not file_content or not file_content.strip():
-                    return AppConfig()
-                config_data = json.loads(file_content)
+                config_data = yaml.safe_load(f)
 
-                # Ensure each ModelConfig has its name set from the key
-                if "models" in config_data and isinstance(config_data["models"], dict):
-                    for name, model in config_data["models"].items():
-                        if isinstance(model, dict):
-                            model["name"] = name
-                            # Handle capabilities deserialization
-                            if "capabilities" in model and model["capabilities"]:
-                                # Convert list of strings to set of ModelCapability enums
-                                try:
-                                    model["capabilities"] = {ModelCapability(cap) for cap in model["capabilities"]}
-                                except ValueError as e:
-                                    # we tolerate the bad capabilities configuration and just ignore it.
-                                    logger.warning(f"Warning: Invalid capability in model {name}: {e}")
-                                    model["capabilities"] = None
+            # safe_load returns None for empty files
+            if not config_data:
+                return AppConfig()
 
-                mcp_servers_data = config_data.get("mcpServers")
-                if mcp_servers_data and isinstance(mcp_servers_data, dict):
-                    converted_servers = {}
-                    for name, server in mcp_servers_data.items():
-                        if isinstance(server, dict):
-                            # Remove name from server dict to avoid
-                            # duplicate keyword argument
-                            server_dict = server.copy()
-                            server_dict.pop("name", None)
-                            transport = server_dict.get("transport")
-                            server_config = {"name": name, **server_dict}
-                            if transport == "stdio":
-                                # Convert dict to StdioMCPServerConfig
-                                converted_servers[name] = StdioMCPServerConfig(**server_config)
-                            elif transport == "sse":
-                                # Convert dict to SSEMCPServerConfig
-                                converted_servers[name] = SSEMCPServerConfig(**server_config)
-                            elif transport == "streamable_http":
-                                # Convert dict to StreamableHttpMCPServerConfig
-                                converted_servers[name] = StreamableHttpMCPServerConfig(**server_config)
-                            elif transport == "websocket":
-                                # Convert dict to WebSocketMCPServerConfig
-                                converted_servers[name] = WebSocketMCPServerConfig(**server_config)
-                            else:
-                                raise ValueError(f"Unknown transport {transport}")
-                    config_data["mcpServers"] = converted_servers
+            # Ensure each ModelConfig has its name set from the key
+            if "models" in config_data and isinstance(config_data["models"], dict):
+                for name, model in config_data["models"].items():
+                    if isinstance(model, dict):
+                        model["name"] = name
+                        # Handle capabilities deserialization
+                        if "capabilities" in model and model["capabilities"]:
+                            try:
+                                model["capabilities"] = {ModelCapability(cap) for cap in model["capabilities"]}
+                            except ValueError as e:
+                                logger.warning(f"Warning: Invalid capability in model {name}: {e}")
+                                model["capabilities"] = None
 
-                # Handle workflow configuration
-                if "workflow" in config_data and isinstance(config_data["workflow"], dict):
-                    # Convert dict to WorkflowConfig
-                    config_data["workflow"] = WorkflowConfig(**config_data["workflow"])
+            mcp_servers_data = config_data.get("mcpServers")
+            if mcp_servers_data and isinstance(mcp_servers_data, dict):
+                converted_servers = {}
+                for name, server in mcp_servers_data.items():
+                    if isinstance(server, dict):
+                        server_dict = server.copy()
+                        server_dict.pop("name", None)
+                        transport = server_dict.get("transport")
+                        server_config = {"name": name, **server_dict}
+                        if transport == "stdio":
+                            converted_servers[name] = StdioMCPServerConfig(**server_config)
+                        elif transport == "sse":
+                            converted_servers[name] = SSEMCPServerConfig(**server_config)
+                        elif transport == "streamable_http":
+                            converted_servers[name] = StreamableHttpMCPServerConfig(**server_config)
+                        elif transport == "websocket":
+                            converted_servers[name] = WebSocketMCPServerConfig(**server_config)
+                        else:
+                            raise ValueError(f"Unknown transport {transport}")
+                config_data["mcpServers"] = converted_servers
 
-                config = AppConfig(**config_data)
-                return config
+            # Handle workflow configuration
+            if "workflow" in config_data and isinstance(config_data["workflow"], dict):
+                config_data["workflow"] = WorkflowConfig(**config_data["workflow"])
+
+            return AppConfig(**config_data)
         except Exception as e:
-            # we don't want to tolerate this as it may lead to the whole configuration missing just because a blemish
             logger.error("Error loading configuration: %s", e, stack_info=True, exc_info=True)
             raise e
 
     def _save_config(self) -> None:
-        """Save configuration to file."""
+        """Save configuration to YAML file."""
         try:
             if not self.config_dir.exists():
                 self.config_dir.mkdir(parents=True, exist_ok=True)
 
-            # Use the AppConfig's model_dump method which excludes null values
             config_data = self.config.model_dump()
 
-            # Handle MCP servers serialization to preserve all fields and
-            # exclude redundant name
+            # Handle MCP servers serialization — use each server's model_dump
+            # to exclude redundant name field
             if "mcpServers" in config_data:
                 serialized_servers = {}
                 for name, server in self.config.mcpServers.items():
-                    # Use the server's own model_dump to preserve all fields
-                    # and exclude redundant name
                     serialized_servers[name] = server.model_dump()
                 config_data["mcpServers"] = serialized_servers
 
-            # Handle models serialization to exclude redundant name
+            # Handle models serialization — exclude redundant name field
             if "models" in config_data:
                 serialized_models = {}
                 for name, model in self.config.models.items():
-                    # Use the model's own model_dump to preserve all fields
-                    # and exclude redundant name
                     serialized_models[name] = model.model_dump()
                 config_data["models"] = serialized_models
 
             # Handle workflow configuration serialization
             if "workflow" in config_data and self.config.workflow:
-                # Use the workflow config's own model_dump
                 config_data["workflow"] = self.config.workflow.model_dump()
 
             with open(self.config_file, "w") as f:
-                json.dump(config_data, f, indent=4, sort_keys=True)
+                yaml.dump(config_data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
         except Exception as e:
             logger.error("Error saving configuration: %s", e)
