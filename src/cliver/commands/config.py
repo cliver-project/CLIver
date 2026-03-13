@@ -43,7 +43,7 @@ def show_config(cliver: Cliver):
     try:
         config_data = cliver.config_manager.config
         if config_data:
-            cliver.console.print_json(data=config_data)
+            cliver.console.print_json(data=config_data.model_dump())
         else:
             cliver.console.print("No configuration found.")
     except Exception as e:
