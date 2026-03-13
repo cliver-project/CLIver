@@ -567,7 +567,12 @@ class TaskExecutor:
         confirm_tool_exec: bool,
         tool_error_check: Optional[Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]],
     ) -> Tuple[bool, str | None]:
-        """Execute tool calls and return a Tuple with sent bool and result."""
+        """Execute tool calls and return a Tuple with sent bool and result.
+
+        Tool execution errors are sent back to the LLM as ToolMessage responses
+        so it can self-correct (e.g., fix arguments, try a different tool).
+        Only user cancellation or fatal exceptions stop the agent loop.
+        """
         try:
             for tool_call in tool_calls:
                 mcp_server = tool_call["mcp_server"]
@@ -575,19 +580,18 @@ class TaskExecutor:
                 args = tool_call["args"]
                 tool_call_id = tool_call["tool_call_id"]
                 full_tool_name = f"{mcp_server}#{tool_name}" if mcp_server else f"{tool_name}"
-                # default we don't care about confirmation and just run the tool
-                proceed = True
+
+                # User confirmation gate
                 if confirm_tool_exec:
-                    proceed = _confirm_tool_execution(f"This will execute tool: {full_tool_name}")
-                if not proceed:
-                    return True, f"Stopped at tool execution: {tool_call}"
+                    if not _confirm_tool_execution(f"This will execute tool: {full_tool_name}"):
+                        return True, f"Stopped at tool execution: {tool_call}"
 
                 # Append the tool execution to messages using AIMessage with tool_calls
                 tool_execution_message = AIMessage(
-                    content="",  # Empty content as this is a tool call
+                    content="",
                     tool_calls=[
                         {
-                            "name": f"{full_tool_name}",
+                            "name": full_tool_name,
                             "args": args,
                             "id": tool_call_id,
                             "type": "tool_call",
@@ -595,41 +599,60 @@ class TaskExecutor:
                     ],
                 )
                 messages.append(tool_execution_message)
-                tool_result = None
-                if not mcp_server or mcp_server == "" or mcp_server == "builtin":
-                    # should be builtin tools, so we search the tool object and call that.
-                    tool_result = tool_registry.execute_tool(tool_name, args)
-                else:
-                    tool_result = await retry_with_confirmation_async(
-                        self.mcp_caller.call_mcp_server_tool,
-                        mcp_server,
-                        tool_name,
-                        args,
-                        confirm_on_retry=False,
-                    )
 
-                # Format the tool result properly for ToolMessage
-                if isinstance(tool_result, list) and len(tool_result) > 0:
-                    first_result = tool_result[0]
-                    if isinstance(first_result, dict) and "text" in first_result:
-                        tool_result_content = first_result["text"]
-                    else:
-                        tool_result_content = str(tool_result)
-                else:
-                    tool_result_content = str(tool_result)
+                # Execute the tool and capture the result
+                tool_result = await self._execute_single_tool(mcp_server, tool_name, args, full_tool_name)
+
+                # Format and append result as ToolMessage
+                tool_result_content = _format_tool_result(tool_result)
                 messages.append(ToolMessage(content=tool_result_content, tool_call_id=tool_call_id))
-                if not tool_error_check:
-                    tool_error_check = _tool_error_check_internal
-                error, tool_error_message = tool_error_check(tool_name, tool_result)
-                if error:
-                    messages.append(AIMessage(content=tool_error_message))
-                    return error, tool_error_message
-            # all good, messages have been updated, go on with next iteration
+
+                # Check for errors — but send them back to the LLM instead of stopping
+                error_checker = tool_error_check or _tool_error_check_internal
+                has_error, error_msg = error_checker(tool_name, tool_result)
+                if has_error:
+                    # Log the error but don't stop — let the LLM see the error
+                    # in the ToolMessage and decide how to proceed
+                    logger.warning(f"Tool '{full_tool_name}' returned error: {error_msg}")
+
+            # All tool calls processed, continue to next LLM iteration
             return False, "Tool calls executed successfully"
         except Exception as e:
             logger.error(f"Error processing tool call: {str(e)}", exc_info=True)
             friendly_error_msg = get_friendly_error_message(e, "Tool call processing")
             return True, friendly_error_msg
+
+    async def _execute_single_tool(
+        self,
+        mcp_server: str,
+        tool_name: str,
+        args: Dict[str, Any],
+        full_tool_name: str,
+    ) -> List[Dict[str, Any]]:
+        """Execute a single tool call, returning a result list.
+
+        Handles tool-not-found with suggestions and wraps execution
+        exceptions as error results so the LLM can recover.
+        """
+        try:
+            if not mcp_server or mcp_server == "" or mcp_server == "builtin":
+                # Check if tool exists before executing
+                tool = tool_registry.get_tool_by_name(tool_name)
+                if tool is None:
+                    suggestion = _suggest_similar_tool(tool_name, tool_registry.tool_names)
+                    return [{"error": f"Tool '{tool_name}' not found.{suggestion}"}]
+                return tool_registry.execute_tool(tool_name, args)
+            else:
+                return await retry_with_confirmation_async(
+                    self.mcp_caller.call_mcp_server_tool,
+                    mcp_server,
+                    tool_name,
+                    args,
+                    confirm_on_retry=False,
+                )
+        except Exception as e:
+            logger.error(f"Exception executing tool '{full_tool_name}': {e}", exc_info=True)
+            return [{"error": f"Tool execution failed: {e}"}]
 
     async def _stream_messages(
         self,
@@ -711,14 +734,58 @@ class TaskExecutor:
         yield AIMessageChunk(content="Reached maximum number of iterations without a final answer.")
 
 
+def _format_tool_result(tool_result: list) -> str:
+    """Format tool result list into a string for ToolMessage content."""
+    if isinstance(tool_result, list) and len(tool_result) > 0:
+        first_result = tool_result[0]
+        if isinstance(first_result, dict):
+            # Error results: include the error message clearly
+            if "error" in first_result:
+                return f"Error: {first_result['error']}"
+            if "text" in first_result:
+                return first_result["text"]
+            if "tool_result" in first_result:
+                return first_result["tool_result"]
+        return str(tool_result)
+    return str(tool_result) if tool_result else "(no output)"
+
+
 def _tool_error_check_internal(tool_name: str, mcp_tool_result: list[Dict[str, Any]]) -> Tuple[bool, str | None]:
-    if any("error" in r for r in mcp_tool_result):
-        return (
-            True,
-            f"Error calling tool {tool_name}: {mcp_tool_result[0].get('error')}, you may "
-            f"need to check the tool arguments and run it again.",
-        )
+    """Check if a tool result contains errors. Returns (has_error, error_message)."""
+    if not isinstance(mcp_tool_result, list):
+        return False, None
+    for result in mcp_tool_result:
+        if isinstance(result, dict) and "error" in result:
+            return (
+                True,
+                f"Tool '{tool_name}' error: {result['error']}",
+            )
     return False, None
+
+
+def _suggest_similar_tool(tool_name: str, available_names: list, max_suggestions: int = 3) -> str:
+    """Suggest similar tool names using simple edit distance."""
+    if not available_names:
+        return ""
+
+    # Score by common subsequence length (simple but effective)
+    scored = []
+    target = tool_name.lower()
+    for name in available_names:
+        candidate = name.lower()
+        # Count matching characters in order
+        common = sum(1 for c in target if c in candidate)
+        # Penalise length difference
+        score = common - abs(len(target) - len(candidate))
+        scored.append((score, name))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    top = [name for score, name in scored[:max_suggestions] if score > 0]
+
+    if top:
+        suggestions = ", ".join(f"'{n}'" for n in top)
+        return f" Did you mean: {suggestions}?"
+    return ""
 
 
 def _confirm_tool_execution(prompt="Are you sure? (y/n): ") -> bool:
