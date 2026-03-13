@@ -18,6 +18,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from cliver import __version__, commands
+from cliver.cli_tool_progress import create_tool_progress_handler
 from cliver.config import ConfigManager
 from cliver.constants import CMD_CHAT
 from cliver.llm import TaskExecutor
@@ -40,12 +41,14 @@ class Cliver:
         if dir_str not in sys.path:
             sys.path.append(dir_str)
         self.config_manager = ConfigManager(self.config_dir)
+        self.console = Console()
         self.task_executor = TaskExecutor(
             llm_models=self.config_manager.list_llm_models(),
             mcp_servers=self.config_manager.list_mcp_servers_for_mcp_caller(),
             default_model=self.config_manager.get_llm_model().name if self.config_manager.get_llm_model() else None,
             user_agent=self.config_manager.config.user_agent,
             agent_name=self.config_manager.config.agent_name,
+            on_tool_event=create_tool_progress_handler(self.console),
         )
 
         # Initialize workflow components
@@ -60,7 +63,6 @@ class Cliver:
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.history_path = self.config_dir / "history"
         self.session = None
-        self.console = Console()
         self.piped = stdin_is_piped()
         # Session options that persist across chat commands in interactive mode
         self.session_options = {}

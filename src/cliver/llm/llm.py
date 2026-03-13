@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from typing import (
     Any,
     AsyncIterator,
@@ -33,6 +34,7 @@ from cliver.mcp_server_caller import MCPServersCaller
 from cliver.media import load_media_file
 from cliver.model_capabilities import ModelCapability
 from cliver.prompt_enhancer import apply_skill_sets_and_template
+from cliver.tool_events import ToolEvent, ToolEventHandler, ToolEventType
 from cliver.tool_registry import ToolRegistry
 from cliver.util import read_context_files, retry_with_confirmation_async
 
@@ -96,13 +98,23 @@ class TaskExecutor:
         default_model: Optional[str] = None,
         user_agent: Optional[str] = None,
         agent_name: str = "CLIver",
+        on_tool_event: Optional[ToolEventHandler] = None,
     ):
         self.llm_models = llm_models
         self.default_model = default_model
         self.user_agent = user_agent
         self.agent_name = agent_name
+        self.on_tool_event = on_tool_event
         self.mcp_caller = MCPServersCaller(mcp_servers=mcp_servers)
         self.llm_engines: Dict[str, LLMInferenceEngine] = {}
+
+    def _emit_tool_event(self, event: ToolEvent) -> None:
+        """Emit a tool event to the registered handler, if any."""
+        if self.on_tool_event:
+            try:
+                self.on_tool_event(event)
+            except Exception as e:
+                logger.debug(f"Tool event handler error: {e}")
 
     def get_mcp_caller(self) -> MCPServersCaller:
         return self.mcp_caller
@@ -624,20 +636,49 @@ class TaskExecutor:
                 )
                 messages.append(tool_execution_message)
 
+                # Emit start event
+                self._emit_tool_event(
+                    ToolEvent(
+                        event_type=ToolEventType.TOOL_START,
+                        tool_name=full_tool_name,
+                        tool_call_id=tool_call_id,
+                        args=args,
+                    )
+                )
+
                 # Execute the tool and capture the result
+                start_time = time.monotonic()
                 tool_result = await self._execute_single_tool(mcp_server, tool_name, args, full_tool_name)
+                duration_ms = (time.monotonic() - start_time) * 1000
 
                 # Format and append result as ToolMessage
                 tool_result_content = _format_tool_result(tool_result)
                 messages.append(ToolMessage(content=tool_result_content, tool_call_id=tool_call_id))
 
-                # Check for errors — but send them back to the LLM instead of stopping
+                # Check for errors and emit appropriate event
                 error_checker = tool_error_check or _tool_error_check_internal
                 has_error, error_msg = error_checker(tool_name, tool_result)
                 if has_error:
-                    # Log the error but don't stop — let the LLM see the error
-                    # in the ToolMessage and decide how to proceed
                     logger.warning(f"Tool '{full_tool_name}' returned error: {error_msg}")
+                    self._emit_tool_event(
+                        ToolEvent(
+                            event_type=ToolEventType.TOOL_ERROR,
+                            tool_name=full_tool_name,
+                            tool_call_id=tool_call_id,
+                            error=error_msg,
+                            duration_ms=duration_ms,
+                        )
+                    )
+                else:
+                    self._emit_tool_event(
+                        ToolEvent(
+                            event_type=ToolEventType.TOOL_END,
+                            tool_name=full_tool_name,
+                            tool_call_id=tool_call_id,
+                            result=tool_result_content[:200],  # truncate for display
+                            duration_ms=duration_ms,
+                        )
+                    )
 
             # All tool calls processed, continue to next LLM iteration
             return False, "Tool calls executed successfully"
