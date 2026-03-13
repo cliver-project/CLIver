@@ -146,7 +146,7 @@ class TaskExecutor:
         video_files: List[str] = None,
         files: List[str] = None,  # General files for tools like code interpreter
         max_iterations: int = 10,
-        confirm_tool_exec: bool = False,
+        confirm_tool_exec: Optional[Callable[[str], bool]] = None,
         model: str = None,
         system_message_appender: Optional[Callable[[], str]] = None,
         filter_tools: Optional[Callable[[str, list[BaseTool]], Awaitable[list[BaseTool]]]] = None,
@@ -186,7 +186,7 @@ class TaskExecutor:
         video_files: List[str] = None,
         files: List[str] = None,  # General files for tools like code interpreter
         max_iterations: int = 10,
-        confirm_tool_exec: bool = False,
+        confirm_tool_exec: Optional[Callable[[str], bool]] = None,
         model: str = None,
         system_message_appender: Optional[Callable[[], str]] = None,
         filter_tools: Optional[Callable[[str, list[BaseTool]], Awaitable[list[BaseTool]]]] = None,
@@ -206,7 +206,8 @@ class TaskExecutor:
             video_files (List[str]): List of video file paths to send with the message.
             files (List[str]): List of general file paths to upload for tools like code interpreter.
             max_iterations (int): The maximum number of iterations.
-            confirm_tool_exec(bool): Ask for confirmation on tool execution.
+            confirm_tool_exec: Optional callback for tool execution confirmation. Receives a prompt
+                              string, returns True to proceed or False to cancel. None = no confirmation.
             model (str): The model to use, the default one will be used if not specified.
             system_message_appender: The system message appender function.
             filter_tools: The function that filters tool calls.
@@ -459,7 +460,7 @@ class TaskExecutor:
         video_files: List[str] = None,
         files: List[str] = None,  # General files for tools like code interpreter
         max_iterations: int = 10,
-        confirm_tool_exec: bool = False,
+        confirm_tool_exec: Optional[Callable[[str], bool]] = None,
         model: str = None,
         system_message_appender: Optional[Callable[[], str]] = None,
         filter_tools: Optional[Callable[[str, list[BaseTool]], Awaitable[list[BaseTool]]]] = None,
@@ -479,7 +480,8 @@ class TaskExecutor:
             video_files (List[str]): List of video file paths to send with the message.
             files (List[str]): List of general file paths to upload for tools like code interpreter.
             max_iterations (int): The maximum number of iterations.
-            confirm_tool_exec(bool): Ask for confirmation on tool execution.
+            confirm_tool_exec: Optional callback for tool execution confirmation. Receives a prompt
+                              string, returns True to proceed or False to cancel. None = no confirmation.
             model (str): The model to use, the default one will be used if not specified.
             system_message_appender: The system message appender function.
             filter_tools: The function that filters tool calls.
@@ -534,7 +536,7 @@ class TaskExecutor:
         max_iterations: int,
         current_iteration: int,
         mcp_tools: list[BaseTool],
-        confirm_tool_exec: bool,
+        confirm_tool_exec: Optional[Callable[[str], bool]],
         tool_error_check: Optional[Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]] = None,
         options: Dict[str, Any] = None,
     ) -> BaseMessage:
@@ -581,7 +583,7 @@ class TaskExecutor:
         self,
         tool_calls: List[Dict],
         messages: List[BaseMessage],
-        confirm_tool_exec: bool,
+        confirm_tool_exec: Optional[Callable[[str], bool]],
         tool_error_check: Optional[Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]],
     ) -> Tuple[bool, str | None]:
         """Execute tool calls and return a Tuple with sent bool and result.
@@ -589,6 +591,11 @@ class TaskExecutor:
         Tool execution errors are sent back to the LLM as ToolMessage responses
         so it can self-correct (e.g., fix arguments, try a different tool).
         Only user cancellation or fatal exceptions stop the agent loop.
+
+        Args:
+            confirm_tool_exec: Optional callback that receives a prompt string
+                and returns True to proceed or False to cancel.
+                When None, tools run without confirmation.
         """
         try:
             for tool_call in tool_calls:
@@ -599,8 +606,8 @@ class TaskExecutor:
                 full_tool_name = f"{mcp_server}#{tool_name}" if mcp_server else f"{tool_name}"
 
                 # User confirmation gate
-                if confirm_tool_exec:
-                    if not _confirm_tool_execution(f"This will execute tool: {full_tool_name}"):
+                if confirm_tool_exec is not None:
+                    if not confirm_tool_exec(f"Execute tool: {full_tool_name}? (y/n): "):
                         return True, f"Stopped at tool execution: {tool_call}"
 
                 # Append the tool execution to messages using AIMessage with tool_calls
@@ -679,7 +686,7 @@ class TaskExecutor:
         max_iterations: int,
         current_iteration: int,
         mcp_tools: list[BaseTool],
-        confirm_tool_exec: bool,
+        confirm_tool_exec: Optional[Callable[[str], bool]],
         tool_error_check: Optional[Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]],
         options: Dict[str, Any] = None,
     ) -> AsyncIterator[BaseMessageChunk]:
@@ -828,9 +835,18 @@ def _suggest_similar_tool(tool_name: str, available_names: list, max_suggestions
     return ""
 
 
-def _confirm_tool_execution(prompt="Are you sure? (y/n): ") -> bool:
+def default_confirm_tool_execution(prompt: str) -> bool:
+    """Default CLI-based tool execution confirmation via stdin.
+
+    This is the default implementation used when no custom callback
+    is provided. API consumers should provide their own callback
+    to avoid stdin dependency.
+    """
     while True:
-        response = input(prompt).strip().lower()
+        try:
+            response = input(prompt).strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            return False
         if response in ["y", "yes"]:
             return True
         elif response in ["n", "no"]:
