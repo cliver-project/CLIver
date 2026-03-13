@@ -39,6 +39,10 @@ from cliver.util import read_context_files, retry_with_confirmation_async
 # Create a logger for this module
 logger = logging.getLogger(__name__)
 
+# Maximum consecutive tool error iterations before stopping the Re-Act loop.
+# This prevents infinite loops where the LLM keeps calling the same broken tool.
+MAX_CONSECUTIVE_ERRORS = 3
+
 
 def create_llm_engine(model: ModelConfig, user_agent: str = None) -> Optional[LLMInferenceEngine]:
     if model.provider == "ollama":
@@ -533,14 +537,13 @@ class TaskExecutor:
         """Handle processing messages with tool calling using a while loop."""
 
         iteration = current_iteration
+        consecutive_errors = 0
         while iteration < max_iterations:
-            # keeps inferencing unless max_iterations exceeded
             options = options or {}
             response = await llm_engine.infer(messages, mcp_tools, **options)
             logger.debug(f"LLM response: {response}")
             tool_calls = llm_engine.parse_tool_calls(response, model)
             if tool_calls:
-                # as long as there is tool execution, the result will be sent back unless a fatal error happens
                 stop, result = await self._execute_tool_calls(
                     tool_calls,
                     messages,
@@ -549,10 +552,20 @@ class TaskExecutor:
                 )
                 if stop:
                     return AIMessage(content=result)
+
+                # Track consecutive error iterations to detect error loops
+                if _has_tool_errors(tool_calls, messages):
+                    consecutive_errors += 1
+                    if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                        return AIMessage(
+                            content="Stopping: tool calls failed repeatedly. "
+                            "Please check the tool arguments or try a different approach."
+                        )
                 else:
-                    # If sent is False, continue processing messages
-                    iteration += 1
-                    continue
+                    consecutive_errors = 0
+
+                iteration += 1
+                continue
             # If no tool calls, return the response
             return response
 
@@ -668,6 +681,7 @@ class TaskExecutor:
     ) -> AsyncIterator[BaseMessageChunk]:
         """Handle streaming messages with tool calling."""
         iteration = current_iteration
+        consecutive_errors = 0
 
         # keeps streaming unless got the final answer
         while iteration < max_iterations:
@@ -712,18 +726,28 @@ class TaskExecutor:
 
             # If we found tool calls, execute them and continue after emitting the chunks
             if tool_calls:
-                # Execute tool calls
                 stop, result = await self._execute_tool_calls(tool_calls, messages, confirm_tool_exec, tool_error_check)
                 if stop:
-                    # If we need to stop, yield the result as a message
                     if result:
                         # noinspection PyArgumentList
                         yield AIMessageChunk(content=result)
                     return
+
+                # Track consecutive error iterations to detect error loops
+                if _has_tool_errors(tool_calls, messages):
+                    consecutive_errors += 1
+                    if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                        # noinspection PyArgumentList
+                        yield AIMessageChunk(
+                            content="Stopping: tool calls failed repeatedly. "
+                            "Please check the tool arguments or try a different approach."
+                        )
+                        return
                 else:
-                    # Continue processing with the updated messages
-                    iteration += 1
-                    continue  # Continue to next iteration
+                    consecutive_errors = 0
+
+                iteration += 1
+                continue
             else:
                 # No tool calls found, we're done with this iteration
                 # If we reached here, the response is complete
@@ -732,6 +756,18 @@ class TaskExecutor:
         # If we've reached max iterations
         # noinspection PyArgumentList
         yield AIMessageChunk(content="Reached maximum number of iterations without a final answer.")
+
+
+def _has_tool_errors(tool_calls: List[Dict], messages: List[BaseMessage]) -> bool:
+    """Check if the most recent tool results in messages contain errors."""
+    # Look at the last N ToolMessages (matching the tool_calls count)
+    tool_msg_count = len(tool_calls)
+    recent_tool_msgs = [m for m in messages[-tool_msg_count * 2 :] if isinstance(m, ToolMessage)]
+    if not recent_tool_msgs:
+        return False
+    return any(
+        isinstance(m.content, str) and m.content.startswith("Error:") for m in recent_tool_msgs[-tool_msg_count:]
+    )
 
 
 def _format_tool_result(tool_result: list) -> str:
