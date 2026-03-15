@@ -81,7 +81,7 @@ class LLMStep(BaseStep):
     audio_files: Optional[List[str]] = Field(None, description="Audio files to send with the message")
     video_files: Optional[List[str]] = Field(None, description="Video files to send with the message")
     files: Optional[List[str]] = Field(None, description="General files to upload for tools")
-    skill_sets: Optional[List[str]] = Field(None, description="Skill sets to apply")
+    # skill_sets removed — skills are now LLM-driven via the builtin skill tool
     template: Optional[str] = Field(None, description="Template to use for the prompt")
     params: Optional[Dict[str, Any]] = Field(None, description="Parameters for skill sets and templates")
 

@@ -30,6 +30,7 @@ CORE_TOOLS: Set[str] = {
     "run_shell_command",
     "todo_write",
     "ask_user_question",
+    "skill",
 }
 
 

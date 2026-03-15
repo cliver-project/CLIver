@@ -47,7 +47,6 @@ def test_session_options_default_list(load_cliver, init_config, simple_llm_model
         "top_p": default_options.top_p,
         "frequency_penalty": default_options.frequency_penalty,
         "options": {},
-        "skill_sets": [],
         "template": None,
         "stream": False,
         "save_media": False,
@@ -109,7 +108,6 @@ def test_session_options_update_via_command(load_cliver, init_config, simple_llm
         "top_p": default_options.top_p,
         "frequency_penalty": default_options.frequency_penalty,
         "options": {},
-        "skill_sets": [],
         "template": None,
         "stream": False,
         "save_media": False,
@@ -128,8 +126,6 @@ def test_session_options_update_via_command(load_cliver, init_config, simple_llm
             "test-model",
             "--temperature",
             "0.8",  # Use 0.8 which differs from default of 0.7
-            "--skill-set",
-            "code_review",
             "--stream",
             "--option",
             "presence_penalty=0.5",
@@ -144,7 +140,6 @@ def test_session_options_update_via_command(load_cliver, init_config, simple_llm
     assert result.exit_code == 0
     # Check that main options are visible in output
     assert "test-model" in result.output
-    assert "code_review" in result.output
     assert "True" in result.output or "stream: True" in result.output
     # Temperature (0.8) and presence_penalty=0.5 should be stored in options dict
     # The options dict should appear if it's not empty
@@ -194,7 +189,6 @@ def test_session_options_reset_command(load_cliver, init_config, simple_llm_mode
         "top_p": default_options.top_p,
         "frequency_penalty": default_options.frequency_penalty,
         "options": {},
-        "skill_sets": [],
         "template": None,
         "stream": False,
         "save_media": False,
@@ -213,8 +207,6 @@ def test_session_options_reset_command(load_cliver, init_config, simple_llm_mode
             "test-model",
             "--temperature",
             "0.8",  # Use 0.8 which differs from default of 0.7
-            "--skill-set",
-            "code_review",
             "--stream",
         ],
         obj=cliver_instance,
@@ -226,9 +218,6 @@ def test_session_options_reset_command(load_cliver, init_config, simple_llm_mode
     result = runner.invoke(load_cliver, ["session", "--list"], obj=cliver_instance)
     assert result.exit_code == 0
     assert "test-model" in result.output
-    assert "code_review" in result.output
-    # Similar to above, temperature might be in options dict
-    # Check that the main options we set are visible
 
     # Now reset
     result = runner.invoke(load_cliver, ["session", "--reset"], obj=cliver_instance)
@@ -238,8 +227,7 @@ def test_session_options_reset_command(load_cliver, init_config, simple_llm_mode
     # Verify reset by listing
     result = runner.invoke(load_cliver, ["session", "--list"], obj=cliver_instance)
     assert result.exit_code == 0
-    # Note: stream: False won't be displayed as it's falsy, so just check that "code_review" is no longer there
-    assert "code_review" not in result.output  # skill_sets should be reset to []
+    # After reset, non-default values should be gone
 
     print("✓ Session options can be reset correctly via command")
 
@@ -282,7 +270,6 @@ def test_session_options_individual_updates(load_cliver, init_config, simple_llm
         "top_p": default_options.top_p,
         "frequency_penalty": default_options.frequency_penalty,
         "options": {},
-        "skill_sets": [],
         "template": None,
         "stream": False,
         "save_media": False,
@@ -316,11 +303,6 @@ def test_session_options_individual_updates(load_cliver, init_config, simple_llm
     result = runner.invoke(load_cliver, ["session", "--frequency-penalty", "0.3"], obj=cliver_instance)
     assert result.exit_code == 0
     assert "Set frequency_penalty to 0.3" in result.output
-
-    # Test skill-set update
-    result = runner.invoke(load_cliver, ["session", "--skill-set", "debugging"], obj=cliver_instance)
-    assert result.exit_code == 0
-    assert "Set skill_sets to ['debugging']" in result.output
 
     # Test template update
     result = runner.invoke(load_cliver, ["session", "--template", "code"], obj=cliver_instance)
@@ -380,7 +362,6 @@ def test_session_options_additional_options(load_cliver, init_config, simple_llm
         "top_p": default_options.top_p,
         "frequency_penalty": default_options.frequency_penalty,
         "options": {},
-        "skill_sets": [],
         "template": None,
         "stream": False,
         "save_media": False,
@@ -429,7 +410,6 @@ def test_session_options_display(load_cliver, init_config, simple_llm_model):
         "top_p": default_options.top_p,
         "frequency_penalty": default_options.frequency_penalty,
         "options": {},
-        "skill_sets": [],
         "template": None,
         "stream": False,
         "save_media": False,

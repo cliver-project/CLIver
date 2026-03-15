@@ -58,9 +58,6 @@ class LLMStepExecutor(StepExecutor):
                 if self.step.video_files
                 else [],
                 "files": [self.resolve_variable(file, context) for file in self.step.files] if self.step.files else [],
-                "skill_sets": [self.resolve_variable(skill, context) for skill in self.step.skill_sets]
-                if self.step.skill_sets
-                else [],
                 "template": self.resolve_variable(self.step.template, context) if self.step.template else None,
                 "params": {k: self.resolve_variable(v, context) for k, v in self.step.params.items()}
                 if self.step.params

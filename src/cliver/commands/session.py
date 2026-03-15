@@ -45,12 +45,6 @@ LLM_OPTIONS_KEYS: list[str] = [
     help="Set frequency penalty for the LLM",
 )
 @click.option(
-    "--skill-set",
-    "-ss",
-    multiple=True,
-    help="Set skill sets to apply for this session",
-)
-@click.option(
     "--template",
     "-t",
     type=str,
@@ -120,7 +114,6 @@ def session(
     max_tokens,
     top_p,
     frequency_penalty,
-    skill_set,
     template,
     stream,
     no_stream,
@@ -152,7 +145,6 @@ def session(
             "top_p": default_options.top_p,
             "frequency_penalty": default_options.frequency_penalty,
             "options": {},
-            "skill_sets": [],
             "template": None,
             "stream": False,
             "save_media": False,
@@ -184,7 +176,6 @@ def session(
             max_tokens is not None,
             top_p is not None,
             frequency_penalty is not None,
-            len(skill_set) > 0,
             template is not None,
             stream is not None,
             no_stream is not None,
@@ -234,10 +225,6 @@ def session(
     if frequency_penalty is not None:
         _llm_options["frequency_penalty"] = frequency_penalty
         click.echo(f"Set frequency_penalty to {frequency_penalty} for this session.")
-
-    if len(skill_set) > 0:
-        cliver.session_options["skill_sets"] = list(skill_set)
-        click.echo(f"Set skill_sets to {list(skill_set)} for this session.")
 
     if template is not None:
         cliver.session_options["template"] = template

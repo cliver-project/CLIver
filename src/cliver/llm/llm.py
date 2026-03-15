@@ -33,7 +33,7 @@ from cliver.llm.openai_engine import OpenAICompatibleInferenceEngine
 from cliver.mcp_server_caller import MCPServersCaller
 from cliver.media import load_media_file
 from cliver.model_capabilities import ModelCapability
-from cliver.prompt_enhancer import apply_skill_sets_and_template
+from cliver.prompt_enhancer import apply_template
 from cliver.tool_events import ToolEvent, ToolEventHandler, ToolEventType
 from cliver.tool_registry import ToolRegistry
 from cliver.util import read_context_files, retry_with_confirmation_async
@@ -164,7 +164,6 @@ class TaskExecutor:
         filter_tools: Optional[Callable[[str, list[BaseTool]], Awaitable[list[BaseTool]]]] = None,
         enhance_prompt: Optional[Callable[[str, MCPServersCaller], Awaitable[list[BaseMessage]]]] = None,
         tool_error_check: Optional[Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]] = None,
-        skill_sets: List[str] = None,
         template: Optional[str] = None,
         params: dict = None,
         options: Dict[str, Any] = None,
@@ -183,7 +182,6 @@ class TaskExecutor:
                 filter_tools,
                 enhance_prompt,
                 tool_error_check,
-                skill_sets,
                 template,
                 params,
                 options,
@@ -204,7 +202,6 @@ class TaskExecutor:
         filter_tools: Optional[Callable[[str, list[BaseTool]], Awaitable[list[BaseTool]]]] = None,
         enhance_prompt: Optional[Callable[[str, MCPServersCaller], Awaitable[list[BaseMessage]]]] = None,
         tool_error_check: Optional[Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]] = None,
-        skill_sets: List[str] = None,
         template: Optional[str] = None,
         params: dict = None,
         options: Dict[str, Any] = None,
@@ -227,9 +224,8 @@ class TaskExecutor:
                            that reads Cliver.md for context.
             tool_error_check: The function that checks tool errors. The returned string will be the tool error message
                               sent back to LLM if the first returned value is True.
-            skill_sets: List of skill set names to apply.
             template: Template name to apply.
-            params: Parameters for skill sets and templates.
+            params: Parameters for templates.
             options: Dictionary of additional options to override LLM configurations.
         """
 
@@ -247,7 +243,6 @@ class TaskExecutor:
             audio_files,
             video_files,
             files,
-            skill_sets,
             template,
             params,
         )
@@ -278,7 +273,6 @@ class TaskExecutor:
         audio_files=None,
         video_files=None,
         files=None,  # General files for tools like code interpreter
-        skill_sets=None,
         template=None,
         params=None,
     ):
@@ -323,19 +317,9 @@ class TaskExecutor:
         if _builtin_tools:
             llm_tools.extend(_builtin_tools)
 
-        # Apply skill sets and templates if provided
-        skill_set_tools: List[BaseTool] = []
-        if skill_sets or template:
-            messages, skill_set_tools = apply_skill_sets_and_template(
-                user_input, messages, skill_sets, template, params
-            )
-
-        if skill_set_tools and len(skill_set_tools) > 0:
-            # TODO: Convert skill_set_tools to BaseTool objects and append to the tools to be sent to LLM
-            # the skill_set_tools are always used because it comes from skill set bound to the request
-            llm_tools.extend(skill_set_tools)
-            # For now, we'll just log that we have skill set tools
-            logger.info(f"Skill set tools to include: {skill_set_tools}")
+        # Apply template if provided
+        if template:
+            messages = apply_template(user_input, messages, template, params)
 
         # Apply user-provided enhancement function if provided
         if enhance_prompt:
@@ -478,7 +462,6 @@ class TaskExecutor:
         filter_tools: Optional[Callable[[str, list[BaseTool]], Awaitable[list[BaseTool]]]] = None,
         enhance_prompt: Optional[Callable[[str, MCPServersCaller], Awaitable[list[BaseMessage]]]] = None,
         tool_error_check: Optional[Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]] = None,
-        skill_sets: List[str] = None,
         template: Optional[str] = None,
         params: dict = None,
         options: Dict[str, Any] = None,
@@ -501,9 +484,8 @@ class TaskExecutor:
                            that reads Cliver.md for context.
             tool_error_check: The function that checks tool errors. The returned string will be the tool error message
                               sent back to LLM if the first returned value is True.
-            skill_sets: List of skill set names to apply.
             template: Template name to apply.
-            params: Parameters for skill sets and templates.
+            params: Parameters for templates.
             options: Additional options for LLM inference that can override what the ModelConfig is defined.
         """
 
@@ -521,7 +503,6 @@ class TaskExecutor:
             audio_files,
             video_files,
             files,
-            skill_sets,
             template,
             params,
         )
