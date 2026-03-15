@@ -1,12 +1,10 @@
 """
-Workflow Executor for Cliver Workflow Engine.
+Workflow Executor for CLIver Workflow Engine.
 
-This module provides a high-level interface for workflow execution operations.
+Simplified pure-async executor — no threading locks.
 """
 
-import asyncio
 import logging
-import threading
 import time
 import uuid
 from typing import Any, Dict, Optional
@@ -23,8 +21,6 @@ from cliver.workflow.steps.workflow_step import WorkflowStepExecutor
 from cliver.workflow.workflow_manager_base import WorkflowManager
 from cliver.workflow.workflow_models import (
     ExecutionContext,
-    OnErrorAction,
-    StepExecutionInfo,
     StepType,
     WorkflowExecutionState,
 )
@@ -33,9 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 class WorkflowExecutor:
-    """
-    Thread-safe WorkflowExecutor is the main entry point for workflow execution locally.
-    """
+    """Execute workflows — the main entry point for workflow execution."""
 
     def __init__(
         self,
@@ -44,21 +38,10 @@ class WorkflowExecutor:
         persistence_provider: Optional[PersistenceProvider] = None,
         callback_handler: Optional[WorkflowCallbackHandler] = None,
     ):
-        """
-        Initialize the thread-safe WorkflowExecutor.
-
-        Args:
-            task_executor: TaskExecutor for LLM interactions for LLM steps
-            workflow_manager: WorkflowManager for loading and executing workflows
-            persistence_provider: Provider for caching execution results
-            callback_handler: Handler for workflow execution callbacks
-        """
         self.task_executor = task_executor
         self.workflow_manager = workflow_manager
         self.persistence_provider = persistence_provider or LocalCacheProvider()
         self.callback_handler = callback_handler or DefaultCallbackHandler()
-        # Add lock for operations that modify shared state
-        self._execution_lock = threading.RLock()
 
     async def execute_workflow(
         self,
@@ -66,238 +49,130 @@ class WorkflowExecutor:
         inputs: Optional[Dict[str, Any]] = None,
         execution_id: Optional[str] = None,
     ) -> Optional[WorkflowExecutionState]:
-        """
-        Thread-safe execute a workflow.
-
-        If the execution_id is found and in a resumable state (paused), the execution state will be resumed.
-        If the execution_id is found but cancelled, a new execution will be started.
-        In the running loop, if the step is marked as skipped, the execution will continue without executing the step.
+        """Execute a workflow, resuming from a paused state if applicable.
 
         Args:
-            workflow_name: Workflow name
+            workflow_name: Name of the workflow to execute
             inputs: Input variables for the workflow
-            execution_id: Unique execution identifier (generated if not provided)
+            execution_id: Unique execution ID (generated if not provided)
 
         Returns:
-            Workflow execution state with final outputs and execution status
+            Final WorkflowExecutionState, or None if workflow not found
         """
-        # Generate execution ID if not provided (thread-safe)
         if not execution_id:
             execution_id = str(uuid.uuid4())
 
-        # Load workflow (thread-safe through workflow manager)
         workflow = self.workflow_manager.load_workflow(workflow_name)
         if not workflow:
-            # no workflow found
             return None
 
-        # Use lock only for execution state management to prevent concurrent execution of same execution_id
-        with self._execution_lock:
-            # Create execution context with initial inputs from workflow definition
-            initial_inputs = workflow.get_initial_inputs(inputs)
-            context = ExecutionContext(
-                workflow_name=workflow.name,
-                inputs=initial_inputs,
-                execution_id=execution_id,
-                current_step=None,
-            )
+        # Check for existing execution state (resume support)
+        start_index = 0
+        existing_state = self.persistence_provider.load_execution_state(workflow_name, execution_id)
 
-            # Try to load existing execution state
-            execution_state = self.persistence_provider.load_execution_state(workflow.name, execution_id)
-            if execution_state:
-                # Check if already running (prevent concurrent execution of same execution_id)
-                if execution_state.status == "running":
-                    return execution_state
-                # Only resume if the execution was paused, not if it was cancelled
-                if execution_state.status == "paused":
-                    # Resume from existing state including its inputs and outputs
-                    context = execution_state.context
-                    start_index = execution_state.current_step_index
-                    logger.info(f"Resuming workflow {workflow.name} from step index {start_index}")
-
-                    # Load step results for completed steps to ensure context is properly populated
-                    for completed_step_id in execution_state.completed_steps:
-                        step_result = self.persistence_provider.load_step_result(
-                            workflow.name, execution_id, completed_step_id
-                        )
-                        if step_result and step_result.outputs:
-                            # Track step inputs that were resolved (for completed steps)
-                            # Note: We don't have access to the original step object here, so we can't track inputs
-                            # This is a limitation of the current resume implementation
-
-                            # Update context with step execution info
-                            # We'll need to reconstruct the StepExecutionInfo, but we don't have the original inputs
-                            context.steps[completed_step_id] = StepExecutionInfo(
-                                id=completed_step_id,
-                                name=f"Step {completed_step_id}",  # We don't have the actual name
-                                type=StepType.FUNCTION,  # We don't have the actual type
-                                outputs=step_result.outputs,
-                            )
-
-                    # Update status to running
-                    execution_state.status = "running"
-                    self.persistence_provider.save_execution_state(execution_state)
-                else:
-                    # For cancelled or completed executions, start fresh
-                    start_index = 0
-                    execution_state = WorkflowExecutionState(
-                        execution_id=execution_id,
-                        workflow_name=workflow.name,
-                        current_step_index=0,
-                        context=context,
-                        completed_steps=[],
-                        status="running",
-                        error=None,
-                        execution_time=0.0,
-                    )
-                    # Save initial state
-                    self.persistence_provider.save_execution_state(execution_state)
+        if existing_state:
+            if existing_state.status == "running":
+                return existing_state  # already running
+            if existing_state.status == "paused":
+                # Resume: use saved context (includes all completed step outputs)
+                context = existing_state.context
+                start_index = existing_state.current_step_index
+                logger.info(f"Resuming workflow '{workflow_name}' from step index {start_index}")
             else:
-                # Start fresh execution
-                start_index = 0
-                execution_state = WorkflowExecutionState(
-                    execution_id=execution_id,
-                    workflow_name=workflow.name,
-                    current_step_index=0,
-                    context=context,
-                    completed_steps=[],
-                    status="running",
-                    error=None,
-                    execution_time=0.0,
-                )
-                # Save initial state
-                self.persistence_provider.save_execution_state(execution_state)
+                # Cancelled/completed/failed — start fresh
+                context = self._create_context(workflow, inputs, execution_id)
+        else:
+            context = self._create_context(workflow, inputs, execution_id)
 
-        # Release lock before starting the actual execution to allow concurrent workflows
+        # Initialize execution state
+        state = WorkflowExecutionState(
+            execution_id=execution_id,
+            workflow_name=workflow.name,
+            current_step_index=start_index,
+            completed_steps=(
+                existing_state.completed_steps if existing_state and existing_state.status == "paused" else []
+            ),
+            status="running",
+            context=context,
+        )
+        self.persistence_provider.save_execution_state(state)
+
+        # Execute steps
         start_time = time.time()
-        # Notify callback handler that workflow has started
         await self.callback_handler.on_workflow_start(workflow.name, execution_id)
-        # Execute steps (outside of lock for better concurrency)
+
         try:
             for i in range(start_index, len(workflow.steps)):
                 step = workflow.steps[i]
                 if step.skipped:
-                    logger.info(f"Skipping step {step.name}")
+                    logger.info(f"Skipping step '{step.name}'")
                     continue
 
-                # Update current step in context (thread-safe as each execution has its own context)
-                context.current_step = step.id
-                execution_state.current_step_index = i
-                execution_state.context = context
+                # Update and persist current progress
+                state.current_step_index = i
+                state.context = context
+                self.persistence_provider.save_execution_state(state)
 
-                # Save state before executing step
-                with self._execution_lock:
-                    self.persistence_provider.save_execution_state(execution_state)
-
-                # Set workflow_name and execution_id on the step for context
-                step.workflow_name = workflow.name
-                step.execution_id = execution_id
-
-                # Create step executor
+                # Create and execute step
                 step_executor = self._create_step_executor(step)
-
-                # Evaluate condition if the condition is defined.
-                if not step_executor.evaluate_condition(context):
-                    logger.info(f"Skipping step {step.id} due to condition doesn't satisfy.")
-                    continue
-
-                # Notify callback handler that step is about to start
                 await self.callback_handler.on_step_start(step.id, step.name, step.type.value)
 
-                # Execute step with retry logic
-                step_result = await step_executor.execute_with_retry(context)
+                step_result = await step_executor.execute(context)
 
-                # Handle step result
                 if step_result.success:
-                    # Update context with step execution info
-                    context.steps[step.id] = StepExecutionInfo(
-                        id=step.id,
-                        name=step.name,
-                        type=step.type,
-                        inputs=step.inputs,
-                        outputs=step_result.outputs,
-                    )
-                    execution_state.completed_steps.append(step.id)
-                    logger.info(f"Step {step.id} completed successfully")
-
-                    # Save step result to cache
-                    # TODO: check it later that do we need it anymore as the outputs have been stored in the context!?
-                    self.persistence_provider.save_step_result(workflow.name, execution_id, step.id, step_result)
-
-                    # Update execution state
-                    execution_state.context = context
-                    with self._execution_lock:
-                        self.persistence_provider.save_execution_state(execution_state)
-
-                    # Notify callback handler that step completed successfully
+                    # Store outputs in context for subsequent steps
+                    context.steps[step.id] = {"outputs": step_result.outputs}
+                    state.completed_steps.append(step.id)
+                    state.context = context
+                    self.persistence_provider.save_execution_state(state)
                     await self.callback_handler.on_step_complete(step.id, step.name, step_result)
+                    logger.info(f"Step '{step.id}' completed")
                 else:
-                    # Notify callback handler that step failed
+                    # Step failed — stop workflow
+                    state.status = "failed"
+                    state.error = step_result.error
+                    state.execution_time = time.time() - start_time
+                    self.persistence_provider.save_execution_state(state)
                     await self.callback_handler.on_step_complete(step.id, step.name, step_result)
+                    await self.callback_handler.on_workflow_complete(
+                        workflow.name, execution_id, "failed", step_result.error
+                    )
+                    return state
 
-                    # Handle step failure based on on_error policy
-                    with self._execution_lock:  # Re-acquire lock for state modification
-                        execution_state.status = "failed"
-                        execution_state.error = step_result.error
-                        self.persistence_provider.save_execution_state(execution_state)
-                    on_error_action = step.on_error or OnErrorAction.FAIL
-                    if on_error_action == OnErrorAction.FAIL:
-                        # Notify callback handler that workflow failed
-                        await self.callback_handler.on_workflow_complete(
-                            workflow.name, execution_id, "failed", step_result.error
-                        )
-                        return execution_state
-                    elif on_error_action == OnErrorAction.CONTINUE:
-                        logger.warning(f"Step {step.id} failed but continuing: {step_result.error}")
-                        continue
-
-            # all steps finished, the workflow completed successfully
-            with self._execution_lock:  # Re-acquire lock for final state update
-                execution_state.status = "completed"
-                execution_time = time.time() - start_time
-                execution_state.execution_time = execution_time
-                self.persistence_provider.save_execution_state(execution_state)
-            # Notify callback handler that workflow completed successfully
+            # All steps completed
+            state.status = "completed"
+            state.execution_time = time.time() - start_time
+            self.persistence_provider.save_execution_state(state)
             await self.callback_handler.on_workflow_complete(workflow.name, execution_id, "completed")
-            # Returns the result of the whole workflow execution
-            return execution_state
+            return state
 
         except Exception as e:
-            with self._execution_lock:  # Re-acquire lock for error state update
-                logger.error(f"Workflow execution failed: {str(e)}")
-                execution_time = time.time() - start_time
-                execution_state.execution_time = execution_time
-                execution_state.status = "failed"
-                execution_state.error = str(e)
-                self.persistence_provider.save_execution_state(execution_state)
-            # Notify callback handler that workflow failed
+            logger.error(f"Workflow execution failed: {e}")
+            state.status = "failed"
+            state.error = str(e)
+            state.execution_time = time.time() - start_time
+            self.persistence_provider.save_execution_state(state)
             await self.callback_handler.on_workflow_complete(workflow.name, execution_id, "failed", str(e))
-            return execution_state
+            return state
+
+    def _create_context(self, workflow, inputs, execution_id) -> ExecutionContext:
+        """Create a fresh execution context."""
+        return ExecutionContext(
+            workflow_name=workflow.name,
+            inputs=workflow.get_initial_inputs(inputs),
+            execution_id=execution_id,
+        )
 
     def _create_step_executor(self, step) -> StepExecutor:
-        """Create an appropriate step executor for the given step.
-
-        Args:
-            step: Step to create executor for
-
-        Returns:
-            StepExecutor instance
-        """
+        """Create the appropriate step executor for a step."""
         if step.type == StepType.FUNCTION:
             return FunctionStepExecutor(step)
         elif step.type == StepType.LLM:
-            # Get cache directory for this step
             cache_dir = None
-            # TODO: maybe a better way to support other caching the step results like to some store services.
-            if (
-                self.persistence_provider
-                and hasattr(self.persistence_provider, "get_execution_cache_dir")
-                and hasattr(step, "workflow_name")
-                and hasattr(step, "execution_id")
-                and step.workflow_name
-                and step.execution_id
-            ):
-                cache_dir = self.persistence_provider.get_execution_cache_dir(step.workflow_name, step.execution_id)
+            if hasattr(self.persistence_provider, "get_execution_cache_dir"):
+                cache_dir = self.persistence_provider.get_execution_cache_dir(
+                    step.workflow_name or "", step.execution_id or ""
+                )
             return LLMStepExecutor(step, self.task_executor, cache_dir)
         elif step.type == StepType.WORKFLOW:
             return WorkflowStepExecutor(step, self)
@@ -307,60 +182,20 @@ class WorkflowExecutor:
             raise ValueError(f"Unknown step type: {step.type}")
 
     async def pause_execution(self, workflow_name: str, execution_id: str) -> bool:
-        """
-        Thread-safe pause a workflow execution.
-
-        Args:
-            workflow_name: Name of the workflow
-            execution_id: Execution identifier
-
-        Returns:
-            True if paused successfully, False otherwise
-        """
-        if not workflow_name or len(workflow_name.strip()) == 0:
-            return False
-        if not execution_id or len(execution_id.strip()) == 0:
-            return False
-        with self._execution_lock:
-            state = self.persistence_provider.load_execution_state(workflow_name, execution_id)
-            if state:
-                state.status = "paused"
-                result = self.persistence_provider.save_execution_state(state)
-                # Notify callback handler that workflow was paused
-                if result:
-                    await self.callback_handler.on_workflow_complete(workflow_name, execution_id, "paused")
-                return result
-            return False
+        """Pause a running workflow execution."""
+        state = self.persistence_provider.load_execution_state(workflow_name, execution_id)
+        if state and state.status == "running":
+            state.status = "paused"
+            self.persistence_provider.save_execution_state(state)
+            await self.callback_handler.on_workflow_complete(workflow_name, execution_id, "paused")
+            return True
+        return False
 
     async def resume_execution(self, workflow_name: str, execution_id: str) -> Optional[WorkflowExecutionState]:
-        """
-        Thread-safe resume a paused workflow execution.
-
-        This method will only resume executions that are in the "paused" state.
-        If the execution is in any other state (running, cancelled, completed, failed),
-        it will return None and not attempt to resume.
-
-        Args:
-            workflow_name: Name of the workflow
-            execution_id: Execution identifier
-
-        Returns:
-            Execution result if resumed successfully, None otherwise
-        """
-        if not workflow_name or len(workflow_name.strip()) == 0:
+        """Resume a paused workflow execution."""
+        state = self.persistence_provider.load_execution_state(workflow_name, execution_id)
+        if not state or state.status != "paused":
             return None
-        if not execution_id or len(execution_id.strip()) == 0:
-            return None
-        # Load the state first without lock to check if it exists
-        # Use lock only for state update
-        with self._execution_lock:
-            state = self.persistence_provider.load_execution_state(workflow_name, execution_id)
-            if not state or state.status != "paused":
-                # we only care the paused status
-                return None
-
-        # Resume execution using the stored workflow name (outside of lock for better concurrency)
-        # it will update the state status
         return await self.execute_workflow(
             workflow_name=workflow_name,
             inputs=state.context.inputs,
@@ -368,87 +203,25 @@ class WorkflowExecutor:
         )
 
     def get_execution_state(self, workflow_name: str, execution_id: str) -> Optional[WorkflowExecutionState]:
-        """
-        Thread-safe get the current state of a workflow execution.
-
-        Args:
-            workflow_name: Name of the workflow
-            execution_id: Execution identifier
-
-        Returns:
-            Current execution state or None if not found
-        """
-        if not workflow_name or len(workflow_name.strip()) == 0:
-            return None
-        if not execution_id or len(execution_id.strip()) == 0:
-            return None
+        """Get the current state of a workflow execution."""
         return self.persistence_provider.load_execution_state(workflow_name, execution_id)
 
     def cancel_execution(self, workflow_name: str, execution_id: str) -> bool:
-        """
-        Thread-safe cancel a workflow execution.
-
-        Args:
-            workflow_name: Name of the workflow
-            execution_id: Execution identifier
-
-        Returns:
-            True if cancelled successfully, False otherwise
-        """
-        if not workflow_name or len(workflow_name.strip()) == 0:
-            return False
-        if not execution_id or len(execution_id.strip()) == 0:
-            return False
-        with self._execution_lock:
-            state = self.persistence_provider.load_execution_state(workflow_name, execution_id)
-            if state:
-                state.status = "cancelled"
-                result = self.persistence_provider.save_execution_state(state)
-                # Notify callback handler that workflow was cancelled
-                if result:
-                    asyncio.create_task(
-                        self.callback_handler.on_workflow_complete(workflow_name, execution_id, "cancelled")
-                    )
-                return result
-            return False
+        """Cancel a workflow execution."""
+        state = self.persistence_provider.load_execution_state(workflow_name, execution_id)
+        if state:
+            state.status = "cancelled"
+            return self.persistence_provider.save_execution_state(state)
+        return False
 
     def list_executions(self, workflow_name: str) -> Dict[str, Dict[str, Any]]:
-        """
-        List all cached workflow executions.
-
-        Args:
-            workflow_name: Name of the workflow
-
-        Returns:
-            Dictionary of execution metadata
-        """
+        """List all cached workflow executions."""
         return self.persistence_provider.list_executions(workflow_name)
 
     def clear_all_executions(self, workflow_name: str) -> int:
-        """Thread-safe clear all cached workflow executions.
-
-        Args:
-            workflow_name: Name of the workflow
-
-        Returns:
-            Number of executions cleared
-        """
-        with self._execution_lock:
-            return self.persistence_provider.clear_all_executions(workflow_name)
+        """Clear all cached workflow executions."""
+        return self.persistence_provider.clear_all_executions(workflow_name)
 
     def remove_workflow_execution(self, workflow_name: str, execution_id: str) -> bool:
-        """Thread-safe remove a workflow execution state.
-
-        Args:
-            workflow_name: Name of the workflow
-            execution_id: ID of execution to remove
-
-        Returns:
-            True if removed, False if not found
-        """
-        if not workflow_name or len(workflow_name.strip()) == 0:
-            return False
-        if not execution_id or len(execution_id.strip()) == 0:
-            return False
-        with self._execution_lock:
-            return self.persistence_provider.remove_execution_state(workflow_name, execution_id)
+        """Remove a workflow execution state."""
+        return self.persistence_provider.remove_execution_state(workflow_name, execution_id)

@@ -1,114 +1,112 @@
-# Cliver Workflow Engine
+# CLIver Workflow Engine
 
-A modular, extensible workflow engine for AI and automation tasks in CLIver.
+A simple, sequential workflow engine for AI and automation tasks.
 
 ## Overview
 
-The Cliver Workflow Engine provides a deterministic, local-only workflow execution system.
-It enables users to define complex automation workflows using YAML and execute them with built-in support for:
-- LLM interactions
-- function calls
-- sub-workflows
-- human confirmation steps.
+The workflow engine executes a linear sequence of steps defined in YAML.
+Each step runs in order, and its outputs are available to all subsequent steps
+via Jinja2 templating. The engine supports pause/resume with persistent state.
 
 ## Features
 
-- **YAML-based Workflow Definitions**: Define workflows in human-readable YAML format
-- **Multiple Step Types**: LLM, Function, Workflow, and Human steps
-- **Variable Resolution**: Reference inputs and outputs using `{{ variable }}` syntax with Jinja2 templating
-- **Retry Logic**: Configurable retry policies with exponential backoff
-- **Error Handling**: Flexible error handling with continue/fail/retry options
-- **Conditional Execution**: Execute steps based on conditions
-- **Pause/Resume**: Persistent execution state for workflow continuation
-- **Extensible Design**: Plugin architecture for custom step types and persistence
+- **YAML-based definitions**: Human-readable workflow files
+- **4 step types**: LLM, Function, Workflow (nested), and Human
+- **Result propagation**: Step outputs flow to subsequent steps via `{{ step_id.outputs.key }}`
+- **Jinja2 templating**: Full Jinja2 support for variable resolution
+- **Pause/Resume**: Execution state persisted to disk for continuation
+- **Pure async**: No threading — clean async/await execution
 
-## Getting Started
+## Quick Start
 
-### Workflow Definition
-
-Create a workflow in YAML format:
+### Define a workflow
 
 ```yaml
-name: example_workflow
-description: A simple example workflow
-version: "1.0"
+name: research_analysis
+description: Research a topic and generate a report
 inputs:
-  - user_name
-  - topic
+  topic: "How AI will change human's life"
 steps:
-  - id: greet
+  - id: research
+    name: Research Topic
     type: llm
-    name: Generate Greeting
-    prompt: "Write a friendly greeting for {{ inputs.user_name }} about {{ inputs.topic }}"
-    outputs: [greeting]
+    prompt: "Research the topic: {{ inputs.topic }}"
+    outputs: [findings]
+
+  - id: analyze
+    name: Analyze Findings
+    type: llm
+    prompt: "Analyze: {{ research.outputs.findings }}"
+    outputs: [analysis]
+
+  - id: report
+    name: Generate Report
+    type: llm
+    prompt: "Write a report based on: {{ analyze.outputs.analysis }}"
+    outputs: [report]
+```
+
+### Run it
+
+```bash
+cliver workflow run research_analysis -i topic="Quantum computing"
+```
+
+## Variable Access
+
+Steps access data using Jinja2 syntax:
+
+| Pattern | Description |
+|---------|-------------|
+| `{{ inputs.key }}` | Workflow input parameter |
+| `{{ key }}` | Shorthand for workflow input |
+| `{{ step_id.outputs.key }}` | Output from a previous step |
+
+### Example
+
+```yaml
+steps:
+  - id: fetch
+    type: function
+    function: mymodule.fetch_data
+    inputs:
+      url: "{{ inputs.api_url }}"
+    outputs: [data]
+
+  - id: analyze
+    type: llm
+    prompt: "Analyze this data: {{ fetch.outputs.data }}"
+    outputs: [analysis]
 
   - id: confirm
     type: human
-    name: Confirm Action
-    prompt: "Continue with greeting: {{ greet.greeting }}?"
-    auto_confirm: false
+    prompt: "Publish this analysis?\n{{ analyze.outputs.analysis }}"
 
-  - id: process
+  - id: publish
     type: function
-    name: Process Greeting
-    function: mypackage.my_module.my_function
+    function: mymodule.publish
     inputs:
-      text: {{ greet.greeting }}
-    outputs: [result]
-```
-
-### Running Workflows
-
-```bash
-# List available workflows
-cliver workflow list
-
-# Run a workflow
-cliver workflow run examples/hello_world.yaml --input user_name "Alice" --input topic "AI"
-
-# Dry-run to validate
-cliver workflow run examples/hello_world.yaml --input user_name "Alice" --dry-run
-
-# View execution status
-cliver workflow status
+      content: "{{ analyze.outputs.analysis }}"
+    outputs: [url]
 ```
 
 ## Step Types
 
 ### LLM Step
 
-Execute LLM inference with full Cliver integration:
-
 ```yaml
 - id: analyze
   type: llm
   name: Analyze Topic
-  prompt: "Analyze the topic: {{ inputs.topic }}"
-  model: gpt-4
-  stream: false
-  skill_sets: [research, analysis]
+  prompt: "Analyze: {{ inputs.topic }}"
+  model: qwen          # optional, uses default model if omitted
+  stream: false        # optional
   outputs: [analysis]
-  retry:
-    max_attempts: 3
-    backoff_factor: 1.5
 ```
 
-LLM steps also support multimedia content:
-
-```yaml
-- id: analyze_image
-  type: llm
-  name: Image Analysis
-  prompt: "Analyze the image and describe what you see."
-  model: gpt-4-vision
-  images:
-    - {{ inputs.image_path }}
-  outputs: [description]
-```
+Also supports `images`, `audio_files`, `video_files`, `files`, `template`, `params`.
 
 ### Function Step
-
-Execute Python functions dynamically:
 
 ```yaml
 - id: compute
@@ -116,127 +114,85 @@ Execute Python functions dynamically:
   name: Process Data
   function: mypackage.utils.process_data
   inputs:
-    data: {{ previous_step.output }}
+    data: "{{ previous_step.outputs.result }}"
   outputs: [result]
 ```
 
-### Workflow Step
-
-Execute sub-workflows:
-
-```yaml
-- id: subflow
-  type: workflow
-  name: Run Analysis
-  workflow: analysis_workflow
-  workflow_inputs:
-    topic: {{ inputs.topic }}
-  outputs: [report]
-```
-
 ### Human Step
-
-Wait for user confirmation:
 
 ```yaml
 - id: confirm
   type: human
   name: User Confirmation
-  prompt: "Continue with {{ previous_step.result }}?"
-  auto_confirm: false
+  prompt: "Continue with {{ analyze.outputs.result }}?"
+  auto_confirm: false  # set true for automated pipelines
 ```
 
-## Advanced Features
-
-### Retry Policies
-
-Configure retry behavior for steps:
+### Workflow Step (nested)
 
 ```yaml
-retry:
-  max_attempts: 5
-  backoff_factor: 2.0
-  max_backoff: 60.0
+- id: subflow
+  type: workflow
+  name: Run Sub-Analysis
+  workflow: analysis_workflow
+  workflow_inputs:
+    topic: "{{ inputs.topic }}"
+  outputs: [report]
 ```
 
-### Error Handling
+## Workflow Inputs
 
-Define error handling behavior:
+Inputs are defined as a dict with default values:
 
 ```yaml
-on_error: continue  # or "fail" or "retry"
+inputs:
+  topic: "default topic"      # has default
+  user_name: null              # required, no default
 ```
 
-### Conditional Execution
+Override at runtime:
 
-Execute steps based on conditions:
-
-```yaml
-condition: "'success' in {{ previous_step.status }}"
+```bash
+cliver workflow run my_workflow -i topic="Custom topic" -i user_name="Alice"
 ```
-
-### Variable Resolution
-
-Reference variables using `{{ }}` syntax with Jinja2 templating:
-
-- `{{ inputs.variable_name }}` - Workflow inputs
-- `{{ step_id.output_name }}` - Step outputs
-- `{{ variable_name }}` - Context variables
 
 ## Persistence
 
-Workflow execution state is persisted locally by default in `~/.cache/cliver/`. This enables:
+Execution state is saved to `~/.cache/cliver/` as JSON:
 
-- Pause/resume capabilities
-- Execution history tracking
-- Recovery from interruptions
+```
+~/.cache/cliver/{workflow_name}/{execution_id}/state.json
+```
 
-### Cache Structure
+This enables pause/resume:
 
-The persistence provider saves both the complete workflow execution state and individual step results:
+```bash
+# Pause a running workflow
+cliver workflow pause workflow_name -e execution_id
 
-- Workflow execution states: `{cache_dir}/{workflow_name}/{execution_id}/state.json`
-- Step execution results: `{cache_dir}/{workflow_name}/{execution_id}/{step_id}_result.json`
-- Multimedia content: `{cache_dir}/{workflow_name}/{execution_id}/{step_id}/media/{media_type}/`
+# Resume it later
+cliver workflow run workflow_name -e execution_id
+```
 
-This structure allows for efficient caching and retrieval of both the overall workflow state and individual step results.
+## Workflow Directories
 
-## Extensibility
+Workflows are discovered from:
 
-The workflow engine is designed to be extensible:
+1. `.cliver/workflows/` in the current directory (project-local)
+2. `~/.config/cliver/workflows/` (user-global)
 
-1. **Custom Step Types**: Implement new step types by extending `StepExecutor`
-2. **Persistence Providers**: Add remote storage options
-3. **Step Filters**: Modify step behavior through plugins
+Project-local workflows take precedence over global ones with the same name.
 
-## API Reference
+## API Usage
 
-### Workflow Models
+```python
+from cliver.workflow.workflow_executor import WorkflowExecutor
+from cliver.workflow.workflow_manager_local import LocalDirectoryWorkflowManager
 
-Pydantic models for type-safe workflow definitions:
+manager = LocalDirectoryWorkflowManager()
+executor = WorkflowExecutor(task_executor=my_task_executor, workflow_manager=manager)
 
-- `Workflow`: Main workflow definition
-- `BaseStep`: Base class for all step types
-- `LLMStep`, `FunctionStep`, `WorkflowStep`, `HumanStep`: Specific step types
-- `ExecutionContext`: Runtime execution context
-- `ExecutionResult`: Step execution results (cached individually)
-- `WorkflowExecutionState`: Complete workflow execution state (cached as a whole)
-
-## Examples
-
-See the `examples/` directory for complete workflow examples:
-
-- `hello_world.yaml`: Basic workflow demonstration
-- `simple_workflow.yaml`: Simple analysis workflow
-- `advanced_workflow.yaml`: Advanced features demonstration
-- `full_demo_workflow.yaml`: Complete feature showcase
-- `multimedia_workflow.yaml`: Multimedia capabilities demonstration
-
-## Integration
-
-The workflow engine integrates with existing Cliver components:
-
-- **LLM Integration**: Uses `cliver.llm.TaskExecutor` for LLM steps
-- **Configuration**: Leverages existing config management
-- **CLI Framework**: Built on Click command framework
-- **Logging**: Uses standard Python logging infrastructure
+result = await executor.execute_workflow("my_workflow", inputs={"topic": "AI"})
+print(result.status)  # "completed"
+print(result.context.steps["analyze"]["outputs"]["analysis"])
+```

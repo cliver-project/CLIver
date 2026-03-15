@@ -1,232 +1,217 @@
 ---
 title: Workflows
-description: Define and execute complex workflows using YAML configuration files
+description: Define and execute sequential workflows using YAML
 ---
 
 # Workflow Definition
-CLIver has a simple workflow engine to allow you to define and execute multi-step operations using YAML files.
-Each step can be one of the following `4` types:
 
-- `llm`:        LLM inference request with defined inputs
-- `function`:   Python function calls
-- `human`:      Human interaction to confirm before going to next step
-- `workflow`:   Call other workflow for a complex sub task
+CLIver has a workflow engine that executes a **linear sequence of steps** defined in YAML.
+Each step runs in order, and its outputs are available to all subsequent steps.
+
+Steps can be one of 4 types:
+
+- `llm`:        LLM inference request
+- `function`:   Python function call
+- `human`:      Human interaction / confirmation
+- `workflow`:   Nested sub-workflow
 
 ## Workflow Structure
 
-A workflow is defined in a YAML file with the following top-level keys:
+A workflow YAML file has these top-level keys:
 
-- `name`: A descriptive name for the workflow (must be globally unique)
-- `description`: A brief description of what the workflow does
-- `version`: Version of the workflow (optional)
-- `author`: Author of the workflow (optional)
-- `inputs`: List of input parameters for the workflow with metadata (optional)
-- `steps`: An ordered list of steps to execute
+- `name`: Unique name for the workflow (required)
+- `description`: Brief description (optional)
+- `inputs`: Default input values as a dict (optional)
+- `steps`: Ordered list of steps to execute (required)
 
 ## Basic Workflow Example
 
-Here's a simple workflow that analyzes a topic:
-
 ```yaml
---8<-- "examples/basic_workflow.yaml"
+name: research_analysis
+description: Research a topic and provide analysis
+inputs:
+  topic: "How AI will change human's life"
+steps:
+  - id: research_topic
+    name: Research Topic
+    type: llm
+    prompt: "Research the topic: {{ inputs.topic }}"
+    model: deepseek-r1
+    outputs: [research]
+
+  - id: analyze_findings
+    name: Analyze Findings
+    type: llm
+    prompt: "Analyze the research findings: {{ research_topic.outputs.research }}"
+    model: qwen
+    outputs: [analysis]
+
+  - id: generate_report
+    name: Generate Report
+    type: llm
+    prompt: "Generate a report based on: {{ analyze_findings.outputs.analysis }}"
+    model: deepseek-r1
+    outputs: [report]
 ```
 
+## Step Properties
 
-## Workflow Steps
+Each step has these properties:
 
-Each step in a workflow has the following properties:
-
-- `id`: A unique identifier for the step (required)
-- `name`: A descriptive name for the step (required)
-- `type`: The type of step (required, one of: `llm`, `function`, `human`, `workflow`)
-- `description`: A description of what the step does (optional)
+- `id`: Unique identifier (required)
+- `name`: Descriptive name (required)
+- `type`: Step type — `llm`, `function`, `human`, or `workflow` (required)
+- `description`: Description of what the step does (optional)
 - `inputs`: Input variables for the step (optional)
-- `outputs`: Output variable names from the step (optional)
-- `retry`: Retry policy configuration (optional)
-- `timeout`: Timeout in seconds (optional)
-- `on_error`: Action to take on error (optional, `fail` or `continue`)
-- `condition`: Condition expression for step execution (optional)
-- `skipped`: Whether the step is skipped (optional, default: false)
+- `outputs`: Output variable names (optional)
+- `skipped`: Skip this step (optional, default: false)
 
-## Variable Access in Workflows
+## Variable Access
 
-Workflows support a powerful variable access system that allows steps to reference data from previous steps, workflow inputs, and other sources. Variables are accessed using Jinja2 templating syntax with specific formats for different types of data.
+Steps reference data using Jinja2 templating:
 
-### Variable Access Formats
+| Pattern | Description |
+|---------|-------------|
+| `{{ inputs.key }}` | Workflow input parameter |
+| `{{ key }}` | Shorthand for workflow input |
+| `{{ step_id.outputs.key }}` | Output from a previous step |
 
-CLIver provides a clean and organized way to access variables in workflows:
-
-1. **Workflow Inputs**: Access workflow-level input parameters
-   ```yaml
-   inputs:
-     user_name: "{{ inputs.user_name }}"
-   ```
-
-2. **Step Outputs**: Access outputs from previous steps
-   ```yaml
-   inputs:
-     analysis_result: "{{ previous_step.outputs.result }}"
-   ```
-
-3. **Step Inputs**: Access inputs from previous steps
-   ```yaml
-   inputs:
-     original_greeting: "{{ previous_step.inputs.greeting }}"
-   ```
-
-### Example: Using Variable Access
-
-Here's a complete example showing how to use the variable access formats:
+### Example
 
 ```yaml
---8<-- "examples/variable_access_example.yaml"
+name: variable_access_example
+description: Demonstrates variable access between steps
+inputs:
+  user_name: "User"
+  topic: "AI"
+steps:
+  - id: greet
+    name: Greet User
+    type: function
+    function: cliver.workflow.examples.compute_something
+    inputs:
+      greeting: "Hello {{ inputs.user_name }}!"
+    outputs: [greeting, result]
+
+  - id: analyze
+    name: Analyze Topic
+    type: function
+    function: cliver.workflow.examples.process_results
+    inputs:
+      user_name: "{{ inputs.user_name }}"
+      topic: "{{ inputs.topic }}"
+      greeting: "{{ greet.outputs.greeting }}"
+    outputs: [result]
+
+  - id: summarize
+    name: Create Summary
+    type: llm
+    prompt: |
+      Summary for {{ inputs.user_name }} about {{ inputs.topic }}.
+      Greeting: {{ greet.outputs.greeting }}
+      Analysis: {{ analyze.outputs.result }}
+    outputs: [summary]
 ```
 
-### Best Practices
+## Step Types
 
-1. Use the explicit variable access formats for clarity and maintainability
-2. Always specify which step and which type of data you're accessing
-3. Test your workflows to ensure variable references resolve correctly
-4. Use descriptive step IDs to make variable references more readable
-
-Each input parameter supports the following properties:
-
-- `name`: The name of the input parameter (required)
-- `description`: A description of the parameter's purpose (optional)
-- `type`: The expected type of the parameter (optional)
-- `default`: A default value to use if none is provided (optional)
-
-When executing a workflow, if an input parameter has a default value defined and no value is provided, the default will be used.
-If no default is specified and no value is provided, the parameter will be set to `None`.
-
-### Available Actions
-
-#### LLM Steps
-Interact with a language model:
+### LLM Steps
 
 ```yaml
---8<-- "examples/llm_step.yaml"
+- id: analyze
+  type: llm
+  name: Analyze Topic
+  prompt: "Analyze: {{ inputs.topic }}"
+  model: qwen           # optional
+  stream: false          # optional
+  outputs: [analysis]
 ```
 
-LLM steps support the following properties:
+LLM steps also support: `images`, `audio_files`, `video_files`, `files`, `template`, `params`.
 
-- `prompt`: The prompt to send to the LLM
-- `model`: The LLM model to use (optional, defaults to the model configured in your CLIver setup, e.g., 'deepseek-r1' or 'qwen')
-- `stream`: Whether to stream the response (optional, default: false)
-- `images`: Image files to send with the message (optional)
-- `audio_files`: Audio files to send with the message (optional)
-- `video_files`: Video files to send with the message (optional)
-- `files`: General files to upload for tools (optional)
-- `skill_sets`: Skill sets to apply (optional)
-- `template`: Template to use for the prompt (optional)
-- `params`: Parameters for skill sets and templates (optional)
-
-#### Function Steps
-
-Execute Python functions:
+### Function Steps
 
 ```yaml
---8<-- "examples/function_step.yaml"
+- id: compute
+  type: function
+  name: Process Data
+  function: mypackage.utils.process_data
+  inputs:
+    data: "{{ previous_step.outputs.result }}"
+  outputs: [result]
 ```
 
-Function steps support the following properties:
-
-- `function`: Module path to the function to execute (required)
-
-#### Human Steps
-Wait for human interaction:
+### Human Steps
 
 ```yaml
---8<-- "examples/human_step.yaml"
+- id: confirm
+  type: human
+  name: User Confirmation
+  prompt: "Continue with {{ analyze.outputs.result }}?"
+  auto_confirm: false
 ```
 
-Human steps support the following properties:
-
-- `prompt`: Prompt to show to the user (required)
-- `auto_confirm`: Automatically confirm without user input (optional, default: false)
-
-#### Workflow Steps
-Call other workflows:
+### Workflow Steps
 
 ```yaml
---8<-- "examples/workflow_step.yaml"
+- id: subflow
+  type: workflow
+  name: Run Analysis
+  workflow: analysis_workflow
+  workflow_inputs:
+    topic: "{{ inputs.topic }}"
+  outputs: [report]
 ```
 
-Workflow steps support the following properties:
+## Workflow Inputs
 
-- `workflow`: Workflow name or path to the workflow file to execute (required)
-- `workflow_inputs`: Inputs for the sub-workflow (optional)
+Inputs are defined as a dict with optional defaults:
 
-## Local Directory Implementation
-
-Workflows can be organized in local directories for better management. CLIver looks for workflows in the following directories:
-
-1. `.cliver/workflows` in the current directory
-2. `~/.config/cliver/workflows` (user configuration directory)
-
-```
-.cliver/
-└── workflows/
-    ├── example_workflow.yaml
-    ├── code_review_workflow.yaml
-    └── research_workflow.yaml
+```yaml
+inputs:
+  topic: "default topic"      # has default value
+  user_name: null              # required at runtime
 ```
 
-Workflows are identified by their `name` field, not by their file name. You can organize workflow files in subdirectories as needed.
+Override at runtime:
+
+```bash
+cliver workflow run my_workflow -i topic="Custom topic" -i user_name="Alice"
+```
 
 ## Running Workflows
 
-### From Command Line
-
 ```bash
-# Run a workflow with input parameters
-cliver workflow run workflow_name -i document_path=/path/to/doc.txt
-# Can also use -i model=qwen as an alternative
-
-# Dry run to validate the workflow without executing
-cliver workflow run workflow_name --dry-run
-
-# Resume a paused workflow execution
-cliver workflow run workflow_name -e execution_id
-```
-
-### From Python Library
-
-```python
---8<-- "examples/run_workflow.py"
-```
-
-## Available Workflows
-
-To list available workflows in your configured workflow directories:
-
-```bash
+# List available workflows
 cliver workflow list
+
+# Run a workflow
+cliver workflow run workflow_name -i topic="AI"
+
+# Resume a paused workflow
+cliver workflow run workflow_name -e execution_id
+
+# Dry run
+cliver workflow run workflow_name --dry-run
 ```
 
-> NOTE: In current implementation, it uses local files based for the workflow definition and execution cache.
+## Workflow Directories
 
-Workflows are loaded from the following directories:
+Workflows are loaded from:
 
-1. `.cliver/workflows` in the current directory
-2. `~/.config/cliver/workflows` (user configuration directory)
+1. `.cliver/workflows/` in the current directory (project-local, higher priority)
+2. `~/.config/cliver/workflows/` (user-global)
 
-You can place your workflow YAML files in either of these directories to make them available.
+Workflows are identified by their `name` field, not by file name.
 
-## Error Handling
+## Persistence
 
-Workflows can define error handling behavior using retry policies and on_error actions:
+Execution state is persisted to `~/.cache/cliver/` for pause/resume support:
 
-```yaml
---8<-- "examples/error_handling.yaml"
 ```
-
-
-Error handling properties:
-
-- `retry`: Retry policy configuration with `max_attempts`, `backoff_factor`, and `max_backoff`
-- `on_error`: Action to take on error (`fail` or `continue`)
+~/.cache/cliver/{workflow_name}/{execution_id}/state.json
+```
 
 ## Next Steps
 
-Now that you understand how to define workflows, explore how to [extend CLIver](extensibility.md) with custom actions and components, or check out the [roadmap](roadmap.md) for upcoming features.
+Explore how to [extend CLIver](extensibility.md) or check the [roadmap](roadmap.md).

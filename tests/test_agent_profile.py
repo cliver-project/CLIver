@@ -2,7 +2,7 @@
 
 import pytest
 
-from cliver.agent_profile import AgentProfile, MAX_MEMORY_CHARS
+from cliver.agent_profile import MAX_MEMORY_CHARS, AgentProfile
 
 
 @pytest.fixture

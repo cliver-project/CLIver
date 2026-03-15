@@ -1,9 +1,7 @@
 name: variable_access_example
 description: Example workflow demonstrating variable access formats
 inputs:
-  - name: topic
-    description: "Topic to analyze"
-    type: "string"
+  topic: null
 steps:
   - id: research
     name: Research Topic
@@ -16,9 +14,7 @@ steps:
     type: function
     function: my_module.analyze_results
     inputs:
-      # Access workflow input
       topic: "{{ inputs.topic }}"
-      # Access previous step output
       data: "{{ research.outputs.findings }}"
     outputs: [analysis]
 

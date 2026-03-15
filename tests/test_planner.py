@@ -3,7 +3,7 @@
 import pytest
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
-from cliver.llm.llm import _inject_plan_context, _is_plan_context_message, _PLAN_CONTEXT_PREFIX
+from cliver.llm.llm import _PLAN_CONTEXT_PREFIX, _inject_plan_context, _is_plan_context_message
 from cliver.tools.todo_read import TodoReadTool
 from cliver.tools.todo_write import TodoWriteTool, format_todo_summary
 

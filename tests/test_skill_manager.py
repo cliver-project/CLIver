@@ -7,7 +7,6 @@ import pytest
 
 from cliver.skill_manager import Skill, SkillManager, _parse_skill_md
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------

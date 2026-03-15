@@ -3,5 +3,5 @@
   type: workflow
   workflow: other_workflow_name
   workflow_inputs:
-    input_data: "{{ current_data }}"
+    input_data: "{{ fetch_step.outputs.data }}"
   outputs: [result]

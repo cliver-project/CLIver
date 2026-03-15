@@ -1,7 +1,7 @@
 - id: generate_response
   name: Generate Response
   type: llm
-  prompt: "What are the key points in: {{ document_content }}"
-  model: deepseek-r1  # Can also use 'qwen' as an alternative
+  prompt: "What are the key points in: {{ read_doc.outputs.content }}"
+  model: deepseek-r1
   stream: false
   outputs: [response]
