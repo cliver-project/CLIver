@@ -26,14 +26,42 @@ class LLMStepExecutor(StepExecutor):
         self.task_executor = task_executor
         self.cache_dir = cache_dir
 
+    def _build_skill_appender(self):
+        """Build a system_message_appender that injects activated skill content."""
+        if not self.step.skills:
+            return None
+
+        from cliver.skill_manager import SkillManager
+
+        manager = SkillManager()
+        skill_contents = []
+        for skill_name in self.step.skills:
+            content = manager.activate_skill(skill_name)
+            if content:
+                skill_contents.append(content)
+
+        if not skill_contents:
+            return None
+
+        combined = "\n\n---\n\n".join(skill_contents)
+
+        def appender():
+            return f"\n# Activated Skills\n\n{combined}"
+
+        return appender
+
     async def execute(self, context: ExecutionContext) -> ExecutionResult:
         start_time = time.time()
 
         try:
+            # Build skill context appender if skills are specified
+            system_message_appender = self._build_skill_appender()
+
             # Resolve variables in all LLM parameters
             llm_params = {
                 "user_input": self.resolve_variable(self.step.prompt, context),
                 "model": self.resolve_variable(self.step.model, context) if self.step.model else None,
+                "system_message_appender": system_message_appender,
                 "images": [self.resolve_variable(img, context) for img in self.step.images] if self.step.images else [],
                 "audio_files": [self.resolve_variable(a, context) for a in self.step.audio_files]
                 if self.step.audio_files
