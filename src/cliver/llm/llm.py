@@ -313,8 +313,12 @@ class TaskExecutor:
         if default_enhanced_messages and len(default_enhanced_messages) > 0:
             messages.extend(default_enhanced_messages)
 
-        # Inject agent memory (global + instance) into the context
+        # Inject agent identity and memory into the context
         if self.agent_profile:
+            identity_content = self.agent_profile.load_identity()
+            if identity_content:
+                messages.append(SystemMessage(content=f"# Identity Profile\n\n{identity_content}"))
+
             memory_content = self.agent_profile.load_memory()
             if memory_content:
                 messages.append(SystemMessage(content=f"# Agent Memory\n\n{memory_content}"))

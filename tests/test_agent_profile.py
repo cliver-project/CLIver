@@ -20,7 +20,7 @@ class TestDirectoryStructure:
     def test_paths_use_agent_name(self, profile, tmp_path):
         assert profile.agent_dir == tmp_path / "agents" / "TestBot"
         assert profile.memory_file == tmp_path / "agents" / "TestBot" / "memory.md"
-        assert profile.identity_file == tmp_path / "agents" / "TestBot" / "identity.yaml"
+        assert profile.identity_file == tmp_path / "agents" / "TestBot" / "identity.md"
         assert profile.tasks_dir == tmp_path / "agents" / "TestBot" / "tasks"
         assert profile.sessions_dir == tmp_path / "agents" / "TestBot" / "sessions"
 
@@ -127,6 +127,20 @@ class TestAppendMemory:
         profile.append_memory("Global only", scope="global")
         assert not profile.agent_dir.exists()
 
+    def test_append_with_comment(self, profile):
+        profile.append_memory("Timezone is UTC+9", comment="Corrected from UTC+8")
+        content = profile.memory_file.read_text()
+        assert "Timezone is UTC+9" in content
+        assert "Corrected from UTC+8" in content
+        assert "UTC" in content  # timestamp still present
+
+    def test_save_memory_replaces_entirely(self, profile):
+        profile.append_memory("Old entry")
+        profile.save_memory("# Fresh Memory\n\nOnly this remains")
+        content = profile.memory_file.read_text()
+        assert "Only this remains" in content
+        assert "Old entry" not in content
+
 
 # ---------------------------------------------------------------------------
 # Identity
@@ -135,31 +149,38 @@ class TestAppendMemory:
 
 class TestIdentity:
     def test_empty_identity_when_no_file(self, profile):
-        assert profile.load_identity() == {}
+        assert profile.load_identity() == ""
 
     def test_load_identity(self, profile):
         profile.ensure_dirs()
         profile.identity_file.write_text(
-            "persona: friendly\npreferences:\n  language: english\n"
+            "# User Profile\n\n- Name: Alice\n- Location: Tokyo\n"
         )
         identity = profile.load_identity()
-        assert identity["persona"] == "friendly"
-        assert identity["preferences"]["language"] == "english"
+        assert "Alice" in identity
+        assert "Tokyo" in identity
 
     def test_save_and_load_identity(self, profile):
-        identity = {
-            "persona": "concise and technical",
-            "preferences": {"output_format": "markdown"},
-        }
-        profile.save_identity(identity)
+        content = "# User Profile\n\n- Prefers concise responses\n- Uses Python 3.13\n"
+        profile.save_identity(content)
         loaded = profile.load_identity()
-        assert loaded["persona"] == "concise and technical"
-        assert loaded["preferences"]["output_format"] == "markdown"
+        assert "concise responses" in loaded
+        assert "Python 3.13" in loaded
+
+    def test_save_replaces_entirely(self, profile):
+        profile.save_identity("# Version 1\nOld info")
+        profile.save_identity("# Version 2\nNew info")
+        loaded = profile.load_identity()
+        assert "New info" in loaded
+        assert "Old info" not in loaded
 
     def test_save_creates_agent_dir(self, profile):
         assert not profile.agent_dir.exists()
-        profile.save_identity({"test": True})
+        profile.save_identity("# Test")
         assert profile.agent_dir.exists()
+
+    def test_identity_file_is_markdown(self, profile):
+        assert profile.identity_file.name == "identity.md"
 
 
 # ---------------------------------------------------------------------------
@@ -199,11 +220,12 @@ class TestAgentIsolation:
         bot_a = AgentProfile("BotA", config_dir=tmp_path)
         bot_b = AgentProfile("BotB", config_dir=tmp_path)
 
-        bot_a.save_identity({"persona": "helpful"})
-        bot_b.save_identity({"persona": "concise"})
+        bot_a.save_identity("# BotA\nPersona: helpful")
+        bot_b.save_identity("# BotB\nPersona: concise")
 
-        assert bot_a.load_identity()["persona"] == "helpful"
-        assert bot_b.load_identity()["persona"] == "concise"
+        assert "helpful" in bot_a.load_identity()
+        assert "concise" in bot_b.load_identity()
+        assert "helpful" not in bot_b.load_identity()
 
 
 # ---------------------------------------------------------------------------
@@ -215,7 +237,7 @@ class TestRename:
     def test_rename_moves_data(self, tmp_path):
         old = AgentProfile("OldName", config_dir=tmp_path)
         old.append_memory("Remember this")
-        old.save_identity({"persona": "original"})
+        old.save_identity("# Profile\nPersona: original")
 
         new = old.rename("NewName")
 
@@ -227,7 +249,7 @@ class TestRename:
         # Data is preserved
         mem = new.load_memory()
         assert "Remember this" in mem
-        assert new.load_identity()["persona"] == "original"
+        assert "original" in new.load_identity()
 
     def test_rename_target_exists_raises(self, tmp_path):
         a = AgentProfile("AgentA", config_dir=tmp_path)
@@ -244,4 +266,4 @@ class TestRename:
         new = old.rename("Fresh")
         assert new.agent_name == "Fresh"
         assert new.load_memory() == ""
-        assert new.load_identity() == {}
+        assert new.load_identity() == ""

@@ -32,6 +32,7 @@ CORE_TOOLS: Set[str] = {
     "todo_write",
     "memory_read",
     "memory_write",
+    "identity_update",
     "ask_user_question",
     "skill",
 }

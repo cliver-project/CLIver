@@ -3,7 +3,7 @@ AgentProfile — manages instance-scoped resources for a CLIver agent.
 
 Each agent instance (identified by `agent_name`) has its own:
 - memory.md   — persistent knowledge, append-only
-- identity.yaml — persona and preferences
+- identity.md — living document about agent persona and user profile
 
 These are stored under {config_dir}/agents/{agent_name}/.
 
@@ -15,8 +15,6 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
-
-import yaml
 
 from cliver.util import get_config_dir
 
@@ -54,7 +52,7 @@ class AgentProfile:
         ├── memory.md                          # global memory (shared)
         └── agents/{agent_name}/
             ├── memory.md                      # agent instance memory
-            ├── identity.yaml                  # agent persona
+            ├── identity.md                    # living doc: agent persona + user profile
             ├── tasks/                         # scheduled tasks (future)
             └── sessions/                      # chat sessions (future)
     """
@@ -66,7 +64,7 @@ class AgentProfile:
         # Instance-scoped paths
         self.agent_dir = self.config_dir / "agents" / agent_name
         self.memory_file = self.agent_dir / "memory.md"
-        self.identity_file = self.agent_dir / "identity.yaml"
+        self.identity_file = self.agent_dir / "identity.md"
         self.tasks_dir = self.agent_dir / "tasks"
         self.sessions_dir = self.agent_dir / "sessions"
 
@@ -109,21 +107,19 @@ class AgentProfile:
 
         return combined
 
-    def append_memory(self, entry: str, scope: str = "agent") -> None:
+    def append_memory(self, entry: str, scope: str = "agent", comment: str = "") -> None:
         """Append a timestamped memory entry.
 
         Args:
             entry: The text to remember.
             scope: "agent" for instance memory, "global" for shared memory.
+            comment: Optional context about why this is being saved.
         """
-        if scope == "global":
-            target = self.global_memory_file
-        else:
-            self.ensure_dirs()
-            target = self.memory_file
-
+        target = self._memory_target(scope)
         timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-        formatted = f"\n## {timestamp}\n{entry}\n"
+
+        comment_line = f" — {comment}" if comment else ""
+        formatted = f"\n## {timestamp}{comment_line}\n{entry}\n"
 
         # Create file with header if it doesn't exist
         if not target.exists():
@@ -134,32 +130,51 @@ class AgentProfile:
             with open(target, "a", encoding="utf-8") as f:
                 f.write(formatted)
 
-        logger.info(f"Memory entry appended to {scope} memory: {entry[:80]}...")
+        logger.info(f"Memory appended ({scope}): {entry[:80]}...")
+
+    def save_memory(self, content: str, scope: str = "agent") -> None:
+        """Replace the entire memory document.
+
+        Use when the LLM wants to reorganize, correct, or consolidate
+        memory rather than just appending.
+
+        Args:
+            content: The full markdown content to write.
+            scope: "agent" for instance memory, "global" for shared memory.
+        """
+        target = self._memory_target(scope)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        logger.info(f"Memory rewritten ({scope}): {len(content)} chars")
+
+    def _memory_target(self, scope: str) -> Path:
+        """Get the file path for the given memory scope."""
+        if scope == "global":
+            return self.global_memory_file
+        self.ensure_dirs()
+        return self.memory_file
 
     # -- Identity --------------------------------------------------------------
 
-    def load_identity(self) -> dict:
-        """Load agent identity (persona, preferences) from identity.yaml.
+    def load_identity(self) -> str:
+        """Load identity markdown for system prompt injection.
 
-        Returns an empty dict if no identity file exists.
+        Identity is a living document describing the agent persona and
+        user profile (name, preferences, environment, etc.). Unlike memory
+        (append-only), identity is rewritten as a whole when updated.
+
+        Returns empty string if no identity file exists.
         """
-        if not self.identity_file.exists():
-            return {}
+        return self._read_file(self.identity_file)
 
-        try:
-            content = self.identity_file.read_text(encoding="utf-8")
-            return yaml.safe_load(content) or {}
-        except Exception as e:
-            logger.warning(f"Could not load identity for '{self.agent_name}': {e}")
-            return {}
+    def save_identity(self, content: str) -> None:
+        """Save identity markdown, replacing the entire document.
 
-    def save_identity(self, identity: dict) -> None:
-        """Save agent identity to identity.yaml."""
+        The LLM rewrites the full identity when it learns new information
+        about the user or when the agent persona changes.
+        """
         self.ensure_dirs()
-        self.identity_file.write_text(
-            yaml.dump(identity, default_flow_style=False, allow_unicode=True),
-            encoding="utf-8",
-        )
+        self.identity_file.write_text(content, encoding="utf-8")
 
     # -- Rename ----------------------------------------------------------------
 
