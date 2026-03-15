@@ -157,7 +157,7 @@ class TaskExecutor:
         audio_files: List[str] = None,
         video_files: List[str] = None,
         files: List[str] = None,  # General files for tools like code interpreter
-        max_iterations: int = 10,
+        max_iterations: int = 50,
         confirm_tool_exec: Optional[Callable[[str], bool]] = None,
         model: str = None,
         system_message_appender: Optional[Callable[[], str]] = None,
@@ -195,7 +195,7 @@ class TaskExecutor:
         audio_files: List[str] = None,
         video_files: List[str] = None,
         files: List[str] = None,  # General files for tools like code interpreter
-        max_iterations: int = 10,
+        max_iterations: int = 50,
         confirm_tool_exec: Optional[Callable[[str], bool]] = None,
         model: str = None,
         system_message_appender: Optional[Callable[[], str]] = None,
@@ -455,7 +455,7 @@ class TaskExecutor:
         audio_files: List[str] = None,
         video_files: List[str] = None,
         files: List[str] = None,  # General files for tools like code interpreter
-        max_iterations: int = 10,
+        max_iterations: int = 50,
         confirm_tool_exec: Optional[Callable[[str], bool]] = None,
         model: str = None,
         system_message_appender: Optional[Callable[[], str]] = None,
@@ -539,6 +539,10 @@ class TaskExecutor:
         consecutive_errors = 0
         while iteration < max_iterations:
             options = options or {}
+
+            # Re-inject current plan state so the LLM stays on track
+            _inject_plan_context(messages)
+
             response = await llm_engine.infer(messages, mcp_tools, **options)
             logger.debug(f"LLM response: {response}")
             tool_calls = llm_engine.parse_tool_calls(response, model)
@@ -718,6 +722,9 @@ class TaskExecutor:
 
         # keeps streaming unless got the final answer
         while iteration < max_iterations:
+            # Re-inject current plan state so the LLM stays on track
+            _inject_plan_context(messages)
+
             # For proper tool call handling in streaming, we'll process differently
             tool_calls = None
             accumulated_chunks = None
@@ -800,6 +807,48 @@ def _has_tool_errors(tool_calls: List[Dict], messages: List[BaseMessage]) -> boo
         return False
     return any(
         isinstance(m.content, str) and m.content.startswith("Error:") for m in recent_tool_msgs[-tool_msg_count:]
+    )
+
+
+# Sentinel content prefix used to identify plan-context messages so we can
+# remove stale ones before injecting fresh state.
+_PLAN_CONTEXT_PREFIX = "[Plan Status]"
+
+
+def _inject_plan_context(messages: List[BaseMessage]) -> None:
+    """Inject current todo plan state into the message list.
+
+    If a plan exists (via todo_write), appends a SystemMessage with the
+    current status so the LLM always knows where it is in its plan,
+    even if earlier todo_write results have scrolled out of attention.
+
+    Also adds a completion hint when all tasks are done.
+    """
+    from cliver.tools.todo_write import format_todo_summary, get_current_todos
+
+    todos = get_current_todos()
+    if not todos:
+        return
+
+    # Remove any previous plan-context message to avoid stacking
+    messages[:] = [m for m in messages if not _is_plan_context_message(m)]
+
+    summary = format_todo_summary(todos)
+
+    # Check if all tasks are completed
+    all_completed = all(item.get("status") == "completed" for item in todos)
+    if all_completed:
+        summary += "\n\nAll planned tasks are completed. Provide your final summary to the user."
+
+    messages.append(SystemMessage(content=f"{_PLAN_CONTEXT_PREFIX}\n{summary}"))
+
+
+def _is_plan_context_message(msg: BaseMessage) -> bool:
+    """Check if a message is a plan-context injection."""
+    return (
+        isinstance(msg, SystemMessage)
+        and isinstance(msg.content, str)
+        and msg.content.startswith(_PLAN_CONTEXT_PREFIX)
     )
 
 

@@ -53,6 +53,11 @@ def create_tool_progress_handler(console: Console) -> ToolEventHandler:
             duration = f"[dim]{event.duration_ms:.0f}ms[/dim]" if event.duration_ms else ""
             console.print(f"  {icon} {tool} {duration}")
             state["in_block"] = False
+
+            # Render plan progress when todo_write completes
+            if event.tool_name == "todo_write":
+                _render_plan_progress(console)
+
             console.print()  # blank line after completion
 
         elif event.event_type == ToolEventType.TOOL_ERROR:
@@ -65,3 +70,41 @@ def create_tool_progress_handler(console: Console) -> ToolEventHandler:
             console.print()  # blank line after error
 
     return handler
+
+
+def _render_plan_progress(console: Console) -> None:
+    """Render the current todo plan as a Rich panel after todo_write completes."""
+    from cliver.tools.todo_write import get_current_todos
+
+    todos = get_current_todos()
+    if not todos:
+        return
+
+    _PLAN_ICONS = {
+        "pending": "[ ]",
+        "in_progress": "[bold yellow][~][/bold yellow]",
+        "completed": "[bold green][x][/bold green]",
+    }
+
+    lines = []
+    pending = in_progress = completed = 0
+    for item in todos:
+        status = item.get("status", "pending")
+        icon = _PLAN_ICONS.get(status, "[ ]")
+        content = item.get("content", "")
+        lines.append(f"  {icon} {content}")
+        if status == "pending":
+            pending += 1
+        elif status == "in_progress":
+            in_progress += 1
+        elif status == "completed":
+            completed += 1
+
+    total = len(todos)
+    progress_line = f"  [dim]{completed}/{total} done, {in_progress} active, {pending} pending[/dim]"
+    lines.append(progress_line)
+
+    console.print()
+    console.print("[bold]Plan:[/bold]")
+    for line in lines:
+        console.print(line)

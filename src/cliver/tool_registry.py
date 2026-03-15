@@ -28,6 +28,7 @@ CORE_TOOLS: Set[str] = {
     "list_directory",
     "grep_search",
     "run_shell_command",
+    "todo_read",
     "todo_write",
     "ask_user_question",
     "skill",

@@ -21,7 +21,7 @@ def registry():
 class TestRegistryLoading:
     def test_loads_all_tools(self, registry):
         """All 11 builtin tools should be discovered."""
-        assert len(registry.all_tools) == 12
+        assert len(registry.all_tools) == 13
 
     def test_tool_names_populated(self, registry):
         names = registry.tool_names
@@ -103,7 +103,7 @@ class TestGetToolsByTag:
 class TestGetToolsNoFilter:
     def test_returns_all_when_no_input(self, registry):
         tools = registry.get_tools(user_input=None)
-        assert len(tools) == 12
+        assert len(tools) == 13
 
 
 # ---------------------------------------------------------------------------

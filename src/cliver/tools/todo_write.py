@@ -11,6 +11,47 @@ logger = logging.getLogger(__name__)
 # Module-level todo storage (persists within a session)
 _current_todos: List[dict] = []
 
+STATUS_ICONS = {
+    "pending": "[ ]",
+    "in_progress": "[~]",
+    "completed": "[x]",
+}
+
+
+def get_current_todos() -> List[dict]:
+    """Get the current todo list (for use by other tools or the system)."""
+    return list(_current_todos)
+
+
+def format_todo_summary(todos: list[dict]) -> str:
+    """Format a todo list into a human-readable summary.
+
+    Shared by todo_write, todo_read, and the Re-Act loop context re-injection.
+    """
+    if not todos:
+        return "No active plan."
+
+    lines = ["Todo List:"]
+    pending = in_progress = completed = 0
+
+    for item in todos:
+        status = item.get("status", "pending")
+        icon = STATUS_ICONS.get(status, "[ ]")
+        content = item.get("content", "")
+        item_id = item.get("id", "?")
+        lines.append(f"  {icon} ({item_id}) {content}")
+
+        if status == "pending":
+            pending += 1
+        elif status == "in_progress":
+            in_progress += 1
+        elif status == "completed":
+            completed += 1
+
+    total = len(todos)
+    lines.append(f"\nProgress: {completed}/{total} completed, {in_progress} in progress, {pending} pending")
+    return "\n".join(lines)
+
 
 class TodoItem(BaseModel):
     """A single todo item."""
@@ -65,42 +106,7 @@ class TodoWriteTool(BaseTool):
                 validated.append(dict(item))
 
         _current_todos = validated
-
-        # Format the output
-        status_icons = {
-            "pending": "[ ]",
-            "in_progress": "[~]",
-            "completed": "[x]",
-        }
-
-        lines = ["Todo List:"]
-        pending = 0
-        in_progress = 0
-        completed = 0
-
-        for item in _current_todos:
-            status = item.get("status", "pending")
-            icon = status_icons.get(status, "[ ]")
-            content = item.get("content", "")
-            item_id = item.get("id", "?")
-            lines.append(f"  {icon} ({item_id}) {content}")
-
-            if status == "pending":
-                pending += 1
-            elif status == "in_progress":
-                in_progress += 1
-            elif status == "completed":
-                completed += 1
-
-        total = len(_current_todos)
-        lines.append(f"\nProgress: {completed}/{total} completed, {in_progress} in progress, {pending} pending")
-
-        return "\n".join(lines)
-
-
-def get_current_todos() -> List[dict]:
-    """Get the current todo list (for use by other tools or the system)."""
-    return list(_current_todos)
+        return format_todo_summary(_current_todos)
 
 
 todo_write = TodoWriteTool()
