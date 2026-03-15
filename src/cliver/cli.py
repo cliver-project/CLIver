@@ -18,6 +18,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from cliver import __version__, commands
+from cliver.agent_profile import AgentProfile
 from cliver.cli_tool_progress import create_tool_progress_handler
 from cliver.config import ConfigManager
 from cliver.constants import CMD_CHAT
@@ -42,13 +43,19 @@ class Cliver:
             sys.path.append(dir_str)
         self.config_manager = ConfigManager(self.config_dir)
         self.console = Console()
+
+        # Create agent profile for instance-scoped resources (memory, identity)
+        agent_name = self.config_manager.config.agent_name
+        self.agent_profile = AgentProfile(agent_name, self.config_dir)
+
         self.task_executor = TaskExecutor(
             llm_models=self.config_manager.list_llm_models(),
             mcp_servers=self.config_manager.list_mcp_servers_for_mcp_caller(),
             default_model=self.config_manager.get_llm_model().name if self.config_manager.get_llm_model() else None,
             user_agent=self.config_manager.config.user_agent,
-            agent_name=self.config_manager.config.agent_name,
+            agent_name=agent_name,
             on_tool_event=create_tool_progress_handler(self.console),
+            agent_profile=self.agent_profile,
         )
 
         # Initialize workflow components

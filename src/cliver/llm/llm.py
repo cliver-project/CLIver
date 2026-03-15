@@ -99,12 +99,14 @@ class TaskExecutor:
         user_agent: Optional[str] = None,
         agent_name: str = "CLIver",
         on_tool_event: Optional[ToolEventHandler] = None,
+        agent_profile=None,
     ):
         self.llm_models = llm_models
         self.default_model = default_model
         self.user_agent = user_agent
         self.agent_name = agent_name
         self.on_tool_event = on_tool_event
+        self.agent_profile = agent_profile  # AgentProfile for memory/identity
         self.mcp_caller = MCPServersCaller(mcp_servers=mcp_servers)
         self.llm_engines: Dict[str, LLMInferenceEngine] = {}
 
@@ -304,6 +306,12 @@ class TaskExecutor:
         default_enhanced_messages = await default_enhance_prompt(user_input, self.mcp_caller)
         if default_enhanced_messages and len(default_enhanced_messages) > 0:
             messages.extend(default_enhanced_messages)
+
+        # Inject agent memory (global + instance) into the context
+        if self.agent_profile:
+            memory_content = self.agent_profile.load_memory()
+            if memory_content:
+                messages.append(SystemMessage(content=f"# Agent Memory\n\n{memory_content}"))
 
         llm_tools: List[BaseTool] = []
         # mcp_tools are langchain BaseTool coming from MCP server, the name follows 'mcp_server_name#tool_name'
