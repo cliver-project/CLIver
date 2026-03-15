@@ -22,6 +22,25 @@ from cliver.util import get_config_dir
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Current profile registry — single source of truth for the active profile.
+# Set by TaskExecutor at init, accessed by builtin tools (memory, etc.).
+# ---------------------------------------------------------------------------
+
+_current_profile: Optional["AgentProfile"] = None
+
+
+def set_current_profile(profile: Optional["AgentProfile"]) -> None:
+    """Set the active AgentProfile. Called by TaskExecutor at init."""
+    global _current_profile
+    _current_profile = profile
+
+
+def get_current_profile() -> Optional["AgentProfile"]:
+    """Get the active AgentProfile. Used by builtin tools that need it."""
+    return _current_profile
+
+
 # Maximum characters of memory to inject into the system prompt.
 # This prevents memory from consuming too much of the context window.
 MAX_MEMORY_CHARS = 4000

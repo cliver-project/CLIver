@@ -110,6 +110,12 @@ class TaskExecutor:
         self.mcp_caller = MCPServersCaller(mcp_servers=mcp_servers)
         self.llm_engines: Dict[str, LLMInferenceEngine] = {}
 
+        # Set the active profile so builtin tools (memory, etc.) can access it
+        if agent_profile:
+            from cliver.agent_profile import set_current_profile
+
+            set_current_profile(agent_profile)
+
     def _emit_tool_event(self, event: ToolEvent) -> None:
         """Emit a tool event to the registered handler, if any."""
         if self.on_tool_event:
