@@ -1,174 +1,95 @@
 ---
-title: Session Command
-description: Learn how to manage persistent options for interactive chat sessions
+title: Session Options
+description: Manage persistent inference options for interactive chat sessions
 ---
 
-# Session Command Usage
+# Session Options
 
-The `cliver session` command allows you to manage persistent options that will be used across all chat commands during an interactive session. This feature enables you to set configuration options once and have them apply to all subsequent interactions without needing to specify them repeatedly.
+The `cliver session-option` command manages persistent inference options that apply to all subsequent chat commands during an interactive session.
 
-## Basic Usage
+## Viewing Options
 
-To view current session options:
+Run with no arguments to see current settings:
 
 ```bash
-cliver session
+cliver session-option
 ```
 
-To list current session options explicitly:
+## Setting Options
+
+Use the `set` subcommand to configure options:
 
 ```bash
-cliver session --list
-```
+# Set model
+cliver session-option set --model qwen
 
-## Setting Session Options
-
-### Model Selection
-
-Set a specific model to use for all subsequent chat commands:
-
-```bash
-cliver session --model gpt-4-turbo
-```
-
-### Temperature Control
-
-Set the temperature parameter to control response creativity:
-
-```bash
-cliver session --temperature 0.7
-```
-
-### Advanced Configuration Options
-
-Set multiple inference parameters at once:
-
-```bash
-cliver session \
+# Set multiple options at once
+cliver session-option set \
   --temperature 0.5 \
   --max-tokens 1024 \
   --top-p 0.9 \
-  --frequency-penalty 0.3
+  --stream
+
+# Set additional inference parameters
+cliver session-option set --option presence_penalty=0.6
 ```
 
-### Enable Streaming
+### Available Options
 
-Enable streaming responses for all subsequent chats:
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--model` | `-m` | LLM model to use |
+| `--temperature` | | Temperature parameter |
+| `--max-tokens` | | Maximum tokens |
+| `--top-p` | | Top-p parameter |
+| `--frequency-penalty` | | Frequency penalty |
+| `--template` | `-t` | Prompt template |
+| `--stream` | `-s` | Enable streaming |
+| `--no-stream` | | Disable streaming |
+| `--save-media` | `-sm` | Enable media saving |
+| `--no-save-media` | | Disable media saving |
+| `--media-dir` | `-md` | Media save directory |
+| `--included-tools` | | Tool filter pattern |
+| `--option` | | Additional key=value options |
+
+## Resetting Options
+
+Reset all options to defaults:
 
 ```bash
-cliver session --stream
+cliver session-option reset
 ```
 
-### Skill Sets and Templates
-
-Set default skill sets or templates:
-
-```bash
-cliver session --skill-set code_review --skill-set documentation
-cliver session --template code_review_template
-```
-
-### Additional Options
-
-Set additional inference options using key-value pairs:
-
-```bash
-cliver session --option presence_penalty=0.6 --option stop="['END']"
-```
-
-## Managing Session Options
-
-### Reset All Options
-
-Reset all session options to their defaults:
-
-```bash
-cliver session --reset
-```
-
-### Clear Specific Options
-
-Clear specific session options without affecting others:
-
-```bash
-cliver session --clear --model  # Clears only the model option
-cliver session --clear --temperature  # Clears only the temperature option
-cliver session --clear --option presence_penalty  # Clears only specific additional option
-```
-
-## Using in Interactive Sessions
-
-The session command is especially useful in interactive mode. Here's a typical workflow:
+## Interactive Session Workflow
 
 ```bash
 # Start interactive mode
 cliver
 
-# Set up your preferred configuration
-Cliver> session --model gpt-4-turbo --temperature 0.5 --stream
+# Configure your session
+CLIver> session-option set --model qwen --temperature 0.5 --stream
 
-# Now all chat commands will use these settings
-Cliver> chat "Hello, how are you?"
-Cliver> chat "Can you help me with Python?"
-Cliver> chat "Explain decorators in Python."
+# Chat with those settings
+CLIver> chat "Hello, how are you?"
+CLIver> chat "Explain decorators in Python."
 
-# Check current session options
-Cliver> session
+# Check current settings
+CLIver> session-option
 
-# Modify just one setting
-Cliver> session --temperature 0.8
-
-# Continue chatting with new settings
-Cliver> chat "Now be more creative!"
+# Adjust one setting
+CLIver> session-option set --temperature 0.8
 
 # Reset when done
-Cliver> session --reset
+CLIver> session-option reset
 ```
 
 ## Integration with Chat Command
 
-When using the `cliver chat` command in an interactive session, options specified directly in the command will take precedence over session options:
+Options specified directly in `cliver chat` override session options for that command only:
 
 ```bash
 # Uses session model, but overrides temperature for this command only
-cliver chat --temperature 0.9 "This command uses custom temperature"
+cliver chat --temperature 0.9 "Be more creative"
 
-# After this command, the session temperature remains unchanged
+# Session temperature remains unchanged after this command
 ```
-
-## Examples
-
-### Example 1: Code Review Session
-```bash
-cliver session \
-  --model gpt-4-turbo \
-  --temperature 0.2 \
-  --skill-set code_review \
-  --template code_review_template \
-  --stream
-```
-
-### Example 2: Creative Writing Session
-```bash
-cliver session \
-  --model claude-3-opus-20240229 \
-  --temperature 0.8 \
-  --top-p 0.9 \
-  --max-tokens 2048
-```
-
-### Example 3: Quick Configuration Change
-```bash
-# Check current settings
-cliver session
-
-# Make quick adjustment
-cliver session --frequency-penalty 0.5
-
-# Verify change
-cliver session --list
-```
-
-## Next Steps
-
-Now that you understand session management, you can optimize your interactive workflows by setting up your preferred configurations once and using them consistently throughout your session.

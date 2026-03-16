@@ -77,6 +77,7 @@ class Cliver:
     def init_session(self, group: click.Group, session_options: Dict[str, Any] = None):
         if self.piped or self.session is not None:
             return
+        self._group = group
         self.session = PromptSession(
             history=FileHistory(str(self.history_path)),
             auto_suggest=AutoSuggestFromHistory(),
@@ -91,6 +92,12 @@ class Cliver:
 
     def load_commands_names(self, group: click.Group) -> list[str]:
         return commands.list_commands_names(group)
+
+    def _get_commands(self) -> set[str]:
+        """Get registered command names for slash-command validation."""
+        if hasattr(self, "_group") and self._group:
+            return set(self._group.commands.keys())
+        return set()
 
     def run(self) -> None:
         """Run the Cliver client."""
@@ -122,11 +129,18 @@ class Cliver:
                             continue
                         cmd = line[1:]
                         if cmd.lower().startswith("help"):
-                            # /help -> --help, /help llm -> llm --help, /help llm list -> llm list --help
+                            # /help -> --help, /help llm -> llm --help
                             args = cmd[4:].strip()
                             line = f"{args} --help".strip()
                         else:
-                            # possibly a command
+                            # Slash prefix = explicit command — validate it exists
+                            cmd_parts = shell_split(cmd)
+                            cmd_name = cmd_parts[0] if cmd_parts else ""
+                            if cmd_name not in self._get_commands():
+                                self.console.print(
+                                    f"[yellow]Unknown command: /{cmd_name}[/yellow]"
+                                )
+                                continue
                             line = cmd
                     elif not line.lower().startswith(f"{CMD_CHAT} "):
                         line = f"{CMD_CHAT} {line}"
