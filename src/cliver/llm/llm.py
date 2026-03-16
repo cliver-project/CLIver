@@ -100,6 +100,7 @@ class TaskExecutor:
         agent_name: str = "CLIver",
         on_tool_event: Optional[ToolEventHandler] = None,
         agent_profile=None,
+        token_tracker=None,
     ):
         self.llm_models = llm_models
         self.default_model = default_model
@@ -107,6 +108,7 @@ class TaskExecutor:
         self.agent_name = agent_name
         self.on_tool_event = on_tool_event
         self.agent_profile = agent_profile  # AgentProfile for memory/identity
+        self.token_tracker = token_tracker  # TokenTracker for usage auditing
         self.mcp_caller = MCPServersCaller(mcp_servers=mcp_servers)
         self.llm_engines: Dict[str, LLMInferenceEngine] = {}
 
@@ -123,6 +125,20 @@ class TaskExecutor:
                 self.on_tool_event(event)
             except Exception as e:
                 logger.debug(f"Tool event handler error: {e}")
+
+    def _track_tokens(self, response, model: str) -> None:
+        """Extract and record token usage from an LLM response."""
+        if not self.token_tracker:
+            return
+        from cliver.token_tracker import extract_usage
+
+        usage = extract_usage(response)
+        if usage.total_tokens > 0:
+            model_name = model
+            if not model_name:
+                _model = self._get_llm_model(None)
+                model_name = _model.name if _model else "unknown"
+            self.token_tracker.record(model_name, usage)
 
     def get_mcp_caller(self) -> MCPServersCaller:
         return self.mcp_caller
@@ -563,6 +579,10 @@ class TaskExecutor:
 
             response = await llm_engine.infer(messages, mcp_tools, **options)
             logger.debug(f"LLM response: {response}")
+
+            # Track token usage from this LLM call
+            self._track_tokens(response, model)
+
             tool_calls = llm_engine.parse_tool_calls(response, model)
             if tool_calls:
                 stop, result = await self._execute_tool_calls(
@@ -771,6 +791,10 @@ class TaskExecutor:
                         ):
                             continue
                     yield chunk
+                # Track token usage from the accumulated streaming response
+                if accumulated_chunks:
+                    self._track_tokens(accumulated_chunks, model)
+
                 tool_calls = llm_engine.parse_tool_calls(accumulated_chunks, model)
             except Exception as e:
                 logger.error(f"Error in streaming: {str(e)}", exc_info=True)

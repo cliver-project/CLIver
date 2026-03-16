@@ -48,6 +48,14 @@ class Cliver:
         agent_name = self.config_manager.config.agent_name
         self.agent_profile = AgentProfile(agent_name, self.config_dir)
 
+        # Create token tracker for usage auditing
+        from cliver.token_tracker import TokenTracker
+
+        self.token_tracker = TokenTracker(
+            audit_dir=self.config_dir / "audit_logs",
+            agent_name=agent_name,
+        )
+
         self.task_executor = TaskExecutor(
             llm_models=self.config_manager.list_llm_models(),
             mcp_servers=self.config_manager.list_mcp_servers_for_mcp_caller(),
@@ -56,6 +64,7 @@ class Cliver:
             agent_name=agent_name,
             on_tool_event=create_tool_progress_handler(self.console),
             agent_profile=self.agent_profile,
+            token_tracker=self.token_tracker,
         )
 
         # Initialize workflow components
