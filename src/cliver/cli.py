@@ -73,6 +73,9 @@ class Cliver:
         self.piped = stdin_is_piped()
         # Session options that persist across chat commands in interactive mode
         self.session_options = {}
+        # Conversation session tracking (interactive mode only)
+        self.current_session_id = None
+        self.session_history: list[dict] = []  # loaded turns for context
 
     def init_session(self, group: click.Group, session_options: Dict[str, Any] = None):
         if self.piped or self.session is not None:
@@ -92,6 +95,30 @@ class Cliver:
 
     def load_commands_names(self, group: click.Group) -> list[str]:
         return commands.list_commands_names(group)
+
+    def get_session_manager(self):
+        """Get the SessionManager for this agent's sessions."""
+        from cliver.session_manager import SessionManager
+
+        return SessionManager(self.agent_profile.sessions_dir)
+
+    def record_turn(self, role: str, content: str) -> None:
+        """Record a conversation turn to the current session.
+
+        Auto-creates a session on the first turn if none exists.
+        Called by chat.py after each user input and LLM response.
+        """
+        if not content:
+            return
+
+        # Auto-create session on first chat in interactive mode
+        if not self.current_session_id:
+            sm = self.get_session_manager()
+            self.current_session_id = sm.create_session()
+
+        sm = self.get_session_manager()
+        sm.append_turn(self.current_session_id, role, content)
+        self.session_history.append({"role": role, "content": content})
 
     def _get_commands(self) -> set[str]:
         """Get registered command names for slash-command validation."""

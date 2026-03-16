@@ -250,7 +250,14 @@ def chat(
             def system_message_appender():
                 return system_message_content
 
-        return _async_chat(
+        # Record user turn to session (interactive mode)
+        cliver.record_turn("user", sentence)
+
+        # Callback to record assistant response to session
+        def on_response(text: str):
+            cliver.record_turn("assistant", text)
+
+        result = _async_chat(
             task_executor,
             sentence,
             use_model,
@@ -266,7 +273,9 @@ def chat(
             _llm_options,
             tools_filter,
             system_message_appender,
+            on_response=on_response,
         )
+        return result
     except Exception as e:
         click.echo(f"Error: {e}")
         return 1
@@ -306,6 +315,7 @@ def _async_chat(
     options: Dict[str, Any] = None,
     tools_filter: Optional[Callable] = None,
     system_message_appender=None,
+    on_response: Optional[Callable[[str], None]] = None,
 ):
     # Create multimedia response handler
     response_handler = MultimediaResponseHandler(media_dir)
@@ -329,6 +339,7 @@ def _async_chat(
                     options,
                     tools_filter,
                     system_message_appender,
+                    on_response=on_response,
                 )
             )
         else:
@@ -357,6 +368,8 @@ def _async_chat(
                 # Display text content
                 if multimedia_response.has_text():
                     click.echo(multimedia_response.text_content)
+                    if on_response:
+                        on_response(multimedia_response.text_content)
 
                 # Display media information
                 if multimedia_response.has_media():
@@ -397,6 +410,7 @@ async def _stream_chat(
     options: Dict[str, Any] = None,
     tools_filter: Optional[Callable] = None,
     system_message_appender=None,
+    on_response: Optional[Callable[[str], None]] = None,
 ):
     """Stream the chat response character by character."""
     # Create multimedia response handler
@@ -455,6 +469,10 @@ async def _stream_chat(
                     if media.mime_type:
                         info += f" [{media.mime_type}]"
                     print(info)
+
+        # Record the full response to session
+        if on_response and accumulated_chunk and hasattr(accumulated_chunk, "content") and accumulated_chunk.content:
+            on_response(str(accumulated_chunk.content))
 
         print()  # New line at the end
         return 0
