@@ -440,3 +440,53 @@ def test_config_path(load_cliver, init_config):
     result = CliRunner().invoke(load_cliver, ["config", "path"])
     assert result.exit_code == 0
     assert "Configuration file path:" in result.output
+
+
+# ---------------------------------------------------------------------------
+# API key masking
+# ---------------------------------------------------------------------------
+
+
+def test_mask_secrets_plain_text():
+    """Plain text api_key should be masked."""
+    from cliver.commands.config import _mask_secrets
+
+    data = {"models": {"qwen": {"api_key": "sk-abcdef123456789xyz"}}}
+    _mask_secrets(data)
+    assert data["models"]["qwen"]["api_key"] == "sk-***xyz"
+
+
+def test_mask_secrets_keyring_reference():
+    """Keyring references should NOT be masked."""
+    from cliver.commands.config import _mask_secrets
+
+    data = {"models": {"qwen": {"api_key": "keyring:myservice:mykey"}}}
+    _mask_secrets(data)
+    assert data["models"]["qwen"]["api_key"] == "keyring:myservice:mykey"
+
+
+def test_mask_secrets_short_key():
+    """Very short keys are fully masked."""
+    from cliver.commands.config import _mask_secrets
+
+    data = {"models": {"qwen": {"api_key": "short"}}}
+    _mask_secrets(data)
+    assert data["models"]["qwen"]["api_key"] == "***"
+
+
+def test_mask_secrets_none_key():
+    """None api_key should be left as-is."""
+    from cliver.commands.config import _mask_secrets
+
+    data = {"models": {"qwen": {"api_key": None}}}
+    _mask_secrets(data)
+    assert data["models"]["qwen"]["api_key"] is None
+
+
+def test_mask_secrets_no_api_key():
+    """Dicts without api_key should be untouched."""
+    from cliver.commands.config import _mask_secrets
+
+    data = {"models": {"qwen": {"url": "http://localhost"}}}
+    _mask_secrets(data)
+    assert data["models"]["qwen"]["url"] == "http://localhost"

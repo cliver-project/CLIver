@@ -40,12 +40,14 @@ def validate_config(cliver: Cliver):
 @config.command(name="show", help="Show current configuration")
 @pass_cliver
 def show_config(cliver: Cliver):
-    """Show the current configuration."""
+    """Show the current configuration with sensitive values masked."""
     try:
         config_data = cliver.config_manager.config
         if config_data:
+            data = config_data.model_dump()
+            _mask_secrets(data)
             output = yaml.dump(
-                config_data.model_dump(),
+                data,
                 default_flow_style=False,
                 sort_keys=False,
                 allow_unicode=True,
@@ -55,6 +57,31 @@ def show_config(cliver: Cliver):
             cliver.console.print("No configuration found.")
     except Exception as e:
         cliver.console.print(f"[red]Error showing configuration: {e}[/red]")
+
+
+def _mask_secrets(data, keys_to_mask=("api_key",)):
+    """Recursively mask sensitive values in a config dict.
+
+    Keyring references (keyring:service:key) are shown as-is since
+    they don't contain the actual secret. Plain text secrets are masked.
+    """
+    if isinstance(data, dict):
+        for key, value in data.items():
+            if key in keys_to_mask and isinstance(value, str):
+                if value.startswith("keyring:"):
+                    pass  # keyring references are safe to display
+                else:
+                    # Mask plain text: show first 3 and last 3 chars
+                    if len(value) > 8:
+                        data[key] = value[:3] + "***" + value[-3:]
+                    else:
+                        data[key] = "***"
+            elif isinstance(value, (dict, list)):
+                _mask_secrets(value, keys_to_mask)
+    elif isinstance(data, list):
+        for item in data:
+            if isinstance(item, (dict, list)):
+                _mask_secrets(item, keys_to_mask)
 
 
 # noinspection PyUnresolvedReferences
