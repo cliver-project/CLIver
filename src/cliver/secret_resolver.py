@@ -4,19 +4,28 @@ Secret resolver for CLIver.
 Resolves secret references to actual values. Supports:
 - Plain text: used as-is (e.g., "sk-abc123")
 - Keyring reference: "keyring:<service-name>:<key-name>" reads from system keyring/keychain
+
+Resolved secrets are cached in-process so keyring is only queried once
+per unique reference, avoiding repeated password prompts in interactive mode.
 """
 
 import logging
-from typing import Optional
+from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
 KEYRING_PREFIX = "keyring:"
 
+# In-process cache for resolved secrets — avoids repeated keyring prompts
+_secret_cache: Dict[str, Optional[str]] = {}
+
 
 def resolve_secret(value: Optional[str]) -> Optional[str]:
     """
     Resolve a secret value that may be a keyring reference.
+
+    Results are cached in-process so keyring is only queried once per
+    unique reference within a session.
 
     Args:
         value: The raw value from config. Can be:
@@ -33,6 +42,10 @@ def resolve_secret(value: Optional[str]) -> Optional[str]:
     if not value.startswith(KEYRING_PREFIX):
         return value
 
+    # Check cache first
+    if value in _secret_cache:
+        return _secret_cache[value]
+
     # Parse keyring:<service-name>:<key-name>
     parts = value[len(KEYRING_PREFIX) :].split(":", 1)
     if len(parts) != 2 or not parts[0] or not parts[1]:
@@ -40,7 +53,9 @@ def resolve_secret(value: Optional[str]) -> Optional[str]:
         return None
 
     service_name, key_name = parts
-    return _read_from_keyring(service_name, key_name)
+    resolved = _read_from_keyring(service_name, key_name)
+    _secret_cache[value] = resolved
+    return resolved
 
 
 def _read_from_keyring(service_name: str, key_name: str) -> Optional[str]:
