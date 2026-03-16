@@ -275,6 +275,10 @@ def chat(
             system_message_appender,
             on_response=on_response,
         )
+
+        # Display token usage after response
+        _show_token_usage(cliver)
+
         return result
     except Exception as e:
         click.echo(f"Error: {e}")
@@ -297,6 +301,25 @@ def _chat_options(
     if frequency_penalty is not None:
         options["frequency_penalty"] = frequency_penalty
     return options
+
+
+def _show_token_usage(cliver) -> None:
+    """Display token usage after a chat response."""
+    tracker = getattr(cliver, "token_tracker", None)
+    if not tracker or not tracker.last_usage:
+        return
+
+    from cliver.token_tracker import format_tokens
+
+    last = tracker.last_usage
+    session = tracker.get_session_total()
+    model = tracker.last_model or "?"
+
+    click.echo(
+        f"[{model}] tokens: {format_tokens(last.total_tokens)} "
+        f"(in: {format_tokens(last.input_tokens)}, out: {format_tokens(last.output_tokens)}) | "
+        f"session: {format_tokens(session.total_tokens)}"
+    )
 
 
 def _async_chat(
