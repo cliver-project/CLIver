@@ -41,6 +41,10 @@ class ModelConfig(BaseModel):
         default=None,
         description="Override thinking mode: true to enable, false to disable, null to auto-detect from model name.",
     )
+    context_window: Optional[int] = Field(
+        default=None,
+        description="Context window size in tokens. Used for conversation history compression.",
+    )
 
     model_config = {"extra": "allow"}
 

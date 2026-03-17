@@ -191,6 +191,7 @@ class TaskExecutor:
         template: Optional[str] = None,
         params: dict = None,
         options: Dict[str, Any] = None,
+        conversation_history: Optional[List[BaseMessage]] = None,
     ) -> BaseMessage:
         return asyncio.run(
             self.process_user_input(
@@ -209,6 +210,7 @@ class TaskExecutor:
                 template,
                 params,
                 options,
+                conversation_history,
             )
         )
 
@@ -229,6 +231,7 @@ class TaskExecutor:
         template: Optional[str] = None,
         params: dict = None,
         options: Dict[str, Any] = None,
+        conversation_history: Optional[List[BaseMessage]] = None,
     ) -> AsyncIterator[BaseMessageChunk]:
         """
         Stream user input through the LLM, handling tool calls if needed.
@@ -269,6 +272,7 @@ class TaskExecutor:
             files,
             template,
             params,
+            conversation_history,
         )
 
         # Since we've enhanced the infer and stream methods to handle multimedia,
@@ -299,6 +303,7 @@ class TaskExecutor:
         files=None,  # General files for tools like code interpreter
         template=None,
         params=None,
+        conversation_history=None,
     ):
         # Check file upload capability early, before any processing
         if files:
@@ -438,6 +443,10 @@ class TaskExecutor:
                         )
                 logger.info(f"Completed file uploads. Uploaded file IDs: {uploaded_file_ids}")
 
+        # Insert conversation history (prior turns) before the current user input
+        if conversation_history:
+            messages.extend(conversation_history)
+
         # Add the user input with media content and file references
         if media_content or uploaded_file_ids or embedded_files_content:
             # Create a human message with media content and file references
@@ -499,6 +508,7 @@ class TaskExecutor:
         template: Optional[str] = None,
         params: dict = None,
         options: Dict[str, Any] = None,
+        conversation_history: Optional[List[BaseMessage]] = None,
     ) -> BaseMessage:
         """
         Process user input through the LLM, handling tool calls if needed.
@@ -539,6 +549,7 @@ class TaskExecutor:
             files,
             template,
             params,
+            conversation_history,
         )
 
         # Since we've enhanced the infer and stream methods to handle multimedia,
@@ -888,9 +899,7 @@ def _inject_plan_context(messages: List[BaseMessage]) -> None:
 def _is_plan_context_message(msg: BaseMessage) -> bool:
     """Check if a message is a plan-context injection."""
     return (
-        isinstance(msg, SystemMessage)
-        and isinstance(msg.content, str)
-        and msg.content.startswith(_PLAN_CONTEXT_PREFIX)
+        isinstance(msg, SystemMessage) and isinstance(msg.content, str) and msg.content.startswith(_PLAN_CONTEXT_PREFIX)
     )
 
 

@@ -5,6 +5,7 @@ import time
 from typing import Any, Callable, Dict, List, Optional
 
 import click
+from langchain_core.messages import AIMessage, HumanMessage
 
 from cliver.cli import Cliver, interact, pass_cliver
 from cliver.llm import TaskExecutor
@@ -253,9 +254,21 @@ def chat(
         # Record user turn to session (interactive mode)
         cliver.record_turn("user", sentence)
 
-        # Callback to record assistant response to session
+        # Compress conversation history if it exceeds context window budget
+        model_config = task_executor._get_llm_model(use_model)
+        if model_config and cliver.conversation_messages:
+            _compress_if_needed(cliver, task_executor, model_config, use_model, sentence)
+
+        # Snapshot prior turns (before this turn) to pass as history
+        conv_history = list(cliver.conversation_messages) if cliver.conversation_messages else None
+
+        # Append user turn now so it precedes the assistant response in order
+        cliver.conversation_messages.append(HumanMessage(content=sentence))
+
+        # Callback to record assistant response to session and conversation history
         def on_response(text: str):
             cliver.record_turn("assistant", text)
+            cliver.conversation_messages.append(AIMessage(content=text))
 
         result = _async_chat(
             task_executor,
@@ -274,6 +287,7 @@ def chat(
             tools_filter,
             system_message_appender,
             on_response=on_response,
+            conversation_history=conv_history,
         )
 
         # Display token usage after response
@@ -339,6 +353,7 @@ def _async_chat(
     tools_filter: Optional[Callable] = None,
     system_message_appender=None,
     on_response: Optional[Callable[[str], None]] = None,
+    conversation_history=None,
 ):
     # Create multimedia response handler
     response_handler = MultimediaResponseHandler(media_dir)
@@ -363,6 +378,7 @@ def _async_chat(
                     tools_filter,
                     system_message_appender,
                     on_response=on_response,
+                    conversation_history=conversation_history,
                 )
             )
         else:
@@ -378,6 +394,7 @@ def _async_chat(
                 options=options,
                 filter_tools=tools_filter,
                 system_message_appender=system_message_appender,
+                conversation_history=conversation_history,
             )
             if response:
                 # Get the LLM engine used for this response
@@ -434,6 +451,7 @@ async def _stream_chat(
     tools_filter: Optional[Callable] = None,
     system_message_appender=None,
     on_response: Optional[Callable[[str], None]] = None,
+    conversation_history=None,
 ):
     """Stream the chat response character by character."""
     # Create multimedia response handler
@@ -453,6 +471,7 @@ async def _stream_chat(
             options=options,
             filter_tools=tools_filter,
             system_message_appender=system_message_appender,
+            conversation_history=conversation_history,
         ):
             # Handle different types of chunks - some may have content, some may have
             # tool calls
@@ -509,3 +528,29 @@ async def _stream_chat(
     except Exception as e:
         click.echo(f"Error: {e}")
         return 1
+
+
+def _compress_if_needed(cliver, task_executor, model_config, model_name, new_input):
+    """Check and compress conversation history if it exceeds context window budget."""
+    from cliver.conversation_compressor import ConversationCompressor, estimate_tokens, get_context_window
+
+    context_window = get_context_window(model_config)
+    compressor = ConversationCompressor(context_window)
+
+    if not compressor.needs_compression([], cliver.conversation_messages, new_input):
+        return
+
+    before_tokens = estimate_tokens(cliver.conversation_messages)
+    llm_engine = task_executor.get_llm_engine(model_name)
+
+    try:
+        compressed = asyncio.get_event_loop().run_until_complete(
+            compressor.compress(cliver.conversation_messages, llm_engine)
+        )
+    except RuntimeError:
+        # No running event loop — create one
+        compressed = asyncio.run(compressor.compress(cliver.conversation_messages, llm_engine))
+
+    cliver.conversation_messages = compressed
+    after_tokens = estimate_tokens(cliver.conversation_messages)
+    click.echo(f"[Compressed conversation: ~{before_tokens} → ~{after_tokens} tokens]")

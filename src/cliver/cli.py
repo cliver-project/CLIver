@@ -9,6 +9,7 @@ from shlex import split as shell_split
 from typing import Any, Dict
 
 import click
+from langchain_core.messages.base import BaseMessage
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import WordCompleter
@@ -85,6 +86,8 @@ class Cliver:
         # Conversation session tracking (interactive mode only)
         self.current_session_id = None
         self.session_history: list[dict] = []  # loaded turns for context
+        # LLM-ready conversation history for multi-turn context (BaseMessage objects)
+        self.conversation_messages: list[BaseMessage] = []
 
     def init_session(self, group: click.Group, session_options: Dict[str, Any] = None):
         if self.piped or self.session is not None:
@@ -173,9 +176,7 @@ class Cliver:
                             cmd_parts = shell_split(cmd)
                             cmd_name = cmd_parts[0] if cmd_parts else ""
                             if cmd_name not in self._get_commands():
-                                self.console.print(
-                                    f"[yellow]Unknown command: /{cmd_name}[/yellow]"
-                                )
+                                self.console.print(f"[yellow]Unknown command: /{cmd_name}[/yellow]")
                                 continue
                             line = cmd
                     elif not line.lower().startswith(f"{CMD_CHAT} "):
@@ -219,6 +220,7 @@ class Cliver:
         """
         self.session_options = {}
         self.session = None
+        self.conversation_messages = []
 
 
 pass_cliver = click.make_pass_decorator(Cliver)
