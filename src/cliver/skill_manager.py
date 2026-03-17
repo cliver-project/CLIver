@@ -35,7 +35,6 @@ class Skill:
     frontmatter: dict = field(default_factory=dict)
 
 
-
 def _parse_skill_md(path: Path) -> Optional[Skill]:
     """Parse a SKILL.md file into a Skill object.
 
@@ -66,7 +65,7 @@ def _parse_skill_md(path: Path) -> Optional[Skill]:
         return None
 
     frontmatter_str = content[3:end_idx].strip()
-    body = content[end_idx + 3:].strip()
+    body = content[end_idx + 3 :].strip()
 
     try:
         frontmatter = yaml.safe_load(frontmatter_str) or {}
@@ -189,10 +188,7 @@ class SkillManager:
                 msg += f" Available skills: {', '.join(available)}"
             return msg
 
-        return (
-            f"Base directory for this skill: {skill.base_dir}/\n\n"
-            f"{skill.body}"
-        )
+        return f"Base directory for this skill: {skill.base_dir}/\n\n{skill.body}"
 
     def reload(self) -> None:
         """Force re-discovery of skills."""

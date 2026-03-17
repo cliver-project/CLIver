@@ -84,9 +84,7 @@ class CreateWorkflowTool(BaseTool):
         logger.info(f"Workflow '{workflow.name}' saved to {filepath}")
 
         # Build response
-        step_summary = "\n".join(
-            f"  {i + 1}. [{s.type.value}] {s.name}" for i, s in enumerate(workflow.steps)
-        )
+        step_summary = "\n".join(f"  {i + 1}. [{s.type.value}] {s.name}" for i, s in enumerate(workflow.steps))
 
         result = (
             f"Workflow '{workflow.name}' created with {len(workflow.steps)} steps:\n"

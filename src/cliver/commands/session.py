@@ -74,21 +74,23 @@ def set_options(
     option,
 ):
     """Set one or more inference options for the current session."""
-    options_provided = any([
-        model is not None,
-        temperature is not None,
-        max_tokens is not None,
-        top_p is not None,
-        frequency_penalty is not None,
-        template is not None,
-        stream is not None,
-        no_stream is not None,
-        save_media is not None,
-        no_save_media is not None,
-        media_dir is not None,
-        included_tools is not None,
-        len(option) > 0,
-    ])
+    options_provided = any(
+        [
+            model is not None,
+            temperature is not None,
+            max_tokens is not None,
+            top_p is not None,
+            frequency_penalty is not None,
+            template is not None,
+            stream is not None,
+            no_stream is not None,
+            save_media is not None,
+            no_save_media is not None,
+            media_dir is not None,
+            included_tools is not None,
+            len(option) > 0,
+        ]
+    )
 
     if not options_provided:
         _display_options(cliver)

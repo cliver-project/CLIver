@@ -326,7 +326,9 @@ class TestEndToEndPropagation:
                 def make_step(step):
                     mock = AsyncMock()
                     mock.execute = AsyncMock(
-                        return_value=ExecutionResult(step_id=step.id, outputs={step.outputs[0]: f"from_{step.id}"}, success=True)
+                        return_value=ExecutionResult(
+                            step_id=step.id, outputs={step.outputs[0]: f"from_{step.id}"}, success=True
+                        )
                     )
                     return mock
 
@@ -410,7 +412,9 @@ class TestEndToEndPropagation:
                     mock = AsyncMock()
                     if step.id == "s1":
                         mock.execute = AsyncMock(
-                            return_value=ExecutionResult(step_id="s1", outputs={"a": "val_a", "b": "val_b"}, success=True)
+                            return_value=ExecutionResult(
+                                step_id="s1", outputs={"a": "val_a", "b": "val_b"}, success=True
+                            )
                         )
                     else:
                         mock.execute = AsyncMock(

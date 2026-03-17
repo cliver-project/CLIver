@@ -26,7 +26,8 @@ def skills_dir(tmp_path):
     # web-search skill
     ws = tmp_path / "skills" / "web-search"
     ws.mkdir(parents=True)
-    (ws / "SKILL.md").write_text(textwrap.dedent("""\
+    (ws / "SKILL.md").write_text(
+        textwrap.dedent("""\
         ---
         name: web-search
         description: Search the web for information.
@@ -35,12 +36,14 @@ def skills_dir(tmp_path):
         # Web Search
 
         Use the web_search tool to find information online.
-    """))
+    """)
+    )
 
     # code-review skill
     cr = tmp_path / "skills" / "code-review"
     cr.mkdir(parents=True)
-    (cr / "SKILL.md").write_text(textwrap.dedent("""\
+    (cr / "SKILL.md").write_text(
+        textwrap.dedent("""\
         ---
         name: code-review
         description: Review code for quality and security.
@@ -49,7 +52,8 @@ def skills_dir(tmp_path):
         # Code Review
 
         Focus on security vulnerabilities and best practices.
-    """))
+    """)
+    )
 
     return tmp_path / "skills"
 
@@ -94,6 +98,7 @@ class TestSkillAppender:
         monkeypatch.setattr("cliver.skill_manager.Path.cwd", lambda: skills_dir.parent)
         # Create .cliver/skills structure
         import shutil
+
         local_skills = skills_dir.parent / ".cliver" / "skills"
         if not local_skills.exists():
             local_skills.mkdir(parents=True)
@@ -115,6 +120,7 @@ class TestSkillAppender:
         monkeypatch.setattr("cliver.skill_manager.get_config_dir", lambda: skills_dir.parent / "no-global")
         monkeypatch.setattr("cliver.skill_manager.Path.cwd", lambda: skills_dir.parent)
         import shutil
+
         local_skills = skills_dir.parent / ".cliver" / "skills"
         if not local_skills.exists():
             local_skills.mkdir(parents=True)
@@ -157,6 +163,7 @@ class TestSkillPassedToExecutor:
         monkeypatch.setattr("cliver.skill_manager.get_config_dir", lambda: skills_dir.parent / "no-global")
         monkeypatch.setattr("cliver.skill_manager.Path.cwd", lambda: skills_dir.parent)
         import shutil
+
         local_skills = skills_dir.parent / ".cliver" / "skills"
         if not local_skills.exists():
             local_skills.mkdir(parents=True)

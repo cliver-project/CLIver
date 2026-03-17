@@ -17,6 +17,7 @@ def reset_todos():
     mod = sys.modules.get("cliver.tools.todo_write")
     if mod is None:
         import cliver.tools.todo_write  # noqa: F401
+
         mod = sys.modules["cliver.tools.todo_write"]
     mod._current_todos.clear()
     yield
@@ -60,10 +61,12 @@ class TestTodoRead:
 
     def test_read_after_write(self):
         write_tool = TodoWriteTool()
-        write_tool._run(todos=[
-            {"id": "1", "content": "Step one", "status": "pending"},
-            {"id": "2", "content": "Step two", "status": "pending"},
-        ])
+        write_tool._run(
+            todos=[
+                {"id": "1", "content": "Step one", "status": "pending"},
+                {"id": "2", "content": "Step two", "status": "pending"},
+            ]
+        )
 
         read_tool = TodoReadTool()
         result = read_tool._run()
@@ -73,10 +76,12 @@ class TestTodoRead:
 
     def test_read_reflects_updates(self):
         write_tool = TodoWriteTool()
-        write_tool._run(todos=[
-            {"id": "1", "content": "Step one", "status": "completed"},
-            {"id": "2", "content": "Step two", "status": "in_progress"},
-        ])
+        write_tool._run(
+            todos=[
+                {"id": "1", "content": "Step one", "status": "completed"},
+                {"id": "2", "content": "Step two", "status": "in_progress"},
+            ]
+        )
 
         read_tool = TodoReadTool()
         result = read_tool._run()
@@ -98,9 +103,11 @@ class TestInjectPlanContext:
 
     def test_injects_plan_when_todos_exist(self):
         write_tool = TodoWriteTool()
-        write_tool._run(todos=[
-            {"id": "1", "content": "Do thing", "status": "pending"},
-        ])
+        write_tool._run(
+            todos=[
+                {"id": "1", "content": "Do thing", "status": "pending"},
+            ]
+        )
 
         messages = [HumanMessage(content="hello")]
         _inject_plan_context(messages)
@@ -113,19 +120,23 @@ class TestInjectPlanContext:
     def test_replaces_stale_plan_context(self):
         """Should not stack multiple plan context messages."""
         write_tool = TodoWriteTool()
-        write_tool._run(todos=[
-            {"id": "1", "content": "First", "status": "pending"},
-        ])
+        write_tool._run(
+            todos=[
+                {"id": "1", "content": "First", "status": "pending"},
+            ]
+        )
 
         messages = [HumanMessage(content="hello")]
         _inject_plan_context(messages)
         assert len(messages) == 2
 
         # Update the plan
-        write_tool._run(todos=[
-            {"id": "1", "content": "First", "status": "completed"},
-            {"id": "2", "content": "Second", "status": "pending"},
-        ])
+        write_tool._run(
+            todos=[
+                {"id": "1", "content": "First", "status": "completed"},
+                {"id": "2", "content": "Second", "status": "pending"},
+            ]
+        )
 
         # Inject again — should replace, not stack
         _inject_plan_context(messages)
@@ -136,9 +147,11 @@ class TestInjectPlanContext:
 
     def test_completion_hint_when_all_done(self):
         write_tool = TodoWriteTool()
-        write_tool._run(todos=[
-            {"id": "1", "content": "Only task", "status": "completed"},
-        ])
+        write_tool._run(
+            todos=[
+                {"id": "1", "content": "Only task", "status": "completed"},
+            ]
+        )
 
         messages = [HumanMessage(content="do it")]
         _inject_plan_context(messages)
@@ -148,10 +161,12 @@ class TestInjectPlanContext:
 
     def test_no_completion_hint_when_work_remains(self):
         write_tool = TodoWriteTool()
-        write_tool._run(todos=[
-            {"id": "1", "content": "Done", "status": "completed"},
-            {"id": "2", "content": "Not done", "status": "pending"},
-        ])
+        write_tool._run(
+            todos=[
+                {"id": "1", "content": "Done", "status": "completed"},
+                {"id": "2", "content": "Not done", "status": "pending"},
+            ]
+        )
 
         messages = [HumanMessage(content="do it")]
         _inject_plan_context(messages)
@@ -161,9 +176,11 @@ class TestInjectPlanContext:
     def test_preserves_other_messages(self):
         """Plan injection should not remove non-plan system messages."""
         write_tool = TodoWriteTool()
-        write_tool._run(todos=[
-            {"id": "1", "content": "Task", "status": "pending"},
-        ])
+        write_tool._run(
+            todos=[
+                {"id": "1", "content": "Task", "status": "pending"},
+            ]
+        )
 
         messages = [
             SystemMessage(content="You are a helpful agent."),

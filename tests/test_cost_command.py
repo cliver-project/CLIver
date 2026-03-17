@@ -81,9 +81,7 @@ class TestCostTotal:
         cliver_instance = Cliver()
         cliver_instance.token_tracker = tracker
 
-        result = runner.invoke(
-            load_cliver, ["cost", "total", "--model", "qwen"], obj=cliver_instance
-        )
+        result = runner.invoke(load_cliver, ["cost", "total", "--model", "qwen"], obj=cliver_instance)
         assert result.exit_code == 0
         assert "TestBot" in result.output  # shows agent breakdown
 

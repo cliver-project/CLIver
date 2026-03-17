@@ -33,8 +33,18 @@ def _setup(runner, load_cliver):
     """Add a test model and create a Cliver instance with session defaults."""
     runner.invoke(
         load_cliver,
-        ["model", "add", "--name", "test-model", "--provider", "ollama",
-         "--url", "http://localhost:11434", "--name-in-provider", "llama3.2:latest"],
+        [
+            "model",
+            "add",
+            "--name",
+            "test-model",
+            "--provider",
+            "ollama",
+            "--url",
+            "http://localhost:11434",
+            "--name-in-provider",
+            "llama3.2:latest",
+        ],
     )
     cliver_instance = Cliver()
     cliver_instance.init_session(load_cliver, _make_session_defaults(cliver_instance))
@@ -58,8 +68,17 @@ def test_set_options(load_cliver, init_config, simple_llm_model):
 
     result = runner.invoke(
         load_cliver,
-        ["session-option", "set", "--model", "test-model", "--temperature", "0.8",
-         "--stream", "--option", "presence_penalty=0.5"],
+        [
+            "session-option",
+            "set",
+            "--model",
+            "test-model",
+            "--temperature",
+            "0.8",
+            "--stream",
+            "--option",
+            "presence_penalty=0.5",
+        ],
         obj=cliver_instance,
     )
     assert result.exit_code == 0
@@ -109,9 +128,7 @@ def test_individual_set_options(load_cliver, init_config, simple_llm_model):
     ]
 
     for args, expected in tests:
-        result = runner.invoke(
-            load_cliver, ["session-option", "set"] + args, obj=cliver_instance
-        )
+        result = runner.invoke(load_cliver, ["session-option", "set"] + args, obj=cliver_instance)
         assert result.exit_code == 0, f"Failed for {args}: {result.output}"
         assert expected in result.output, f"Expected '{expected}' in output for {args}: {result.output}"
 
@@ -123,8 +140,7 @@ def test_additional_options(load_cliver, init_config, simple_llm_model):
 
     result = runner.invoke(
         load_cliver,
-        ["session-option", "set", "--option", "presence_penalty=0.5",
-         "--option", 'stop=["\\n", "###"]'],
+        ["session-option", "set", "--option", "presence_penalty=0.5", "--option", 'stop=["\\n", "###"]'],
         obj=cliver_instance,
     )
     assert result.exit_code == 0

@@ -94,9 +94,7 @@ class Workflow(BaseModel):
 
     name: str = Field(..., description="Unique name of the workflow")
     description: Optional[str] = Field(None, description="Description of the workflow")
-    inputs: Optional[Dict[str, Any]] = Field(
-        None, description="Input parameter defaults (name → default value)"
-    )
+    inputs: Optional[Dict[str, Any]] = Field(None, description="Input parameter defaults (name → default value)")
     steps: List[Step] = Field(default_factory=list, description="Steps in the workflow")
 
     def get_initial_inputs(self, provided_inputs: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:

@@ -22,7 +22,8 @@ def skills_dir(tmp_path):
     # Skill 1: well-formed
     s1 = skills / "web-search"
     s1.mkdir(parents=True)
-    (s1 / "SKILL.md").write_text(textwrap.dedent("""\
+    (s1 / "SKILL.md").write_text(
+        textwrap.dedent("""\
         ---
         name: web-search
         description: Search the web for information.
@@ -35,19 +36,22 @@ def skills_dir(tmp_path):
         # Web Search
 
         Use tavily_search to find information online.
-    """))
+    """)
+    )
 
     # Skill 2: minimal
     s2 = skills / "summarizer"
     s2.mkdir(parents=True)
-    (s2 / "SKILL.md").write_text(textwrap.dedent("""\
+    (s2 / "SKILL.md").write_text(
+        textwrap.dedent("""\
         ---
         name: summarizer
         description: Summarize text.
         ---
 
         Summarize the given text concisely.
-    """))
+    """)
+    )
 
     # Non-skill directory (no SKILL.md)
     nonskill = skills / "not-a-skill"
@@ -69,6 +73,7 @@ def manager(skills_dir, monkeypatch):
     local_skills.mkdir(parents=True, exist_ok=True)
     # Symlink test skills into .cliver/skills
     import shutil
+
     for child in skills_dir.iterdir():
         if child.is_dir():
             dest = local_skills / child.name
@@ -218,16 +223,12 @@ class TestPriorityOverride:
         # Global skill
         global_dir = tmp_path / "global" / "skills" / "my-skill"
         global_dir.mkdir(parents=True)
-        (global_dir / "SKILL.md").write_text(
-            "---\nname: my-skill\ndescription: global version\n---\nGlobal body"
-        )
+        (global_dir / "SKILL.md").write_text("---\nname: my-skill\ndescription: global version\n---\nGlobal body")
 
         # Local skill (same name, different content)
         local_dir = tmp_path / "project" / ".cliver" / "skills" / "my-skill"
         local_dir.mkdir(parents=True)
-        (local_dir / "SKILL.md").write_text(
-            "---\nname: my-skill\ndescription: local version\n---\nLocal body"
-        )
+        (local_dir / "SKILL.md").write_text("---\nname: my-skill\ndescription: local version\n---\nLocal body")
 
         monkeypatch.setattr("cliver.skill_manager.get_config_dir", lambda: tmp_path / "global")
         monkeypatch.setattr("cliver.skill_manager.Path.cwd", lambda: tmp_path / "project")
@@ -248,6 +249,7 @@ class TestSkillTool:
     def _patch_manager(self, manager, monkeypatch):
         """Patch the module-level _skill_manager used by the skill tool."""
         import sys
+
         # Get the actual module (not the re-exported tool instance)
         mod = sys.modules.get("cliver.tools.skill")
         if mod is None:

@@ -83,10 +83,15 @@ class TestCRUD:
 
     def test_remove_also_removes_runs(self, manager):
         manager.save_task(TaskDefinition(name="t", workflow="wf"))
-        manager.record_run(TaskRun(
-            task_name="t", execution_id="e1", workflow_name="wf",
-            status="completed", started_at="2026-01-01",
-        ))
+        manager.record_run(
+            TaskRun(
+                task_name="t",
+                execution_id="e1",
+                workflow_name="wf",
+                status="completed",
+                started_at="2026-01-01",
+            )
+        )
         assert len(manager.get_runs("t")) == 1
 
         manager.remove_task("t")
@@ -95,10 +100,15 @@ class TestCRUD:
     def test_list_excludes_runs_files(self, manager):
         """Runs files (.runs.yaml) should not appear as tasks."""
         manager.save_task(TaskDefinition(name="t", workflow="wf"))
-        manager.record_run(TaskRun(
-            task_name="t", execution_id="e1", workflow_name="wf",
-            status="completed", started_at="2026-01-01",
-        ))
+        manager.record_run(
+            TaskRun(
+                task_name="t",
+                execution_id="e1",
+                workflow_name="wf",
+                status="completed",
+                started_at="2026-01-01",
+            )
+        )
 
         tasks = manager.list_tasks()
         assert len(tasks) == 1
@@ -113,8 +123,11 @@ class TestCRUD:
 class TestRunHistory:
     def test_record_and_get(self, manager):
         run = TaskRun(
-            task_name="t", execution_id="e1", workflow_name="wf",
-            status="completed", started_at="2026-01-01 09:00 UTC",
+            task_name="t",
+            execution_id="e1",
+            workflow_name="wf",
+            status="completed",
+            started_at="2026-01-01 09:00 UTC",
             finished_at="2026-01-01 09:05 UTC",
         )
         manager.record_run(run)
@@ -126,10 +139,15 @@ class TestRunHistory:
 
     def test_multiple_runs_ordered_recent_first(self, manager):
         for i in range(5):
-            manager.record_run(TaskRun(
-                task_name="t", execution_id=f"e{i}", workflow_name="wf",
-                status="completed", started_at=f"2026-01-0{i + 1}",
-            ))
+            manager.record_run(
+                TaskRun(
+                    task_name="t",
+                    execution_id=f"e{i}",
+                    workflow_name="wf",
+                    status="completed",
+                    started_at=f"2026-01-0{i + 1}",
+                )
+            )
 
         runs = manager.get_runs("t")
         assert len(runs) == 5
@@ -139,10 +157,15 @@ class TestRunHistory:
 
     def test_limit(self, manager):
         for i in range(20):
-            manager.record_run(TaskRun(
-                task_name="t", execution_id=f"e{i}", workflow_name="wf",
-                status="completed", started_at=f"run-{i}",
-            ))
+            manager.record_run(
+                TaskRun(
+                    task_name="t",
+                    execution_id=f"e{i}",
+                    workflow_name="wf",
+                    status="completed",
+                    started_at=f"run-{i}",
+                )
+            )
 
         runs = manager.get_runs("t", limit=3)
         assert len(runs) == 3
@@ -151,11 +174,16 @@ class TestRunHistory:
         assert manager.get_runs("nonexistent") == []
 
     def test_failed_run_recorded(self, manager):
-        manager.record_run(TaskRun(
-            task_name="t", execution_id="e1", workflow_name="wf",
-            status="failed", started_at="2026-01-01",
-            error="connection timeout",
-        ))
+        manager.record_run(
+            TaskRun(
+                task_name="t",
+                execution_id="e1",
+                workflow_name="wf",
+                status="failed",
+                started_at="2026-01-01",
+                error="connection timeout",
+            )
+        )
 
         runs = manager.get_runs("t")
         assert runs[0].status == "failed"

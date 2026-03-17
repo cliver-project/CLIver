@@ -28,9 +28,7 @@ class WorkflowStepExecutor(StepExecutor):
         try:
             # Prepare inputs for the sub-workflow
             if self.step.workflow_inputs:
-                workflow_inputs = {
-                    k: self.resolve_variable(v, context) for k, v in self.step.workflow_inputs.items()
-                }
+                workflow_inputs = {k: self.resolve_variable(v, context) for k, v in self.step.workflow_inputs.items()}
             else:
                 # Pass all context inputs + completed step outputs
                 workflow_inputs = dict(context.inputs)

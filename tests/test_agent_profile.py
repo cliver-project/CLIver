@@ -153,9 +153,7 @@ class TestIdentity:
 
     def test_load_identity(self, profile):
         profile.ensure_dirs()
-        profile.identity_file.write_text(
-            "# User Profile\n\n- Name: Alice\n- Location: Tokyo\n"
-        )
+        profile.identity_file.write_text("# User Profile\n\n- Name: Alice\n- Location: Tokyo\n")
         identity = profile.load_identity()
         assert "Alice" in identity
         assert "Tokyo" in identity

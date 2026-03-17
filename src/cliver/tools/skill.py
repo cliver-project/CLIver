@@ -22,12 +22,7 @@ def get_skill_manager() -> SkillManager:
 class SkillToolInput(BaseModel):
     """Input schema for the skill tool."""
 
-    skill_name: str = Field(
-        description=(
-            "Name of the skill to activate. "
-            "Use 'list' to see all available skills."
-        )
-    )
+    skill_name: str = Field(description=("Name of the skill to activate. Use 'list' to see all available skills."))
 
 
 class SkillTool(BaseTool):

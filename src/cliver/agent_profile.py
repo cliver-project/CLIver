@@ -194,8 +194,7 @@ class AgentProfile:
 
         if new_dir.exists():
             raise FileExistsError(
-                f"Cannot rename '{self.agent_name}' to '{new_name}': "
-                f"directory '{new_dir}' already exists."
+                f"Cannot rename '{self.agent_name}' to '{new_name}': directory '{new_dir}' already exists."
             )
 
         if not self.agent_dir.exists():
