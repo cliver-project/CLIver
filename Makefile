@@ -4,7 +4,7 @@ help: ## Display this help.
 
 .PHONY: init
 init: ## Init CLIver development dependencies
-	uv venv
+	@test -d .venv || uv venv
 	uv sync --all-extras --dev --locked
 
 ##@ Development
