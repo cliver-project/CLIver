@@ -616,6 +616,77 @@ class TestSettingsLoading:
         assert pm.mode == PermissionMode.DEFAULT
         assert len(pm.rules) == 1
 
+    def test_workflow_permissions_from_dict(self, tmp_path):
+        """TaskPermissions can be constructed from a dict (as loaded from YAML)."""
+        perms_dict = {
+            "mode": "yolo",
+            "rules": [{"tool": "read_file", "action": "allow"}],
+        }
+        perms = TaskPermissions(**perms_dict)
+        assert perms.mode == PermissionMode.YOLO
+        assert len(perms.rules) == 1
+
+    def test_workflow_model_with_permissions(self):
+        """Workflow model accepts permissions field."""
+        from cliver.workflow.workflow_models import Workflow
+
+        w = Workflow(
+            name="test",
+            permissions={"mode": "auto-edit", "rules": [{"tool": ".*", "action": "allow"}]},
+        )
+        assert w.permissions is not None
+
+    def test_llm_step_with_permissions(self):
+        """LLMStep model accepts permissions field."""
+        from cliver.workflow.workflow_models import LLMStep
+
+        step = LLMStep(
+            id="s1",
+            name="analyze",
+            prompt="test",
+            permissions={"rules": [{"tool": "read_file", "action": "allow"}]},
+        )
+        assert step.permissions is not None
+
+    def test_task_definition_with_permissions(self):
+        """TaskDefinition model accepts permissions field."""
+        from cliver.task_manager import TaskDefinition
+
+        td = TaskDefinition(
+            name="daily",
+            workflow="report",
+            permissions={"mode": "yolo"},
+        )
+        assert td.permissions is not None
+
+    def test_nested_workflow_permission_accumulation(self):
+        """Simulates workflow -> step nested permission scopes."""
+        pm = PermissionManager()
+        assert pm.check("read_file", {"file_path": "/x"}) == PermissionDecision.ASK
+        assert pm.check("write_file", {"file_path": "/x"}) == PermissionDecision.ASK
+
+        # Workflow scope: allow read_file
+        pm.push_task_scope(TaskPermissions(rules=[
+            PermissionRule(tool="read_file", action=PermissionAction.ALLOW),
+        ]))
+        assert pm.check("read_file", {"file_path": "/x"}) == PermissionDecision.ALLOW
+        assert pm.check("write_file", {"file_path": "/x"}) == PermissionDecision.ASK
+
+        # Step scope: allow write_file too
+        pm.push_task_scope(TaskPermissions(rules=[
+            PermissionRule(tool="write_file", action=PermissionAction.ALLOW),
+        ]))
+        assert pm.check("read_file", {"file_path": "/x"}) == PermissionDecision.ALLOW
+        assert pm.check("write_file", {"file_path": "/x"}) == PermissionDecision.ALLOW
+
+        # Pop step scope
+        pm.pop_task_scope()
+        assert pm.check("write_file", {"file_path": "/x"}) == PermissionDecision.ASK
+
+        # Pop workflow scope
+        pm.pop_task_scope()
+        assert pm.check("read_file", {"file_path": "/x"}) == PermissionDecision.ASK
+
     def test_loaded_rules_are_functional(self, tmp_path):
         """End-to-end: loaded rules actually affect check() decisions."""
         global_dir = tmp_path / "global"

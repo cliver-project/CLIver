@@ -33,6 +33,7 @@ class TaskDefinition(BaseModel):
     workflow: str = Field(..., description="Name of the workflow to execute")
     inputs: Optional[Dict[str, Any]] = Field(None, description="Default inputs for the workflow")
     schedule: Optional[str] = Field(None, description="Cron expression for recurring execution")
+    permissions: Optional[Any] = Field(None, description="Permission overrides (TaskPermissions) for this task")
 
 
 class TaskRun(BaseModel):

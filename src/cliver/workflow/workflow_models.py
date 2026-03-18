@@ -62,6 +62,7 @@ class LLMStep(BaseStep):
     files: Optional[List[str]] = Field(None, description="General files to upload for tools")
     template: Optional[str] = Field(None, description="Template to use for the prompt")
     params: Optional[Dict[str, Any]] = Field(None, description="Parameters for templates")
+    permissions: Optional[Any] = Field(None, description="Permission overrides (TaskPermissions) for this step")
 
 
 class WorkflowStep(BaseStep):
@@ -96,6 +97,7 @@ class Workflow(BaseModel):
     description: Optional[str] = Field(None, description="Description of the workflow")
     inputs: Optional[Dict[str, Any]] = Field(None, description="Input parameter defaults (name → default value)")
     steps: List[Step] = Field(default_factory=list, description="Steps in the workflow")
+    permissions: Optional[Any] = Field(None, description="Permission overrides (TaskPermissions) for this workflow")
 
     def get_initial_inputs(self, provided_inputs: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Merge provided inputs with defaults."""

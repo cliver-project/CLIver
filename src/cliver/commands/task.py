@@ -101,6 +101,19 @@ def run_task(cliver: Cliver, name: str, inputs: tuple, verbose: bool):
 
     click.echo(f"Running task '{name}' (workflow: {task_def.workflow})...")
 
+    # Push task-level permissions if defined
+    task_perms_pushed = False
+    if task_def.permissions and cliver.permission_manager:
+        from cliver.permissions import TaskPermissions
+
+        perms = (
+            task_def.permissions
+            if isinstance(task_def.permissions, TaskPermissions)
+            else TaskPermissions(**task_def.permissions)
+        )
+        cliver.permission_manager.push_task_scope(perms)
+        task_perms_pushed = True
+
     # Create executor with callback handler
     callback = ConsoleCallbackHandler() if verbose else None
     executor = WorkflowExecutor(
@@ -153,6 +166,10 @@ def run_task(cliver: Cliver, name: str, inputs: tuple, verbose: bool):
         manager.record_run(run)
         click.echo(f"Task '{name}' failed: {e}")
         return 1
+
+    finally:
+        if task_perms_pushed and cliver.permission_manager:
+            cliver.permission_manager.pop_task_scope()
 
 
 @task.command(name="history", help="Show run history for a task")

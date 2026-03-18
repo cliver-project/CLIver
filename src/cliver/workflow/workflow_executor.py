@@ -97,6 +97,19 @@ class WorkflowExecutor:
         )
         self.persistence_provider.save_execution_state(state)
 
+        # Push workflow-level permissions if defined
+        workflow_perms_pushed = False
+        if workflow.permissions and self.task_executor.permission_manager:
+            from cliver.permissions import TaskPermissions
+
+            perms = (
+                workflow.permissions
+                if isinstance(workflow.permissions, TaskPermissions)
+                else TaskPermissions(**workflow.permissions)
+            )
+            self.task_executor.permission_manager.push_task_scope(perms)
+            workflow_perms_pushed = True
+
         # Execute steps
         start_time = time.time()
         await self.callback_handler.on_workflow_start(workflow.name, execution_id)
@@ -154,6 +167,11 @@ class WorkflowExecutor:
             self.persistence_provider.save_execution_state(state)
             await self.callback_handler.on_workflow_complete(workflow.name, execution_id, "failed", str(e))
             return state
+
+        finally:
+            # Pop workflow-level permissions
+            if workflow_perms_pushed and self.task_executor.permission_manager:
+                self.task_executor.permission_manager.pop_task_scope()
 
     def _create_context(self, workflow, inputs, execution_id) -> ExecutionContext:
         """Create a fresh execution context."""

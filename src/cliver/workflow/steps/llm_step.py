@@ -53,6 +53,19 @@ class LLMStepExecutor(StepExecutor):
     async def execute(self, context: ExecutionContext) -> ExecutionResult:
         start_time = time.time()
 
+        # Push step-level permissions if defined
+        step_perms_pushed = False
+        if self.step.permissions and self.task_executor.permission_manager:
+            from cliver.permissions import TaskPermissions
+
+            perms = (
+                self.step.permissions
+                if isinstance(self.step.permissions, TaskPermissions)
+                else TaskPermissions(**self.step.permissions)
+            )
+            self.task_executor.permission_manager.push_task_scope(perms)
+            step_perms_pushed = True
+
         try:
             # Build skill context appender if skills are specified
             system_message_appender = self._build_skill_appender()
@@ -131,3 +144,7 @@ class LLMStepExecutor(StepExecutor):
                 error=str(e),
                 execution_time=time.time() - start_time,
             )
+
+        finally:
+            if step_perms_pushed and self.task_executor.permission_manager:
+                self.task_executor.permission_manager.pop_task_scope()
