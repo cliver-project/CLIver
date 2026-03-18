@@ -10,9 +10,10 @@ To start using CLIver, we recommend following these steps:
 2. [Installation Guide](installation.md) - How to install and set up CLIver
 3. [Configuration](configuration.md) - Configure CLIver for LLM providers and MCP servers
 4. [Chat Command Usage](chat.md) - Learn how to use the `cliver chat` command
-5. [Workflow Definition](workflow.md) - Define and execute complex workflows
-6. [Extensibility Guide](extensibility.md) - Extend CLIver functionality and use as a Python library
-7. [Roadmap](roadmap.md) - Future development plans and contribution guidelines
+5. [Permissions](permissions.md) - Control tool execution permissions and resource access
+6. [Workflow Definition](workflow.md) - Define and execute complex workflows
+7. [Extensibility Guide](extensibility.md) - Extend CLIver functionality and use as a Python library
+8. [Roadmap](roadmap.md) - Future development plans and contribution guidelines
 
 ## Quick Start
 
@@ -48,7 +49,8 @@ cliver llm add --name deepseek --provider openai --url http://192.168.1.100:8080
 
 - **Multi-LLM Support**: Connect to various language models served by various providers(DeepSeek, OpenAI, Qwen3-coder on OpenAI compatible servers, vLLM, and more in the future)
 - **MCP Integration**: Seamless integration with Model Context Protocol servers for enhanced functionality
+- **Tool Permissions**: Resource-aware permission system with persistent rules, session grants, and workflow-scoped overrides
 - **Configurable Workflows**: Define and execute complex workflows using YAML configuration files
-- **Extensible Architecture**: Easy to extend with custom commands and backends
-- **Secure Operations**: Planned secrets management for secure handling of API keys and credentials
+- **Extensible Architecture**: Easy to extend with custom commands and backends — usable as both a CLI and a Python library
+- **Secure Operations**: Secrets management via keyring integration and secure API key handling
  

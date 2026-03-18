@@ -10,19 +10,19 @@ It integrates with MCP (Model Context Protocol) servers and various LLM provider
 
 ## Design Goals
 
-CLIver is built with dual-purpose functionality in mind:
+CLIver is built as a **dual-layer system**:
 
-- **CLI Usability**: Provides intuitive command-line tools for direct interaction with LLMs
-- **Library Flexibility**: Offers Python library interfaces for programmatic integration
-- **Extensibility**: Designed with modular architecture to support custom commands and backends
-- **Security**: Planned integration for secure secret management
+- **API Layer** (`TaskExecutor`): The core engine — embeddable in any Python application. It handles LLM inference, tool calling, Re-Act loops, permissions, and workflow execution with no dependency on CLI concerns (no terminal, no stdin, no prompt_toolkit). This is the layer you use when integrating CLIver as a library.
+- **CLI Layer** (`Cliver` class + Click commands): A thin interactive shell on top of `TaskExecutor` for terminal users. Provides Rich-formatted output, prompt_toolkit input, and slash commands.
+
+Any feature built at the API layer (permissions, workflows, skills, memory) works identically whether invoked from the CLI or from your own Python code.
 
 ## Key Features
 
 ### Core Capabilities
 - **Multi-LLM Support**: Connect to various language models served by various providers(DeepSeek, OpenAI, Qwen3-coder on OpenAI compatible servers, vLLM, and more in the future)
 - **MCP Integration**: Seamlessly integrate with Model Context Protocol servers for enhanced functionality
-- **Secure Operations**: Planned secrets management system for secure handling of API keys and credentials
+- **Tool Permissions**: Resource-aware [permission system](permissions.md) controlling which tools can execute and what resources they can access
 - **Configurable Workflows**: Define and execute complex workflows using YAML configuration files
 - **Extensible Architecture**: Easy to extend with custom commands and backends
 
@@ -50,6 +50,7 @@ graph TD
     C --> G[LLM Inference Engines]
     C --> H[MCP & Builtin Tools Integration]
     C --> I[Workflow Engine]
+    C --> N[Permission Manager]
 
     G --> J[Ollama Provider]
     G --> K[OpenAI Provider]
