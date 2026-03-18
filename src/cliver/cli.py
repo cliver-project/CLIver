@@ -173,8 +173,7 @@ class Cliver:
                             line = f"{args} --help".strip()
                         else:
                             # Slash prefix = explicit command — validate it exists
-                            cmd_parts = shell_split(cmd)
-                            cmd_name = cmd_parts[0] if cmd_parts else ""
+                            cmd_name = cmd.split()[0] if cmd.strip() else ""
                             if cmd_name not in self._get_commands():
                                 self.console.print(f"[yellow]Unknown command: /{cmd_name}[/yellow]")
                                 continue
@@ -204,7 +203,10 @@ class Cliver:
         Call a command with the given name and arguments.
         """
         # Parse the command line to get parts
-        parts = shell_split(line)
+        try:
+            parts = shell_split(line)
+        except ValueError:
+            parts = line.split()
         if not parts or len(parts) == 0:
             return
         if parts[0].lower() == "chat" and len(parts) <= 1:
