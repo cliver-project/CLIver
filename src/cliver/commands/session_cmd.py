@@ -2,6 +2,7 @@
 Session management commands for interactive mode.
 
 Manages conversation sessions — list, load, create, delete, compress.
+Also manages session-scoped permission grants via /session permission.
 Session recording happens automatically in chat.py after each LLM response.
 """
 
@@ -11,6 +12,7 @@ import click
 from langchain_core.messages import AIMessage, HumanMessage
 
 from cliver.cli import Cliver, pass_cliver
+from cliver.permissions import PermissionAction, PermissionMode
 
 
 @click.group(name="session", help="Manage conversation sessions", invoke_without_command=True)
@@ -198,3 +200,71 @@ def _compress_loaded_session(cliver):
         click.echo(f"[Session compressed: ~{before_tokens} → ~{after_tokens} tokens]")
     except Exception as e:
         click.echo(f"[Warning: session compression failed: {e}]")
+
+
+# ---------------------------------------------------------------------------
+# /session permission — session-scoped permission grants
+# ---------------------------------------------------------------------------
+
+
+@session_cmd.group(name="permission", help="Manage session-scoped permission grants", invoke_without_command=True)
+@pass_cliver
+@click.pass_context
+def session_permission(ctx, cliver: Cliver):
+    """Show or manage session permission grants."""
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(show_session_permissions, cliver=cliver)
+
+
+@session_permission.command(name="show", help="Show session grants and effective mode", hidden=True)
+@pass_cliver
+def show_session_permissions(cliver: Cliver):
+    """Display current session grants and effective mode."""
+    pm = cliver.permission_manager
+    effective = pm._effective_mode()
+    click.echo(f"Permission mode: {pm.mode.value} (effective: {effective.value})")
+
+    grants = pm._session_grants
+    if not grants:
+        click.echo("No session grants active.")
+    else:
+        click.echo(f"\nSession grants ({len(grants)}):")
+        for tool, action in grants.items():
+            marker = "✔" if action == PermissionAction.ALLOW else "✘"
+            click.echo(f"  {marker} {tool}: {action.value}")
+
+
+@session_permission.command(name="mode", help="Override permission mode for this session")
+@click.argument("new_mode", type=click.Choice(["default", "auto-edit", "yolo"]))
+@pass_cliver
+def session_set_mode(cliver: Cliver, new_mode: str):
+    """Override the permission mode for the current session only (not saved)."""
+    mode = PermissionMode(new_mode)
+    cliver.permission_manager.set_mode(mode)
+    click.echo(f"Session permission mode set to '{new_mode}' (not saved to file).")
+
+
+@session_permission.command(name="grant", help="Allow a tool for this session")
+@click.argument("tool")
+@pass_cliver
+def session_grant(cliver: Cliver, tool: str):
+    """Allow a tool (or tool pattern) for the rest of this session."""
+    cliver.permission_manager.grant_session(tool, PermissionAction.ALLOW)
+    click.echo(f"Granted: {tool} is allowed for this session.")
+
+
+@session_permission.command(name="deny", help="Deny a tool for this session")
+@click.argument("tool")
+@pass_cliver
+def session_deny(cliver: Cliver, tool: str):
+    """Deny a tool (or tool pattern) for the rest of this session."""
+    cliver.permission_manager.grant_session(tool, PermissionAction.DENY)
+    click.echo(f"Denied: {tool} is blocked for this session.")
+
+
+@session_permission.command(name="clear", help="Clear all session grants")
+@pass_cliver
+def session_clear(cliver: Cliver):
+    """Clear all session grants, reverting to persistent rules."""
+    cliver.permission_manager.clear_session_grants()
+    click.echo("All session permission grants cleared.")
