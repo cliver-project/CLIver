@@ -18,12 +18,15 @@ from prompt_toolkit.styles import Style
 from rich.console import Console
 from rich.panel import Panel
 
+from pathlib import Path
+
 from cliver import __version__, commands
 from cliver.agent_profile import AgentProfile
 from cliver.cli_tool_progress import create_tool_progress_handler
 from cliver.config import ConfigManager
 from cliver.constants import CMD_CHAT
 from cliver.llm import TaskExecutor
+from cliver.permissions import PermissionManager
 from cliver.util import get_config_dir, read_piped_input, stdin_is_piped
 from cliver.workflow.workflow_executor import WorkflowExecutor
 from cliver.workflow.workflow_manager_local import LocalDirectoryWorkflowManager
@@ -57,6 +60,12 @@ class Cliver:
             agent_name=agent_name,
         )
 
+        # Create permission manager (global + local project settings)
+        self.permission_manager = PermissionManager(
+            global_config_dir=self.config_dir,
+            local_dir=Path.cwd() / ".cliver",
+        )
+
         self.task_executor = TaskExecutor(
             llm_models=self.config_manager.list_llm_models(),
             mcp_servers=self.config_manager.list_mcp_servers_for_mcp_caller(),
@@ -66,6 +75,8 @@ class Cliver:
             on_tool_event=create_tool_progress_handler(self.console),
             agent_profile=self.agent_profile,
             token_tracker=self.token_tracker,
+            permission_manager=self.permission_manager,
+            on_permission_prompt=_create_permission_prompt(self.console),
         )
 
         # Initialize workflow components
@@ -304,6 +315,37 @@ def loads_commands():
     commands.loads_commands(cliver)
     # Loads extended commands from config dir
     commands.loads_external_commands(cliver)
+
+
+def _create_permission_prompt(console: Console):
+    """Create a Rich-formatted permission prompt callback."""
+    from cliver.permissions import get_tool_meta
+
+    def prompt(tool_name: str, args: dict) -> str:
+        bare = tool_name.split("#")[-1] if "#" in tool_name else tool_name
+        meta = get_tool_meta(bare)
+        resource = str(args.get(meta.resource_param, "")) if meta.resource_param else ""
+
+        console.print(f"  [bold yellow]⚠ Permission required:[/bold yellow] [bold]{tool_name}[/bold]")
+        if resource:
+            console.print(f"    Resource: [cyan]{resource}[/cyan]")
+        console.print("    [dim][y]es / [n]o / [a]lways allow / [d]eny always[/dim]")
+
+        while True:
+            try:
+                response = input("    > ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                return "deny"
+            if response in ("y", "yes"):
+                return "allow"
+            elif response in ("a", "always"):
+                return "allow_always"
+            elif response in ("n", "no"):
+                return "deny"
+            elif response in ("d", "deny"):
+                return "deny_always"
+
+    return prompt
 
 
 def cliver_main(*args, **kwargs):
