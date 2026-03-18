@@ -601,6 +601,7 @@ class TaskExecutor:
                     messages,
                     confirm_tool_exec,
                     tool_error_check,
+                    llm_response=response,
                 )
                 if stop:
                     return AIMessage(content=result)
@@ -631,6 +632,7 @@ class TaskExecutor:
         messages: List[BaseMessage],
         confirm_tool_exec: Optional[Callable[[str], bool]],
         tool_error_check: Optional[Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]],
+        llm_response: Optional[BaseMessage] = None,
     ) -> Tuple[bool, str | None]:
         """Execute tool calls and return a Tuple with sent bool and result.
 
@@ -656,7 +658,17 @@ class TaskExecutor:
                     if not confirm_tool_exec(f"Execute tool: {full_tool_name}? (y/n): "):
                         return True, f"Stopped at tool execution: {tool_call}"
 
-                # Append the tool execution to messages using AIMessage with tool_calls
+                # Append the tool execution to messages using AIMessage with tool_calls.
+                # Preserve additional_kwargs from the original LLM response on the
+                # first tool call so that provider-specific fields like DeepSeek's
+                # reasoning_content are retained in conversation history.
+                extra_kwargs: Dict[str, Any] = {}
+                if llm_response is not None:
+                    resp_kwargs = getattr(llm_response, "additional_kwargs", None)
+                    if resp_kwargs:
+                        extra_kwargs = dict(resp_kwargs)
+                    # Only attach to the first tool call message
+                    llm_response = None
                 tool_execution_message = AIMessage(
                     content="",
                     tool_calls=[
@@ -667,6 +679,7 @@ class TaskExecutor:
                             "type": "tool_call",
                         }
                     ],
+                    additional_kwargs=extra_kwargs,
                 )
                 messages.append(tool_execution_message)
 
@@ -819,7 +832,9 @@ class TaskExecutor:
 
             # If we found tool calls, execute them and continue after emitting the chunks
             if tool_calls:
-                stop, result = await self._execute_tool_calls(tool_calls, messages, confirm_tool_exec, tool_error_check)
+                stop, result = await self._execute_tool_calls(
+                    tool_calls, messages, confirm_tool_exec, tool_error_check, llm_response=accumulated_chunks
+                )
                 if stop:
                     if result:
                         # noinspection PyArgumentList
