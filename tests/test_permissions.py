@@ -412,6 +412,108 @@ class TestSetMode:
 
 
 # ---------------------------------------------------------------------------
+# TaskExecutor integration
+# ---------------------------------------------------------------------------
+
+
+class TestTaskExecutorPermissionGate:
+    """Test that PermissionManager integrates with TaskExecutor._check_permission."""
+
+    def _make_executor(self, pm, on_prompt=None):
+        from cliver.llm.llm import TaskExecutor
+
+        te = TaskExecutor.__new__(TaskExecutor)
+        te.permission_manager = pm
+        te.on_permission_prompt = on_prompt
+        te.on_tool_event = None
+        return te
+
+    def _make_pm(self, mode=PermissionMode.DEFAULT, rules=None):
+        pm = PermissionManager.__new__(PermissionManager)
+        pm.mode = mode
+        pm.rules = [PermissionRule(**r) for r in (rules or [])]
+        pm._session_grants = {}
+        pm._task_stack = []
+        return pm
+
+    @pytest.mark.asyncio
+    async def test_allow_returns_none(self):
+        pm = self._make_pm(mode=PermissionMode.YOLO)
+        te = self._make_executor(pm)
+        result = await te._check_permission("read_file", {"file_path": "/x"}, "id1", [], None, None)
+        assert result is None  # Proceed
+
+    @pytest.mark.asyncio
+    async def test_deny_returns_continue(self):
+        pm = self._make_pm(rules=[{"tool": "run_shell_command", "action": "deny"}])
+        te = self._make_executor(pm)
+        messages = []
+        result = await te._check_permission("run_shell_command", {"command": "rm"}, "id1", messages, None, None)
+        assert result == (False, None)  # Continue loop, don't stop
+        # Should have appended AIMessage + ToolMessage
+        assert len(messages) == 2
+        assert "Permission denied" in messages[1].content
+
+    @pytest.mark.asyncio
+    async def test_ask_user_allows(self):
+        pm = self._make_pm()
+        te = self._make_executor(pm, on_prompt=lambda name, args: "allow")
+        result = await te._check_permission("read_file", {"file_path": "/x"}, "id1", [], None, None)
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_ask_user_denies(self):
+        pm = self._make_pm()
+        te = self._make_executor(pm, on_prompt=lambda name, args: "deny")
+        messages = []
+        result = await te._check_permission("read_file", {"file_path": "/x"}, "id1", messages, None, None)
+        assert result == (False, None)
+        assert len(messages) == 2
+
+    @pytest.mark.asyncio
+    async def test_ask_user_allow_always_grants_session(self):
+        pm = self._make_pm()
+        te = self._make_executor(pm, on_prompt=lambda name, args: "allow_always")
+        await te._check_permission("read_file", {"file_path": "/x"}, "id1", [], None, None)
+        # Should now be session-granted
+        assert pm.check("read_file", {"file_path": "/any"}) == PermissionDecision.ALLOW
+
+    @pytest.mark.asyncio
+    async def test_ask_user_deny_always_grants_session(self):
+        pm = self._make_pm()
+        te = self._make_executor(pm, on_prompt=lambda name, args: "deny_always")
+        await te._check_permission("read_file", {"file_path": "/x"}, "id1", [], None, None)
+        assert pm.check("read_file", {"file_path": "/any"}) == PermissionDecision.DENY
+
+    @pytest.mark.asyncio
+    async def test_safe_tools_skip_prompt(self):
+        pm = self._make_pm()
+        prompt_called = []
+        te = self._make_executor(pm, on_prompt=lambda n, a: prompt_called.append(1) or "allow")
+        result = await te._check_permission("skill", {}, "id1", [], None, None)
+        assert result is None
+        assert len(prompt_called) == 0  # Never prompted
+
+    @pytest.mark.asyncio
+    async def test_no_permission_manager_falls_back_to_confirm(self):
+        """When no PermissionManager, legacy confirm_tool_exec is used."""
+        te = self._make_executor(pm=None)
+        te.permission_manager = None
+        result = await te._check_permission(
+            "read_file", {"file_path": "/x"}, "id1", [], None,
+            confirm_tool_exec=lambda prompt: False
+        )
+        assert result == (True, "Stopped at tool execution: read_file")
+
+    @pytest.mark.asyncio
+    async def test_no_permission_manager_no_confirm_auto_allows(self):
+        te = self._make_executor(pm=None)
+        te.permission_manager = None
+        result = await te._check_permission("read_file", {"file_path": "/x"}, "id1", [], None, None)
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
 # Settings file loading
 # ---------------------------------------------------------------------------
 

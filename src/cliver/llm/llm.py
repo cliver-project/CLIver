@@ -31,6 +31,7 @@ from cliver.llm.llm_utils import is_thinking
 from cliver.llm.ollama_engine import OllamaLlamaInferenceEngine
 from cliver.llm.openai_engine import OpenAICompatibleInferenceEngine
 from cliver.mcp_server_caller import MCPServersCaller
+from cliver.permissions import PermissionAction, PermissionDecision, PermissionManager
 from cliver.media import load_media_file
 from cliver.model_capabilities import ModelCapability
 from cliver.prompt_enhancer import apply_template
@@ -101,6 +102,8 @@ class TaskExecutor:
         on_tool_event: Optional[ToolEventHandler] = None,
         agent_profile=None,
         token_tracker=None,
+        permission_manager: Optional[PermissionManager] = None,
+        on_permission_prompt: Optional[Callable[[str, dict], str]] = None,
     ):
         self.llm_models = llm_models
         self.default_model = default_model
@@ -109,6 +112,8 @@ class TaskExecutor:
         self.on_tool_event = on_tool_event
         self.agent_profile = agent_profile  # AgentProfile for memory/identity
         self.token_tracker = token_tracker  # TokenTracker for usage auditing
+        self.permission_manager = permission_manager
+        self.on_permission_prompt = on_permission_prompt
         self.mcp_caller = MCPServersCaller(mcp_servers=mcp_servers)
         self.llm_engines: Dict[str, LLMInferenceEngine] = {}
 
@@ -653,10 +658,12 @@ class TaskExecutor:
                 tool_call_id = tool_call["tool_call_id"]
                 full_tool_name = f"{mcp_server}#{tool_name}" if mcp_server else f"{tool_name}"
 
-                # User confirmation gate
-                if confirm_tool_exec is not None:
-                    if not confirm_tool_exec(f"Execute tool: {full_tool_name}? (y/n): "):
-                        return True, f"Stopped at tool execution: {tool_call}"
+                # Permission / confirmation gate
+                denied = await self._check_permission(
+                    full_tool_name, args, tool_call_id, messages, llm_response, confirm_tool_exec
+                )
+                if denied is not None:
+                    return denied
 
                 # Append the tool execution to messages using AIMessage with tool_calls.
                 # Preserve additional_kwargs from the original LLM response on the
@@ -733,6 +740,95 @@ class TaskExecutor:
             logger.error(f"Error processing tool call: {str(e)}", exc_info=True)
             friendly_error_msg = get_friendly_error_message(e, "Tool call processing")
             return True, friendly_error_msg
+
+    async def _check_permission(
+        self,
+        full_tool_name: str,
+        args: dict,
+        tool_call_id: str,
+        messages: List[BaseMessage],
+        llm_response: Optional[BaseMessage],
+        confirm_tool_exec: Optional[Callable[[str], bool]],
+    ) -> Optional[Tuple[bool, str | None]]:
+        """Check permission for a tool call.
+
+        Returns None if allowed (proceed), or a (stop, result) tuple
+        to return from _execute_tool_calls.
+
+        Resolution: PermissionManager > confirm_tool_exec > auto-allow.
+        """
+        if self.permission_manager is not None:
+            decision = self.permission_manager.check(full_tool_name, args)
+            if decision == PermissionDecision.DENY:
+                self._append_denied_tool_message(
+                    full_tool_name, args, tool_call_id, messages, llm_response
+                )
+                return False, None
+            elif decision == PermissionDecision.ASK:
+                user_choice = self._prompt_user_permission(full_tool_name, args)
+                if user_choice in ("deny", "deny_always"):
+                    if user_choice == "deny_always":
+                        self.permission_manager.grant_session(
+                            full_tool_name, PermissionAction.DENY
+                        )
+                    self._append_denied_tool_message(
+                        full_tool_name, args, tool_call_id, messages, llm_response
+                    )
+                    return False, None
+                elif user_choice == "allow_always":
+                    self.permission_manager.grant_session(
+                        full_tool_name, PermissionAction.ALLOW
+                    )
+            return None
+
+        if confirm_tool_exec is not None:
+            if not confirm_tool_exec(
+                f"Execute tool: {full_tool_name}? (y/n): "
+            ):
+                return True, f"Stopped at tool execution: {full_tool_name}"
+
+        return None
+
+    def _prompt_user_permission(self, full_tool_name: str, args: dict) -> str:
+        """Prompt user for permission. Returns allow/allow_always/deny/deny_always."""
+        if self.on_permission_prompt is not None:
+            return self.on_permission_prompt(full_tool_name, args)
+        return _default_permission_prompt(full_tool_name, args)
+
+    def _append_denied_tool_message(
+        self,
+        full_tool_name: str,
+        args: dict,
+        tool_call_id: str,
+        messages: List[BaseMessage],
+        llm_response: Optional[BaseMessage],
+    ):
+        """Append AIMessage + ToolMessage for a denied tool call."""
+        extra_kwargs: Dict[str, Any] = {}
+        if llm_response is not None:
+            resp_kwargs = getattr(llm_response, "additional_kwargs", None)
+            if resp_kwargs:
+                extra_kwargs = dict(resp_kwargs)
+        messages.append(
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": full_tool_name,
+                        "args": args,
+                        "id": tool_call_id,
+                        "type": "tool_call",
+                    }
+                ],
+                additional_kwargs=extra_kwargs,
+            )
+        )
+        messages.append(
+            ToolMessage(
+                content=f"Permission denied: {full_tool_name} is not allowed.",
+                tool_call_id=tool_call_id,
+            )
+        )
 
     async def _execute_single_tool(
         self,
@@ -988,3 +1084,35 @@ def default_confirm_tool_execution(prompt: str) -> bool:
             return True
         elif response in ["n", "no"]:
             return False
+
+
+def _default_permission_prompt(tool_name: str, args: dict) -> str:
+    """Default stdin-based permission prompt.
+
+    Returns one of: "allow", "allow_always", "deny", "deny_always"
+    """
+    # Extract a short resource description from args
+    from cliver.permissions import get_tool_meta
+
+    bare = tool_name.split("#")[-1] if "#" in tool_name else tool_name
+    meta = get_tool_meta(bare)
+    resource = str(args.get(meta.resource_param, "")) if meta.resource_param else ""
+
+    print(f"  Permission required: {tool_name}")
+    if resource:
+        print(f"    Resource: {resource}")
+    print("    [y]es / [n]o / [a]lways allow / [d]eny always")
+
+    while True:
+        try:
+            response = input("    > ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            return "deny"
+        if response in ("y", "yes"):
+            return "allow"
+        elif response in ("a", "always"):
+            return "allow_always"
+        elif response in ("n", "no"):
+            return "deny"
+        elif response in ("d", "deny"):
+            return "deny_always"
