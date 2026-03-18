@@ -31,9 +31,9 @@ from cliver.llm.llm_utils import is_thinking
 from cliver.llm.ollama_engine import OllamaLlamaInferenceEngine
 from cliver.llm.openai_engine import OpenAICompatibleInferenceEngine
 from cliver.mcp_server_caller import MCPServersCaller
-from cliver.permissions import PermissionAction, PermissionDecision, PermissionManager
 from cliver.media import load_media_file
 from cliver.model_capabilities import ModelCapability
+from cliver.permissions import PermissionAction, PermissionDecision, PermissionManager
 from cliver.prompt_enhancer import apply_template
 from cliver.tool_events import ToolEvent, ToolEventHandler, ToolEventType
 from cliver.tool_registry import ToolRegistry
@@ -760,31 +760,21 @@ class TaskExecutor:
         if self.permission_manager is not None:
             decision = self.permission_manager.check(full_tool_name, args)
             if decision == PermissionDecision.DENY:
-                self._append_denied_tool_message(
-                    full_tool_name, args, tool_call_id, messages, llm_response
-                )
+                self._append_denied_tool_message(full_tool_name, args, tool_call_id, messages, llm_response)
                 return False, None
             elif decision == PermissionDecision.ASK:
                 user_choice = self._prompt_user_permission(full_tool_name, args)
                 if user_choice in ("deny", "deny_always"):
                     if user_choice == "deny_always":
-                        self.permission_manager.grant_session(
-                            full_tool_name, PermissionAction.DENY
-                        )
-                    self._append_denied_tool_message(
-                        full_tool_name, args, tool_call_id, messages, llm_response
-                    )
+                        self.permission_manager.grant_session(full_tool_name, PermissionAction.DENY)
+                    self._append_denied_tool_message(full_tool_name, args, tool_call_id, messages, llm_response)
                     return False, None
                 elif user_choice == "allow_always":
-                    self.permission_manager.grant_session(
-                        full_tool_name, PermissionAction.ALLOW
-                    )
+                    self.permission_manager.grant_session(full_tool_name, PermissionAction.ALLOW)
             return None
 
         if confirm_tool_exec is not None:
-            if not confirm_tool_exec(
-                f"Execute tool: {full_tool_name}? (y/n): "
-            ):
+            if not confirm_tool_exec(f"Execute tool: {full_tool_name}? (y/n): "):
                 return True, f"Stopped at tool execution: {full_tool_name}"
 
         return None

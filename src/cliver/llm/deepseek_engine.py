@@ -13,7 +13,7 @@ ChatDeepSeek fixes both by overriding _create_chat_result and _get_request_paylo
 """
 
 import logging
-from typing import Any, List, Mapping, Optional, Union
+from typing import Any, List, Optional, Union
 
 import openai
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage

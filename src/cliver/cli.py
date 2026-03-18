@@ -5,6 +5,7 @@ The main entrance of the cliver application
 """
 
 import sys
+from pathlib import Path
 from shlex import split as shell_split
 from typing import Any, Dict
 
@@ -17,8 +18,6 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.styles import Style
 from rich.console import Console
 from rich.panel import Panel
-
-from pathlib import Path
 
 from cliver import __version__, commands
 from cliver.agent_profile import AgentProfile

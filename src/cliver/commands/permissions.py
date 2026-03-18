@@ -184,7 +184,7 @@ def _prompt_save_target(cliver: Cliver) -> str | None:
     global_path = pm._global_settings_path or "N/A"
     local_path = pm._local_settings_path or "N/A"
 
-    console.print(f"\n[bold]Save to:[/bold]")
+    console.print("\n[bold]Save to:[/bold]")
     console.print(f"  [g]lobal ({global_path})")
     console.print(f"  [l]ocal  ({local_path})")
 

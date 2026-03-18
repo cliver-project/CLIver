@@ -14,10 +14,8 @@ from cliver.permissions import (
     PermissionRule,
     ResourceType,
     TaskPermissions,
-    ToolMeta,
     get_tool_meta,
 )
-
 
 # ---------------------------------------------------------------------------
 # PermissionRule matching
@@ -200,40 +198,50 @@ class TestPermissionManagerRules:
         return pm
 
     def test_allow_rule_matches(self):
-        pm = self._make_manager([
-            {"tool": "read_file", "resource": "/data/**", "action": "allow"},
-        ])
+        pm = self._make_manager(
+            [
+                {"tool": "read_file", "resource": "/data/**", "action": "allow"},
+            ]
+        )
         assert pm.check("read_file", {"file_path": "/data/x.csv"}) == PermissionDecision.ALLOW
 
     def test_deny_rule_wins_over_allow(self):
-        pm = self._make_manager([
-            {"tool": "read_file", "action": "allow"},
-            {"tool": "read_file", "resource": "/etc/**", "action": "deny"},
-        ])
+        pm = self._make_manager(
+            [
+                {"tool": "read_file", "action": "allow"},
+                {"tool": "read_file", "resource": "/etc/**", "action": "deny"},
+            ]
+        )
         assert pm.check("read_file", {"file_path": "/etc/passwd"}) == PermissionDecision.DENY
         assert pm.check("read_file", {"file_path": "/tmp/x"}) == PermissionDecision.ALLOW
 
     def test_mcp_server_wildcard_allow(self):
-        pm = self._make_manager([
-            {"tool": "github#.*", "action": "allow"},
-        ])
+        pm = self._make_manager(
+            [
+                {"tool": "github#.*", "action": "allow"},
+            ]
+        )
         assert pm.check("github#create_issue", {}) == PermissionDecision.ALLOW
         assert pm.check("github#list_repos", {}) == PermissionDecision.ALLOW
         assert pm.check("ocp#get_pods", {}) == PermissionDecision.ASK
 
     def test_catch_all_wildcard(self):
-        pm = self._make_manager([
-            {"tool": ".*", "action": "allow"},
-        ])
+        pm = self._make_manager(
+            [
+                {"tool": ".*", "action": "allow"},
+            ]
+        )
         assert pm.check("read_file", {"file_path": "/any"}) == PermissionDecision.ALLOW
         assert pm.check("github#create_issue", {}) == PermissionDecision.ALLOW
 
     def test_constrained_allow_denies_unmatched_resource(self):
         """When a tool has specific resource rules, non-matching resources are denied."""
-        pm = self._make_manager([
-            {"tool": "read_file", "resource": "/data/reports/**", "action": "allow"},
-            {"tool": ".*", "action": "allow"},
-        ])
+        pm = self._make_manager(
+            [
+                {"tool": "read_file", "resource": "/data/reports/**", "action": "allow"},
+                {"tool": ".*", "action": "allow"},
+            ]
+        )
         # Matches resource constraint
         assert pm.check("read_file", {"file_path": "/data/reports/q1.csv"}) == PermissionDecision.ALLOW
         # Does NOT match — constrained, so wildcard cannot override
@@ -242,20 +250,24 @@ class TestPermissionManagerRules:
         assert pm.check("run_shell_command", {"command": "ls"}) == PermissionDecision.ALLOW
 
     def test_constrained_allow_multiple_resources(self):
-        pm = self._make_manager([
-            {"tool": "web_fetch", "resource": "https://api.github.com/**", "action": "allow"},
-            {"tool": "web_fetch", "resource": "https://docs.python.org/**", "action": "allow"},
-            {"tool": ".*", "action": "allow"},
-        ])
+        pm = self._make_manager(
+            [
+                {"tool": "web_fetch", "resource": "https://api.github.com/**", "action": "allow"},
+                {"tool": "web_fetch", "resource": "https://docs.python.org/**", "action": "allow"},
+                {"tool": ".*", "action": "allow"},
+            ]
+        )
         assert pm.check("web_fetch", {"url": "https://api.github.com/repos"}) == PermissionDecision.ALLOW
         assert pm.check("web_fetch", {"url": "https://docs.python.org/3/"}) == PermissionDecision.ALLOW
         assert pm.check("web_fetch", {"url": "https://evil.com"}) == PermissionDecision.ASK
 
     def test_server_wide_wildcard_not_treated_as_specific(self):
         """server#.* rules should not trigger constrained-allow for individual tools."""
-        pm = self._make_manager([
-            {"tool": "github#.*", "action": "allow"},
-        ])
+        pm = self._make_manager(
+            [
+                {"tool": "github#.*", "action": "allow"},
+            ]
+        )
         # This should allow all github tools without resource constraints
         assert pm.check("github#create_issue", {}) == PermissionDecision.ALLOW
 
@@ -321,9 +333,13 @@ class TestTaskScopePermissions:
 
     def test_task_scope_allow(self):
         pm = self._make_manager()
-        pm.push_task_scope(TaskPermissions(rules=[
-            PermissionRule(tool="read_file", action=PermissionAction.ALLOW),
-        ]))
+        pm.push_task_scope(
+            TaskPermissions(
+                rules=[
+                    PermissionRule(tool="read_file", action=PermissionAction.ALLOW),
+                ]
+            )
+        )
         assert pm.check("read_file", {"file_path": "/any"}) == PermissionDecision.ALLOW
         pm.pop_task_scope()
         assert pm.check("read_file", {"file_path": "/any"}) == PermissionDecision.ASK
@@ -337,12 +353,20 @@ class TestTaskScopePermissions:
 
     def test_nested_task_scopes_accumulate(self):
         pm = self._make_manager()
-        pm.push_task_scope(TaskPermissions(rules=[
-            PermissionRule(tool="read_file", action=PermissionAction.ALLOW),
-        ]))
-        pm.push_task_scope(TaskPermissions(rules=[
-            PermissionRule(tool="write_file", action=PermissionAction.ALLOW),
-        ]))
+        pm.push_task_scope(
+            TaskPermissions(
+                rules=[
+                    PermissionRule(tool="read_file", action=PermissionAction.ALLOW),
+                ]
+            )
+        )
+        pm.push_task_scope(
+            TaskPermissions(
+                rules=[
+                    PermissionRule(tool="write_file", action=PermissionAction.ALLOW),
+                ]
+            )
+        )
         # Both should be allowed
         assert pm.check("read_file", {"file_path": "/any"}) == PermissionDecision.ALLOW
         assert pm.check("write_file", {"file_path": "/any"}) == PermissionDecision.ALLOW
@@ -361,20 +385,28 @@ class TestTaskScopePermissions:
 
     def test_task_scope_deny_wins(self):
         pm = self._make_manager()
-        pm.push_task_scope(TaskPermissions(rules=[
-            PermissionRule(tool=".*", action=PermissionAction.ALLOW),
-            PermissionRule(tool="run_shell_command", resource="rm *", action=PermissionAction.DENY),
-        ]))
+        pm.push_task_scope(
+            TaskPermissions(
+                rules=[
+                    PermissionRule(tool=".*", action=PermissionAction.ALLOW),
+                    PermissionRule(tool="run_shell_command", resource="rm *", action=PermissionAction.DENY),
+                ]
+            )
+        )
         assert pm.check("read_file", {"file_path": "/any"}) == PermissionDecision.ALLOW
         assert pm.check("run_shell_command", {"command": "rm -rf /"}) == PermissionDecision.DENY
 
     def test_task_scope_constrained_allow(self):
         """Constrained-allow applies to task rules too."""
         pm = self._make_manager()
-        pm.push_task_scope(TaskPermissions(rules=[
-            PermissionRule(tool="read_file", resource="/data/**", action=PermissionAction.ALLOW),
-            PermissionRule(tool=".*", action=PermissionAction.ALLOW),
-        ]))
+        pm.push_task_scope(
+            TaskPermissions(
+                rules=[
+                    PermissionRule(tool="read_file", resource="/data/**", action=PermissionAction.ALLOW),
+                    PermissionRule(tool=".*", action=PermissionAction.ALLOW),
+                ]
+            )
+        )
         assert pm.check("read_file", {"file_path": "/data/x.csv"}) == PermissionDecision.ALLOW
         assert pm.check("read_file", {"file_path": "/etc/passwd"}) == PermissionDecision.ASK
         assert pm.check("write_file", {"file_path": "/any"}) == PermissionDecision.ALLOW
@@ -500,8 +532,7 @@ class TestTaskExecutorPermissionGate:
         te = self._make_executor(pm=None)
         te.permission_manager = None
         result = await te._check_permission(
-            "read_file", {"file_path": "/x"}, "id1", [], None,
-            confirm_tool_exec=lambda prompt: False
+            "read_file", {"file_path": "/x"}, "id1", [], None, confirm_tool_exec=lambda prompt: False
         )
         assert result == (True, "Stopped at tool execution: read_file")
 
@@ -525,12 +556,15 @@ class TestSettingsLoading:
 
     def test_load_global_settings(self, tmp_path):
         global_dir = tmp_path / "global"
-        self._write_settings(global_dir / "cliver-settings.yaml", {
-            "permission_mode": "auto-edit",
-            "permissions": [
-                {"tool": "read_file", "action": "allow"},
-            ],
-        })
+        self._write_settings(
+            global_dir / "cliver-settings.yaml",
+            {
+                "permission_mode": "auto-edit",
+                "permissions": [
+                    {"tool": "read_file", "action": "allow"},
+                ],
+            },
+        )
         pm = PermissionManager(global_config_dir=global_dir)
         assert pm.mode == PermissionMode.AUTO_EDIT
         assert len(pm.rules) == 1
@@ -538,12 +572,15 @@ class TestSettingsLoading:
 
     def test_load_local_settings(self, tmp_path):
         local_dir = tmp_path / "local"
-        self._write_settings(local_dir / "cliver-settings.yaml", {
-            "permission_mode": "yolo",
-            "permissions": [
-                {"tool": ".*", "action": "allow"},
-            ],
-        })
+        self._write_settings(
+            local_dir / "cliver-settings.yaml",
+            {
+                "permission_mode": "yolo",
+                "permissions": [
+                    {"tool": ".*", "action": "allow"},
+                ],
+            },
+        )
         pm = PermissionManager(global_config_dir=tmp_path / "empty", local_dir=local_dir)
         assert pm.mode == PermissionMode.YOLO
         assert len(pm.rules) == 1
@@ -551,18 +588,24 @@ class TestSettingsLoading:
     def test_local_mode_overrides_global(self, tmp_path):
         global_dir = tmp_path / "global"
         local_dir = tmp_path / "local"
-        self._write_settings(global_dir / "cliver-settings.yaml", {
-            "permission_mode": "default",
-            "permissions": [
-                {"tool": "read_file", "action": "allow"},
-            ],
-        })
-        self._write_settings(local_dir / "cliver-settings.yaml", {
-            "permission_mode": "yolo",
-            "permissions": [
-                {"tool": "write_file", "action": "allow"},
-            ],
-        })
+        self._write_settings(
+            global_dir / "cliver-settings.yaml",
+            {
+                "permission_mode": "default",
+                "permissions": [
+                    {"tool": "read_file", "action": "allow"},
+                ],
+            },
+        )
+        self._write_settings(
+            local_dir / "cliver-settings.yaml",
+            {
+                "permission_mode": "yolo",
+                "permissions": [
+                    {"tool": "write_file", "action": "allow"},
+                ],
+            },
+        )
         pm = PermissionManager(global_config_dir=global_dir, local_dir=local_dir)
         # Local mode wins
         assert pm.mode == PermissionMode.YOLO
@@ -579,9 +622,12 @@ class TestSettingsLoading:
 
     def test_missing_local_dir_graceful(self, tmp_path):
         global_dir = tmp_path / "global"
-        self._write_settings(global_dir / "cliver-settings.yaml", {
-            "permission_mode": "auto-edit",
-        })
+        self._write_settings(
+            global_dir / "cliver-settings.yaml",
+            {
+                "permission_mode": "auto-edit",
+            },
+        )
         pm = PermissionManager(global_config_dir=global_dir, local_dir=None)
         assert pm.mode == PermissionMode.AUTO_EDIT
         assert pm.rules == []
@@ -597,9 +643,12 @@ class TestSettingsLoading:
     def test_settings_only_mode(self, tmp_path):
         """Settings with mode but no permissions list."""
         global_dir = tmp_path / "global"
-        self._write_settings(global_dir / "cliver-settings.yaml", {
-            "permission_mode": "yolo",
-        })
+        self._write_settings(
+            global_dir / "cliver-settings.yaml",
+            {
+                "permission_mode": "yolo",
+            },
+        )
         pm = PermissionManager(global_config_dir=global_dir)
         assert pm.mode == PermissionMode.YOLO
         assert pm.rules == []
@@ -607,11 +656,14 @@ class TestSettingsLoading:
     def test_settings_only_rules(self, tmp_path):
         """Settings with rules but no mode → default mode."""
         global_dir = tmp_path / "global"
-        self._write_settings(global_dir / "cliver-settings.yaml", {
-            "permissions": [
-                {"tool": "github#.*", "action": "allow"},
-            ],
-        })
+        self._write_settings(
+            global_dir / "cliver-settings.yaml",
+            {
+                "permissions": [
+                    {"tool": "github#.*", "action": "allow"},
+                ],
+            },
+        )
         pm = PermissionManager(global_config_dir=global_dir)
         assert pm.mode == PermissionMode.DEFAULT
         assert len(pm.rules) == 1
@@ -666,16 +718,24 @@ class TestSettingsLoading:
         assert pm.check("write_file", {"file_path": "/x"}) == PermissionDecision.ASK
 
         # Workflow scope: allow read_file
-        pm.push_task_scope(TaskPermissions(rules=[
-            PermissionRule(tool="read_file", action=PermissionAction.ALLOW),
-        ]))
+        pm.push_task_scope(
+            TaskPermissions(
+                rules=[
+                    PermissionRule(tool="read_file", action=PermissionAction.ALLOW),
+                ]
+            )
+        )
         assert pm.check("read_file", {"file_path": "/x"}) == PermissionDecision.ALLOW
         assert pm.check("write_file", {"file_path": "/x"}) == PermissionDecision.ASK
 
         # Step scope: allow write_file too
-        pm.push_task_scope(TaskPermissions(rules=[
-            PermissionRule(tool="write_file", action=PermissionAction.ALLOW),
-        ]))
+        pm.push_task_scope(
+            TaskPermissions(
+                rules=[
+                    PermissionRule(tool="write_file", action=PermissionAction.ALLOW),
+                ]
+            )
+        )
         assert pm.check("read_file", {"file_path": "/x"}) == PermissionDecision.ALLOW
         assert pm.check("write_file", {"file_path": "/x"}) == PermissionDecision.ALLOW
 
@@ -716,12 +776,15 @@ class TestSettingsLoading:
 
     def test_remove_rule(self, tmp_path):
         global_dir = tmp_path / "global"
-        self._write_settings(global_dir / "cliver-settings.yaml", {
-            "permissions": [
-                {"tool": "read_file", "action": "allow"},
-                {"tool": "write_file", "action": "allow"},
-            ],
-        })
+        self._write_settings(
+            global_dir / "cliver-settings.yaml",
+            {
+                "permissions": [
+                    {"tool": "read_file", "action": "allow"},
+                    {"tool": "write_file", "action": "allow"},
+                ],
+            },
+        )
         pm = PermissionManager(global_config_dir=global_dir)
         assert len(pm.rules) == 2
 
@@ -749,14 +812,17 @@ class TestSettingsLoading:
     def test_loaded_rules_are_functional(self, tmp_path):
         """End-to-end: loaded rules actually affect check() decisions."""
         global_dir = tmp_path / "global"
-        self._write_settings(global_dir / "cliver-settings.yaml", {
-            "permission_mode": "default",
-            "permissions": [
-                {"tool": "read_file", "resource": "/data/**", "action": "allow"},
-                {"tool": "run_shell_command", "resource": "git *", "action": "allow"},
-                {"tool": "run_shell_command", "resource": "rm *", "action": "deny"},
-            ],
-        })
+        self._write_settings(
+            global_dir / "cliver-settings.yaml",
+            {
+                "permission_mode": "default",
+                "permissions": [
+                    {"tool": "read_file", "resource": "/data/**", "action": "allow"},
+                    {"tool": "run_shell_command", "resource": "git *", "action": "allow"},
+                    {"tool": "run_shell_command", "resource": "rm *", "action": "deny"},
+                ],
+            },
+        )
         pm = PermissionManager(global_config_dir=global_dir)
         assert pm.check("read_file", {"file_path": "/data/x.csv"}) == PermissionDecision.ALLOW
         assert pm.check("read_file", {"file_path": "/etc/passwd"}) == PermissionDecision.ASK
