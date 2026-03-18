@@ -1,6 +1,9 @@
 """Tests for the permission system."""
 
+from pathlib import Path
+
 import pytest
+import yaml
 
 from cliver.permissions import (
     ActionKind,
@@ -406,3 +409,124 @@ class TestSetMode:
 
         pm.set_mode(PermissionMode.DEFAULT)
         assert pm.check("run_shell_command", {"command": "ls"}) == PermissionDecision.ASK
+
+
+# ---------------------------------------------------------------------------
+# Settings file loading
+# ---------------------------------------------------------------------------
+
+
+class TestSettingsLoading:
+    def _write_settings(self, path: Path, data: dict):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(yaml.dump(data))
+
+    def test_load_global_settings(self, tmp_path):
+        global_dir = tmp_path / "global"
+        self._write_settings(global_dir / "cliver-settings.yaml", {
+            "permission_mode": "auto-edit",
+            "permissions": [
+                {"tool": "read_file", "action": "allow"},
+            ],
+        })
+        pm = PermissionManager(global_config_dir=global_dir)
+        assert pm.mode == PermissionMode.AUTO_EDIT
+        assert len(pm.rules) == 1
+        assert pm.rules[0].tool == "read_file"
+
+    def test_load_local_settings(self, tmp_path):
+        local_dir = tmp_path / "local"
+        self._write_settings(local_dir / "cliver-settings.yaml", {
+            "permission_mode": "yolo",
+            "permissions": [
+                {"tool": ".*", "action": "allow"},
+            ],
+        })
+        pm = PermissionManager(global_config_dir=tmp_path / "empty", local_dir=local_dir)
+        assert pm.mode == PermissionMode.YOLO
+        assert len(pm.rules) == 1
+
+    def test_local_mode_overrides_global(self, tmp_path):
+        global_dir = tmp_path / "global"
+        local_dir = tmp_path / "local"
+        self._write_settings(global_dir / "cliver-settings.yaml", {
+            "permission_mode": "default",
+            "permissions": [
+                {"tool": "read_file", "action": "allow"},
+            ],
+        })
+        self._write_settings(local_dir / "cliver-settings.yaml", {
+            "permission_mode": "yolo",
+            "permissions": [
+                {"tool": "write_file", "action": "allow"},
+            ],
+        })
+        pm = PermissionManager(global_config_dir=global_dir, local_dir=local_dir)
+        # Local mode wins
+        assert pm.mode == PermissionMode.YOLO
+        # Rules accumulate (global first, then local)
+        assert len(pm.rules) == 2
+        assert pm.rules[0].tool == "read_file"
+        assert pm.rules[1].tool == "write_file"
+
+    def test_missing_files_graceful(self, tmp_path):
+        """No settings files → defaults (mode=default, no rules)."""
+        pm = PermissionManager(global_config_dir=tmp_path / "nonexistent")
+        assert pm.mode == PermissionMode.DEFAULT
+        assert pm.rules == []
+
+    def test_missing_local_dir_graceful(self, tmp_path):
+        global_dir = tmp_path / "global"
+        self._write_settings(global_dir / "cliver-settings.yaml", {
+            "permission_mode": "auto-edit",
+        })
+        pm = PermissionManager(global_config_dir=global_dir, local_dir=None)
+        assert pm.mode == PermissionMode.AUTO_EDIT
+        assert pm.rules == []
+
+    def test_empty_settings_file(self, tmp_path):
+        global_dir = tmp_path / "global"
+        (global_dir).mkdir(parents=True)
+        (global_dir / "cliver-settings.yaml").write_text("")
+        pm = PermissionManager(global_config_dir=global_dir)
+        assert pm.mode == PermissionMode.DEFAULT
+        assert pm.rules == []
+
+    def test_settings_only_mode(self, tmp_path):
+        """Settings with mode but no permissions list."""
+        global_dir = tmp_path / "global"
+        self._write_settings(global_dir / "cliver-settings.yaml", {
+            "permission_mode": "yolo",
+        })
+        pm = PermissionManager(global_config_dir=global_dir)
+        assert pm.mode == PermissionMode.YOLO
+        assert pm.rules == []
+
+    def test_settings_only_rules(self, tmp_path):
+        """Settings with rules but no mode → default mode."""
+        global_dir = tmp_path / "global"
+        self._write_settings(global_dir / "cliver-settings.yaml", {
+            "permissions": [
+                {"tool": "github#.*", "action": "allow"},
+            ],
+        })
+        pm = PermissionManager(global_config_dir=global_dir)
+        assert pm.mode == PermissionMode.DEFAULT
+        assert len(pm.rules) == 1
+
+    def test_loaded_rules_are_functional(self, tmp_path):
+        """End-to-end: loaded rules actually affect check() decisions."""
+        global_dir = tmp_path / "global"
+        self._write_settings(global_dir / "cliver-settings.yaml", {
+            "permission_mode": "default",
+            "permissions": [
+                {"tool": "read_file", "resource": "/data/**", "action": "allow"},
+                {"tool": "run_shell_command", "resource": "git *", "action": "allow"},
+                {"tool": "run_shell_command", "resource": "rm *", "action": "deny"},
+            ],
+        })
+        pm = PermissionManager(global_config_dir=global_dir)
+        assert pm.check("read_file", {"file_path": "/data/x.csv"}) == PermissionDecision.ALLOW
+        assert pm.check("read_file", {"file_path": "/etc/passwd"}) == PermissionDecision.ASK
+        assert pm.check("run_shell_command", {"command": "git status"}) == PermissionDecision.ALLOW
+        assert pm.check("run_shell_command", {"command": "rm -rf /"}) == PermissionDecision.DENY

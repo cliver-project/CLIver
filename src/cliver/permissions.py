@@ -11,12 +11,19 @@ Each tool has an action kind (safe/read/write/execute/fetch) and resource type
 for resource matching.
 """
 
+import logging
 import re
 from enum import Enum
 from fnmatch import fnmatch
+from pathlib import Path
 from typing import Dict, List, Optional
 
+import yaml
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
+
+SETTINGS_FILENAME = "cliver-settings.yaml"
 
 
 # ---------------------------------------------------------------------------
@@ -172,11 +179,45 @@ class PermissionManager:
     6. Fallback → ASK
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        global_config_dir: Optional[Path] = None,
+        local_dir: Optional[Path] = None,
+    ):
         self.mode: PermissionMode = PermissionMode.DEFAULT
         self.rules: List[PermissionRule] = []
         self._session_grants: Dict[str, PermissionAction] = {}
         self._task_stack: List[TaskPermissions] = []
+        if global_config_dir is not None:
+            self._load_settings(global_config_dir, local_dir)
+
+    def _load_settings(self, global_dir: Path, local_dir: Optional[Path]) -> None:
+        """Load and merge settings files in priority order.
+
+        Global is loaded first, then local overrides (last mode wins,
+        rules accumulate).
+        """
+        for d in [global_dir, local_dir]:
+            if d is None:
+                continue
+            path = Path(d) / SETTINGS_FILENAME
+            if not path.exists():
+                continue
+            try:
+                data = yaml.safe_load(path.read_text()) or {}
+            except Exception as e:
+                logger.warning(f"Failed to load {path}: {e}")
+                continue
+            if "permission_mode" in data:
+                try:
+                    self.mode = PermissionMode(data["permission_mode"])
+                except ValueError:
+                    logger.warning(f"Invalid permission_mode '{data['permission_mode']}' in {path}")
+            for rule_dict in data.get("permissions", []):
+                try:
+                    self.rules.append(PermissionRule(**rule_dict))
+                except Exception as e:
+                    logger.warning(f"Invalid permission rule in {path}: {rule_dict} — {e}")
 
     def check(self, tool_identity: str, args: dict) -> PermissionDecision:
         """Check if a tool call is allowed, denied, or needs prompting.
