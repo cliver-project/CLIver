@@ -186,9 +186,16 @@ class PermissionManager:
     ):
         self.mode: PermissionMode = PermissionMode.DEFAULT
         self.rules: List[PermissionRule] = []
+        self._rule_sources: List[str] = []  # Parallel list: source file per rule
+        self._mode_source: Optional[str] = None  # Which file set the mode
         self._session_grants: Dict[str, PermissionAction] = {}
         self._task_stack: List[TaskPermissions] = []
+        self._global_settings_path: Optional[Path] = None
+        self._local_settings_path: Optional[Path] = None
         if global_config_dir is not None:
+            self._global_settings_path = Path(global_config_dir) / SETTINGS_FILENAME
+            if local_dir is not None:
+                self._local_settings_path = Path(local_dir) / SETTINGS_FILENAME
             self._load_settings(global_config_dir, local_dir)
 
     def _load_settings(self, global_dir: Path, local_dir: Optional[Path]) -> None:
@@ -208,16 +215,105 @@ class PermissionManager:
             except Exception as e:
                 logger.warning(f"Failed to load {path}: {e}")
                 continue
+            source = str(path)
             if "permission_mode" in data:
                 try:
                     self.mode = PermissionMode(data["permission_mode"])
+                    self._mode_source = source
                 except ValueError:
                     logger.warning(f"Invalid permission_mode '{data['permission_mode']}' in {path}")
             for rule_dict in data.get("permissions", []):
                 try:
                     self.rules.append(PermissionRule(**rule_dict))
+                    self._rule_sources.append(source)
                 except Exception as e:
                     logger.warning(f"Invalid permission rule in {path}: {rule_dict} — {e}")
+
+    # --- Persistent rule management ---
+
+    def save_rule(self, rule: PermissionRule, target: str) -> None:
+        """Save a rule to a settings file.
+
+        Args:
+            rule: The rule to save.
+            target: "global" or "local".
+        """
+        path = self._global_settings_path if target == "global" else self._local_settings_path
+        if path is None:
+            raise ValueError(f"No {target} settings path configured")
+        self._append_rule_to_file(path, rule)
+        self.rules.append(rule)
+        self._rule_sources.append(str(path))
+
+    def remove_rule(self, index: int) -> None:
+        """Remove a rule by index (0-based) from memory and its source file."""
+        if index < 0 or index >= len(self.rules):
+            raise IndexError(f"Rule index {index} out of range (0-{len(self.rules) - 1})")
+        source = self._rule_sources[index]
+        rule = self.rules[index]
+
+        # Remove from memory
+        self.rules.pop(index)
+        self._rule_sources.pop(index)
+
+        # Remove from file
+        self._remove_rule_from_file(Path(source), rule)
+
+    def save_mode(self, mode: PermissionMode, target: str) -> None:
+        """Save permission mode to a settings file.
+
+        Args:
+            mode: The permission mode to save.
+            target: "global" or "local".
+        """
+        path = self._global_settings_path if target == "global" else self._local_settings_path
+        if path is None:
+            raise ValueError(f"No {target} settings path configured")
+        self._update_mode_in_file(path, mode)
+        self.mode = mode
+        self._mode_source = str(path)
+
+    @staticmethod
+    def _append_rule_to_file(path: Path, rule: PermissionRule) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists():
+            data = yaml.safe_load(path.read_text()) or {}
+        else:
+            data = {}
+        data.setdefault("permissions", [])
+        rule_dict = {"tool": rule.tool, "action": rule.action.value}
+        if rule.resource is not None:
+            rule_dict["resource"] = rule.resource
+        data["permissions"].append(rule_dict)
+        path.write_text(yaml.dump(data, default_flow_style=False, sort_keys=False))
+
+    @staticmethod
+    def _remove_rule_from_file(path: Path, rule: PermissionRule) -> None:
+        if not path.exists():
+            return
+        data = yaml.safe_load(path.read_text()) or {}
+        permissions = data.get("permissions", [])
+        # Find and remove the matching rule dict
+        for i, r in enumerate(permissions):
+            if r.get("tool") == rule.tool and r.get("action") == rule.action.value:
+                if rule.resource is None and "resource" not in r:
+                    permissions.pop(i)
+                    break
+                elif r.get("resource") == rule.resource:
+                    permissions.pop(i)
+                    break
+        data["permissions"] = permissions
+        path.write_text(yaml.dump(data, default_flow_style=False, sort_keys=False))
+
+    @staticmethod
+    def _update_mode_in_file(path: Path, mode: PermissionMode) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists():
+            data = yaml.safe_load(path.read_text()) or {}
+        else:
+            data = {}
+        data["permission_mode"] = mode.value
+        path.write_text(yaml.dump(data, default_flow_style=False, sort_keys=False))
 
     def check(self, tool_identity: str, args: dict) -> PermissionDecision:
         """Check if a tool call is allowed, denied, or needs prompting.

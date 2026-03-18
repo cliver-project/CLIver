@@ -687,6 +687,65 @@ class TestSettingsLoading:
         pm.pop_task_scope()
         assert pm.check("read_file", {"file_path": "/x"}) == PermissionDecision.ASK
 
+    def test_save_rule_to_global(self, tmp_path):
+        global_dir = tmp_path / "global"
+        global_dir.mkdir()
+        pm = PermissionManager(global_config_dir=global_dir)
+
+        rule = PermissionRule(tool="read_file", resource="/data/**", action=PermissionAction.ALLOW)
+        pm.save_rule(rule, "global")
+
+        assert len(pm.rules) == 1
+        # Verify written to file
+        data = yaml.safe_load((global_dir / "cliver-settings.yaml").read_text())
+        assert len(data["permissions"]) == 1
+        assert data["permissions"][0]["tool"] == "read_file"
+
+    def test_save_rule_to_local(self, tmp_path):
+        global_dir = tmp_path / "global"
+        local_dir = tmp_path / "local"
+        global_dir.mkdir()
+        pm = PermissionManager(global_config_dir=global_dir, local_dir=local_dir)
+
+        rule = PermissionRule(tool=".*", action=PermissionAction.ALLOW)
+        pm.save_rule(rule, "local")
+
+        assert len(pm.rules) == 1
+        data = yaml.safe_load((local_dir / "cliver-settings.yaml").read_text())
+        assert data["permissions"][0]["tool"] == ".*"
+
+    def test_remove_rule(self, tmp_path):
+        global_dir = tmp_path / "global"
+        self._write_settings(global_dir / "cliver-settings.yaml", {
+            "permissions": [
+                {"tool": "read_file", "action": "allow"},
+                {"tool": "write_file", "action": "allow"},
+            ],
+        })
+        pm = PermissionManager(global_config_dir=global_dir)
+        assert len(pm.rules) == 2
+
+        pm.remove_rule(0)
+        assert len(pm.rules) == 1
+        assert pm.rules[0].tool == "write_file"
+
+        # Verify file updated
+        data = yaml.safe_load((global_dir / "cliver-settings.yaml").read_text())
+        assert len(data["permissions"]) == 1
+        assert data["permissions"][0]["tool"] == "write_file"
+
+    def test_save_mode(self, tmp_path):
+        global_dir = tmp_path / "global"
+        global_dir.mkdir()
+        pm = PermissionManager(global_config_dir=global_dir)
+        assert pm.mode == PermissionMode.DEFAULT
+
+        pm.save_mode(PermissionMode.YOLO, "global")
+        assert pm.mode == PermissionMode.YOLO
+
+        data = yaml.safe_load((global_dir / "cliver-settings.yaml").read_text())
+        assert data["permission_mode"] == "yolo"
+
     def test_loaded_rules_are_functional(self, tmp_path):
         """End-to-end: loaded rules actually affect check() decisions."""
         global_dir = tmp_path / "global"
