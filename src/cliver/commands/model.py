@@ -22,33 +22,57 @@ def list_llm_models(cliver: Cliver):
     models = cliver.config_manager.list_llm_models()
     if models:
         table = Table(title="Configured LLM Models", box=box.SQUARE)
+        table.add_column("", min_width=1, max_width=1, no_wrap=True)
         table.add_column("Name", style="green")
         table.add_column("Name In Provider", style="green")
-        table.add_column("Provider")
-        table.add_column("URL")
+        table.add_column("Provider", style="cyan")
+        table.add_column("URL", style="dim")
         table.add_column("Capabilities", style="blue")
-        table.add_column("File Upload", style="yellow")
+
+        global_default = cliver.config_manager.config.default_model
+        session_model = (cliver.session_options or {}).get("model")
+        active_model = session_model or global_default
+
         for _, model in models.items():
-            # Get model capabilities
+            # Get model capabilities and show only modality keywords
             capabilities = model.get_capabilities()
+            capabilities_str = _format_modalities(capabilities) if capabilities else "N/A"
 
-            # Format capabilities as a comma-separated string
-            capabilities_str = ", ".join([cap.value for cap in capabilities]) if capabilities else "N/A"
-
-            # Check if file upload is supported
-            file_upload_supported = ModelCapability.FILE_UPLOAD in capabilities
+            # Mark the active model with a green checkmark
+            marker = "[bold green]✔[/bold green]" if model.name == active_model else ""
 
             table.add_row(
+                marker,
                 model.name,
                 model.name_in_provider,
                 model.provider,
                 model.url,
                 capabilities_str,
-                "Yes" if file_upload_supported else "No",
             )
         cliver.console.print(table)
     else:
         cliver.console.print("No LLM Models configured.")
+
+
+def _format_modalities(capabilities: set) -> str:
+    """Format capabilities as short modality labels (text, image, audio, video)."""
+    # Map capability enum values to short modality labels
+    _MODALITY_MAP = {
+        ModelCapability.TEXT_TO_TEXT: "text",
+        ModelCapability.IMAGE_TO_TEXT: "image",
+        ModelCapability.TEXT_TO_IMAGE: "image",
+        ModelCapability.AUDIO_TO_TEXT: "audio",
+        ModelCapability.TEXT_TO_AUDIO: "audio",
+        ModelCapability.VIDEO_TO_TEXT: "video",
+        ModelCapability.TEXT_TO_VIDEO: "video",
+    }
+    modalities = []
+    for cap in _MODALITY_MAP:
+        if cap in capabilities:
+            label = _MODALITY_MAP[cap]
+            if label not in modalities:
+                modalities.append(label)
+    return ", ".join(modalities) if modalities else "N/A"
 
 
 # noinspection PyUnresolvedReferences
