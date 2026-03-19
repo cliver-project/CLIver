@@ -75,6 +75,49 @@ def _format_modalities(capabilities: set) -> str:
     return ", ".join(modalities) if modalities else "N/A"
 
 
+class ModelNameType(click.ParamType):
+    """Click parameter type that provides shell completion for model names."""
+
+    name = "model_name"
+
+    def shell_complete(self, ctx, param, incomplete):
+        try:
+            cliver_obj = ctx.find_object(Cliver)
+            if cliver_obj:
+                models = cliver_obj.config_manager.list_llm_models()
+                return [click.shell_completion.CompletionItem(name) for name in models if name.startswith(incomplete)]
+        except Exception:
+            pass
+        return []
+
+
+# noinspection PyUnresolvedReferences
+@model.command(name="default", help="Set the default LLM model")
+@click.argument("name", type=ModelNameType(), required=False)
+@pass_cliver
+def set_default_model(cliver: Cliver, name: str):
+    """Set or show the default LLM model."""
+    if not name:
+        current = cliver.config_manager.config.default_model
+        if current:
+            cliver.console.print(f"Current default model: [green]{current}[/green]")
+        else:
+            cliver.console.print("No default model set.")
+        # Show available models
+        models = cliver.config_manager.list_llm_models()
+        if models:
+            cliver.console.print(f"Available models: {', '.join(models.keys())}")
+        return
+
+    if cliver.config_manager.set_default_model(name):
+        cliver.console.print(f"Default model set to: [green]{name}[/green]")
+    else:
+        cliver.console.print(f"[red]Model '{name}' not found.[/red]")
+        models = cliver.config_manager.list_llm_models()
+        if models:
+            cliver.console.print(f"Available models: {', '.join(models.keys())}")
+
+
 # noinspection PyUnresolvedReferences
 @model.command(name="remove", help="Remove a LLM Model")
 @click.option(

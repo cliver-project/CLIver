@@ -176,7 +176,6 @@ class WorkflowConfig(BaseModel):
 class AppConfig(BaseModel):
     agent_name: str = Field(default="CLIver", description="The display name of the AI agent")
     mcpServers: Dict[str, MCPServerConfig] = {}
-    default_server: Optional[str] = Field(default=None, description="The default MCP server")
     models: Dict[str, ModelConfig] = {}
     default_model: Optional[str] = Field(default=None, description="The default LLM model")
     workflow: Optional[WorkflowConfig] = Field(default=None, description="Workflow configuration")
@@ -357,9 +356,6 @@ class ConfigManager:
         else:
             # Add new server
             self.config.mcpServers[name] = server
-            # Set as default if first server
-            if not self.config.default_server:
-                self.config.default_server = name
 
         # Save config
         self._save_config()
@@ -428,52 +424,22 @@ class ConfigManager:
             # Remove server
             self.config.mcpServers.pop(name)
 
-            # Update default server if needed
-            if self.config.default_server == name:
-                self.config.default_server = None if not self.config.mcpServers else next(iter(self.config.mcpServers))
-
             # Save config
             self._save_config()
             return True
 
         return False
 
-    def get_mcp_server(self, name: Optional[str] = None) -> Optional[MCPServerConfig]:
+    def get_mcp_server(self, name: str) -> Optional[MCPServerConfig]:
         """Get a server configuration.
-
-        Args:
-            name: Server name (defaults to default server)
-
-        Returns:
-            Server configuration if found, None otherwise
-        """
-        # Use default server if name not specified
-        if not name:
-            name = self.config.default_server
-        if self.config.mcpServers:
-            return self.config.mcpServers.get(name)
-        return None
-
-    def set_default_mcp_server(self, name: str) -> bool:
-        """Set the default server.
 
         Args:
             name: Server name
 
         Returns:
-            True if default server was set, False otherwise
+            Server configuration if found, None otherwise
         """
-        # Check if server exists
-        if name in self.config.mcpServers:
-            # Check if server is already default
-            if self.config.default_server == name:
-                return True
-            self.config.default_server = name
-            # Save config
-            self._save_config()
-            return True
-
-        return False
+        return self.config.mcpServers.get(name)
 
     def list_mcp_servers(self) -> Dict[str, MCPServerConfig]:
         """List all mcp servers.
@@ -569,6 +535,33 @@ class ConfigManager:
             return True
 
         return False
+
+    def set_default_model(self, name: str) -> bool:
+        """Set the default LLM model.
+
+        Args:
+            name: Model name
+
+        Returns:
+            True if default model was set, False otherwise
+        """
+        if name in self.config.models:
+            if self.config.default_model == name:
+                return True
+            self.config.default_model = name
+            self._save_config()
+            return True
+        return False
+
+    def set_agent_name(self, name: str) -> None:
+        """Set the agent display name."""
+        self.config.agent_name = name
+        self._save_config()
+
+    def set_user_agent(self, user_agent: str) -> None:
+        """Set the User-Agent header string."""
+        self.config.user_agent = user_agent
+        self._save_config()
 
     def get_llm_model(self, name: Optional[str] = None) -> Optional[ModelConfig]:
         if not name:
