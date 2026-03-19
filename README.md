@@ -10,21 +10,32 @@ For complete documentation, visit the documentation pages:
 - [Installation Guide](docs/installation.md) - How to install and set up CLIver
 - [Configuration](docs/configuration.md) - Configure CLIver for LLM providers and MCP servers
 - [Chat Command Usage](docs/chat.md) - Learn how to use the `cliver chat` command
+- [Skills](docs/skills.md) - LLM-driven skill activation for specialized tasks
+- [Memory & Identity](docs/memory-identity.md) - Agent memory, identity profiles, and multi-agent isolation
+- [Session Management](docs/session-management.md) - Conversation sessions, history, and compression
+- [Permissions](docs/permissions.md) - Control tool execution permissions and resource access
 - [Workflow Definition](docs/workflow.md) - Define and execute complex workflows
 - [Extensibility Guide](docs/extensibility.md) - Extend CLIver functionality and use as a Python library
 - [Roadmap](docs/roadmap.md) - Future development plans and contribution guidelines
 
 ## Overview
 CLIver is an AI-powered command-line interface tool that enhances your terminal experience with intelligent capabilities.
-It integrates with MCP (Model Coordination Protocol) servers and various LLM providers to provide an interactive CLI experience.
+It integrates with MCP (Model Context Protocol) servers and various LLM providers to provide an interactive CLI experience.
 
 ## Features
 - Interactive and batch mode chat with LLM models
 - Integration with MCP servers for extended tool capabilities
 - Support for multiple LLM providers (Ollama, OpenAI, vLLM)
 - Extensible command system
-- Skill sets and templates for prompt enhancement
+- LLM-driven skill activation for specialized tasks
 - Multi-media support (images, audio, video)
+- Agent memory and identity profiles
+- Conversation session management with history and compression
+- Layered tool permission system (default, auto-edit, yolo modes)
+- Token usage statistics and cost tracking
+- Workflow engine with pause/resume support
+- Task scheduling with cron expressions
+- Keyring-based secret management for API keys
 
 ## Development
 
@@ -73,9 +84,10 @@ cliver chat "Your question here"
 - `-aud, --audio`: Audio files to send with the message
 - `-vid, --video`: Video files to send with the message
 - `-f, --file`: Specify files to upload for tools like code interpreter
-- `-ss, --skill-set`: Apply skill sets to the chat session
 - `-t, --template`: Use a template for the prompt
-- `-p, --param`: Specify parameters for skill sets and templates (key=value)
+- `-p, --param`: Specify parameters for templates (key=value)
+- `--system-message`: Append a system message
+- `--included-tools`: Filter tools by pattern
 
 ### Examples
 
@@ -94,13 +106,6 @@ cliver chat -m "deepseek" "Please tell me what time is it now in Beijing, Tokyo 
 cliver chat -s -m "deepseek" "Write a poem about programming"
 ```
 
-#### Chat with Skill Sets
-```bash
-cliver chat -ss "code_review" "Please review this code" -p "FILE_PATH=/path/to/file.py"
-```
-
-> CLIver will search for skill set named `code_review` for system messages and apply the parameters in Jinja2 syntax
-
 #### Chat with Templates
 ```bash
 cliver chat -t "code_review_template" "Please review this code" -p "code=def hello(): print('Hello')"
@@ -113,11 +118,11 @@ cliver chat -t "code_review_template" "Please review this code" -p "code=def hel
 - vLLM models
 
 ## Configuration
-CLIver uses JSON-based configuration stored in the user's config directory. You can manage configuration using various commands:
+CLIver uses YAML-based configuration stored in the user's config directory (`~/.config/cliver/config.yaml`). You can manage configuration using various commands:
 
 - Use `config` command to validate, show, or view the configuration path
-- Use `mcp` command to manage Model Context Protocol servers  
-- Use `llm` command to manage LLM models
+- Use `mcp` command to manage Model Context Protocol servers
+- Use `model` command to manage LLM models
 
 ### Managing MCP Servers
 Use the top-level `mcp` command to manage MCP servers:
@@ -126,7 +131,7 @@ Use the top-level `mcp` command to manage MCP servers:
 # List all configured MCP servers
 cliver mcp list
 
-# Add an MCP server  
+# Add an MCP server
 cliver mcp add --name my-server --transport stdio --command uvx --args my-mcp-server
 
 # Update an MCP server
@@ -137,21 +142,43 @@ cliver mcp remove --name my-server
 ```
 
 ### Managing LLM Models
-Use the top-level `llm` command to manage LLM models:
+Use the top-level `model` command to manage LLM models:
 
 ```bash
 # List all configured LLM models
-cliver llm list
+cliver model list
 
 # Add an LLM model
-cliver llm add --name my-model --provider ollama --url http://localhost:11434 --name-in-provider llama3.2:latest
+cliver model add --name my-model --provider ollama --url http://localhost:11434 --name-in-provider llama3.2:latest
 
 # Update an LLM model
-cliver llm set --name my-model --provider vllm
+cliver model set --name my-model --provider vllm
 
 # Remove an LLM model
-cliver llm remove --name my-model
+cliver model remove --name my-model
+
+# Show or set the default model
+cliver model default
+cliver model default my-model
 ```
+
+## All Commands
+
+| Command | Description |
+|---------|-------------|
+| `chat` | Interactive and batch mode chat with LLMs (default command) |
+| `model` | Manage LLM model configurations |
+| `mcp` | Manage MCP server configurations |
+| `config` | Show, validate, and update general settings |
+| `workflow` | Define and execute multi-step workflows |
+| `task` | Manage agent tasks (workflow + scheduling) |
+| `session` | Manage conversation sessions (list, load, new, delete, compress) |
+| `session-option` | Manage persistent inference options for interactive sessions |
+| `permissions` | Manage persistent permission rules |
+| `identity` | Manage agent identity profile |
+| `cost` | View token usage statistics |
+| `capabilities` | Display model capabilities matrix |
+| `help` | Show help for commands |
 
 ## Extending CLIver
 New commands can be added by creating Python files in `~/.config/cliver/commands/` (by default) with Click group definitions.

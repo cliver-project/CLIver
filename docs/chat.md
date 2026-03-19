@@ -17,6 +17,12 @@ cliver chat
 
 This will open an interactive session using your configured default LLM provider.
 
+You can also pass a query directly (CLIver routes bare text to `chat` automatically):
+
+```bash
+cliver "What is the capital of China?"
+```
+
 ## Selecting Different Models
 
 ### DeepSeek Models
@@ -84,6 +90,12 @@ You can filter the tools using `--included-tools` option:
 cliver chat --included-tools "*time"
 ```
 
+### Using Skills
+
+CLIver has an LLM-driven skill system. During a chat session, the LLM can discover and activate skills using the builtin `skill` tool. Skills are defined as SKILL.md files in `.cliver/skills/` (project) or `~/.config/cliver/skills/` (global).
+
+See [Skills](skills.md) for details on creating and using skills.
+
 ## File Integration
 
 Work with files directly in the chat:
@@ -124,4 +136,4 @@ cliver chat \
 
 ## Next Steps
 
-After mastering the chat command, learn how to define [Workflows](workflow.md) to automate complex multi-step operations, or check out the [Extensibility Guide](extensibility.md) to learn how to use CLIver as a Python library.
+After mastering the chat command, learn about [Skills](skills.md) for specialized task activation, [Memory & Identity](memory-identity.md) for agent personalization, or check out [Workflows](workflow.md) to automate complex multi-step operations.

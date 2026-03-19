@@ -42,4 +42,4 @@ The command will be loaded automatically by CLIver
 
 ## Next Steps
 
-Now that you understand how to extend CLIver, see our [Roadmap](roadmap.md) for upcoming features and how you can contribute to the project.
+Now that you understand how to extend CLIver, explore [Skills](skills.md) for creating specialized capabilities, [Memory & Identity](memory-identity.md) for agent personalization, or see the [Roadmap](roadmap.md) for upcoming features.

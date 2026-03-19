@@ -20,10 +20,16 @@ Any feature built at the API layer (permissions, workflows, skills, memory) work
 ## Key Features
 
 ### Core Capabilities
-- **Multi-LLM Support**: Connect to various language models served by various providers(DeepSeek, OpenAI, Qwen3-coder on OpenAI compatible servers, vLLM, and more in the future)
+- **Multi-LLM Support**: Connect to various language models served by various providers (DeepSeek, OpenAI, Qwen3-coder on OpenAI compatible servers, vLLM, and more in the future)
 - **MCP Integration**: Seamlessly integrate with Model Context Protocol servers for enhanced functionality
+- **Builtin Tools**: 17 tools (12 core, 5 contextual) for file I/O, shell, web, planning, memory, identity, and skills
 - **Tool Permissions**: Resource-aware [permission system](permissions.md) controlling which tools can execute and what resources they can access
+- **Skills**: LLM-driven [skill activation](skills.md) from SKILL.md files for specialized tasks
+- **Memory & Identity**: [Agent memory and identity profiles](memory-identity.md) with multi-agent isolation
+- **Session Management**: [Conversation history](session-management.md) with LLM-based compression and session persistence
 - **Configurable Workflows**: Define and execute complex workflows using YAML configuration files
+- **Task Scheduling**: Schedule workflows with cron expressions
+- **Token Usage**: Track and view token usage statistics per model and session
 - **Extensible Architecture**: Easy to extend with custom commands and backends
 
 ### Usage Modes
@@ -51,12 +57,18 @@ graph TD
     C --> H[MCP & Builtin Tools Integration]
     C --> I[Workflow Engine]
     C --> N[Permission Manager]
+    C --> O[Agent Profile]
 
     G --> J[Ollama Provider]
     G --> K[OpenAI Provider]
-    G --> L[Other LLM Providers]
+    G --> L[vLLM Provider]
 
     H --> M[MCPServersCaller]
+
+    O --> P[Memory]
+    O --> Q[Identity]
+    O --> R[Sessions]
+    O --> S[Tasks]
 
     style A fill:#e1f5fe
     style B fill:#f3e5f5
@@ -65,6 +77,7 @@ graph TD
     style G fill:#e8f5e8
     style H fill:#e8f5e8
     style I fill:#e8f5e8
+    style O fill:#fff3e0
 ```
 
 </figure>
