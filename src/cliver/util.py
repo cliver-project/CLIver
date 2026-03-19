@@ -28,9 +28,9 @@ def get_config_dir() -> Path:
     if system == "Windows":
         return Path(os.getenv("APPDATA")) / APP_NAME
     elif system == "Darwin":
-        return Path.home() / "Library" / "Application Support" / APP_NAME
+        return Path.home() / f".{APP_NAME}"
     else:
-        return Path(os.getenv("XDG_CONFIG_HOME", Path.home() / ".config")) / APP_NAME
+        return Path.home() / f".{APP_NAME}"
 
 
 def stdin_is_piped():
