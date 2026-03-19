@@ -1,5 +1,4 @@
 import logging
-import uuid
 from abc import ABC, abstractmethod
 from typing import Any, AsyncIterator, List, Optional
 
@@ -100,39 +99,18 @@ class LLMInferenceEngine(ABC):
         return []
 
     def parse_tool_calls(self, response: BaseMessage, model: str) -> list[dict] | None:
-        """Parse the tool calls from the response from the LLM."""
+        """Parse tool calls from the LLM response.
+
+        Returns raw tool calls in the format the LLM produced:
+        [{"name": "...", "args": {...}, "id": "..."}]
+
+        Engine subclasses can override this for provider-specific parsing.
+        Normalization (arg coercion, validation, MCP splitting) is handled
+        separately by normalize_tool_calls() in TaskExecutor.
+        """
         if response is None:
             return None
-        # tool_calls may differ based on different model and provider
-        # each own engine implementation can do their own manipulate to the ones cliver knows
-        tool_calls = parse_tool_calls_from_content(response)
-        if tool_calls is None:
-            return None
-        return self.convert_tool_calls_for_execute(tool_calls)
-
-    def convert_tool_calls_for_execute(self, tool_calls: list[dict]) -> list[dict] | None:
-        logger.debug("tool_calls to convert into execution: %s", tool_calls)
-        tools_to_call = []
-        for tool_call in tool_calls:
-            tool_to_call = {}
-            mcp_server_name = ""
-            tool_name: str = tool_call.get("name")
-            the_tool_name = tool_name
-            if "#" in tool_name:
-                s_array = tool_name.split("#")
-                mcp_server_name = s_array[0]
-                the_tool_name = s_array[1]
-            args = tool_call.get("args")
-            tool_call_id = tool_call.get("id")
-            # Ensure we have a valid tool_call_id for OpenAI compatibility
-            if not tool_call_id:
-                tool_call_id = str(uuid.uuid4())
-            tool_to_call["tool_call_id"] = tool_call_id
-            tool_to_call["tool_name"] = the_tool_name
-            tool_to_call["mcp_server"] = mcp_server_name
-            tool_to_call["args"] = args
-            tools_to_call.append(tool_to_call)
-        return tools_to_call
+        return parse_tool_calls_from_content(response)
 
     def system_message(self) -> str:
         """

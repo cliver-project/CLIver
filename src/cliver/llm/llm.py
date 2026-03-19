@@ -27,7 +27,7 @@ from cliver.config import ModelConfig
 from cliver.llm.base import LLMInferenceEngine
 from cliver.llm.deepseek_engine import DeepSeekInferenceEngine
 from cliver.llm.errors import get_friendly_error_message
-from cliver.llm.llm_utils import is_thinking
+from cliver.llm.llm_utils import is_thinking, normalize_tool_calls
 from cliver.llm.ollama_engine import OllamaLlamaInferenceEngine
 from cliver.llm.openai_engine import OpenAICompatibleInferenceEngine
 from cliver.mcp_server_caller import MCPServersCaller
@@ -596,10 +596,16 @@ class TaskExecutor:
             response = await llm_engine.infer(messages, mcp_tools, **options)
             logger.debug(f"LLM response: {response}")
 
+            # Detect error responses from the engine (connection failures, auth errors, etc.)
+            # These are returned as AIMessage with additional_kwargs={"type": "error"}
+            if _is_error_response(response):
+                return response
+
             # Track token usage from this LLM call
             self._track_tokens(response, model)
 
-            tool_calls = llm_engine.parse_tool_calls(response, model)
+            raw_tool_calls = llm_engine.parse_tool_calls(response, model)
+            tool_calls = normalize_tool_calls(raw_tool_calls) if raw_tool_calls else None
             if tool_calls:
                 stop, result = await self._execute_tool_calls(
                     tool_calls,
@@ -652,11 +658,14 @@ class TaskExecutor:
         """
         try:
             for tool_call in tool_calls:
-                mcp_server = tool_call["mcp_server"]
-                tool_name = tool_call["tool_name"]
-                args = tool_call["args"]
-                tool_call_id = tool_call["tool_call_id"]
-                full_tool_name = f"{mcp_server}#{tool_name}" if mcp_server else f"{tool_name}"
+                mcp_server = tool_call.get("mcp_server", "")
+                tool_name = tool_call.get("tool_name", "")
+                args = tool_call.get("args") or {}
+                tool_call_id = tool_call.get("tool_call_id", "")
+                if not tool_name:
+                    logger.warning("Skipping tool call with empty name: %s", tool_call)
+                    continue
+                full_tool_name = f"{mcp_server}#{tool_name}" if mcp_server else tool_name
 
                 # Permission / confirmation gate
                 denied = await self._check_permission(
@@ -877,14 +886,17 @@ class TaskExecutor:
             tool_calls = None
             accumulated_chunks = None
             try:
-                # Create an internal streaming method that can detect tool calls early
                 options = options or {}
                 async for chunk in llm_engine.stream(messages, mcp_tools, **options):
-                    # the chunk maybe part of the thinking content: '<thinking>xxx</thinking>'
-                    if not accumulated_chunks:
-                        accumulated_chunks = chunk
-                    else:
-                        accumulated_chunks = accumulated_chunks + chunk
+                    # Accumulate chunks for tool call detection after stream ends
+                    try:
+                        if not accumulated_chunks:
+                            accumulated_chunks = chunk
+                        else:
+                            accumulated_chunks = accumulated_chunks + chunk
+                    except Exception as e:
+                        logger.debug(f"Chunk accumulation error (non-fatal): {e}")
+                        # If chunk addition fails, keep what we have and skip
 
                     # Filter out thinking/reasoning content from stream output.
                     # Reasoning may arrive via additional_kwargs (structured API field)
@@ -895,21 +907,27 @@ class TaskExecutor:
                         if chunk_kwargs.get("reasoning_content") or chunk_kwargs.get("reasoning"):
                             continue
                         # Check for <think> tags in accumulated content
-                        chunks_content = str(accumulated_chunks)
+                        acc_content = getattr(accumulated_chunks, "content", "") or ""
+                        chunks_content = str(acc_content)
                         if (len(chunks_content) <= 7 and "<think".startswith(chunks_content)) or is_thinking(
                             chunks_content
                         ):
                             continue
                     yield chunk
+
+                # Detect error responses from the engine
+                if accumulated_chunks and _is_error_response(accumulated_chunks):
+                    return
+
                 # Track token usage from the accumulated streaming response
                 if accumulated_chunks:
                     self._track_tokens(accumulated_chunks, model)
 
-                tool_calls = llm_engine.parse_tool_calls(accumulated_chunks, model)
+                raw_tool_calls = llm_engine.parse_tool_calls(accumulated_chunks, model)
+                tool_calls = normalize_tool_calls(raw_tool_calls) if raw_tool_calls else None
             except Exception as e:
                 logger.error(f"Error in streaming: {str(e)}", exc_info=True)
                 friendly_error_msg = get_friendly_error_message(e, "LLM streaming")
-                # Yield error message as a BaseMessageChunk (using AIMessageChunk)
                 # noinspection PyArgumentList
                 yield AIMessageChunk(
                     content=f"Error in streaming: {friendly_error_msg}",
@@ -950,6 +968,21 @@ class TaskExecutor:
         # If we've reached max iterations
         # noinspection PyArgumentList
         yield AIMessageChunk(content="Reached maximum number of iterations without a final answer.")
+
+
+def _is_error_response(response) -> bool:
+    """Check if an LLM response represents an engine-level error.
+
+    The base engine returns AIMessage with additional_kwargs={"type": "error"}
+    on connection failures, auth errors, etc. These should NOT be fed back
+    into the Re-Act loop as they'll just repeat the same failing call.
+    """
+    if response is None:
+        return False
+    kwargs = getattr(response, "additional_kwargs", None)
+    if kwargs and kwargs.get("type") == "error":
+        return True
+    return False
 
 
 def _has_tool_errors(tool_calls: List[Dict], messages: List[BaseMessage]) -> bool:
@@ -1004,20 +1037,31 @@ def _is_plan_context_message(msg: BaseMessage) -> bool:
     )
 
 
-def _format_tool_result(tool_result: list) -> str:
-    """Format tool result list into a string for ToolMessage content."""
-    if isinstance(tool_result, list) and len(tool_result) > 0:
+def _format_tool_result(tool_result) -> str:
+    """Format tool result into a string for ToolMessage content.
+
+    Handles various result formats:
+    - list of dicts (standard): extract text/error/tool_result from first item
+    - plain string: return as-is
+    - None/empty: "(no output)"
+    """
+    if tool_result is None:
+        return "(no output)"
+    if isinstance(tool_result, str):
+        return tool_result if tool_result else "(no output)"
+    if isinstance(tool_result, list):
+        if len(tool_result) == 0:
+            return "(no output)"
         first_result = tool_result[0]
         if isinstance(first_result, dict):
-            # Error results: include the error message clearly
             if "error" in first_result:
                 return f"Error: {first_result['error']}"
             if "text" in first_result:
-                return first_result["text"]
+                return str(first_result["text"])
             if "tool_result" in first_result:
-                return first_result["tool_result"]
+                return str(first_result["tool_result"])
         return str(tool_result)
-    return str(tool_result) if tool_result else "(no output)"
+    return str(tool_result)
 
 
 def _tool_error_check_internal(tool_name: str, mcp_tool_result: list[Dict[str, Any]]) -> Tuple[bool, str | None]:
