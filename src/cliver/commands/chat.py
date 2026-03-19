@@ -25,11 +25,10 @@ logger = logging.getLogger(__name__)
     help="Which LLM model to use",
 )
 @click.option(
-    "--stream",
-    "-s",
-    is_flag=True,
-    default=False,
-    help="Stream the response",
+    "--stream/--no-stream",
+    "-s/-S",
+    default=True,
+    help="Stream the response (default: enabled)",
 )
 @click.option(
     "--image",
