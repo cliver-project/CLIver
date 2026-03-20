@@ -34,12 +34,12 @@ The sample configuration file above demonstrates the key components of CLIver's 
     - `deepseek-r1`: An example using the OpenAI provider with:
         - `name_in_provider`: The model name as known to the provider
         - `provider`: The LLM provider type (openai, ollama, vllm)
-        - `api_key`: API key — supports Jinja2 templating or `keyring:<service>:<key>` syntax
+        - `api_key`: API key — supports Jinja2 template expressions for env vars or keyring
         - `url`: Endpoint for the LLM service
     - `llama3`: An example using the Ollama provider with:
         - `name_in_provider`: The model name as known to Ollama
         - `provider`: Specifies the Ollama provider
-        - `api_key`: API key retrieved from system keyring using `keyring:<service>:<key>` syntax
+        - `api_key`: API key retrieved from system keyring using `{{ keyring('service', 'key') }}`
         - `url`: Endpoint for the Ollama service
 
 - **mcpServers**: Configures Model Context Protocol (MCP) servers that extend CLIver's capabilities
@@ -53,9 +53,9 @@ The sample configuration file above demonstrates the key components of CLIver's 
 
 CLIver supports Jinja2 templating in configuration files for dynamic value resolution:
 
-- **Environment Variables**: Use `{{ env.VARIABLE_NAME }}` syntax to reference environment variables
-- **Keyring Storage**: Use `keyring:<service>:<key>` syntax to retrieve secrets from the system keyring
-- **Default Values**: Provide fallback values using the pipe operator, e.g., `{{ env.OPENAI_API_KEY | 'dummy' }}`
+- **Environment Variables**: Use `{{ env.VARIABLE_NAME }}` syntax to reference any environment variable
+- **Keyring Storage**: Use `{{ keyring('service', 'key') }}` syntax to retrieve secrets from the system keyring
+- **Default Values**: Provide fallback values using `or`, e.g., `{{ env.OPENAI_API_KEY or 'dummy' }}`
 
 This approach keeps sensitive information secure while allowing flexible configuration management.
 

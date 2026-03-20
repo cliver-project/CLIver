@@ -224,14 +224,14 @@ def _mask_value(value: str) -> str:
 def _mask_secrets(data, keys_to_mask=("api_key",)):
     """Recursively mask sensitive values in a config dict.
 
-    Keyring references (keyring:service:key) are shown as-is since
+    Jinja2 template expressions (containing {{ }}) are shown as-is since
     they don't contain the actual secret. Plain text secrets are masked.
     """
     if isinstance(data, dict):
         for key, value in data.items():
             if key in keys_to_mask and isinstance(value, str):
-                if value.startswith("keyring:"):
-                    pass  # keyring references are safe to display
+                if "{{" in value and "}}" in value:
+                    pass  # template expressions are safe to display
                 else:
                     # Mask plain text: show first 3 and last 3 chars
                     if len(value) > 8:

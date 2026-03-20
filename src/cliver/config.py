@@ -15,7 +15,7 @@ from cliver.model_capabilities import (
     ModelCapability,
     ModelCapabilityDetector,
 )
-from cliver.secret_resolver import resolve_secret
+from cliver.template_utils import render_template_if_needed
 
 logger = logging.getLogger(__name__)
 
@@ -71,14 +71,17 @@ class ModelConfig(BaseModel):
 
     def get_api_key(self) -> Optional[str]:
         """
-        Resolve the API key, supporting keyring references.
+        Resolve the API key, supporting Jinja2 template expressions.
 
         Returns the resolved API key:
         - Plain text: returned as-is
-        - "keyring:<service>:<key>": resolved from system keyring/keychain
+        - "{{ keyring('service', 'key') }}": resolved from system keyring
+        - "{{ env.VARIABLE }}": resolved from environment variable
         - None: if not configured or resolution fails
         """
-        return resolve_secret(self.api_key)
+        if self.api_key is None:
+            return None
+        return render_template_if_needed(self.api_key)
 
     def get_model_capabilities(self) -> ModelCapabilities:
         detector = ModelCapabilityDetector()

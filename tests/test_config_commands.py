@@ -453,13 +453,17 @@ def test_mask_secrets_plain_text():
     assert data["models"]["qwen"]["api_key"] == "sk-***xyz"
 
 
-def test_mask_secrets_keyring_reference():
-    """Keyring references should NOT be masked."""
+def test_mask_secrets_template_expression():
+    """Jinja2 template expressions should NOT be masked."""
     from cliver.commands.config import _mask_secrets
 
-    data = {"models": {"qwen": {"api_key": "keyring:myservice:mykey"}}}
+    data = {"models": {"qwen": {"api_key": "{{ keyring('myservice', 'mykey') }}"}}}
     _mask_secrets(data)
-    assert data["models"]["qwen"]["api_key"] == "keyring:myservice:mykey"
+    assert data["models"]["qwen"]["api_key"] == "{{ keyring('myservice', 'mykey') }}"
+
+    data2 = {"models": {"qwen": {"api_key": "{{ env.OPENAI_API_KEY }}"}}}
+    _mask_secrets(data2)
+    assert data2["models"]["qwen"]["api_key"] == "{{ env.OPENAI_API_KEY }}"
 
 
 def test_mask_secrets_short_key():
