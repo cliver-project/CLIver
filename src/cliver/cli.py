@@ -113,6 +113,8 @@ class Cliver:
         self._rss_index = 0
 
         def _bottom_toolbar():
+            import shutil
+
             sb = self.session_options.get("statusbar", {})
             if not sb.get("visible", True):
                 return []
@@ -120,22 +122,43 @@ class Cliver:
             cwd = str(Path.cwd())
             model = self.session_options.get("model") or self.config_manager.config.default_model or "—"
             mode = self.permission_manager._effective_mode().value
+            term_width = shutil.get_terminal_size().columns
 
-            parts = [
-                ("class:toolbar-cwd", f" {cwd} "),
-                ("class:toolbar-sep", " │ "),
-                ("class:toolbar-mode", f" {mode} "),
-            ]
+            # Left: cwd
+            left = f" 📂 {cwd} "
+            # Right: mode + model (right-aligned)
+            right_mode = f" 🔒 {mode} "
+            right_model = f" ◆ {model} "
+            right = f"{right_mode}│{right_model}"
 
-            # Show RSS headline if configured
+            # Middle: scrolling RSS or empty padding to push right side to edge
+            middle_text = ""
             if self._rss_headlines:
                 headline = self._rss_headlines[self._rss_index % len(self._rss_headlines)]
                 self._rss_index += 1
-                parts.append(("class:toolbar-sep", " │ "))
-                parts.append(("class:toolbar-rss", f" {headline} "))
+                middle_text = f" {headline} "
 
-            parts.append(("class:toolbar-sep", " │ "))
-            parts.append(("class:toolbar-model", f" ◆ {model} "))
+            # Calculate padding to fill terminal width
+            used = len(left) + 1 + len(middle_text) + len(right)  # +1 for left separator
+            padding = max(0, term_width - used)
+
+            if middle_text:
+                # Center the RSS text in the middle space
+                pad_left = padding // 2
+                pad_right = padding - pad_left
+                middle = f"{' ' * pad_left}{middle_text}{' ' * pad_right}"
+            else:
+                middle = " " * padding
+
+            parts = [
+                ("class:toolbar-cwd", left),
+                ("class:toolbar-sep", "│"),
+                ("class:toolbar-rss", middle),
+                ("class:toolbar-sep", "│"),
+                ("class:toolbar-mode", right_mode),
+                ("class:toolbar-sep", "│"),
+                ("class:toolbar-model", right_model),
+            ]
             return parts
 
         # Key bindings for multi-line input
