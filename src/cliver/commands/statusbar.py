@@ -39,15 +39,15 @@ def statusbar_set(cliver: Cliver, rss: str | None, visible: bool | None):
     if visible is not None:
         sb["visible"] = visible
         state = "visible" if visible else "hidden"
-        cliver.console.print(f"  Status bar is now [bold]{state}[/bold].")
+        cliver.output(f"  Status bar is now [bold]{state}[/bold].")
 
     if rss is not None:
         sb["rss_url"] = rss if rss else None
         if rss:
-            cliver.console.print(f"  RSS feed set to: [cyan]{rss}[/cyan]")
-            cliver.console.print("  [dim]Feed will scroll in the status bar middle section.[/dim]")
+            cliver.output(f"  RSS feed set to: [cyan]{rss}[/cyan]")
+            cliver.output("  [dim]Feed will scroll in the status bar middle section.[/dim]")
         else:
-            cliver.console.print("  RSS feed cleared.")
+            cliver.output("  RSS feed cleared.")
 
     # Refresh the prompt session toolbar if available
     if cliver.session:
@@ -59,7 +59,7 @@ def statusbar_set(cliver: Cliver, rss: str | None, visible: bool | None):
 def statusbar_reset(cliver: Cliver):
     """Reset status bar configuration to defaults."""
     cliver.session_options.pop("statusbar", None)
-    cliver.console.print("  Status bar reset to defaults.")
+    cliver.output("  Status bar reset to defaults.")
 
 
 def _show_config(cliver: Cliver):
@@ -68,10 +68,10 @@ def _show_config(cliver: Cliver):
     visible = sb.get("visible", True)
     rss_url = sb.get("rss_url")
 
-    cliver.console.print("[bold]Status Bar Configuration[/bold]")
-    cliver.console.print(f"  Visible:  [bold]{'yes' if visible else 'no'}[/bold]")
-    cliver.console.print(f"  RSS Feed: [cyan]{rss_url or '—'}[/cyan]")
-    cliver.console.print()
-    cliver.console.print("[dim]  Sections: [cwd] │ [permission mode] │ [model][/dim]")
+    cliver.output("[bold]Status Bar Configuration[/bold]")
+    cliver.output(f"  Visible:  [bold]{'yes' if visible else 'no'}[/bold]")
+    cliver.output(f"  RSS Feed: [cyan]{rss_url or '—'}[/cyan]")
+    cliver.output()
+    cliver.output("[dim]  Sections: [cwd] │ [permission mode] │ [model][/dim]")
     if rss_url:
-        cliver.console.print("[dim]  RSS headlines scroll in the middle section.[/dim]")
+        cliver.output("[dim]  RSS headlines scroll in the middle section.[/dim]")

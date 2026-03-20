@@ -39,6 +39,44 @@ from cliver.workflow.workflow_executor import WorkflowExecutor
 from cliver.workflow.workflow_manager_local import LocalDirectoryWorkflowManager
 
 
+class _IndentedStdout:
+    """Wraps stdout to add left margin, while preserving fileno() for Rich width detection."""
+
+    INDENT = "   "
+
+    def __init__(self, real_stdout):
+        self._real = real_stdout
+        self._at_line_start = True
+
+    def write(self, text):
+        if not text:
+            return 0
+        out = []
+        for ch in text:
+            if self._at_line_start and ch != "\n":
+                out.append(self.INDENT)
+            out.append(ch)
+            self._at_line_start = ch == "\n"
+        result = "".join(out)
+        return self._real.write(result)
+
+    def flush(self):
+        self._real.flush()
+
+    def fileno(self):
+        return self._real.fileno()
+
+    @property
+    def encoding(self):
+        return self._real.encoding
+
+    def isatty(self):
+        return self._real.isatty()
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
 class Cliver:
     """
     The global App is the box for all capabilities.
@@ -119,6 +157,10 @@ class Cliver:
             return
         self._group = group
         self.session_options = session_options or {}
+
+    def output(self, *args, **kwargs) -> None:
+        """Centralized output method. All CLI display should go through this."""
+        self.console.print(*args, **kwargs)
 
     def load_commands_names(self, group: click.Group) -> list[str]:
         return commands.list_commands_names(group)
@@ -220,18 +262,6 @@ class Cliver:
             ]
         )
 
-    def _get_prompt_prefix(self) -> FormattedText:
-        """Build the input line top border."""
-        tw = shutil.get_terminal_size().columns
-        label = " Cliver "
-        top = "╭─" + label + "─" * max(0, tw - len(label) - 3) + "╮"
-        return FormattedText(
-            [
-                ("class:toolbar-border", top),
-                ("class:toolbar-border", "\n│ "),
-            ]
-        )
-
     # ─── Command Processing ──────────────────────────────────────────────────
 
     def _preprocess_line(self, line: str) -> str | None:
@@ -245,11 +275,11 @@ class Cliver:
             cmd = line[1:]
             if cmd.lower().startswith("help"):
                 args = cmd[4:].strip()
-                return f"{args} --help".strip()
+                return f"help {args}".strip() if args else "help"
             else:
                 cmd_name = cmd.split()[0] if cmd.strip() else ""
                 if cmd_name not in self._get_commands():
-                    print(f"Unknown command: /{cmd_name}")
+                    self.console.print(f"[yellow]Unknown command: /{cmd_name}[/yellow]")
                     return None
                 return cmd
         elif not line.lower().startswith(f"{CMD_CHAT} "):
@@ -315,6 +345,8 @@ class Cliver:
                 if line.lower() in ("exit", "quit", "/exit", "/quit"):
                     app.exit()
                 return
+            # Echo the user's input to the output area
+            self.output(f"\n[bold green]❯[/bold green] {line}")
             app.create_background_task(_run_command(processed))
 
         async def _run_command(line):
@@ -324,7 +356,7 @@ class Cliver:
             except SystemExit:
                 pass
             except Exception as e:
-                print(f"Error: {e}")
+                self.console.print(f"[red]Error: {e}[/red]")
 
         input_buffer = Buffer(
             accept_handler=on_accept,
@@ -347,14 +379,58 @@ class Cliver:
             """Ctrl+G opens $EDITOR for extended input."""
             event.current_buffer.open_in_editor()
 
-        # Layout: input line (with top border) + toolbar (with borders)
+        _last_esc = {"t": 0.0}
+
+        @kb.add("escape")
+        def _escape(event):
+            """Double-ESC clears the input box."""
+            import time
+
+            now = time.monotonic()
+            if now - _last_esc["t"] < 0.5:
+                event.current_buffer.reset()
+                _last_esc["t"] = 0.0
+            else:
+                _last_esc["t"] = now
+
+        # Layout: spacer + top border + input line + toolbar
+        def _input_top_border():
+            tw = shutil.get_terminal_size().columns
+            label = " Cliver "
+            line = "╭─" + label + "─" * max(0, tw - len(label) - 3) + "╮"
+            return FormattedText([("class:toolbar-border", line)])
+
+        border_window = Window(
+            content=FormattedTextControl(_input_top_border),
+            height=1,
+            dont_extend_height=True,
+        )
+
+        from prompt_toolkit.layout.margins import Margin
+
+        class LeftBorderMargin(Margin):
+            def get_width(self, get_ui_content):
+                return 2
+
+            def create_margin(self, window_render_info, width, height):
+                return [("class:toolbar-border", "│ \n")] * height
+
+        class RightBorderMargin(Margin):
+            def get_width(self, get_ui_content):
+                return 2
+
+            def create_margin(self, window_render_info, width, height):
+                return [("class:toolbar-border", " │\n")] * height
+
         input_window = Window(
             content=BufferControl(
                 buffer=input_buffer,
-                input_processors=[BeforeInput(self._get_prompt_prefix)],
+                input_processors=[BeforeInput([("class:prompt", "❯ ")])],
             ),
-            height=2,  # top border line + input line
+            wrap_lines=True,
             dont_extend_height=True,
+            left_margins=[LeftBorderMargin()],
+            right_margins=[RightBorderMargin()],
         )
 
         toolbar_window = Window(
@@ -363,9 +439,14 @@ class Cliver:
             dont_extend_height=True,
         )
 
+        # Empty spacer to separate output from input box
+        spacer_window = Window(height=3, dont_extend_height=True)
+
         layout = Layout(
             HSplit(
                 [
+                    spacer_window,
+                    border_window,
                     input_window,
                     toolbar_window,
                 ]
@@ -395,7 +476,16 @@ class Cliver:
         self._app = app
 
         with patch_stdout(raw=True):
-            app.run()
+            # Wrap patched stdout with indenter for left margin on ALL output
+            _patched = sys.stdout
+            sys.stdout = _IndentedStdout(_patched)
+            # Re-create console to pick up indented stdout
+            self.console = Console(file=sys.stdout)
+            try:
+                app.run()
+            finally:
+                sys.stdout = _patched
+                self.console = Console()
 
         # Clean up
         self.cleanup()
@@ -447,22 +537,23 @@ def cliver_cli(ctx: click.Context):
 
 @cliver_cli.command(name="help", hidden=True)
 @click.argument("command", nargs=-1)
+@pass_cliver
 @click.pass_context
-def help_command(ctx: click.Context, command: tuple):
+def help_command(ctx: click.Context, cliver: Cliver, command: tuple):
     """Show help for cliver or a specific command."""
     group = cliver_cli
     # Walk down subcommand chain: cliver help model list → model list --help
     for cmd_name in command:
         sub = group.get_command(ctx, cmd_name)
         if sub is None:
-            click.echo(f"No such command '{cmd_name}'.")
+            cliver.output(f"No such command '{cmd_name}'.")
             return
         if isinstance(sub, click.Group):
             group = sub
         else:
-            click.echo(sub.get_help(ctx))
+            cliver.output(sub.get_help(ctx))
             return
-    click.echo(group.get_help(ctx))
+    cliver.output(group.get_help(ctx))
 
 
 def interact(cli: Cliver, session_options: Dict[str, Any] = None) -> None:
@@ -495,22 +586,22 @@ def _create_permission_prompt(console: Console):
         resource = str(args.get(meta.resource_param, "")) if meta.resource_param else ""
         label, color = _ACTION_LABELS.get(meta.action_kind, ("Unknown", "white"))
 
-        # Build the info panel (printed via stdout → appears above TUI via patch_stdout)
-        print()
-        print("  ⚠  Permission Required")
-        print("  ┌─────────────────────────────────────────────")
-        print(f"  │  Tool:     {tool_name}")
-        print(f"  │  Action:   {label}")
+        # Build the info panel
+        console.print()
+        console.print("  [bold yellow]⚠  Permission Required[/bold yellow]")
+        console.print("  ┌─────────────────────────────────────────────")
+        console.print(f"  │  Tool:     [bold]{tool_name}[/bold]")
+        console.print(f"  │  Action:   [bold {color}]{label}[/bold {color}]")
         if resource:
-            print(f"  │  Resource: {resource}")
+            console.print(f"  │  Resource: [cyan]{resource}[/cyan]")
         if event_args_summary := _format_args_summary(args, meta.resource_param):
-            print(f"  │  Args:     {event_args_summary}")
-        print("  └─────────────────────────────────────────────")
+            console.print(f"  │  Args:     [dim]{event_args_summary}[/dim]")
+        console.print("  └─────────────────────────────────────────────")
 
         # Simple text prompt (works in background thread with patch_stdout)
         while True:
             try:
-                print("  [y]es / [n]o / [a]lways allow / [d]eny always")
+                console.print("  [dim]\\[y]es / \\[n]o / \\[a]lways allow / \\[d]eny always[/dim]")
                 response = input("  > ").strip().lower()
             except (EOFError, KeyboardInterrupt):
                 return "deny"

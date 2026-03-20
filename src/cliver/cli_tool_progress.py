@@ -9,8 +9,6 @@ have no dependency on this module.
 import threading
 
 from rich.console import Console
-from rich.live import Live
-from rich.spinner import Spinner
 
 from cliver.tool_events import ToolEvent, ToolEventHandler, ToolEventType
 
@@ -36,37 +34,34 @@ _PLAN_ICONS = {
 
 
 class ThinkingIndicator:
-    """Manages a Rich spinner shown while the LLM is thinking.
+    """Shows a thinking message while the LLM is processing.
 
-    The spinner is started when inference begins and automatically
-    stopped when the first tool call or content chunk arrives.
+    Started when inference begins, stopped on first tool call or content chunk.
+    Uses simple print to avoid cursor manipulation conflicts with patch_stdout.
     """
 
     def __init__(self, console: Console):
         self._console = console
-        self._live: Live | None = None
+        self._active = False
         self._lock = threading.Lock()
 
     def start(self, model: str = "") -> None:
-        """Start the thinking spinner."""
+        """Show a thinking message."""
         with self._lock:
-            if self._live is not None:
+            if self._active:
                 return
-            label = f"[bold cyan]{model}[/bold cyan] " if model else ""
-            spinner = Spinner("dots", text=f"  {label}[dim]Thinking…[/dim]", style="cyan")
-            self._live = Live(spinner, console=self._console, transient=True, refresh_per_second=12)
-            self._live.start()
+            self._active = True
+            label = f"{model} " if model else ""
+            self._console.print(f"[cyan]⠿[/cyan] [dim]{label}Thinking…[/dim]")
 
     def stop(self) -> None:
-        """Stop the thinking spinner."""
+        """Mark thinking as stopped."""
         with self._lock:
-            if self._live is not None:
-                self._live.stop()
-                self._live = None
+            self._active = False
 
     @property
     def active(self) -> bool:
-        return self._live is not None
+        return self._active
 
 
 # ─── Tool Progress Handler ────────────────────────────────────────────────────

@@ -46,9 +46,9 @@ def list_mcp_servers(cliver: Cliver):
                 _mcp_server.transport,
                 info,
             )
-        cliver.console.print(table)
+        cliver.output(table)
     else:
-        cliver.console.print("No MCP servers configured.")
+        cliver.output("No MCP servers configured.")
 
 
 # noinspection PyUnresolvedReferences
@@ -104,7 +104,7 @@ def set_mcp_server(
 ):
     mcp_server = cliver.config_manager.get_mcp_server(name)
     if not mcp_server:
-        cliver.console.print(f"No MCP server found with name: {name}")
+        cliver.output(f"No MCP server found with name: {name}")
         return
 
     # Update server based on its type
@@ -129,7 +129,7 @@ def set_mcp_server(
             header_dict = parse_key_value_options(header, cliver.console)
             mcp_server.headers = header_dict
     cliver.config_manager.add_or_update_server(name, mcp_server)
-    cliver.console.print(f"Updated MCP server: {name}")
+    cliver.output(f"Updated MCP server: {name}")
 
 
 # noinspection PyUnresolvedReferences
@@ -193,11 +193,11 @@ def add_mcp_server(
 ):
     mcp_server = cliver.config_manager.get_mcp_server(name)
     if mcp_server:
-        cliver.console.print(f"MCP server with name {name} already exists.")
+        cliver.output(f"MCP server with name {name} already exists.")
         return
     if transport == "stdio":
         if command is None:
-            cliver.console.print("Command is required for stdio transport")
+            cliver.output("Command is required for stdio transport")
             return
         # Parse env variables from key=value format
         env_dict = parse_key_value_options(env, cliver.console)
@@ -208,30 +208,30 @@ def add_mcp_server(
             env=env_dict,
         )
     elif transport == "sse":
-        cliver.console.print("Warning: SSE transport is deprecated, consider using streamable instead")
+        cliver.output("Warning: SSE transport is deprecated, consider using streamable instead")
         if url is None:
-            cliver.console.print("URL is required for sse transport")
+            cliver.output("URL is required for sse transport")
             return
         # Parse headers from key=value format
         header_dict = parse_key_value_options(header, cliver.console)
         cliver.config_manager.add_or_update_sse_mcp_server(name=name, url=url, headers=header_dict)
     elif transport == "streamable":
         if url is None:
-            cliver.console.print("URL is required for streamable transport")
+            cliver.output("URL is required for streamable transport")
             return
         # Parse headers from key=value format
         header_dict = parse_key_value_options(header, cliver.console)
         cliver.config_manager.add_or_update_streamable_mcp_server(name=name, url=url, headers=header_dict)
     elif transport == "websocket":
         if url is None:
-            cliver.console.print("URL is required for websocket transport")
+            cliver.output("URL is required for websocket transport")
             return
         # Parse headers from key=value format
         header_dict = parse_key_value_options(header, cliver.console)
         cliver.config_manager.add_or_update_websocket_mcp_server(name=name, url=url, headers=header_dict)
     else:
-        click.echo(f"Unsupported MCP server transport: {transport}")
-    cliver.console.print(f"Added MCP server: {name} of transport {transport}")
+        cliver.output(f"Unsupported MCP server transport: {transport}")
+    cliver.output(f"Added MCP server: {name} of transport {transport}")
 
 
 # noinspection PyUnresolvedReferences
@@ -247,7 +247,7 @@ def add_mcp_server(
 def remove_mcp_server(cliver: Cliver, name: str):
     mcp_server = cliver.config_manager.get_mcp_server(name)
     if not mcp_server:
-        cliver.console.print(f"No MCP server found with name: {name}")
+        cliver.output(f"No MCP server found with name: {name}")
         return
     cliver.config_manager.remove_mcp_server(name)
-    cliver.console.print(f"Removed MCP server: {name}")
+    cliver.output(f"Removed MCP server: {name}")

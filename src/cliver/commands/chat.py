@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import sys
 from typing import Any, Callable, Dict, List, Optional
 
 import click
@@ -174,7 +173,7 @@ def chat(
         try:
             system_message_content = read_file_content(system_message_file)
         except Exception as e:
-            click.echo(f"Error reading system message file {system_message_file}: {e}")
+            cliver.output(f"Error reading system message file {system_message_file}: {e}")
             return 1
     elif system_message:
         system_message_content = system_message
@@ -208,7 +207,7 @@ def chat(
         llm_engine = task_executor.get_llm_engine(use_model)
         if not llm_engine:
             # print message that model is not found
-            click.echo(f"Model '{use_model}' not found.")
+            cliver.output(f"Model '{use_model}' not found.")
             return 1
 
         # Check capabilities before making calls
@@ -219,15 +218,15 @@ def chat(
             )
 
         if len(image) > 0 and not llm_engine.supports_capability(ModelCapability.IMAGE_TO_TEXT):
-            click.echo(f"Model '{use_model}' does not support image processing.")
+            cliver.output(f"Model '{use_model}' does not support image processing.")
             return 1
 
         if len(audio) > 0 and not llm_engine.supports_capability(ModelCapability.AUDIO_TO_TEXT):
-            click.echo(f"Model '{use_model}' does not support audio processing.")
+            cliver.output(f"Model '{use_model}' does not support audio processing.")
             return 1
 
         if len(video) > 0 and not llm_engine.supports_capability(ModelCapability.VIDEO_TO_TEXT):
-            click.echo(f"Model '{use_model}' does not support video processing.")
+            cliver.output(f"Model '{use_model}' does not support video processing.")
             return 1
 
         # Convert param tuples to dictionary
@@ -293,6 +292,7 @@ def chat(
                 on_response=on_response,
                 conversation_history=conv_history,
                 on_first_token=thinking.stop if thinking else None,
+                console=cliver.console,
             )
         finally:
             if thinking:
@@ -303,7 +303,7 @@ def chat(
 
         return result
     except Exception as e:
-        click.echo(f"Error: {e}")
+        cliver.output(f"[red]Error: {e}[/red]")
         return 1
 
 
@@ -337,8 +337,8 @@ def _show_token_usage(cliver) -> None:
     session = tracker.get_session_total()
     model = tracker.last_model or "?"
 
-    cliver.console.print(
-        f"  [dim]◆ {model}[/dim]  "
+    cliver.output(
+        f"[dim]◆ {model}[/dim]  "
         f"[dim]tokens:[/dim] [bold]{format_tokens(last.total_tokens)}[/bold] "
         f"[dim](in: {format_tokens(last.input_tokens)}, out: {format_tokens(last.output_tokens)})[/dim]  "
         f"[dim]session:[/dim] [bold]{format_tokens(session.total_tokens)}[/bold]"
@@ -364,6 +364,7 @@ def _async_chat(
     on_response: Optional[Callable[[str], None]] = None,
     conversation_history=None,
     on_first_token: Optional[Callable[[], None]] = None,
+    console=None,
 ):
     # Create multimedia response handler
     response_handler = MultimediaResponseHandler(media_dir)
@@ -390,6 +391,7 @@ def _async_chat(
                     on_response=on_response,
                     conversation_history=conversation_history,
                     on_first_token=on_first_token,
+                    console=console,
                 )
             )
         else:
@@ -418,30 +420,30 @@ def _async_chat(
 
                 # Display text content
                 if multimedia_response.has_text():
-                    click.echo(multimedia_response.text_content)
+                    console.print(multimedia_response.text_content)
                     if on_response:
                         on_response(multimedia_response.text_content)
 
                 # Display media information
                 if multimedia_response.has_media():
                     media_count = len(multimedia_response.media_content)
-                    click.echo(f"\n[Media Content: {media_count} items]")
+                    console.print(f"\n\\[Media Content: {media_count} items]")
                     for i, media in enumerate(multimedia_response.media_content):
                         info = f"  {i + 1}. {media.type.value}"
                         if media.filename:
                             info += f" ({media.filename})"
                         if media.mime_type:
-                            info += f" [{media.mime_type}]"
-                        click.echo(info)
+                            info += f" \\[{media.mime_type}]"
+                        console.print(info)
     except ValueError as e:
         if "File upload is not supported" in str(e):
-            click.echo(f"Error: {e}")
-            click.echo("Will use content embedding as fallback.")
+            console.print(f"[red]Error: {e}[/red]")
+            console.print("Will use content embedding as fallback.")
         else:
             raise
         return 1
     except Exception as e:
-        click.echo(f"Error: {e}")
+        console.print(f"[red]Error: {e}[/red]")
         return 1
     return 0
 
@@ -464,8 +466,14 @@ async def _stream_chat(
     on_response: Optional[Callable[[str], None]] = None,
     conversation_history=None,
     on_first_token: Optional[Callable[[], None]] = None,
+    console=None,
 ):
     """Stream the chat response."""
+    from rich.console import Console as RichConsole
+
+    if console is None:
+        console = RichConsole()
+
     # Create multimedia response handler
     response_handler = MultimediaResponseHandler(media_dir)
     first_token_fired = False
@@ -498,8 +506,10 @@ async def _stream_chat(
                     if on_first_token:
                         on_first_token()
 
-                sys.stdout.write(str(chunk.content))
-                sys.stdout.flush()
+                print(str(chunk.content), end="")
+
+        # Final flush after streaming completes
+        print(flush=True)
 
         # After streaming is complete, process the accumulated content
         if accumulated_chunk:
@@ -511,32 +521,32 @@ async def _stream_chat(
 
             # Display media information if any
             if multimedia_response.has_media():
-                print()  # New line
+                console.print()
                 media_count = len(multimedia_response.media_content)
-                print(f"\n[Media Content: {media_count} items]")
+                console.print(f"\n\\[Media Content: {media_count} items]")
                 for i, media in enumerate(multimedia_response.media_content):
                     info = f"  {i + 1}. {media.type.value}"
                     if media.filename:
                         info += f" ({media.filename})"
                     if media.mime_type:
-                        info += f" [{media.mime_type}]"
-                    print(info)
+                        info += f" \\[{media.mime_type}]"
+                    console.print(info)
 
         # Record the full response to session
         if on_response and accumulated_chunk and hasattr(accumulated_chunk, "content") and accumulated_chunk.content:
             on_response(str(accumulated_chunk.content))
 
-        print()  # New line at the end
+        console.print()  # New line at the end
         return 0
     except ValueError as e:
         if "File upload is not supported" in str(e):
-            click.echo(f"Error: {e}")
-            click.echo("Will use content embedding as fallback.")
+            console.print(f"Error: {e}")
+            console.print("Will use content embedding as fallback.")
         else:
             raise
         return 1
     except Exception as e:
-        click.echo(f"Error: {e}")
+        console.print(f"[red]Error: {e}[/red]")
         return 1
 
 
@@ -563,4 +573,4 @@ def _compress_if_needed(cliver, task_executor, model_config, model_name, new_inp
 
     cliver.conversation_messages = compressed
     after_tokens = estimate_tokens(cliver.conversation_messages)
-    click.echo(f"[Compressed conversation: ~{before_tokens} → ~{after_tokens} tokens]")
+    cliver.output(f"\\[Compressed conversation: ~{before_tokens} → ~{after_tokens} tokens]")

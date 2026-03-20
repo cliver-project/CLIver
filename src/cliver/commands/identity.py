@@ -51,7 +51,7 @@ def chat_identity(cliver: Cliver):
 def clear_identity(cliver: Cliver):
     """Clear the identity profile."""
     cliver.agent_profile.save_identity("")
-    click.echo("Identity profile cleared.")
+    cliver.output("Identity profile cleared.")
 
 
 # ---------------------------------------------------------------------------
@@ -63,10 +63,10 @@ def _show_identity(cliver: Cliver) -> None:
     """Display the current identity document."""
     content = cliver.agent_profile.load_identity()
     if not content:
-        click.echo("No identity profile set.")
-        click.echo("Run '/identity chat' to build your profile through conversation.")
+        cliver.output("No identity profile set.")
+        cliver.output("Run '/identity chat' to build your profile through conversation.")
         return
-    click.echo(content)
+    cliver.output(content)
 
 
 def _build_identity_prompt(cliver: Cliver) -> str:

@@ -23,18 +23,18 @@ def session_cmd(ctx, cliver: Cliver):
     if ctx.invoked_subcommand is None:
         # Default: show current session info
         if not hasattr(cliver, "current_session_id") or not cliver.current_session_id:
-            click.echo("No active session.")
+            cliver.output("No active session.")
             return
         sm = cliver.get_session_manager()
         info = sm.get_session_info(cliver.current_session_id)
         if info:
-            click.echo(f"Current session: {info['id']}")
-            click.echo(f"  Title: {info.get('title', '(untitled)')}")
-            click.echo(f"  Turns: {info.get('turn_count', 0)}")
-            click.echo(f"  Created: {info.get('created_at', '?')}")
-            click.echo(f"  Updated: {info.get('updated_at', '?')}")
+            cliver.output(f"Current session: {info['id']}")
+            cliver.output(f"  Title: {info.get('title', '(untitled)')}")
+            cliver.output(f"  Turns: {info.get('turn_count', 0)}")
+            cliver.output(f"  Created: {info.get('created_at', '?')}")
+            cliver.output(f"  Updated: {info.get('updated_at', '?')}")
         else:
-            click.echo(f"Session '{cliver.current_session_id}' not found in index.")
+            cliver.output(f"Session '{cliver.current_session_id}' not found in index.")
 
 
 @session_cmd.command(name="list", help="List all saved sessions")
@@ -45,10 +45,10 @@ def list_sessions(cliver: Cliver):
     sessions = sm.list_sessions()
 
     if not sessions:
-        click.echo("No saved sessions.")
+        cliver.output("No saved sessions.")
         return
 
-    click.echo("Sessions (most recent first):")
+    cliver.output("Sessions (most recent first):")
     for s in sessions:
         title = s.get("title", "(untitled)")
         if len(title) > 60:
@@ -56,7 +56,7 @@ def list_sessions(cliver: Cliver):
         turns = s.get("turn_count", 0)
         updated = s.get("updated_at", "")
         active = " *" if hasattr(cliver, "current_session_id") and s["id"] == cliver.current_session_id else ""
-        click.echo(f"  {s['id']}{active}  [{turns} turns]  {title}  ({updated})")
+        cliver.output(f"  {s['id']}{active}  [{turns} turns]  {title}  ({updated})")
 
 
 @session_cmd.command(name="load", help="Load a previous session to continue the conversation")
@@ -67,7 +67,7 @@ def load_session(cliver: Cliver, session_id: str):
     sm = cliver.get_session_manager()
     info = sm.get_session_info(session_id)
     if not info:
-        click.echo(f"Session '{session_id}' not found.")
+        cliver.output(f"Session '{session_id}' not found.")
         return
 
     turns = sm.load_turns(session_id)
@@ -80,9 +80,10 @@ def load_session(cliver: Cliver, session_id: str):
     # Compress if the loaded history exceeds context window
     _compress_loaded_session(cliver)
 
-    click.echo(f"Loaded session '{session_id}': {info.get('title', '(untitled)')}")
-    click.echo(f"  {len(turns)} conversation turns restored ({len(cliver.conversation_messages)} messages in context).")
-    click.echo("Continue chatting — the conversation history is active.")
+    cliver.output(f"Loaded session '{session_id}': {info.get('title', '(untitled)')}")
+    msg_count = len(cliver.conversation_messages)
+    cliver.output(f"  {len(turns)} conversation turns restored ({msg_count} messages in context).")
+    cliver.output("Continue chatting — the conversation history is active.")
 
 
 @session_cmd.command(name="new", help="Start a new session")
@@ -94,7 +95,7 @@ def new_session(cliver: Cliver):
     cliver.current_session_id = session_id
     cliver.session_history = []
     cliver.conversation_messages = []
-    click.echo(f"New session started: {session_id}")
+    cliver.output(f"New session started: {session_id}")
 
 
 @session_cmd.command(name="delete", help="Delete a saved session")
@@ -104,14 +105,14 @@ def delete_session(cliver: Cliver, session_id: str):
     """Delete a session and its conversation history."""
     sm = cliver.get_session_manager()
     if sm.delete_session(session_id):
-        click.echo(f"Session '{session_id}' deleted.")
+        cliver.output(f"Session '{session_id}' deleted.")
         if hasattr(cliver, "current_session_id") and cliver.current_session_id == session_id:
             cliver.current_session_id = None
             cliver.session_history = []
             cliver.conversation_messages = []
-            click.echo("Active session cleared.")
+            cliver.output("Active session cleared.")
     else:
-        click.echo(f"Session '{session_id}' not found.")
+        cliver.output(f"Session '{session_id}' not found.")
 
 
 @session_cmd.command(name="compress", help="Compress current conversation history")
@@ -121,7 +122,7 @@ def compress_session(cliver: Cliver):
     from cliver.conversation_compressor import ConversationCompressor, estimate_tokens, get_context_window
 
     if not cliver.conversation_messages or len(cliver.conversation_messages) < 2:
-        click.echo("Not enough conversation history to compress.")
+        cliver.output("Not enough conversation history to compress.")
         return
 
     # Get model config for context window
@@ -131,7 +132,7 @@ def compress_session(cliver: Cliver):
     model_config = task_executor._get_llm_model(model_name)
 
     if not model_config:
-        click.echo("No model configured. Cannot compress.")
+        cliver.output("No model configured. Cannot compress.")
         return
 
     context_window = get_context_window(model_config)
@@ -144,13 +145,13 @@ def compress_session(cliver: Cliver):
     try:
         compressed = asyncio.run(compressor.compress(cliver.conversation_messages, llm_engine, force=True))
     except Exception as e:
-        click.echo(f"Compression failed: {e}")
+        cliver.output(f"Compression failed: {e}")
         return
 
     cliver.conversation_messages = compressed
     after_tokens = estimate_tokens(cliver.conversation_messages)
 
-    click.echo(
+    cliver.output(
         f"Compressed: {before_count} messages (~{before_tokens} tokens) "
         f"→ {len(compressed)} messages (~{after_tokens} tokens)"
     )
@@ -197,9 +198,9 @@ def _compress_loaded_session(cliver):
         compressed = asyncio.run(compressor.compress(cliver.conversation_messages, llm_engine))
         cliver.conversation_messages = compressed
         after_tokens = estimate_tokens(cliver.conversation_messages)
-        click.echo(f"[Session compressed: ~{before_tokens} → ~{after_tokens} tokens]")
+        cliver.output(f"[Session compressed: ~{before_tokens} → ~{after_tokens} tokens]")
     except Exception as e:
-        click.echo(f"[Warning: session compression failed: {e}]")
+        cliver.output(f"[Warning: session compression failed: {e}]")
 
 
 # ---------------------------------------------------------------------------
@@ -222,16 +223,16 @@ def show_session_permissions(cliver: Cliver):
     """Display current session grants and effective mode."""
     pm = cliver.permission_manager
     effective = pm._effective_mode()
-    click.echo(f"Permission mode: {pm.mode.value} (effective: {effective.value})")
+    cliver.output(f"Permission mode: {pm.mode.value} (effective: {effective.value})")
 
     grants = pm._session_grants
     if not grants:
-        click.echo("No session grants active.")
+        cliver.output("No session grants active.")
     else:
-        click.echo(f"\nSession grants ({len(grants)}):")
+        cliver.output(f"\nSession grants ({len(grants)}):")
         for tool, action in grants.items():
             marker = "✔" if action == PermissionAction.ALLOW else "✘"
-            click.echo(f"  {marker} {tool}: {action.value}")
+            cliver.output(f"  {marker} {tool}: {action.value}")
 
 
 @session_permission.command(name="mode", help="Override permission mode for this session")
@@ -241,7 +242,7 @@ def session_set_mode(cliver: Cliver, new_mode: str):
     """Override the permission mode for the current session only (not saved)."""
     mode = PermissionMode(new_mode)
     cliver.permission_manager.set_mode(mode)
-    click.echo(f"Session permission mode set to '{new_mode}' (not saved to file).")
+    cliver.output(f"Session permission mode set to '{new_mode}' (not saved to file).")
 
 
 @session_permission.command(name="grant", help="Allow a tool for this session")
@@ -250,7 +251,7 @@ def session_set_mode(cliver: Cliver, new_mode: str):
 def session_grant(cliver: Cliver, tool: str):
     """Allow a tool (or tool pattern) for the rest of this session."""
     cliver.permission_manager.grant_session(tool, PermissionAction.ALLOW)
-    click.echo(f"Granted: {tool} is allowed for this session.")
+    cliver.output(f"Granted: {tool} is allowed for this session.")
 
 
 @session_permission.command(name="deny", help="Deny a tool for this session")
@@ -259,7 +260,7 @@ def session_grant(cliver: Cliver, tool: str):
 def session_deny(cliver: Cliver, tool: str):
     """Deny a tool (or tool pattern) for the rest of this session."""
     cliver.permission_manager.grant_session(tool, PermissionAction.DENY)
-    click.echo(f"Denied: {tool} is blocked for this session.")
+    cliver.output(f"Denied: {tool} is blocked for this session.")
 
 
 @session_permission.command(name="clear", help="Clear all session grants")
@@ -267,4 +268,4 @@ def session_deny(cliver: Cliver, tool: str):
 def session_clear(cliver: Cliver):
     """Clear all session grants, reverting to persistent rules."""
     cliver.permission_manager.clear_session_grants()
-    click.echo("All session permission grants cleared.")
+    cliver.output("All session permission grants cleared.")

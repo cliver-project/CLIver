@@ -14,13 +14,13 @@ from cliver.util import parse_key_value_options
 
 def _display_options(cliver: Cliver) -> None:
     """Display current session options."""
-    click.echo("Current session options:")
+    cliver.output("Current session options:")
     for key, value in cliver.session_options.items():
         if value:
             if key == "options":
-                click.echo(f"  {key}: {dict(value)}")
+                cliver.output(f"  {key}: {dict(value)}")
             else:
-                click.echo(f"  {key}: {value}")
+                cliver.output(f"  {key}: {value}")
 
 
 @click.group(
@@ -33,7 +33,7 @@ def _display_options(cliver: Cliver) -> None:
 def session_option(ctx, cliver: Cliver):
     """View or modify persistent inference options for the current session."""
     if not hasattr(cliver, "session_options"):
-        click.echo("Session options not available in this context.")
+        cliver.output("Session options not available in this context.")
         ctx.exit(1)
         return
 
@@ -100,57 +100,57 @@ def set_options(
 
     if model is not None:
         if not cliver.config_manager.get_llm_model(model):
-            click.echo(f"Unknown model: {model}, please define it first.")
+            cliver.output(f"Unknown model: {model}, please define it first.")
             return 1
         cliver.session_options["model"] = model
-        click.echo(f"Set model to '{model}' for this session.")
+        cliver.output(f"Set model to '{model}' for this session.")
 
     if temperature is not None:
         _llm_options["temperature"] = temperature
-        click.echo(f"Set temperature to {temperature} for this session.")
+        cliver.output(f"Set temperature to {temperature} for this session.")
 
     if max_tokens is not None:
         _llm_options["max_tokens"] = max_tokens
-        click.echo(f"Set max_tokens to {max_tokens} for this session.")
+        cliver.output(f"Set max_tokens to {max_tokens} for this session.")
 
     if top_p is not None:
         _llm_options["top_p"] = top_p
-        click.echo(f"Set top_p to {top_p} for this session.")
+        cliver.output(f"Set top_p to {top_p} for this session.")
 
     if frequency_penalty is not None:
         _llm_options["frequency_penalty"] = frequency_penalty
-        click.echo(f"Set frequency_penalty to {frequency_penalty} for this session.")
+        cliver.output(f"Set frequency_penalty to {frequency_penalty} for this session.")
 
     if template is not None:
         cliver.session_options["template"] = template
-        click.echo(f"Set template to '{template}' for this session.")
+        cliver.output(f"Set template to '{template}' for this session.")
 
     if stream is True:
         cliver.session_options["stream"] = True
-        click.echo("Enabled streaming for this session.")
+        cliver.output("Enabled streaming for this session.")
     elif no_stream is True:
         cliver.session_options["stream"] = False
-        click.echo("Disabled streaming for this session.")
+        cliver.output("Disabled streaming for this session.")
 
     if save_media is True:
         cliver.session_options["save_media"] = True
-        click.echo("Enabled save-media for this session.")
+        cliver.output("Enabled save-media for this session.")
     elif no_save_media is True:
         cliver.session_options["save_media"] = False
-        click.echo("Disabled save-media for this session.")
+        cliver.output("Disabled save-media for this session.")
 
     if media_dir is not None:
         cliver.session_options["media_dir"] = media_dir
-        click.echo(f"Set media_dir to '{media_dir}' for this session.")
+        cliver.output(f"Set media_dir to '{media_dir}' for this session.")
 
     if included_tools is not None:
         cliver.session_options["included_tools"] = included_tools
-        click.echo(f"Set included_tools to '{included_tools}' for this session.")
+        cliver.output(f"Set included_tools to '{included_tools}' for this session.")
 
     if option and len(option) > 0:
         opts_dict = parse_key_value_options(option)
         _llm_options.update(opts_dict)
-        click.echo(f"Updated additional options: {dict(opts_dict)}")
+        cliver.output(f"Updated additional options: {dict(opts_dict)}")
 
     return 0
 
@@ -173,7 +173,7 @@ def reset_options(cliver: Cliver):
         "media_dir": None,
         "included_tools": None,
     }
-    click.echo("Session options have been reset to defaults.")
+    cliver.output("Session options have been reset to defaults.")
     return 0
 
 

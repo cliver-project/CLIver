@@ -33,11 +33,11 @@ def validate_config(cliver: Cliver):
         # Check if config is valid by attempting to load it
         config_manager = cliver.config_manager
         if config_manager.config:
-            cliver.console.print("[green]✓ Configuration is valid[/green]")
+            cliver.output("[green]✓ Configuration is valid[/green]")
         else:
-            cliver.console.print("[red]✗ Configuration is not valid[/red]")
+            cliver.output("[red]✗ Configuration is not valid[/red]")
     except Exception as e:
-        cliver.console.print(f"[red]✗ Configuration validation error: {e}[/red]")
+        cliver.output(f"[red]✗ Configuration validation error: {e}[/red]")
 
 
 # noinspection PyUnresolvedReferences
@@ -48,16 +48,16 @@ def validate_config(cliver: Cliver):
 def set_config(cliver: Cliver, agent_name: str, user_agent: str):
     """Update general configuration settings."""
     if not agent_name and not user_agent:
-        cliver.console.print("[dim]Usage: config set --agent-name NAME | --user-agent VALUE[/dim]")
+        cliver.output("[dim]Usage: config set --agent-name NAME | --user-agent VALUE[/dim]")
         return
 
     if agent_name:
         cliver.config_manager.set_agent_name(agent_name)
-        cliver.console.print(f"Agent name set to: [green]{agent_name}[/green]")
+        cliver.output(f"Agent name set to: [green]{agent_name}[/green]")
 
     if user_agent:
         cliver.config_manager.set_user_agent(user_agent)
-        cliver.console.print(f"User-Agent set to: [green]{user_agent}[/green]")
+        cliver.output(f"User-Agent set to: [green]{user_agent}[/green]")
 
 
 # noinspection PyUnresolvedReferences
@@ -68,7 +68,7 @@ def show_config(cliver: Cliver):
     try:
         cfg = cliver.config_manager.config
         if not cfg:
-            cliver.console.print("No configuration found.")
+            cliver.output("No configuration found.")
             return
 
         console = cliver.console
@@ -209,7 +209,7 @@ def show_config(cliver: Cliver):
         console.print(Text(f"  Config file: {config_path}", style="dim"))
 
     except Exception as e:
-        cliver.console.print(f"[red]Error showing configuration: {e}[/red]")
+        cliver.output(f"[red]Error showing configuration: {e}[/red]")
 
 
 def _mask_value(value: str) -> str:
@@ -252,4 +252,4 @@ def _mask_secrets(data, keys_to_mask=("api_key",)):
 def show_config_path(cliver: Cliver):
     """Show the path to the configuration file."""
     config_path = cliver.config_manager.config_file
-    cliver.console.print(f"Configuration file path: {config_path}")
+    cliver.output(f"Configuration file path: {config_path}")

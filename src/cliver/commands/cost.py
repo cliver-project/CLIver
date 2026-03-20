@@ -43,17 +43,17 @@ def cost_total(
     """Show aggregated token usage from audit logs with optional filters."""
     tracker = getattr(cliver, "token_tracker", None)
     if not tracker:
-        click.echo("Token tracking is not available.")
+        cliver.output("Token tracking is not available.")
         return
 
     # Parse date filters
-    start = _parse_date(date_from) if date_from else None
-    end = _parse_date(date_to) if date_to else None
+    start = _parse_date(cliver, date_from) if date_from else None
+    end = _parse_date(cliver, date_to) if date_to else None
 
     results = tracker.query(model=model, agent=agent, start=start, end=end)
 
     if not results:
-        click.echo("No token usage data found for the given filters.")
+        cliver.output("No token usage data found for the given filters.")
         return
 
     # Build header
@@ -65,15 +65,15 @@ def cost_total(
     if date_from or date_to:
         date_range = f"{date_from or '...'} to {date_to or '...'}"
         header_parts.append(f"({date_range})")
-    click.echo(" ".join(header_parts) + ":")
+    cliver.output(" ".join(header_parts) + ":")
 
     # Display results
     if model:
         # Show per-agent breakdown for a specific model
-        _show_per_agent(results, model)
+        _show_per_agent(cliver, results, model)
     else:
         # Show per-model summary
-        _show_per_model(results)
+        _show_per_model(cliver, results)
 
 
 # ---------------------------------------------------------------------------
@@ -85,70 +85,70 @@ def _show_session_summary(cliver: Cliver) -> None:
     """Show in-memory session totals."""
     tracker = getattr(cliver, "token_tracker", None)
     if not tracker:
-        click.echo("Token tracking is not available.")
+        cliver.output("Token tracking is not available.")
         return
 
     summary = tracker.get_session_summary()
     if not summary:
-        click.echo("No token usage in this session.")
+        cliver.output("No token usage in this session.")
         return
 
-    click.echo("Token usage this session:")
+    cliver.output("Token usage this session:")
     grand_total = TokenUsage()
     for model_name, usage in sorted(summary.items()):
-        _print_usage_line(model_name, usage)
+        _print_usage_line(cliver, model_name, usage)
         grand_total += usage
 
     if len(summary) > 1:
-        click.echo("  " + "─" * 50)
-        _print_usage_line("Total", grand_total)
+        cliver.output("  " + "─" * 50)
+        _print_usage_line(cliver, "Total", grand_total)
 
 
-def _show_per_model(results: dict) -> None:
+def _show_per_model(cliver: Cliver, results: dict) -> None:
     """Show summary by model (aggregating all agents)."""
     grand_total = TokenUsage()
     for model_name, agents in sorted(results.items()):
         model_total = TokenUsage()
         for usage in agents.values():
             model_total += usage
-        _print_usage_line(model_name, model_total)
+        _print_usage_line(cliver, model_name, model_total)
         grand_total += model_total
 
     if len(results) > 1:
-        click.echo("  " + "─" * 50)
-        _print_usage_line("Total", grand_total)
+        cliver.output("  " + "─" * 50)
+        _print_usage_line(cliver, "Total", grand_total)
 
 
-def _show_per_agent(results: dict, model: str) -> None:
+def _show_per_agent(cliver: Cliver, results: dict, model: str) -> None:
     """Show per-agent breakdown for a specific model."""
     if model not in results:
-        click.echo(f"  No data for model '{model}'.")
+        cliver.output(f"  No data for model '{model}'.")
         return
 
     agents = results[model]
     model_total = TokenUsage()
     for agent_name, usage in sorted(agents.items()):
-        _print_usage_line(f"Agent {agent_name}", usage)
+        _print_usage_line(cliver, f"Agent {agent_name}", usage)
         model_total += usage
 
     if len(agents) > 1:
-        click.echo("  " + "─" * 50)
-        _print_usage_line("Total", model_total)
+        cliver.output("  " + "─" * 50)
+        _print_usage_line(cliver, "Total", model_total)
 
 
-def _print_usage_line(label: str, usage: TokenUsage) -> None:
+def _print_usage_line(cliver: Cliver, label: str, usage: TokenUsage) -> None:
     """Print a formatted usage line."""
-    click.echo(
+    cliver.output(
         f"  {label:20s}  in: {format_tokens(usage.input_tokens):>7s}  "
         f"out: {format_tokens(usage.output_tokens):>7s}  "
         f"total: {format_tokens(usage.total_tokens):>7s}"
     )
 
 
-def _parse_date(date_str: str) -> Optional[datetime]:
+def _parse_date(cliver: Cliver, date_str: str) -> Optional[datetime]:
     """Parse a YYYY-MM-DD date string to datetime."""
     try:
         return datetime.strptime(date_str, "%Y-%m-%d").replace(tzinfo=timezone.utc)
     except ValueError:
-        click.echo(f"Invalid date format: '{date_str}'. Expected YYYY-MM-DD.")
+        cliver.output(f"Invalid date format: '{date_str}'. Expected YYYY-MM-DD.")
         return None

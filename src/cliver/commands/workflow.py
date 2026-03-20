@@ -37,7 +37,7 @@ def run_workflow(
     """Run a workflow with the given inputs."""
     try:
         if not workflow_identifier or len(workflow_identifier) == 0:
-            click.echo("No workflow identifier provided, aborting.")
+            cliver.output("No workflow identifier provided, aborting.")
             return 1
         # Convert input tuples to dictionary
         _inputs = {}
@@ -49,7 +49,7 @@ def run_workflow(
         workflow_manager = cliver.workflow_manager
         # Create workflow executor with console callback handler if verbose is enabled
         if verbose:
-            callback_handler = ConsoleCallbackHandler()
+            callback_handler = ConsoleCallbackHandler(output=cliver.output)
             workflow_executor = WorkflowExecutor(
                 task_executor=cliver.task_executor,
                 workflow_manager=workflow_manager,
@@ -62,14 +62,14 @@ def run_workflow(
             # Load and display workflow info
             _workflow = workflow_manager.load_workflow(workflow_identifier)
             if not _workflow:
-                click.echo("No workflow found for workflow {}".format(workflow_identifier))
+                cliver.output("No workflow found for workflow {}".format(workflow_identifier))
                 return 1
-            click.echo(f"Workflow: {_workflow.name}")
+            cliver.output(f"Workflow: {_workflow.name}")
             if _workflow.description:
-                click.echo(f"Description: {_workflow.description}")
-            click.echo(f"Steps: {len(_workflow.steps)}")
+                cliver.output(f"Description: {_workflow.description}")
+            cliver.output(f"Steps: {len(_workflow.steps)}")
             for i, step in enumerate(_workflow.steps):
-                click.echo(f"  {i + 1}. {step.name} ({step.type.value})")
+                cliver.output(f"  {i + 1}. {step.name} ({step.type.value})")
             return 0
 
         # Execute workflow
@@ -84,20 +84,20 @@ def run_workflow(
         result = asyncio.run(_run())
 
         if result.status == "completed":
-            click.echo("Workflow completed successfully!")
+            cliver.output("Workflow completed successfully!")
             # Display outputs from all completed steps
             for step_id, step_info in result.context.steps.items():
-                click.echo(f"Outputs of step: {step_info.name}")
+                cliver.output(f"Outputs of step: {step_info.name}")
                 if step_info.outputs:
                     for key, value in step_info.outputs.items():
-                        click.echo(f"  {step_id}.{key}: \n{value}\n")
+                        cliver.output(f"  {step_id}.{key}: \n{value}\n")
             return 0
         else:
-            click.echo(f"Workflow failed with status {result.status}: {result.error}")
+            cliver.output(f"Workflow failed with status {result.status}: {result.error}")
             return 1
 
     except Exception as e:
-        click.echo(f"Error running workflow: {e}")
+        cliver.output(f"Error running workflow: {e}")
         return 1
 
 
@@ -113,15 +113,15 @@ def list_workflows(cliver: Cliver):
         workflows = workflow_manager.list_workflows()
 
         if not workflows:
-            click.echo("No workflows found.")
+            cliver.output("No workflows found.")
             return 0
 
-        click.echo("Available workflows:")
+        cliver.output("Available workflows:")
         for name, _workflow in workflows.items():
-            click.echo(f"  {name}: {_workflow.description}")
+            cliver.output(f"  {name}: {_workflow.description}")
 
     except Exception as e:
-        click.echo(f"Error listing workflows: {e}")
+        cliver.output(f"Error listing workflows: {e}")
         return 1
 
 
@@ -142,25 +142,25 @@ def remove_execution(cliver: Cliver, workflow_name: str, execution_id: str):
         # Check if the workflow exists
         _workflow = workflow_manager.load_workflow(workflow_name)
         if not _workflow:
-            click.echo(f"Workflow {workflow_name} not found.")
+            cliver.output(f"Workflow {workflow_name} not found.")
             return 1
 
         # Get execution state to verify it exists
         state = workflow_executor.get_execution_state(workflow_name, execution_id)
         if not state:
-            click.echo(f"Execution {execution_id} not found for workflow {workflow_name}.")
+            cliver.output(f"Execution {execution_id} not found for workflow {workflow_name}.")
             return 1
 
         # Remove execution
         if workflow_executor.remove_workflow_execution(workflow_name, execution_id):
-            click.echo(f"Execution {execution_id} removed successfully from workflow {workflow_name}.")
+            cliver.output(f"Execution {execution_id} removed successfully from workflow {workflow_name}.")
             return 0
         else:
-            click.echo(f"Failed to remove execution {execution_id} from workflow {workflow_name}.")
+            cliver.output(f"Failed to remove execution {execution_id} from workflow {workflow_name}.")
             return 1
 
     except Exception as e:
-        click.echo(f"Error removing execution: {e}")
+        cliver.output(f"Error removing execution: {e}")
         return 1
 
 
@@ -184,18 +184,18 @@ def execution_status(cliver: Cliver):
             all_executions.update(executions)
 
         if not all_executions:
-            click.echo("No workflow executions found.")
+            cliver.output("No workflow executions found.")
             return 0
 
-        click.echo("Workflow executions:")
+        cliver.output("Workflow executions:")
         for execution_id, metadata in all_executions.items():
             status = metadata.get("status", "unknown")
             workflow_name = metadata.get("workflow_name", "unknown")
             completed_steps = len(metadata.get("completed_steps", []))
-            click.echo(f"  {execution_id}: {workflow_name} ({status}) - {completed_steps} steps completed")
+            cliver.output(f"  {execution_id}: {workflow_name} ({status}) - {completed_steps} steps completed")
 
     except Exception as e:
-        click.echo(f"Error getting execution status: {e}")
+        cliver.output(f"Error getting execution status: {e}")
         return 1
 
 
@@ -218,10 +218,10 @@ def clear_executions(cliver: Cliver):
             count = workflow_executor.clear_all_executions(workflow_name)
             total_count += count
 
-        click.echo(f"Cleared {total_count} workflow executions.")
+        cliver.output(f"Cleared {total_count} workflow executions.")
 
     except Exception as e:
-        click.echo(f"Error clearing executions: {e}")
+        cliver.output(f"Error clearing executions: {e}")
         return 1
 
 

@@ -12,20 +12,16 @@ import random
 from pathlib import Path
 
 from rich.console import Console
-from rich.panel import Panel
-from rich.text import Text
 
 from cliver import __version__
 
 # ─── ASCII Banner ────────────────────────────────────────────────────────────
 
 _BANNER = r"""
-   _____ _     _____
-  / ____| |   |_   _|
- | |    | |     | |__   _____ _ __
- | |    | |     | |\ \ / / _ \ '__|
- | |____| |_____| |_\ V /  __/ |
-  \_____|______|_____\_/ \___|_|
+  ___ _    ___
+ / __| |  |_ _|_ _____ _ _
+| (__| |__ | |\ V / -_) '_|
+ \___|____|___|\\_/\___|_|
 """
 
 _TIPS = [
@@ -44,21 +40,15 @@ _TIPS = [
 
 def print_banner(console: Console, agent_name: str, default_model: str | None = None) -> None:
     """Print the CLIver ASCII banner with greeting message."""
-    # Build banner text
-    banner_text = Text()
     for line in _BANNER.strip().splitlines():
-        banner_text.append(line + "\n", style="bold cyan")
+        console.print(f"  {line}", style="bold cyan")
 
-    # Subtitle line
-    subtitle = Text()
-    subtitle.append(f"  v{__version__}", style="dim")
-    subtitle.append("  •  ", style="dim")
-    subtitle.append(agent_name, style="bold white")
+    # Subtitle
+    parts = [f"\n  [dim]v{__version__}[/dim]  •  [bold white]{agent_name}[/bold white]"]
     if default_model:
-        subtitle.append(f"  •  model: {default_model}", style="dim green")
-    banner_text.append(subtitle)
-
-    console.print(Panel(banner_text, border_style="blue", padding=(0, 2), expand=True))
+        parts.append(f"  •  [dim green]model: {default_model}[/dim green]")
+    console.print("".join(parts))
+    console.print()
 
     # MOTD or default greeting
     motd = _load_motd()
@@ -69,6 +59,7 @@ def print_banner(console: Console, agent_name: str, default_model: str | None = 
 
     # Random tip
     tip = random.choice(_TIPS)
+    console.print()
     console.print(f"  💡 {tip}")
     console.print()
 

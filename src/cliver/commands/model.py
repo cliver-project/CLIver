@@ -49,9 +49,9 @@ def list_llm_models(cliver: Cliver):
                 model.url,
                 capabilities_str,
             )
-        cliver.console.print(table)
+        cliver.output(table)
     else:
-        cliver.console.print("No LLM Models configured.")
+        cliver.output("No LLM Models configured.")
 
 
 def _format_modalities(capabilities: set) -> str:
@@ -100,22 +100,22 @@ def set_default_model(cliver: Cliver, name: str):
     if not name:
         current = cliver.config_manager.config.default_model
         if current:
-            cliver.console.print(f"Current default model: [green]{current}[/green]")
+            cliver.output(f"Current default model: [green]{current}[/green]")
         else:
-            cliver.console.print("No default model set.")
+            cliver.output("No default model set.")
         # Show available models
         models = cliver.config_manager.list_llm_models()
         if models:
-            cliver.console.print(f"Available models: {', '.join(models.keys())}")
+            cliver.output(f"Available models: {', '.join(models.keys())}")
         return
 
     if cliver.config_manager.set_default_model(name):
-        cliver.console.print(f"Default model set to: [green]{name}[/green]")
+        cliver.output(f"Default model set to: [green]{name}[/green]")
     else:
-        cliver.console.print(f"[red]Model '{name}' not found.[/red]")
+        cliver.output(f"[red]Model '{name}' not found.[/red]")
         models = cliver.config_manager.list_llm_models()
         if models:
-            cliver.console.print(f"Available models: {', '.join(models.keys())}")
+            cliver.output(f"Available models: {', '.join(models.keys())}")
 
 
 # noinspection PyUnresolvedReferences
@@ -131,10 +131,10 @@ def set_default_model(cliver: Cliver, name: str):
 def remove_llm_model(cliver: Cliver, name: str):
     model = cliver.config_manager.get_llm_model(name)
     if not model:
-        cliver.console.print(f"No LLM Model found with name: {name}")
+        cliver.output(f"No LLM Model found with name: {name}")
         return
     cliver.config_manager.remove_llm_model(name)
-    cliver.console.print(f"Removed LLM Model: {name}")
+    cliver.output(f"Removed LLM Model: {name}")
 
 
 # noinspection PyUnresolvedReferences
@@ -198,7 +198,7 @@ def add_llm_model(
 ):
     model = cliver.config_manager.get_llm_model(name)
     if model:
-        cliver.console.print(f"LLM Model found with name: {name} already exists.")
+        cliver.output(f"LLM Model found with name: {name} already exists.")
         return
 
     # Convert key=value options to JSON string
@@ -209,7 +209,7 @@ def add_llm_model(
     cliver.config_manager.add_or_update_llm_model(
         name, provider, api_key, url, options_dict, name_in_provider, capabilities
     )
-    cliver.console.print(f"Added LLM Model: {name}")
+    cliver.output(f"Added LLM Model: {name}")
 
 
 # noinspection PyUnresolvedReferences
@@ -271,7 +271,7 @@ def update_llm_model(
 ):
     model = cliver.config_manager.get_llm_model(name)
     if not model:
-        cliver.console.print(f"LLM Model with name: {name} was not found.")
+        cliver.output(f"LLM Model with name: {name} was not found.")
         return
 
     # Convert key=value options to JSON string
@@ -282,4 +282,4 @@ def update_llm_model(
     cliver.config_manager.add_or_update_llm_model(
         name, provider, api_key, url, options_dict, name_in_provider, capabilities
     )
-    cliver.console.print(f"LLM Model: {name} updated")
+    cliver.output(f"LLM Model: {name} updated")

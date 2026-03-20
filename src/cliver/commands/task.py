@@ -29,13 +29,13 @@ def list_tasks(cliver: Cliver):
     tasks = manager.list_tasks()
 
     if not tasks:
-        click.echo("No tasks defined.")
+        cliver.output("No tasks defined.")
         return 0
 
     for t in tasks:
         schedule = f"  schedule: {t.schedule}" if t.schedule else ""
         desc = f"  — {t.description}" if t.description else ""
-        click.echo(f"  {t.name}: workflow={t.workflow}{desc}{schedule}")
+        cliver.output(f"  {t.name}: workflow={t.workflow}{desc}{schedule}")
 
     return 0
 
@@ -59,7 +59,7 @@ def create_task(
     # Verify workflow exists
     wf = cliver.workflow_manager.load_workflow(workflow)
     if not wf:
-        click.echo(f"Workflow '{workflow}' not found.")
+        cliver.output(f"Workflow '{workflow}' not found.")
         return 1
 
     input_dict = parse_key_value_options(inputs) if inputs else None
@@ -74,7 +74,7 @@ def create_task(
 
     manager = TaskManager(cliver.agent_profile.tasks_dir)
     path = manager.save_task(task_def)
-    click.echo(f"Task '{name}' created: {path}")
+    cliver.output(f"Task '{name}' created: {path}")
     return 0
 
 
@@ -88,7 +88,7 @@ def run_task(cliver: Cliver, name: str, inputs: tuple, verbose: bool):
     manager = TaskManager(cliver.agent_profile.tasks_dir)
     task_def = manager.get_task(name)
     if not task_def:
-        click.echo(f"Task '{name}' not found.")
+        cliver.output(f"Task '{name}' not found.")
         return 1
 
     # Merge task inputs with overrides
@@ -99,7 +99,7 @@ def run_task(cliver: Cliver, name: str, inputs: tuple, verbose: bool):
     execution_id = str(uuid.uuid4())
     started_at = TaskManager.timestamp_now()
 
-    click.echo(f"Running task '{name}' (workflow: {task_def.workflow})...")
+    cliver.output(f"Running task '{name}' (workflow: {task_def.workflow})...")
 
     # Push task-level permissions if defined
     task_perms_pushed = False
@@ -115,7 +115,7 @@ def run_task(cliver: Cliver, name: str, inputs: tuple, verbose: bool):
         task_perms_pushed = True
 
     # Create executor with callback handler
-    callback = ConsoleCallbackHandler() if verbose else None
+    callback = ConsoleCallbackHandler(output=cliver.output) if verbose else None
     executor = WorkflowExecutor(
         task_executor=cliver.task_executor,
         workflow_manager=cliver.workflow_manager,
@@ -147,9 +147,9 @@ def run_task(cliver: Cliver, name: str, inputs: tuple, verbose: bool):
         manager.record_run(run)
 
         if status == "completed":
-            click.echo(f"Task '{name}' completed successfully.")
+            cliver.output(f"Task '{name}' completed successfully.")
         else:
-            click.echo(f"Task '{name}' {status}: {error}")
+            cliver.output(f"Task '{name}' {status}: {error}")
 
         return 0 if status == "completed" else 1
 
@@ -164,7 +164,7 @@ def run_task(cliver: Cliver, name: str, inputs: tuple, verbose: bool):
             error=str(e),
         )
         manager.record_run(run)
-        click.echo(f"Task '{name}' failed: {e}")
+        cliver.output(f"Task '{name}' failed: {e}")
         return 1
 
     finally:
@@ -182,14 +182,14 @@ def task_history(cliver: Cliver, name: str, limit: int):
     runs = manager.get_runs(name, limit=limit)
 
     if not runs:
-        click.echo(f"No run history for task '{name}'.")
+        cliver.output(f"No run history for task '{name}'.")
         return 0
 
-    click.echo(f"Run history for '{name}' (most recent first):")
+    cliver.output(f"Run history for '{name}' (most recent first):")
     for run in runs:
         status_icon = "+" if run.status == "completed" else "x"
         error_info = f" — {run.error}" if run.error else ""
-        click.echo(f"  [{status_icon}] {run.started_at}  {run.status}{error_info}")
+        cliver.output(f"  [{status_icon}] {run.started_at}  {run.status}{error_info}")
 
     return 0
 
@@ -201,7 +201,7 @@ def remove_task(cliver: Cliver, name: str):
     """Remove a task and its run history."""
     manager = TaskManager(cliver.agent_profile.tasks_dir)
     if manager.remove_task(name):
-        click.echo(f"Task '{name}' removed.")
+        cliver.output(f"Task '{name}' removed.")
     else:
-        click.echo(f"Task '{name}' not found.")
+        cliver.output(f"Task '{name}' not found.")
     return 0

@@ -29,7 +29,7 @@ def show_rules(cliver: Cliver):
     """Display all permission rules with their source file."""
     pm = cliver.permission_manager
     if not pm.rules:
-        cliver.console.print("[dim]No permission rules configured.[/dim]")
+        cliver.output("[dim]No permission rules configured.[/dim]")
         _show_mode_info(cliver)
         return
 
@@ -53,7 +53,7 @@ def show_rules(cliver: Cliver):
             source_short,
         )
 
-    cliver.console.print(table)
+    cliver.output(table)
     _show_mode_info(cliver)
 
 
@@ -72,7 +72,7 @@ def set_mode(cliver: Cliver, new_mode: str):
     if target is None:
         return
     pm.save_mode(mode, target)
-    cliver.console.print(f"[green]Permission mode set to '{new_mode}' ({target})[/green]")
+    cliver.output(f"[green]Permission mode set to '{new_mode}' ({target})[/green]")
 
 
 @permissions.command(name="add", help="Add a permission rule interactively")
@@ -145,26 +145,26 @@ def remove_rule(cliver: Cliver, index: int):
     """Remove a rule by its index (shown in /permissions rules)."""
     pm = cliver.permission_manager
     if index < 0 or index >= len(pm.rules):
-        cliver.console.print(f"[red]Invalid index {index}. Use /permissions rules to see available rules.[/red]")
+        cliver.output(f"[red]Invalid index {index}. Use /permissions rules to see available rules.[/red]")
         return
 
     rule = pm.rules[index]
     source = pm._rule_sources[index] if index < len(pm._rule_sources) else "?"
     resource_str = f" on {rule.resource}" if rule.resource else ""
-    cliver.console.print(f"Removing rule #{index}: {rule.action.value} {rule.tool}{resource_str}")
-    cliver.console.print(f"  Source: {source}")
+    cliver.output(f"Removing rule #{index}: {rule.action.value} {rule.tool}{resource_str}")
+    cliver.output(f"  Source: {source}")
 
     try:
         confirm = input("  Confirm? [y/n] > ").strip().lower()
     except (EOFError, KeyboardInterrupt):
-        cliver.console.print("[yellow]Cancelled.[/yellow]")
+        cliver.output("[yellow]Cancelled.[/yellow]")
         return
     if confirm not in ("y", "yes"):
-        cliver.console.print("[yellow]Cancelled.[/yellow]")
+        cliver.output("[yellow]Cancelled.[/yellow]")
         return
 
     pm.remove_rule(index)
-    cliver.console.print("[green]Rule removed.[/green]")
+    cliver.output("[green]Rule removed.[/green]")
 
 
 # --- Helpers ---
@@ -173,7 +173,7 @@ def remove_rule(cliver: Cliver, index: int):
 def _show_mode_info(cliver: Cliver):
     pm = cliver.permission_manager
     source = pm._mode_source or "default"
-    cliver.console.print(f"\nPermission mode: [bold]{pm.mode.value}[/bold] [dim]({source})[/dim]")
+    cliver.output(f"\nPermission mode: [bold]{pm.mode.value}[/bold] [dim]({source})[/dim]")
 
 
 def _prompt_save_target(cliver: Cliver) -> str | None:
