@@ -118,7 +118,7 @@ class Cliver:
 
             cwd = str(Path.cwd())
             model = self.session_options.get("model") or self.config_manager.config.default_model or "—"
-            mode = self.permission_manager.effective_mode.value
+            mode = self.permission_manager._effective_mode().value
 
             parts = [
                 ("class:toolbar-cwd", f" {cwd} "),
