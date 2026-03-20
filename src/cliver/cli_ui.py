@@ -56,7 +56,7 @@ def print_banner(console: Console, agent_name: str, default_model: str | None = 
         subtitle.append(f"  •  model: {default_model}", style="dim green")
     banner_text.append(subtitle)
 
-    console.print(Panel(banner_text, border_style="blue", padding=(0, 2)))
+    console.print(Panel(banner_text, border_style="blue", padding=(0, 2), expand=True))
 
     # MOTD or default greeting
     motd = _load_motd()
