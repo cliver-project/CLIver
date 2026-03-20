@@ -42,18 +42,14 @@ def validate_config(cliver: Cliver):
 
 # noinspection PyUnresolvedReferences
 @config.command(name="set", help="Update general configuration settings")
-@click.option("--agent-name", "-a", type=str, help="Set the agent display name")
 @click.option("--user-agent", "-u", type=str, help="Set the User-Agent header for LLM provider requests")
 @pass_cliver
-def set_config(cliver: Cliver, agent_name: str, user_agent: str):
+def set_config(cliver: Cliver, user_agent: str):
     """Update general configuration settings."""
-    if not agent_name and not user_agent:
-        cliver.output("[dim]Usage: config set --agent-name NAME | --user-agent VALUE[/dim]")
+    if not user_agent:
+        cliver.output("[dim]Usage: config set --user-agent VALUE[/dim]")
+        cliver.output("[dim]Use /agent to manage agent instances.[/dim]")
         return
-
-    if agent_name:
-        cliver.config_manager.set_agent_name(agent_name)
-        cliver.output(f"Agent name set to: [green]{agent_name}[/green]")
 
     if user_agent:
         cliver.config_manager.set_user_agent(user_agent)
@@ -78,7 +74,8 @@ def show_config(cliver: Cliver):
         general_table.add_column("Key", style="cyan", min_width=16)
         general_table.add_column("Value", style="white")
 
-        general_table.add_row("Agent Name", cfg.agent_name)
+        general_table.add_row("Default Agent", cfg.default_agent_name)
+        general_table.add_row("Active Agent", f"[bold green]{cliver.agent_name}[/bold green]")
         if cfg.default_model:
             general_table.add_row("Default Model", f"[green]{cfg.default_model}[/green]")
         if cfg.user_agent:

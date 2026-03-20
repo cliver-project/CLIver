@@ -177,7 +177,7 @@ class WorkflowConfig(BaseModel):
 
 
 class AppConfig(BaseModel):
-    agent_name: str = Field(default="CLIver", description="The display name of the AI agent")
+    default_agent_name: str = Field(default="CLIver", description="The default agent instance name")
     mcpServers: Dict[str, MCPServerConfig] = {}
     models: Dict[str, ModelConfig] = {}
     default_model: Optional[str] = Field(default=None, description="The default LLM model")
@@ -224,6 +224,10 @@ class ConfigManager:
             # safe_load returns None for empty files
             if not config_data:
                 return AppConfig()
+
+            # Migrate old agent_name → default_agent_name
+            if "agent_name" in config_data and "default_agent_name" not in config_data:
+                config_data["default_agent_name"] = config_data.pop("agent_name")
 
             # Ensure each ModelConfig has its name set from the key
             if "models" in config_data and isinstance(config_data["models"], dict):
@@ -556,9 +560,9 @@ class ConfigManager:
             return True
         return False
 
-    def set_agent_name(self, name: str) -> None:
-        """Set the agent display name."""
-        self.config.agent_name = name
+    def set_default_agent_name(self, name: str) -> None:
+        """Set the default agent name."""
+        self.config.default_agent_name = name
         self._save_config()
 
     def set_user_agent(self, user_agent: str) -> None:

@@ -207,6 +207,16 @@ class AgentProfile:
 
         return AgentProfile(new_name, self.config_dir)
 
+    # -- Class Methods ---------------------------------------------------------
+
+    @staticmethod
+    def list_agents(config_dir: Path) -> list[str]:
+        """List all agent names that have a directory under agents/."""
+        agents_dir = config_dir / "agents"
+        if not agents_dir.exists():
+            return []
+        return sorted(d.name for d in agents_dir.iterdir() if d.is_dir())
+
     # -- Helpers ---------------------------------------------------------------
 
     @staticmethod

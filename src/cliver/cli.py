@@ -93,18 +93,6 @@ class Cliver:
         self.config_manager = ConfigManager(self.config_dir)
         self.console = Console()
 
-        # Create agent profile for instance-scoped resources (memory, identity)
-        agent_name = self.config_manager.config.agent_name
-        self.agent_profile = AgentProfile(agent_name, self.config_dir)
-
-        # Create token tracker for usage auditing
-        from cliver.token_tracker import TokenTracker
-
-        self.token_tracker = TokenTracker(
-            audit_dir=self.config_dir / "audit_logs",
-            agent_name=agent_name,
-        )
-
         # Create permission manager (global + local project settings)
         self.permission_manager = PermissionManager(
             global_config_dir=self.config_dir,
@@ -114,20 +102,10 @@ class Cliver:
         # Thinking spinner shown while LLM is processing
         self.thinking = ThinkingIndicator(self.console)
 
-        self.task_executor = TaskExecutor(
-            llm_models=self.config_manager.list_llm_models(),
-            mcp_servers=self.config_manager.list_mcp_servers_for_mcp_caller(),
-            default_model=self.config_manager.get_llm_model().name if self.config_manager.get_llm_model() else None,
-            user_agent=self.config_manager.config.user_agent,
-            agent_name=agent_name,
-            on_tool_event=create_tool_progress_handler(self.console, thinking=self.thinking),
-            agent_profile=self.agent_profile,
-            token_tracker=self.token_tracker,
-            permission_manager=self.permission_manager,
-            on_permission_prompt=_create_permission_prompt(self.console),
-        )
+        # Initialize agent (may be overridden by --agent flag before run)
+        self._init_agent(self.config_manager.config.default_agent_name)
 
-        # Initialize workflow components
+        # Initialize workflow components — must be after _init_agent sets task_executor
         workflow_config = self.config_manager.config.workflow
         workflow_dirs = workflow_config.workflow_dirs if workflow_config else None
         self.workflow_manager = LocalDirectoryWorkflowManager(workflow_dirs)
@@ -161,6 +139,63 @@ class Cliver:
     def output(self, *args, **kwargs) -> None:
         """Centralized output method. All CLI display should go through this."""
         self.console.print(*args, **kwargs)
+
+    def _init_agent(self, agent_name: str) -> None:
+        """Initialize (or reinitialize) all agent-scoped components.
+
+        Ensures the agent directory and a default identity.md exist.
+        """
+        from cliver.token_tracker import TokenTracker
+
+        self.agent_profile = AgentProfile(agent_name, self.config_dir)
+        self.agent_profile.ensure_dirs()
+
+        # Create a default identity file if it doesn't exist yet
+        if not self.agent_profile.identity_file.exists():
+            self.agent_profile.save_identity(
+                f"# Agent: {agent_name}\n\n"
+                f"## Agent Persona\n"
+                f"- Name: {agent_name}\n"
+                f"- Style: Helpful, professional\n\n"
+                f"## User Profile\n"
+                f"- *(Update via `/identity chat` or `/agent create`)*\n"
+            )
+
+        self.token_tracker = TokenTracker(
+            audit_dir=self.config_dir / "audit_logs",
+            agent_name=agent_name,
+        )
+        self.task_executor = TaskExecutor(
+            llm_models=self.config_manager.list_llm_models(),
+            mcp_servers=self.config_manager.list_mcp_servers_for_mcp_caller(),
+            default_model=self.config_manager.get_llm_model().name if self.config_manager.get_llm_model() else None,
+            user_agent=self.config_manager.config.user_agent,
+            agent_name=agent_name,
+            on_tool_event=create_tool_progress_handler(self.console, thinking=self.thinking),
+            agent_profile=self.agent_profile,
+            token_tracker=self.token_tracker,
+            permission_manager=self.permission_manager,
+            on_permission_prompt=_create_permission_prompt(self.console),
+        )
+
+    def switch_agent(self, agent_name: str) -> None:
+        """Switch to a different agent, updating all scoped resources."""
+        self._init_agent(agent_name)
+        # Update workflow executor to use the new task executor
+        self.workflow_executor = WorkflowExecutor(
+            task_executor=self.task_executor, workflow_manager=self.workflow_manager
+        )
+        # Clear conversation state (different agent = fresh context)
+        self.conversation_messages = []
+        self.session_history = []
+        self.current_session_id = None
+        # Persist as the new default
+        self.config_manager.set_default_agent_name(agent_name)
+
+    @property
+    def agent_name(self) -> str:
+        """Current active agent name."""
+        return self.agent_profile.agent_name
 
     def load_commands_names(self, group: click.Group) -> list[str]:
         return commands.list_commands_names(group)
@@ -213,7 +248,9 @@ class Cliver:
         mode = self.permission_manager._effective_mode().value
         tw = shutil.get_terminal_size().columns
 
+        agent = self.agent_name
         left = f" 📂 {cwd} "
+        right_agent = f" 🤖 {agent} "
         right_mode = f" 🔒 {mode} "
         right_model = f" ◆ {model} "
 
@@ -223,7 +260,7 @@ class Cliver:
             self._rss_index += 1
             middle_text = f" {headline} "
 
-        fixed = _dw(left) + _dw(middle_text) + _dw(right_mode) + _dw(right_model) + 5
+        fixed = _dw(left) + _dw(middle_text) + _dw(right_agent) + _dw(right_mode) + _dw(right_model) + 6
         padding = max(0, tw - fixed)
 
         if middle_text:
@@ -233,7 +270,7 @@ class Cliver:
         else:
             middle = " " * padding
 
-        return tw, left, middle, right_mode, right_model
+        return tw, left, middle, right_agent, right_mode, right_model
 
     def _get_toolbar_parts(self) -> FormattedText:
         """Build the toolbar formatted text for prompt_toolkit."""
@@ -241,7 +278,7 @@ class Cliver:
         if not sb.get("visible", True):
             return FormattedText([])
 
-        tw, left, middle, right_mode, right_model = self._statusbar_content()
+        tw, left, middle, right_agent, right_mode, right_model = self._statusbar_content()
 
         mid_line = "├" + "─" * (tw - 2) + "┤"
         bot_line = "╰" + "─" * (tw - 2) + "╯"
@@ -253,6 +290,8 @@ class Cliver:
                 ("class:toolbar-cwd", left),
                 ("class:toolbar-border", "│"),
                 ("class:toolbar-rss", middle),
+                ("class:toolbar-border", "│"),
+                ("class:toolbar-agent", right_agent),
                 ("class:toolbar-border", "│"),
                 ("class:toolbar-mode", right_mode),
                 ("class:toolbar-border", "│"),
@@ -325,7 +364,7 @@ class Cliver:
         """Run the persistent TUI with input+toolbar always at the bottom."""
         # Print banner to real stdout before TUI takes over
         default_model = self.config_manager.config.default_model
-        agent_name = self.config_manager.config.agent_name
+        agent_name = self.agent_name
         print_banner(self.console, agent_name, default_model)
 
         # Input buffer with history and completion
@@ -461,6 +500,7 @@ class Cliver:
                 "prompt": "ansigreen bold",
                 "toolbar-border": "#555555",
                 "toolbar-cwd": "#aaaaaa",
+                "toolbar-agent": "#cc88cc bold",
                 "toolbar-mode": "#88aa88",
                 "toolbar-rss": "#cccc88 italic",
                 "toolbar-model": "#88ccff bold",
@@ -520,14 +560,18 @@ class CliverGroup(click.Group):
 
 @click.group(cls=CliverGroup, invoke_without_command=True)
 @click.version_option(version=__version__, prog_name="cliver")
+@click.option("--agent", type=str, default=None, help="Agent instance to use")
 @click.pass_context
-def cliver_cli(ctx: click.Context):
+def cliver_cli(ctx: click.Context, agent: str | None):
     """
     Cliver: An application aims to make your CLI clever
     """
     cli = None
     if ctx.obj is None:
         cli = Cliver()
+        if agent:
+            cli._init_agent(agent)
+            cli.config_manager.set_default_agent_name(agent)
         ctx.obj = cli
 
     if ctx.invoked_subcommand is None:
