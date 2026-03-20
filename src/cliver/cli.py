@@ -315,34 +315,70 @@ def loads_commands():
 
 
 def _create_permission_prompt(console: Console):
-    """Create a Rich-formatted permission prompt callback."""
-    from cliver.permissions import get_tool_meta
+    """Create a Rich-formatted permission prompt callback with arrow-key selection."""
+    from prompt_toolkit.formatted_text import HTML
+    from prompt_toolkit.shortcuts import radiolist_dialog
+
+    from cliver.permissions import ActionKind, get_tool_meta
+
+    _ACTION_LABELS = {
+        ActionKind.READ: ("Read", "blue"),
+        ActionKind.WRITE: ("Write", "yellow"),
+        ActionKind.EXECUTE: ("Execute", "red"),
+        ActionKind.FETCH: ("Fetch", "magenta"),
+        ActionKind.SAFE: ("Safe", "green"),
+    }
 
     def prompt(tool_name: str, args: dict) -> str:
         bare = tool_name.split("#")[-1] if "#" in tool_name else tool_name
         meta = get_tool_meta(bare)
         resource = str(args.get(meta.resource_param, "")) if meta.resource_param else ""
+        label, color = _ACTION_LABELS.get(meta.action_kind, ("Unknown", "white"))
 
-        console.print(f"  [bold yellow]⚠ Permission required:[/bold yellow] [bold]{tool_name}[/bold]")
+        # Build the info panel
+        console.print()
+        console.print("  [bold yellow]⚠  Permission Required[/bold yellow]")
+        console.print("  ┌─────────────────────────────────────────────")
+        console.print(f"  │  Tool:     [bold]{tool_name}[/bold]")
+        console.print(f"  │  Action:   [bold {color}]{label}[/bold {color}]")
         if resource:
-            console.print(f"    Resource: [cyan]{resource}[/cyan]")
-        console.print("    [dim][y]es / [n]o / [a]lways allow / [d]eny always[/dim]")
+            console.print(f"  │  Resource: [cyan]{resource}[/cyan]")
+        if event_args_summary := _format_args_summary(args, meta.resource_param):
+            console.print(f"  │  Args:     [dim]{event_args_summary}[/dim]")
+        console.print("  └─────────────────────────────────────────────")
 
-        while True:
-            try:
-                response = input("    > ").strip().lower()
-            except (EOFError, KeyboardInterrupt):
-                return "deny"
-            if response in ("y", "yes"):
-                return "allow"
-            elif response in ("a", "always"):
-                return "allow_always"
-            elif response in ("n", "no"):
-                return "deny"
-            elif response in ("d", "deny"):
-                return "deny_always"
+        try:
+            result = radiolist_dialog(
+                title=HTML(f"<b>Grant permission for <style fg='ansicyan'>{tool_name}</style>?</b>"),
+                text="Use ↑/↓ arrows to select, Enter to confirm:",
+                values=[
+                    ("allow", "Allow (this time only)"),
+                    ("allow_always", "Always allow (this session)"),
+                    ("deny", "Deny (this time only)"),
+                    ("deny_always", "Always deny (this session)"),
+                ],
+                default="allow",
+            ).run()
+            return result if result else "deny"
+        except (EOFError, KeyboardInterrupt):
+            return "deny"
 
     return prompt
+
+
+def _format_args_summary(args: dict, skip_key: str | None = None) -> str:
+    """Format tool args into a brief summary, skipping the resource param."""
+    if not args:
+        return ""
+    parts = []
+    for k, v in args.items():
+        if k == skip_key:
+            continue
+        val = str(v)
+        if len(val) > 50:
+            val = val[:47] + "…"
+        parts.append(f"{k}={val}")
+    return ", ".join(parts[:4])
 
 
 def cliver_main(*args, **kwargs):
