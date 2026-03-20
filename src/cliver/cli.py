@@ -106,6 +106,19 @@ class Cliver:
         if self.piped or self.session is not None:
             return
         self._group = group
+
+        def _bottom_toolbar():
+            cwd = str(Path.cwd())
+            model = self.session_options.get("model") or self.config_manager.config.default_model or "—"
+            mode = self.permission_manager.effective_mode.value
+            return [
+                ("class:toolbar-cwd", f" {cwd} "),
+                ("class:toolbar-sep", " │ "),
+                ("class:toolbar-mode", f" {mode} "),
+                ("class:toolbar-sep", " │ "),
+                ("class:toolbar-model", f" ◆ {model} "),
+            ]
+
         self.session = PromptSession(
             history=FileHistory(str(self.history_path)),
             auto_suggest=AutoSuggestFromHistory(),
@@ -113,8 +126,13 @@ class Cliver:
             style=Style.from_dict(
                 {
                     "prompt": "ansigreen bold",
+                    "toolbar-cwd": "bg:#333333 #aaaaaa",
+                    "toolbar-sep": "bg:#333333 #555555",
+                    "toolbar-mode": "bg:#333333 #88aa88",
+                    "toolbar-model": "bg:#333333 #88ccff bold",
                 }
             ),
+            bottom_toolbar=_bottom_toolbar,
         )
         self.session_options = session_options or {}
 
