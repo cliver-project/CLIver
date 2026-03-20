@@ -17,11 +17,11 @@ from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.styles import Style
 from rich.console import Console
-from rich.panel import Panel
 
 from cliver import __version__, commands
 from cliver.agent_profile import AgentProfile
 from cliver.cli_tool_progress import create_tool_progress_handler
+from cliver.cli_ui import print_banner
 from cliver.config import ConfigManager
 from cliver.constants import CMD_CHAT
 from cliver.llm import TaskExecutor
@@ -158,14 +158,9 @@ class Cliver:
                 if user_data.lower() not in ("exit", "quit"):
                     self.call_cmd(user_data)
         else:
-            self.console.print(
-                Panel.fit(
-                    "[bold blue]CLIver[/bold blue] - AI Agent Command Line Interface",
-                    border_style="blue",
-                )
-            )
-            self.console.print("Type [bold green]/help[/bold green] to see available commands or start")
-            self.console.print("typing to interact with the AI.")
+            default_model = self.config_manager.config.default_model
+            agent_name = self.config_manager.config.agent_name
+            print_banner(self.console, agent_name, default_model)
 
             while True:
                 try:
