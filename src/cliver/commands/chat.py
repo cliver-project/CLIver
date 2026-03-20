@@ -326,7 +326,7 @@ def _chat_options(
 
 
 def _show_token_usage(cliver) -> None:
-    """Display token usage after a chat response."""
+    """Display token usage after a chat response using Rich formatting."""
     tracker = getattr(cliver, "token_tracker", None)
     if not tracker or not tracker.last_usage:
         return
@@ -337,10 +337,11 @@ def _show_token_usage(cliver) -> None:
     session = tracker.get_session_total()
     model = tracker.last_model or "?"
 
-    click.echo(
-        f"[{model}] tokens: {format_tokens(last.total_tokens)} "
-        f"(in: {format_tokens(last.input_tokens)}, out: {format_tokens(last.output_tokens)}) | "
-        f"session: {format_tokens(session.total_tokens)}"
+    cliver.console.print(
+        f"  [dim]◆ {model}[/dim]  "
+        f"[dim]tokens:[/dim] [bold]{format_tokens(last.total_tokens)}[/bold] "
+        f"[dim](in: {format_tokens(last.input_tokens)}, out: {format_tokens(last.output_tokens)})[/dim]  "
+        f"[dim]session:[/dim] [bold]{format_tokens(session.total_tokens)}[/bold]"
     )
 
 
