@@ -107,17 +107,35 @@ class Cliver:
             return
         self._group = group
 
+        # RSS feed state for scrolling headlines
+        self._rss_headlines: list[str] = []
+        self._rss_index = 0
+
         def _bottom_toolbar():
+            sb = self.session_options.get("statusbar", {})
+            if not sb.get("visible", True):
+                return []
+
             cwd = str(Path.cwd())
             model = self.session_options.get("model") or self.config_manager.config.default_model or "—"
             mode = self.permission_manager.effective_mode.value
-            return [
+
+            parts = [
                 ("class:toolbar-cwd", f" {cwd} "),
                 ("class:toolbar-sep", " │ "),
                 ("class:toolbar-mode", f" {mode} "),
-                ("class:toolbar-sep", " │ "),
-                ("class:toolbar-model", f" ◆ {model} "),
             ]
+
+            # Show RSS headline if configured
+            if self._rss_headlines:
+                headline = self._rss_headlines[self._rss_index % len(self._rss_headlines)]
+                self._rss_index += 1
+                parts.append(("class:toolbar-sep", " │ "))
+                parts.append(("class:toolbar-rss", f" {headline} "))
+
+            parts.append(("class:toolbar-sep", " │ "))
+            parts.append(("class:toolbar-model", f" ◆ {model} "))
+            return parts
 
         self.session = PromptSession(
             history=FileHistory(str(self.history_path)),
@@ -129,6 +147,7 @@ class Cliver:
                     "toolbar-cwd": "bg:#333333 #aaaaaa",
                     "toolbar-sep": "bg:#333333 #555555",
                     "toolbar-mode": "bg:#333333 #88aa88",
+                    "toolbar-rss": "bg:#333333 #cccc88 italic",
                     "toolbar-model": "bg:#333333 #88ccff bold",
                 }
             ),
