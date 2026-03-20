@@ -15,6 +15,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.history import FileHistory
+from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.styles import Style
 from rich.console import Console
 
@@ -137,10 +138,30 @@ class Cliver:
             parts.append(("class:toolbar-model", f" ◆ {model} "))
             return parts
 
+        # Key bindings for multi-line input
+        kb = KeyBindings()
+
+        @kb.add("enter")
+        def _submit(event):
+            """Enter submits the input."""
+            event.current_buffer.validate_and_handle()
+
+        @kb.add("escape", "enter")
+        def _newline(event):
+            """Alt+Enter inserts a newline for multi-line input."""
+            event.current_buffer.insert_text("\n")
+
+        @kb.add("c-g")
+        def _open_editor(event):
+            """Ctrl+G opens $EDITOR for extended input."""
+            event.current_buffer.open_in_editor()
+
         self.session = PromptSession(
             history=FileHistory(str(self.history_path)),
             auto_suggest=AutoSuggestFromHistory(),
             completer=WordCompleter(self.load_commands_names(group), ignore_case=True),
+            multiline=True,
+            key_bindings=kb,
             style=Style.from_dict(
                 {
                     "prompt": "ansigreen bold",
@@ -152,6 +173,7 @@ class Cliver:
                 }
             ),
             bottom_toolbar=_bottom_toolbar,
+            prompt_continuation=lambda width, line_number, wrap_count: "… ",
         )
         self.session_options = session_options or {}
 

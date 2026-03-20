@@ -32,6 +32,8 @@ _TIPS = [
     "Type [bold green]/help[/bold green] to see available commands",
     "Use [bold cyan]↑/↓[/bold cyan] to browse command history",
     "Press [bold cyan]Tab[/bold cyan] for command completion",
+    "Press [bold cyan]Alt+Enter[/bold cyan] for multi-line input, [bold cyan]Enter[/bold cyan] to submit",
+    "Press [bold cyan]Ctrl+G[/bold cyan] to open your editor for longer input",
     "Use [bold green]/model list[/bold green] to see configured models",
     "Use [bold green]/session list[/bold green] to browse past conversations",
     "Use [bold green]/permissions mode[/bold green] to change tool permissions",
