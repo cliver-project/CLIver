@@ -1,7 +1,6 @@
 import asyncio
 import logging
 import sys
-import time
 from typing import Any, Callable, Dict, List, Optional
 
 import click
@@ -269,25 +268,35 @@ def chat(
             cliver.record_turn("assistant", text)
             cliver.conversation_messages.append(AIMessage(content=text))
 
-        result = _async_chat(
-            task_executor,
-            sentence,
-            use_model,
-            use_stream,
-            image,
-            audio,
-            video,
-            file,
-            template,
-            params,
-            save_media,
-            media_dir,
-            _llm_options,
-            tools_filter,
-            system_message_appender,
-            on_response=on_response,
-            conversation_history=conv_history,
-        )
+        # Start thinking spinner (stopped by tool handler or on first content)
+        thinking = getattr(cliver, "thinking", None)
+        if thinking:
+            thinking.start(use_model)
+
+        try:
+            result = _async_chat(
+                task_executor,
+                sentence,
+                use_model,
+                use_stream,
+                image,
+                audio,
+                video,
+                file,
+                template,
+                params,
+                save_media,
+                media_dir,
+                _llm_options,
+                tools_filter,
+                system_message_appender,
+                on_response=on_response,
+                conversation_history=conv_history,
+                on_first_token=thinking.stop if thinking else None,
+            )
+        finally:
+            if thinking:
+                thinking.stop()
 
         # Display token usage after response
         _show_token_usage(cliver)
@@ -353,6 +362,7 @@ def _async_chat(
     system_message_appender=None,
     on_response: Optional[Callable[[str], None]] = None,
     conversation_history=None,
+    on_first_token: Optional[Callable[[], None]] = None,
 ):
     # Create multimedia response handler
     response_handler = MultimediaResponseHandler(media_dir)
@@ -378,6 +388,7 @@ def _async_chat(
                     system_message_appender,
                     on_response=on_response,
                     conversation_history=conversation_history,
+                    on_first_token=on_first_token,
                 )
             )
         else:
@@ -451,10 +462,12 @@ async def _stream_chat(
     system_message_appender=None,
     on_response: Optional[Callable[[str], None]] = None,
     conversation_history=None,
+    on_first_token: Optional[Callable[[], None]] = None,
 ):
-    """Stream the chat response character by character."""
+    """Stream the chat response."""
     # Create multimedia response handler
     response_handler = MultimediaResponseHandler(media_dir)
+    first_token_fired = False
 
     try:
         accumulated_chunk = None
@@ -472,23 +485,20 @@ async def _stream_chat(
             system_message_appender=system_message_appender,
             conversation_history=conversation_history,
         ):
-            # Handle different types of chunks - some may have content, some may have
-            # tool calls
             if accumulated_chunk is None:
                 accumulated_chunk = chunk
             else:
-                # Concatenate the chunks using the + operator
                 accumulated_chunk = accumulated_chunk + chunk
 
             if hasattr(chunk, "content") and chunk.content:
-                # For streaming, we accumulate content and display it as it comes
-                chunk_content = str(chunk.content)
-                # Print each character with a small delay to simulate streaming
-                for char in chunk_content:
-                    sys.stdout.write(char)
-                    sys.stdout.flush()
-                    # Reduced delay for better streaming experience
-                    time.sleep(0.005)  # Faster streaming
+                # Stop spinner on first content token
+                if not first_token_fired:
+                    first_token_fired = True
+                    if on_first_token:
+                        on_first_token()
+
+                sys.stdout.write(str(chunk.content))
+                sys.stdout.flush()
 
         # After streaming is complete, process the accumulated content
         if accumulated_chunk:

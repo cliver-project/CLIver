@@ -20,7 +20,7 @@ from rich.console import Console
 
 from cliver import __version__, commands
 from cliver.agent_profile import AgentProfile
-from cliver.cli_tool_progress import create_tool_progress_handler
+from cliver.cli_tool_progress import ThinkingIndicator, create_tool_progress_handler
 from cliver.cli_ui import print_banner
 from cliver.config import ConfigManager
 from cliver.constants import CMD_CHAT
@@ -65,13 +65,16 @@ class Cliver:
             local_dir=Path.cwd() / ".cliver",
         )
 
+        # Thinking spinner shown while LLM is processing
+        self.thinking = ThinkingIndicator(self.console)
+
         self.task_executor = TaskExecutor(
             llm_models=self.config_manager.list_llm_models(),
             mcp_servers=self.config_manager.list_mcp_servers_for_mcp_caller(),
             default_model=self.config_manager.get_llm_model().name if self.config_manager.get_llm_model() else None,
             user_agent=self.config_manager.config.user_agent,
             agent_name=agent_name,
-            on_tool_event=create_tool_progress_handler(self.console),
+            on_tool_event=create_tool_progress_handler(self.console, thinking=self.thinking),
             agent_profile=self.agent_profile,
             token_tracker=self.token_tracker,
             permission_manager=self.permission_manager,
