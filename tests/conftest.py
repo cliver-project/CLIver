@@ -37,7 +37,7 @@ def load_cliver(init_config, config_manager):
     from cliver import cli
 
     cli.loads_commands()
-    return cli.cliver
+    return cli.cliver_cli
 
 
 @pytest.fixture()

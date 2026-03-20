@@ -4,6 +4,8 @@ Cliver CLI Module
 The main entrance of the cliver application
 """
 
+import asyncio
+import shutil
 import sys
 from pathlib import Path
 from shlex import split as shell_split
@@ -11,12 +13,17 @@ from typing import Any, Dict
 
 import click
 from langchain_core.messages.base import BaseMessage
-from prompt_toolkit import PromptSession
+from prompt_toolkit import Application
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+from prompt_toolkit.buffer import Buffer
 from prompt_toolkit.completion import WordCompleter
+from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.styles import Style
+from prompt_toolkit.layout import FormattedTextControl, HSplit, Layout, Window
+from prompt_toolkit.layout.controls import BufferControl
+from prompt_toolkit.layout.processors import BeforeInput
+from prompt_toolkit.patch_stdout import patch_stdout
 from rich.console import Console
 
 from cliver import __version__, commands
@@ -94,6 +101,7 @@ class Cliver:
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.history_path = self.config_dir / "history"
         self.session = None
+        self._app: Application | None = None
         self.piped = stdin_is_piped()
         # Session options that persist across chat commands in interactive mode
         self.session_options = {}
@@ -102,102 +110,14 @@ class Cliver:
         self.session_history: list[dict] = []  # loaded turns for context
         # LLM-ready conversation history for multi-turn context (BaseMessage objects)
         self.conversation_messages: list[BaseMessage] = []
-
-    def init_session(self, group: click.Group, session_options: Dict[str, Any] = None):
-        if self.piped or self.session is not None:
-            return
-        self._group = group
-
         # RSS feed state for scrolling headlines
         self._rss_headlines: list[str] = []
         self._rss_index = 0
 
-        def _bottom_toolbar():
-            import shutil
-
-            sb = self.session_options.get("statusbar", {})
-            if not sb.get("visible", True):
-                return []
-
-            cwd = str(Path.cwd())
-            model = self.session_options.get("model") or self.config_manager.config.default_model or "—"
-            mode = self.permission_manager._effective_mode().value
-            term_width = shutil.get_terminal_size().columns
-
-            # Left: cwd
-            left = f" 📂 {cwd} "
-            # Right: mode + model (right-aligned)
-            right_mode = f" 🔒 {mode} "
-            right_model = f" ◆ {model} "
-            right = f"{right_mode}│{right_model}"
-
-            # Middle: scrolling RSS or empty padding to push right side to edge
-            middle_text = ""
-            if self._rss_headlines:
-                headline = self._rss_headlines[self._rss_index % len(self._rss_headlines)]
-                self._rss_index += 1
-                middle_text = f" {headline} "
-
-            # Calculate padding to fill terminal width
-            used = len(left) + 1 + len(middle_text) + len(right)  # +1 for left separator
-            padding = max(0, term_width - used)
-
-            if middle_text:
-                # Center the RSS text in the middle space
-                pad_left = padding // 2
-                pad_right = padding - pad_left
-                middle = f"{' ' * pad_left}{middle_text}{' ' * pad_right}"
-            else:
-                middle = " " * padding
-
-            parts = [
-                ("class:toolbar-cwd", left),
-                ("class:toolbar-sep", "│"),
-                ("class:toolbar-rss", middle),
-                ("class:toolbar-sep", "│"),
-                ("class:toolbar-mode", right_mode),
-                ("class:toolbar-sep", "│"),
-                ("class:toolbar-model", right_model),
-            ]
-            return parts
-
-        # Key bindings for multi-line input
-        kb = KeyBindings()
-
-        @kb.add("enter")
-        def _submit(event):
-            """Enter submits the input."""
-            event.current_buffer.validate_and_handle()
-
-        @kb.add("escape", "enter")
-        def _newline(event):
-            """Alt+Enter inserts a newline for multi-line input."""
-            event.current_buffer.insert_text("\n")
-
-        @kb.add("c-g")
-        def _open_editor(event):
-            """Ctrl+G opens $EDITOR for extended input."""
-            event.current_buffer.open_in_editor()
-
-        self.session = PromptSession(
-            history=FileHistory(str(self.history_path)),
-            auto_suggest=AutoSuggestFromHistory(),
-            completer=WordCompleter(self.load_commands_names(group), ignore_case=True),
-            multiline=True,
-            key_bindings=kb,
-            style=Style.from_dict(
-                {
-                    "prompt": "ansigreen bold",
-                    "toolbar-cwd": "bg:#333333 #aaaaaa",
-                    "toolbar-sep": "bg:#333333 #555555",
-                    "toolbar-mode": "bg:#333333 #88aa88",
-                    "toolbar-rss": "bg:#333333 #cccc88 italic",
-                    "toolbar-model": "bg:#333333 #88ccff bold",
-                }
-            ),
-            bottom_toolbar=_bottom_toolbar,
-            prompt_continuation=lambda width, line_number, wrap_count: "… ",
-        )
+    def init_session(self, group: click.Group, session_options: Dict[str, Any] = None):
+        if self.piped:
+            return
+        self._group = group
         self.session_options = session_options or {}
 
     def load_commands_names(self, group: click.Group) -> list[str]:
@@ -233,6 +153,132 @@ class Cliver:
             return set(self._group.commands.keys())
         return set()
 
+    # ─── Status Bar ──────────────────────────────────────────────────────────
+
+    def _statusbar_content(self):
+        """Build status bar content parts."""
+        try:
+            from wcwidth import wcswidth
+
+            def _dw(s):
+                w = wcswidth(s)
+                return w if w >= 0 else len(s)
+        except ImportError:
+            _dw = len
+
+        cwd = str(Path.cwd())
+        model = self.session_options.get("model") or self.config_manager.config.default_model or "—"
+        mode = self.permission_manager._effective_mode().value
+        tw = shutil.get_terminal_size().columns
+
+        left = f" 📂 {cwd} "
+        right_mode = f" 🔒 {mode} "
+        right_model = f" ◆ {model} "
+
+        middle_text = ""
+        if self._rss_headlines:
+            headline = self._rss_headlines[self._rss_index % len(self._rss_headlines)]
+            self._rss_index += 1
+            middle_text = f" {headline} "
+
+        fixed = _dw(left) + _dw(middle_text) + _dw(right_mode) + _dw(right_model) + 5
+        padding = max(0, tw - fixed)
+
+        if middle_text:
+            pad_left = padding // 2
+            pad_right = padding - pad_left
+            middle = f"{' ' * pad_left}{middle_text}{' ' * pad_right}"
+        else:
+            middle = " " * padding
+
+        return tw, left, middle, right_mode, right_model
+
+    def _get_toolbar_parts(self) -> FormattedText:
+        """Build the toolbar formatted text for prompt_toolkit."""
+        sb = self.session_options.get("statusbar", {})
+        if not sb.get("visible", True):
+            return FormattedText([])
+
+        tw, left, middle, right_mode, right_model = self._statusbar_content()
+
+        mid_line = "├" + "─" * (tw - 2) + "┤"
+        bot_line = "╰" + "─" * (tw - 2) + "╯"
+
+        return FormattedText(
+            [
+                ("class:toolbar-border", mid_line),
+                ("class:toolbar-border", "\n│"),
+                ("class:toolbar-cwd", left),
+                ("class:toolbar-border", "│"),
+                ("class:toolbar-rss", middle),
+                ("class:toolbar-border", "│"),
+                ("class:toolbar-mode", right_mode),
+                ("class:toolbar-border", "│"),
+                ("class:toolbar-model", right_model),
+                ("class:toolbar-border", "│"),
+                ("class:toolbar-border", f"\n{bot_line}"),
+            ]
+        )
+
+    def _get_prompt_prefix(self) -> FormattedText:
+        """Build the input line top border."""
+        tw = shutil.get_terminal_size().columns
+        label = " Cliver "
+        top = "╭─" + label + "─" * max(0, tw - len(label) - 3) + "╮"
+        return FormattedText(
+            [
+                ("class:toolbar-border", top),
+                ("class:toolbar-border", "\n│ "),
+            ]
+        )
+
+    # ─── Command Processing ──────────────────────────────────────────────────
+
+    def _preprocess_line(self, line: str) -> str | None:
+        """Preprocess input line: handle slash commands, validation, routing."""
+        if line.lower() in ("exit", "quit", "/exit", "/quit"):
+            return None  # signal to exit
+
+        if line.startswith("/"):
+            if len(line) == 1:
+                return None
+            cmd = line[1:]
+            if cmd.lower().startswith("help"):
+                args = cmd[4:].strip()
+                return f"{args} --help".strip()
+            else:
+                cmd_name = cmd.split()[0] if cmd.strip() else ""
+                if cmd_name not in self._get_commands():
+                    print(f"Unknown command: /{cmd_name}")
+                    return None
+                return cmd
+        elif not line.lower().startswith(f"{CMD_CHAT} "):
+            return f"{CMD_CHAT} {line}"
+
+        return line
+
+    def call_cmd(self, line: str):
+        """Call a command with the given name and arguments."""
+        try:
+            parts = shell_split(line)
+        except ValueError:
+            parts = line.split()
+        if not parts or len(parts) == 0:
+            return
+        if parts[0].lower() == "chat" and len(parts) <= 1:
+            return
+
+        cliver_cli(args=parts, prog_name="cliver", standalone_mode=False, obj=self)
+
+    def cleanup(self):
+        """Clean up resources."""
+        self.session_options = {}
+        self.session = None
+        self._app = None
+        self.conversation_messages = []
+
+    # ─── Run Methods ─────────────────────────────────────────────────────────
+
     def run(self) -> None:
         """Run the Cliver client."""
         if self.piped:
@@ -243,76 +289,116 @@ class Cliver:
                 if user_data.lower() not in ("exit", "quit"):
                     self.call_cmd(user_data)
         else:
-            default_model = self.config_manager.config.default_model
-            agent_name = self.config_manager.config.agent_name
-            print_banner(self.console, agent_name, default_model)
+            self._run_tui()
 
-            while True:
-                try:
-                    # Get user input
-                    line = self.session.prompt("Cliver> ").strip()
-                    if line.lower() in ("exit", "quit", "/exit", "/quit"):
-                        break
-                    if line.startswith("/"):
-                        if len(line) == 1:
-                            continue
-                        cmd = line[1:]
-                        if cmd.lower().startswith("help"):
-                            # /help -> --help, /help llm -> llm --help
-                            args = cmd[4:].strip()
-                            line = f"{args} --help".strip()
-                        else:
-                            # Slash prefix = explicit command — validate it exists
-                            cmd_name = cmd.split()[0] if cmd.strip() else ""
-                            if cmd_name not in self._get_commands():
-                                self.console.print(f"[yellow]Unknown command: /{cmd_name}[/yellow]")
-                                continue
-                            line = cmd
-                    elif not line.lower().startswith(f"{CMD_CHAT} "):
-                        line = f"{CMD_CHAT} {line}"
+    def _run_tui(self) -> None:
+        """Run the persistent TUI with input+toolbar always at the bottom."""
+        # Print banner to real stdout before TUI takes over
+        default_model = self.config_manager.config.default_model
+        agent_name = self.config_manager.config.agent_name
+        print_banner(self.console, agent_name, default_model)
 
-                    if len(line.strip()) > 0:
-                        self.call_cmd(line)
+        # Input buffer with history and completion
+        history = FileHistory(str(self.history_path))
+        completer = WordCompleter(
+            self.load_commands_names(self._group) if hasattr(self, "_group") else [],
+            ignore_case=True,
+        )
 
-                except SystemExit:
-                    pass
-                except KeyboardInterrupt:
-                    self.console.print("\n[yellow]Use 'exit' or 'quit' to exit[/yellow]")
-                except EOFError:
-                    break
-                except click.exceptions.UsageError as e:
-                    self.console.print(f"{e.format_message()}")
-                except Exception as e:
-                    self.console.print(f"[red]Error: {e}[/red]")
+        def on_accept(buff):
+            line = buff.text.strip()
+            buff.reset()
+            if not line:
+                return
+            processed = self._preprocess_line(line)
+            if processed is None:
+                if line.lower() in ("exit", "quit", "/exit", "/quit"):
+                    app.exit()
+                return
+            app.create_background_task(_run_command(processed))
+
+        async def _run_command(line):
+            loop = asyncio.get_event_loop()
+            try:
+                await loop.run_in_executor(None, lambda: self.call_cmd(line))
+            except SystemExit:
+                pass
+            except Exception as e:
+                print(f"Error: {e}")
+
+        input_buffer = Buffer(
+            accept_handler=on_accept,
+            multiline=False,
+            history=history,
+            auto_suggest=AutoSuggestFromHistory(),
+            completer=completer,
+        )
+
+        # Key bindings
+        kb = KeyBindings()
+
+        @kb.add("c-c")
+        def _ctrl_c(event):
+            """Ctrl+C exits."""
+            event.app.exit()
+
+        @kb.add("c-g")
+        def _open_editor(event):
+            """Ctrl+G opens $EDITOR for extended input."""
+            event.current_buffer.open_in_editor()
+
+        # Layout: input line (with top border) + toolbar (with borders)
+        input_window = Window(
+            content=BufferControl(
+                buffer=input_buffer,
+                input_processors=[BeforeInput(self._get_prompt_prefix)],
+            ),
+            height=2,  # top border line + input line
+            dont_extend_height=True,
+        )
+
+        toolbar_window = Window(
+            content=FormattedTextControl(self._get_toolbar_parts),
+            height=3,  # top border + content + bottom border
+            dont_extend_height=True,
+        )
+
+        layout = Layout(
+            HSplit(
+                [
+                    input_window,
+                    toolbar_window,
+                ]
+            ),
+            focused_element=input_window,
+        )
+
+        from prompt_toolkit.styles import Style
+
+        style = Style.from_dict(
+            {
+                "prompt": "ansigreen bold",
+                "toolbar-border": "#555555",
+                "toolbar-cwd": "#aaaaaa",
+                "toolbar-mode": "#88aa88",
+                "toolbar-rss": "#cccc88 italic",
+                "toolbar-model": "#88ccff bold",
+            }
+        )
+
+        app = Application(
+            layout=layout,
+            key_bindings=kb,
+            style=style,
+            full_screen=False,
+        )
+        self._app = app
+
+        with patch_stdout(raw=True):
+            app.run()
 
         # Clean up
         self.cleanup()
-
-    def call_cmd(self, line: str):
-        """
-        Call a command with the given name and arguments.
-        """
-        # Parse the command line to get parts
-        try:
-            parts = shell_split(line)
-        except ValueError:
-            parts = line.split()
-        if not parts or len(parts) == 0:
-            return
-        if parts[0].lower() == "chat" and len(parts) <= 1:
-            # chat command requires at least one more
-            return
-
-        cliver(args=parts, prog_name="cliver", standalone_mode=False, obj=self)
-
-    def cleanup(self):
-        """
-        Clean up the resources opened by the application like the mcp server processes
-        or connections to remote mcp servers, llm providers
-        """
-        self.session_options = {}
-        self.session = None
-        self.conversation_messages = []
 
 
 pass_cliver = click.make_pass_decorator(Cliver)
@@ -345,7 +431,7 @@ class CliverGroup(click.Group):
 @click.group(cls=CliverGroup, invoke_without_command=True)
 @click.version_option(version=__version__, prog_name="cliver")
 @click.pass_context
-def cliver(ctx: click.Context):
+def cliver_cli(ctx: click.Context):
     """
     Cliver: An application aims to make your CLI clever
     """
@@ -359,12 +445,12 @@ def cliver(ctx: click.Context):
         interact(cli)
 
 
-@cliver.command(name="help", hidden=True)
+@cliver_cli.command(name="help", hidden=True)
 @click.argument("command", nargs=-1)
 @click.pass_context
 def help_command(ctx: click.Context, command: tuple):
     """Show help for cliver or a specific command."""
-    group = cliver
+    group = cliver_cli
     # Walk down subcommand chain: cliver help model list → model list --help
     for cmd_name in command:
         sub = group.get_command(ctx, cmd_name)
@@ -380,27 +466,19 @@ def help_command(ctx: click.Context, command: tuple):
 
 
 def interact(cli: Cliver, session_options: Dict[str, Any] = None) -> None:
-    """
-    Start an interactive session with the AI agent.
-    """
-    if cli.session:
-        # already initialized
-        return
-    cli.init_session(cliver, session_options)
+    """Start an interactive session with the AI agent."""
+    cli.init_session(cliver_cli, session_options)
     cli.run()
 
 
 def loads_commands():
-    commands.loads_commands(cliver)
+    commands.loads_commands(cliver_cli)
     # Loads extended commands from config dir
-    commands.loads_external_commands(cliver)
+    commands.loads_external_commands(cliver_cli)
 
 
 def _create_permission_prompt(console: Console):
-    """Create a Rich-formatted permission prompt callback with arrow-key selection."""
-    from prompt_toolkit.formatted_text import HTML
-    from prompt_toolkit.shortcuts import radiolist_dialog
-
+    """Create a Rich-formatted permission prompt callback."""
     from cliver.permissions import ActionKind, get_tool_meta
 
     _ACTION_LABELS = {
@@ -417,33 +495,33 @@ def _create_permission_prompt(console: Console):
         resource = str(args.get(meta.resource_param, "")) if meta.resource_param else ""
         label, color = _ACTION_LABELS.get(meta.action_kind, ("Unknown", "white"))
 
-        # Build the info panel
-        console.print()
-        console.print("  [bold yellow]⚠  Permission Required[/bold yellow]")
-        console.print("  ┌─────────────────────────────────────────────")
-        console.print(f"  │  Tool:     [bold]{tool_name}[/bold]")
-        console.print(f"  │  Action:   [bold {color}]{label}[/bold {color}]")
+        # Build the info panel (printed via stdout → appears above TUI via patch_stdout)
+        print()
+        print("  ⚠  Permission Required")
+        print("  ┌─────────────────────────────────────────────")
+        print(f"  │  Tool:     {tool_name}")
+        print(f"  │  Action:   {label}")
         if resource:
-            console.print(f"  │  Resource: [cyan]{resource}[/cyan]")
+            print(f"  │  Resource: {resource}")
         if event_args_summary := _format_args_summary(args, meta.resource_param):
-            console.print(f"  │  Args:     [dim]{event_args_summary}[/dim]")
-        console.print("  └─────────────────────────────────────────────")
+            print(f"  │  Args:     {event_args_summary}")
+        print("  └─────────────────────────────────────────────")
 
-        try:
-            result = radiolist_dialog(
-                title=HTML(f"<b>Grant permission for <style fg='ansicyan'>{tool_name}</style>?</b>"),
-                text="Use ↑/↓ arrows to select, Enter to confirm:",
-                values=[
-                    ("allow", "Allow (this time only)"),
-                    ("allow_always", "Always allow (this session)"),
-                    ("deny", "Deny (this time only)"),
-                    ("deny_always", "Always deny (this session)"),
-                ],
-                default="allow",
-            ).run()
-            return result if result else "deny"
-        except (EOFError, KeyboardInterrupt):
-            return "deny"
+        # Simple text prompt (works in background thread with patch_stdout)
+        while True:
+            try:
+                print("  [y]es / [n]o / [a]lways allow / [d]eny always")
+                response = input("  > ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                return "deny"
+            if response in ("y", "yes"):
+                return "allow"
+            elif response in ("a", "always"):
+                return "allow_always"
+            elif response in ("n", "no"):
+                return "deny"
+            elif response in ("d", "deny"):
+                return "deny_always"
 
     return prompt
 
@@ -467,4 +545,4 @@ def cliver_main(*args, **kwargs):
     # loading all click groups and commands before calling it
     loads_commands()
     # bootstrap the cliver application
-    cliver()
+    cliver_cli()
