@@ -73,10 +73,9 @@ class ThinkingIndicator:
 
     def _animate(self) -> None:
         """Background animation loop."""
+        import random
         import sys
         import time
-
-        import random
 
         label = f"{self._model} " if self._model else ""
         frame = 0

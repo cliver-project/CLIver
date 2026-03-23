@@ -23,6 +23,7 @@ lint: ## Run linter
 
 .PHONY: format
 format: ## Format code
+	uv run ruff check --fix
 	uv run ruff format
 
 .PHONY: clean
