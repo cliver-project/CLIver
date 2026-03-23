@@ -56,7 +56,7 @@ class _IndentedStdout:
             if self._at_line_start and ch != "\n":
                 out.append(self.INDENT)
             out.append(ch)
-            self._at_line_start = ch == "\n"
+            self._at_line_start = ch in ("\n", "\r")
         result = "".join(out)
         return self._real.write(result)
 
@@ -129,6 +129,7 @@ class Cliver:
         # RSS feed state for scrolling headlines
         self._rss_headlines: list[str] = []
         self._rss_index = 0
+        self._cancel_requested = False
 
     def init_session(self, group: click.Group, session_options: Dict[str, Any] = None):
         if self.piped:
@@ -316,10 +317,15 @@ class Cliver:
                 args = cmd[4:].strip()
                 return f"help {args}".strip() if args else "help"
             else:
-                cmd_name = cmd.split()[0] if cmd.strip() else ""
+                cmd_parts = cmd.split()
+                cmd_name = cmd_parts[0] if cmd_parts else ""
                 if cmd_name not in self._get_commands():
                     self.console.print(f"[yellow]Unknown command: /{cmd_name}[/yellow]")
                     return None
+                # Convert `/cmd --help` to `help cmd`
+                if "--help" in cmd_parts:
+                    cmd_parts.remove("--help")
+                    return f"help {' '.join(cmd_parts)}"
                 return cmd
         elif not line.lower().startswith(f"{CMD_CHAT} "):
             return f"{CMD_CHAT} {line}"
@@ -374,28 +380,39 @@ class Cliver:
             ignore_case=True,
         )
 
+        _current_task = {"task": None}
+
         def on_accept(buff):
             line = buff.text.strip()
+            if line:
+                history.append_string(line)
             buff.reset()
             if not line:
                 return
             processed = self._preprocess_line(line)
             if processed is None:
                 if line.lower() in ("exit", "quit", "/exit", "/quit"):
+                    # Cancel any running task before exiting
+                    if _current_task["task"] and not _current_task["task"].done():
+                        _current_task["task"].cancel()
+                        self._cancel_requested = True
                     app.exit()
                 return
             # Echo the user's input to the output area
             self.output(f"\n[bold green]❯[/bold green] {line}")
-            app.create_background_task(_run_command(processed))
+            self._cancel_requested = False
+            _current_task["task"] = app.create_background_task(_run_command(processed))
 
         async def _run_command(line):
             loop = asyncio.get_event_loop()
             try:
                 await loop.run_in_executor(None, lambda: self.call_cmd(line))
-            except SystemExit:
+            except (SystemExit, asyncio.CancelledError):
                 pass
             except Exception as e:
                 self.console.print(f"[red]Error: {e}[/red]")
+            finally:
+                _current_task["task"] = None
 
         input_buffer = Buffer(
             accept_handler=on_accept,
@@ -410,8 +427,13 @@ class Cliver:
 
         @kb.add("c-c")
         def _ctrl_c(event):
-            """Ctrl+C exits."""
-            event.app.exit()
+            """Ctrl+C cancels running task, or exits if idle."""
+            if _current_task["task"] and not _current_task["task"].done():
+                _current_task["task"].cancel()
+                self._cancel_requested = True
+                self.console.print("\n[yellow]Cancelled.[/yellow]")
+            else:
+                event.app.exit()
 
         @kb.add("c-g")
         def _open_editor(event):

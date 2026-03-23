@@ -6,6 +6,8 @@ from typing import List, Optional, Type
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
+from cliver.agent_profile import get_input_fn
+
 logger = logging.getLogger(__name__)
 
 
@@ -30,13 +32,15 @@ class Question(BaseModel):
 
 
 class AskUserQuestionInput(BaseModel):
-    """Input schema for the ask_user_question tool."""
+    """Input schema for ask_user_question tool."""
 
-    question: str = Field(description="The question to ask the user. Should be clear and specific.")
+    question: str = Field(
+        description="The complete question to ask the user. Should be clear, specific, and end with a question mark."
+    )
     options: Optional[List[QuestionOption]] = Field(
         default=None,
-        description="Optional: Available choices for this question. "
-        "If provided, the user can select from these options or type a custom response.",
+        description="Optional: Available choices for this question (2-4 options). "
+        "If not provided, the user can type a free-form response.",
     )
 
 
@@ -50,8 +54,7 @@ class AskUserQuestionTool(BaseTool):
         "1. Gather user preferences or requirements\n"
         "2. Clarify ambiguous instructions\n"
         "3. Get decisions on implementation choices\n"
-        "4. Confirm before taking potentially destructive actions\n"
-        "5. Offer choices about what direction to take\n\n"
+        "4. Request confirmation before irreversible actions\n\n"
         "Usage notes:\n"
         "- If you provide options, the user can select one or type a custom response\n"
         "- If you recommend a specific option, make that the first option and add '(Recommended)' to the label\n"
@@ -61,6 +64,7 @@ class AskUserQuestionTool(BaseTool):
     tags: list = ["think", "interact", "confirm"]
 
     def _run(self, question: str, options: Optional[List[dict]] = None) -> str:
+        prompt = get_input_fn()
         try:
             print(f"\n{'=' * 60}")
             print(f"  Question: {question}")
@@ -77,7 +81,7 @@ class AskUserQuestionTool(BaseTool):
                 print("  [0] Other (type custom response)")
                 print()
 
-                response = input("  Your choice (number or text): ").strip()
+                response = prompt("  Your choice (number or text): ").strip()
 
                 # Check if it's a number selection
                 try:
@@ -88,7 +92,7 @@ class AskUserQuestionTool(BaseTool):
                         print(f"  Selected: {selected}")
                         return f"User selected: {selected}"
                     elif choice == 0:
-                        custom = input("  Your response: ").strip()
+                        custom = prompt("  Your response: ").strip()
                         return f"User response: {custom}"
                 except ValueError:
                     pass
@@ -96,14 +100,13 @@ class AskUserQuestionTool(BaseTool):
                 # Treat as free text
                 return f"User response: {response}"
             else:
-                response = input("  Your response: ").strip()
+                response = prompt("  Your response: ").strip()
                 return f"User response: {response}"
-
         except (EOFError, KeyboardInterrupt):
-            return "User cancelled the question (no response provided)."
+            return "User cancelled the question."
         except Exception as e:
-            logger.error(f"Error asking user question: {e}")
-            return f"Error getting user response: {e}"
+            return f"Error asking user: {str(e)}"
 
 
+# Module-level instance for tool registry
 ask_user_question = AskUserQuestionTool()

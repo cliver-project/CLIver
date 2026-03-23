@@ -34,34 +34,86 @@ _PLAN_ICONS = {
 
 
 class ThinkingIndicator:
-    """Shows a thinking message while the LLM is processing.
+    """Shows a live animated thinking indicator while the LLM is processing.
 
     Started when inference begins, stopped on first tool call or content chunk.
-    Uses simple print to avoid cursor manipulation conflicts with patch_stdout.
+    Runs a background thread that prints color-cycling dots.
     """
+
+    _COLORS = ["#ff6b6b", "#ffa06b", "#ffd86b", "#6bffa0", "#6bd8ff", "#a06bff"]
+    _PHRASES = [
+        "Thinking…",
+        "Reasoning…",
+        "Analyzing…",
+        "Considering…",
+        "Processing…",
+        "Reflecting…",
+        "Pondering…",
+        "Evaluating…",
+        "Working…",
+        "Figuring out…",
+    ]
 
     def __init__(self, console: Console):
         self._console = console
         self._active = False
         self._lock = threading.Lock()
+        self._thread: threading.Thread | None = None
+        self._model = ""
 
     def start(self, model: str = "") -> None:
-        """Show a thinking message."""
+        """Start the animated thinking indicator."""
         with self._lock:
             if self._active:
                 return
             self._active = True
-            label = f"{model} " if model else ""
-            self._console.print(f"[cyan]⠿[/cyan] [dim]{label}Thinking…[/dim]")
+            self._model = model
+            self._thread = threading.Thread(target=self._animate, daemon=True)
+            self._thread.start()
+
+    def _animate(self) -> None:
+        """Background animation loop."""
+        import sys
+        import time
+
+        import random
+
+        label = f"{self._model} " if self._model else ""
+        frame = 0
+        phrase = random.choice(self._PHRASES)
+        while self._active:
+            color = self._COLORS[frame % len(self._COLORS)]
+            dots = "●" * ((frame % 3) + 1)
+            # Switch phrase every ~3 seconds (10 frames × 0.3s)
+            if frame > 0 and frame % 10 == 0:
+                phrase = random.choice(self._PHRASES)
+            sys.stdout.write(f"\r  \033[38;2;{_hex_to_rgb(color)}m{dots}\033[0m \033[2m{label}{phrase}\033[0m  ")
+            sys.stdout.flush()
+            frame += 1
+            time.sleep(0.3)
+        # Clear the line when done
+        sys.stdout.write("\r" + " " * 60 + "\r")
+        sys.stdout.flush()
 
     def stop(self) -> None:
-        """Mark thinking as stopped."""
+        """Stop the animated indicator."""
         with self._lock:
+            if not self._active:
+                return
             self._active = False
+        if self._thread:
+            self._thread.join(timeout=1)
+            self._thread = None
 
     @property
     def active(self) -> bool:
         return self._active
+
+
+def _hex_to_rgb(hex_color: str) -> str:
+    """Convert '#rrggbb' to 'r;g;b' for ANSI escape."""
+    h = hex_color.lstrip("#")
+    return f"{int(h[0:2], 16)};{int(h[2:4], 16)};{int(h[4:6], 16)}"
 
 
 # ─── Tool Progress Handler ────────────────────────────────────────────────────

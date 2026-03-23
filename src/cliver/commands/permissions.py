@@ -20,7 +20,7 @@ def permissions(ctx, cliver: Cliver):
     """View or manage persistent permission rules."""
     if ctx.invoked_subcommand is None:
         # Default: show rules
-        ctx.invoke(show_rules, cliver=cliver)
+        ctx.invoke(show_rules)
 
 
 @permissions.command(name="rules", help="Show all loaded permission rules")

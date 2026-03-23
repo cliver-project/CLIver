@@ -27,6 +27,10 @@ logger = logging.getLogger(__name__)
 
 _current_profile: Optional["AgentProfile"] = None
 
+# Global input function — set by CLI layer to support TUI-safe input.
+# Tools should call get_input_fn()("prompt") instead of raw input().
+_input_fn = input  # default: standard input
+
 
 def set_current_profile(profile: Optional["AgentProfile"]) -> None:
     """Set the active AgentProfile. Called by TaskExecutor at init."""
@@ -37,6 +41,17 @@ def set_current_profile(profile: Optional["AgentProfile"]) -> None:
 def get_current_profile() -> Optional["AgentProfile"]:
     """Get the active AgentProfile. Used by builtin tools that need it."""
     return _current_profile
+
+
+def set_input_fn(fn) -> None:
+    """Set the global input function. Called by CLI layer for TUI support."""
+    global _input_fn
+    _input_fn = fn
+
+
+def get_input_fn():
+    """Get the current input function. Tools use this instead of raw input()."""
+    return _input_fn
 
 
 # Maximum characters of memory to inject into the system prompt.
