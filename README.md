@@ -7,11 +7,12 @@ CLIver integrates with MCP servers and various LLM providers to bring intelligen
 ## Quick Start
 
 ```bash
-# Install
+# Install via pip
 pip install cliver
 
-# Or install from source
-uv sync --all-extras --dev --locked
+# Or run with Docker
+docker run --rm -it --user $UID:0 -v ~/.cliver:/home/cliver/.cliver \
+  -e OPENAI_API_KEY ghcr.io/cliver-project/cliver
 
 # Start chatting
 cliver chat "What time is it in Beijing and London?"
