@@ -18,8 +18,9 @@ test: init ## Run tests
 	uv run pytest
 
 .PHONY: lint
-lint: ## Run linter
+lint: ## Run linter and check formatting
 	uv run ruff check
+	uv run ruff format --check
 
 .PHONY: format
 format: ## Format code

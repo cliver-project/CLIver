@@ -159,9 +159,7 @@ class TestValidateSkill:
         assert any("1024" in w for w in result.warnings)
 
     def test_long_compatibility_warns(self):
-        skill = Skill(
-            name="test", description="ok", body="", base_dir=Path("test"), compatibility="x" * 501
-        )
+        skill = Skill(name="test", description="ok", body="", base_dir=Path("test"), compatibility="x" * 501)
         result = validate_skill(skill)
         assert any("500" in w for w in result.warnings)
 
@@ -238,7 +236,8 @@ class TestParseSkillMd:
     def test_optional_fields_parsed(self, tmp_path):
         """license, compatibility, metadata are parsed."""
         path = tmp_path / "SKILL.md"
-        path.write_text(textwrap.dedent("""\
+        path.write_text(
+            textwrap.dedent("""\
             ---
             name: full-skill
             description: A fully specified skill.
@@ -249,7 +248,8 @@ class TestParseSkillMd:
               version: "2.0"
             ---
             body
-        """))
+        """)
+        )
         skill = _parse_skill_md(path)
         assert skill.license == "MIT"
         assert skill.compatibility == "Requires Python 3.10+"

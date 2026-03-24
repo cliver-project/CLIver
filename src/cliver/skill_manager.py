@@ -103,23 +103,17 @@ def validate_skill(skill: "Skill") -> SkillValidationResult:
 
     # Name must match parent directory name
     if skill.base_dir and skill.base_dir.name != skill.name:
-        result.warnings.append(
-            f"name '{skill.name}' does not match directory name '{skill.base_dir.name}'"
-        )
+        result.warnings.append(f"name '{skill.name}' does not match directory name '{skill.base_dir.name}'")
 
     # Description validation
     if not skill.description:
         result.errors.append("description is required")
     elif len(skill.description) > 1024:
-        result.warnings.append(
-            f"description exceeds 1024 characters ({len(skill.description)})"
-        )
+        result.warnings.append(f"description exceeds 1024 characters ({len(skill.description)})")
 
     # Compatibility validation
     if skill.compatibility and len(skill.compatibility) > 500:
-        result.warnings.append(
-            f"compatibility exceeds 500 characters ({len(skill.compatibility)})"
-        )
+        result.warnings.append(f"compatibility exceeds 500 characters ({len(skill.compatibility)})")
 
     # Body size recommendation
     if skill.body and len(skill.body.splitlines()) > 500:
