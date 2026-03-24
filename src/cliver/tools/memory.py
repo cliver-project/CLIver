@@ -94,9 +94,15 @@ class MemoryWriteTool(BaseTool):
         "Save important knowledge to your persistent memory so you can recall it "
         "in future conversations.\n\n"
         "Two modes:\n"
-        "- **append** (default): add a timestamped entry with an optional comment\n"
-        "- **rewrite**: replace the entire memory document — use when correcting "
-        "outdated info or consolidating scattered entries\n\n"
+        "- **append** (default): add an entry with an optional comment\n"
+        "- **rewrite**: replace the entire memory document — use to consolidate, "
+        "correct, or reorganize memory by topic\n\n"
+        "Memory hygiene:\n"
+        "- ALWAYS read memory first to avoid duplicates\n"
+        "- Organize by topic (`## Project Setup`, `## Preferences`), not by date\n"
+        "- When memory has many scattered entries, consolidate with `rewrite` mode: "
+        "merge related entries under topic headings and remove outdated ones\n"
+        "- Keep entries concise and factual — no narratives\n\n"
         "When to use:\n"
         "- User explicitly asks you to remember something\n"
         "- User corrects your behavior or states a preference\n"
@@ -105,8 +111,7 @@ class MemoryWriteTool(BaseTool):
         "When NOT to use:\n"
         "- Temporary or session-specific information\n"
         "- Information already in memory (check with memory_read first)\n"
-        "- Trivial or obvious facts\n\n"
-        "Be concise — write facts, not narratives."
+        "- Trivial or obvious facts"
     )
     args_schema: Type[BaseModel] = MemoryWriteInput
     tags: list = ["memory", "context"]
