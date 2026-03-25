@@ -1,11 +1,25 @@
 [project]
 name = "cliver"
 version = "0.0.4"
-description = "An AI Agent to make your CLI clever and more"
+description = "General-purpose AI agent for your terminal — safe, controlled, and adaptable to any domain."
+readme = "README.md"
+license = { file = "LICENSE" }
 authors = [
     { name = "Lin Gao", email = "aoingl@gmail.com" }
 ]
 requires-python = ">=3.10"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
 
 dependencies = [
     "click>=8.1.0",
@@ -49,6 +63,12 @@ docs = [
 
 [project.scripts]
 cliver = "cliver.cli:cliver_main"
+
+[project.urls]
+Homepage = "https://github.com/cliver-project/CLIver"
+Documentation = "https://cliver-project.github.io/CLIver/"
+Repository = "https://github.com/cliver-project/CLIver"
+Issues = "https://github.com/cliver-project/CLIver/issues"
 
 [build-system]
 requires = ["uv_build>=0.7,<0.8"]
