@@ -5,8 +5,13 @@ description: Introduction to CLIver - your powerful command-line and library too
 
 # CLIver Overview
 
-CLIver is an AI-powered command-line interface tool that enhances your terminal experience with intelligent capabilities.
-It integrates with MCP (Model Context Protocol) servers and various LLM providers to provide an interactive CLI experience.
+CLIver is a **general-purpose AI agent** — it is not bound to coding or any specific domain. Through customizable system prompts, skills, workflows, and MCP integrations, CLIver adapts to whatever task you throw at it.
+
+## Philosophy
+
+**General-purpose by design.** Most AI agents are built for a specific field (coding, customer support, data analysis). CLIver takes a different approach — it provides a flexible foundation that you specialize through configuration: skills teach it new domains, workflows orchestrate multi-step processes, and MCP servers connect it to external systems.
+
+**Safe and controlled by default.** Autonomous agents are powerful but can behave unpredictably. CLIver addresses this with a layered permission system that governs every tool execution and a structured workflow engine that keeps complex tasks focused and auditable. You decide what the agent can do, and it stays within those boundaries.
 
 ## Design Goals
 
