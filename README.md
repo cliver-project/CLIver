@@ -33,7 +33,7 @@ cliver chat
 
 ## Documentation
 
-Full documentation is available at the [docs site](docs/index.md):
+Full documentation is available at the [docs site](https://cliver-project.github.io/CLIver/):
 
 - [Installation](docs/installation.md)
 - [Configuration](docs/configuration.md)
