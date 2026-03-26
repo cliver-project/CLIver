@@ -1,13 +1,11 @@
 import asyncio
 import logging
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, List, Optional
 
 import click
 from langchain_core.messages import AIMessage, HumanMessage
 
 from cliver.cli import Cliver, interact, pass_cliver
-from cliver.llm import TaskExecutor
-from cliver.media_handler import MultimediaResponseHandler
 from cliver.model_capabilities import ModelCapability
 from cliver.util import create_tools_filter, parse_key_value_options, read_file_content
 
@@ -267,41 +265,30 @@ def chat(
             cliver.record_turn("assistant", text)
             cliver.conversation_messages.append(AIMessage(content=text))
 
-        # Start thinking spinner (stopped by tool handler or on first content)
-        thinking = getattr(cliver, "thinking", None)
-        if thinking:
-            thinking.start(use_model)
+        from cliver.cli_llm_call import LLMCallOptions, llm_call
 
-        try:
-            result = _async_chat(
-                task_executor,
-                sentence,
-                use_model,
-                use_stream,
-                image,
-                audio,
-                video,
-                file,
-                template,
-                params,
-                save_media,
-                media_dir,
-                _llm_options,
-                tools_filter,
-                system_message_appender,
-                on_response=on_response,
+        result = llm_call(
+            cliver,
+            LLMCallOptions(
+                user_input=sentence,
+                model=use_model,
+                stream=use_stream,
+                images=list(image),
+                audio_files=list(audio),
+                video_files=list(video),
+                files=list(file),
+                template=template,
+                params=params,
+                options=_llm_options,
+                save_media=save_media,
+                media_dir=media_dir,
+                tools_filter=tools_filter,
+                system_message_appender=system_message_appender,
                 conversation_history=conv_history,
-                on_first_token=thinking.stop if thinking else None,
-                console=cliver.console,
-            )
-        finally:
-            if thinking:
-                thinking.stop()
-
-        # Display token usage after response
-        _show_token_usage(cliver)
-
-        return result
+                on_response=on_response,
+            ),
+        )
+        return 0 if result.success else 1
     except Exception as e:
         cliver.output(f"[red]Error: {e}[/red]")
         return 1
@@ -323,228 +310,6 @@ def _chat_options(
     if frequency_penalty is not None:
         options["frequency_penalty"] = frequency_penalty
     return options
-
-
-def _show_token_usage(cliver) -> None:
-    """Display token usage after a chat response using Rich formatting."""
-    tracker = getattr(cliver, "token_tracker", None)
-    if not tracker or not tracker.last_usage:
-        return
-
-    from cliver.token_tracker import format_tokens
-
-    last = tracker.last_usage
-    session = tracker.get_session_total()
-    model = tracker.last_model or "?"
-
-    cliver.output(
-        f"[dim]◆ {model}[/dim]  "
-        f"[dim]tokens:[/dim] [bold]{format_tokens(last.total_tokens)}[/bold] "
-        f"[dim](in: {format_tokens(last.input_tokens)}, out: {format_tokens(last.output_tokens)})[/dim]  "
-        f"[dim]session:[/dim] [bold]{format_tokens(session.total_tokens)}[/bold]"
-    )
-
-
-def _async_chat(
-    task_executor: TaskExecutor,
-    user_input: str,
-    model: str,
-    stream: bool = False,
-    images: List[str] = None,
-    audio_files: List[str] = None,
-    video_files: List[str] = None,
-    files: List[str] = None,
-    template: Optional[str] = None,
-    params: dict = None,
-    save_media: bool = False,
-    media_dir: Optional[str] = None,
-    options: Dict[str, Any] = None,
-    tools_filter: Optional[Callable] = None,
-    system_message_appender=None,
-    on_response: Optional[Callable[[str], None]] = None,
-    conversation_history=None,
-    on_first_token: Optional[Callable[[], None]] = None,
-    console=None,
-):
-    # Create multimedia response handler
-    response_handler = MultimediaResponseHandler(media_dir)
-
-    try:
-        if stream:
-            # For streaming, we need to run the async generator
-            return asyncio.run(
-                _stream_chat(
-                    task_executor,
-                    user_input,
-                    images,
-                    audio_files,
-                    video_files,
-                    files,
-                    model,
-                    template,
-                    params,
-                    save_media,
-                    media_dir,
-                    options,
-                    tools_filter,
-                    system_message_appender,
-                    on_response=on_response,
-                    conversation_history=conversation_history,
-                    on_first_token=on_first_token,
-                    console=console,
-                )
-            )
-        else:
-            response = task_executor.process_user_input_sync(
-                user_input=user_input,
-                images=images,
-                audio_files=audio_files,
-                video_files=video_files,
-                files=files,
-                model=model,
-                template=template,
-                params=params,
-                options=options,
-                filter_tools=tools_filter,
-                system_message_appender=system_message_appender,
-                conversation_history=conversation_history,
-            )
-            if response:
-                # Get the LLM engine used for this response
-                llm_engine = task_executor.get_llm_engine(model)
-
-                # Process response with multimedia handler
-                multimedia_response = response_handler.process_response(
-                    response, llm_engine=llm_engine, auto_save_media=save_media
-                )
-
-                # Display text content
-                if multimedia_response.has_text():
-                    console.print(multimedia_response.text_content)
-                    if on_response:
-                        on_response(multimedia_response.text_content)
-
-                # Display media information
-                if multimedia_response.has_media():
-                    media_count = len(multimedia_response.media_content)
-                    console.print(f"\n\\[Media Content: {media_count} items]")
-                    for i, media in enumerate(multimedia_response.media_content):
-                        info = f"  {i + 1}. {media.type.value}"
-                        if media.filename:
-                            info += f" ({media.filename})"
-                        if media.mime_type:
-                            info += f" \\[{media.mime_type}]"
-                        console.print(info)
-    except ValueError as e:
-        if "File upload is not supported" in str(e):
-            console.print(f"[red]Error: {e}[/red]")
-            console.print("Will use content embedding as fallback.")
-        else:
-            raise
-        return 1
-    except Exception as e:
-        console.print(f"[red]Error: {e}[/red]")
-        return 1
-    return 0
-
-
-async def _stream_chat(
-    task_executor: TaskExecutor,
-    user_input: str,
-    images: List[str] = None,
-    audio_files: List[str] = None,
-    video_files: List[str] = None,
-    files: List[str] = None,
-    model: str = None,
-    template: Optional[str] = None,
-    params: dict = None,
-    save_media: bool = False,
-    media_dir: Optional[str] = None,
-    options: Dict[str, Any] = None,
-    tools_filter: Optional[Callable] = None,
-    system_message_appender=None,
-    on_response: Optional[Callable[[str], None]] = None,
-    conversation_history=None,
-    on_first_token: Optional[Callable[[], None]] = None,
-    console=None,
-):
-    """Stream the chat response."""
-    from rich.console import Console as RichConsole
-
-    if console is None:
-        console = RichConsole()
-
-    # Create multimedia response handler
-    response_handler = MultimediaResponseHandler(media_dir)
-
-    try:
-        accumulated_chunk = None
-        async for chunk in task_executor.stream_user_input(
-            user_input=user_input,
-            images=images,
-            audio_files=audio_files,
-            video_files=video_files,
-            files=files,
-            model=model,
-            template=template,
-            params=params,
-            options=options,
-            filter_tools=tools_filter,
-            system_message_appender=system_message_appender,
-            conversation_history=conversation_history,
-        ):
-            if accumulated_chunk is None:
-                accumulated_chunk = chunk
-            else:
-                accumulated_chunk = accumulated_chunk + chunk
-
-            if hasattr(chunk, "content") and chunk.content:
-                # Stop spinner on first content token (or after tool calls restart it)
-                if on_first_token:
-                    on_first_token()
-
-                print(str(chunk.content), end="")
-
-        # Final flush after streaming completes
-        print(flush=True)
-
-        # After streaming is complete, process the accumulated content
-        if accumulated_chunk:
-            # Get the LLM engine used for this response
-            llm_engine = task_executor.get_llm_engine(model)
-            multimedia_response = response_handler.process_response(
-                accumulated_chunk, llm_engine=llm_engine, auto_save_media=save_media
-            )
-
-            # Display media information if any
-            if multimedia_response.has_media():
-                console.print()
-                media_count = len(multimedia_response.media_content)
-                console.print(f"\n\\[Media Content: {media_count} items]")
-                for i, media in enumerate(multimedia_response.media_content):
-                    info = f"  {i + 1}. {media.type.value}"
-                    if media.filename:
-                        info += f" ({media.filename})"
-                    if media.mime_type:
-                        info += f" \\[{media.mime_type}]"
-                    console.print(info)
-
-        # Record the full response to session
-        if on_response and accumulated_chunk and hasattr(accumulated_chunk, "content") and accumulated_chunk.content:
-            on_response(str(accumulated_chunk.content))
-
-        console.print()  # New line at the end
-        return 0
-    except ValueError as e:
-        if "File upload is not supported" in str(e):
-            console.print(f"Error: {e}")
-            console.print("Will use content embedding as fallback.")
-        else:
-            raise
-        return 1
-    except Exception as e:
-        console.print(f"[red]Error: {e}[/red]")
-        return 1
 
 
 def _compress_if_needed(cliver, task_executor, model_config, model_name, new_input):

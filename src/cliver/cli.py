@@ -51,6 +51,10 @@ class _IndentedStdout:
     def write(self, text):
         if not text:
             return 0
+        # Lines starting with \r are spinner animations — skip indent
+        # so \r can properly overwrite the current line
+        if text.startswith("\r"):
+            return self._real.write(text)
         out = []
         for ch in text:
             if self._at_line_start and ch != "\n":

@@ -5,6 +5,7 @@ Skill activation command.
 """
 
 import click
+from langchain_core.messages import AIMessage, HumanMessage
 
 from cliver.cli import Cliver, pass_cliver
 from cliver.skill_manager import SkillManager
@@ -46,10 +47,8 @@ def skill_cmd(cliver: Cliver, name: str, message: tuple):
             f"I want to use the '{name}' skill. Please explain what this skill does and ask me what I'd like to do."
         )
 
-    # Call chat logic directly — same path as normal /chat
-    from langchain_core.messages import AIMessage, HumanMessage
-
-    from cliver.commands.chat import _async_chat, _compress_if_needed, _show_token_usage
+    from cliver.cli_llm_call import LLMCallOptions, llm_call
+    from cliver.commands.chat import _compress_if_needed
 
     session_options = cliver.session_options or {}
     use_model = session_options.get("model", None)
@@ -71,27 +70,14 @@ def skill_cmd(cliver: Cliver, name: str, message: tuple):
         cliver.record_turn("assistant", text)
         cliver.conversation_messages.append(AIMessage(content=text))
 
-    # Start thinking spinner
-    thinking = getattr(cliver, "thinking", None)
-    if thinking:
-        thinking.start(use_model)
-
-    try:
-        _async_chat(
-            task_executor,
-            user_message,
-            use_model,
-            use_stream,
+    llm_call(
+        cliver,
+        LLMCallOptions(
+            user_input=user_message,
+            model=use_model,
+            stream=use_stream,
             system_message_appender=skill_appender,
-            on_response=on_response,
             conversation_history=conv_history,
-            on_first_token=thinking.stop if thinking else None,
-            console=cliver.console,
-        )
-    except Exception as e:
-        cliver.output(f"[red]Error: {e}[/red]")
-    finally:
-        if thinking:
-            thinking.stop()
-
-    _show_token_usage(cliver)
+            on_response=on_response,
+        ),
+    )

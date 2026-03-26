@@ -1,0 +1,262 @@
+"""
+Reusable LLM call component with CLI presentation.
+
+Handles the full request/response lifecycle including:
+- Thinking spinner (start/stop)
+- Streaming or sync LLM calls
+- Token usage display
+- Error handling
+
+This is a CLI-layer component — TaskExecutor and API layer have no dependency on it.
+"""
+
+import asyncio
+import logging
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+
+from langchain_core.messages import BaseMessage
+
+if TYPE_CHECKING:
+    from cliver.cli import Cliver
+    from cliver.llm import TaskExecutor
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class LLMCallResult:
+    """Result of an LLM call."""
+
+    success: bool = True
+    text: str = ""
+    response: Optional[BaseMessage] = None
+    error: Optional[str] = None
+
+
+@dataclass
+class LLMCallOptions:
+    """Options for an LLM call.
+
+    Only set fields you need — defaults work for simple calls like skill generation.
+    Full chat features (multimedia, templates) set the relevant fields.
+    """
+
+    user_input: str = ""
+    model: Optional[str] = None
+    stream: bool = True
+    images: List[str] = field(default_factory=list)
+    audio_files: List[str] = field(default_factory=list)
+    video_files: List[str] = field(default_factory=list)
+    files: List[str] = field(default_factory=list)
+    template: Optional[str] = None
+    params: Optional[dict] = None
+    options: Optional[Dict[str, Any]] = None
+    save_media: bool = False
+    media_dir: Optional[str] = None
+    tools_filter: Optional[Callable] = None
+    system_message_appender: Optional[Callable] = None
+    conversation_history: Optional[List[BaseMessage]] = None
+    on_response: Optional[Callable[[str], None]] = None
+
+
+def llm_call(cliver: "Cliver", opts: LLMCallOptions) -> LLMCallResult:
+    """Execute an LLM call with full CLI presentation.
+
+    Handles spinner, streaming/sync dispatch, multimedia, token display, errors.
+    This is the single entry point for all CLI commands that need LLM interaction.
+
+    Args:
+        cliver: The Cliver CLI instance (provides console, thinking, token_tracker).
+        opts: LLM call options.
+
+    Returns:
+        LLMCallResult with the response text and metadata.
+    """
+    task_executor = cliver.task_executor
+    console = cliver.console
+    thinking = getattr(cliver, "thinking", None)
+
+    # Start spinner
+    if thinking:
+        thinking.start(opts.model or "")
+
+    try:
+        if opts.stream:
+            result = _stream_call(task_executor, opts, thinking, console)
+        else:
+            result = _sync_call(task_executor, opts, thinking, console)
+    except Exception as e:
+        if thinking:
+            thinking.stop()
+        cliver.output(f"[red]Error: {e}[/red]")
+        return LLMCallResult(success=False, error=str(e))
+    finally:
+        if thinking:
+            thinking.stop()
+
+    # Notify caller of response text
+    if result.success and result.text and opts.on_response:
+        opts.on_response(result.text)
+
+    # Display token usage
+    _show_token_usage(cliver)
+
+    return result
+
+
+def _stream_call(
+    task_executor: "TaskExecutor",
+    opts: LLMCallOptions,
+    thinking,
+    console,
+) -> LLMCallResult:
+    """Execute a streaming LLM call."""
+    from cliver.media_handler import MultimediaResponseHandler
+
+    response_handler = MultimediaResponseHandler(opts.media_dir)
+
+    def on_first_token():
+        if thinking:
+            thinking.stop()
+
+    try:
+        accumulated_chunk = None
+
+        async def _run():
+            nonlocal accumulated_chunk
+            async for chunk in task_executor.stream_user_input(
+                user_input=opts.user_input,
+                images=opts.images or None,
+                audio_files=opts.audio_files or None,
+                video_files=opts.video_files or None,
+                files=opts.files or None,
+                model=opts.model,
+                template=opts.template,
+                params=opts.params,
+                options=opts.options,
+                filter_tools=opts.tools_filter,
+                system_message_appender=opts.system_message_appender,
+                conversation_history=opts.conversation_history,
+            ):
+                if accumulated_chunk is None:
+                    accumulated_chunk = chunk
+                else:
+                    accumulated_chunk = accumulated_chunk + chunk
+
+                if hasattr(chunk, "content") and chunk.content:
+                    on_first_token()
+                    print(str(chunk.content), end="")
+
+            # Final flush
+            print(flush=True)
+
+        asyncio.run(_run())
+
+        text = ""
+        if accumulated_chunk:
+            llm_engine = task_executor.get_llm_engine(opts.model)
+            multimedia_response = response_handler.process_response(
+                accumulated_chunk, llm_engine=llm_engine, auto_save_media=opts.save_media
+            )
+
+            if multimedia_response.has_media():
+                console.print()
+                media_count = len(multimedia_response.media_content)
+                console.print(f"\n\\[Media Content: {media_count} items]")
+                for i, media in enumerate(multimedia_response.media_content):
+                    info = f"  {i + 1}. {media.type.value}"
+                    if media.filename:
+                        info += f" ({media.filename})"
+                    if media.mime_type:
+                        info += f" \\[{media.mime_type}]"
+                    console.print(info)
+
+            if hasattr(accumulated_chunk, "content") and accumulated_chunk.content:
+                text = str(accumulated_chunk.content)
+
+        console.print()  # trailing newline
+        return LLMCallResult(success=True, text=text, response=accumulated_chunk)
+
+    except ValueError as e:
+        if "File upload is not supported" in str(e):
+            console.print(f"[red]Error: {e}[/red]")
+            console.print("Will use content embedding as fallback.")
+        else:
+            raise
+        return LLMCallResult(success=False, error=str(e))
+
+
+def _sync_call(
+    task_executor: "TaskExecutor",
+    opts: LLMCallOptions,
+    thinking,
+    console,
+) -> LLMCallResult:
+    """Execute a synchronous (non-streaming) LLM call."""
+    from cliver.media_handler import MultimediaResponseHandler
+
+    response_handler = MultimediaResponseHandler(opts.media_dir)
+
+    response = task_executor.process_user_input_sync(
+        user_input=opts.user_input,
+        images=opts.images or None,
+        audio_files=opts.audio_files or None,
+        video_files=opts.video_files or None,
+        files=opts.files or None,
+        model=opts.model,
+        template=opts.template,
+        params=opts.params,
+        options=opts.options,
+        filter_tools=opts.tools_filter,
+        system_message_appender=opts.system_message_appender,
+        conversation_history=opts.conversation_history,
+    )
+
+    # Stop spinner before printing response
+    if thinking:
+        thinking.stop()
+
+    text = ""
+    if response:
+        llm_engine = task_executor.get_llm_engine(opts.model)
+        multimedia_response = response_handler.process_response(
+            response, llm_engine=llm_engine, auto_save_media=opts.save_media
+        )
+
+        if multimedia_response.has_text():
+            text = multimedia_response.text_content
+            console.print(text)
+
+        if multimedia_response.has_media():
+            media_count = len(multimedia_response.media_content)
+            console.print(f"\n\\[Media Content: {media_count} items]")
+            for i, media in enumerate(multimedia_response.media_content):
+                info = f"  {i + 1}. {media.type.value}"
+                if media.filename:
+                    info += f" ({media.filename})"
+                if media.mime_type:
+                    info += f" \\[{media.mime_type}]"
+                console.print(info)
+
+    return LLMCallResult(success=True, text=text, response=response)
+
+
+def _show_token_usage(cliver: "Cliver") -> None:
+    """Display token usage after a chat response using Rich formatting."""
+    tracker = getattr(cliver, "token_tracker", None)
+    if not tracker or not tracker.last_usage:
+        return
+
+    from cliver.token_tracker import format_tokens
+
+    last = tracker.last_usage
+    session = tracker.get_session_total()
+    model = tracker.last_model or "?"
+
+    cliver.output(
+        f"[dim]◆ {model}[/dim]  "
+        f"[dim]tokens:[/dim] [bold]{format_tokens(last.total_tokens)}[/bold] "
+        f"[dim](in: {format_tokens(last.input_tokens)}, out: {format_tokens(last.output_tokens)})[/dim]  "
+        f"[dim]session:[/dim] [bold]{format_tokens(session.total_tokens)}[/bold]"
+    )

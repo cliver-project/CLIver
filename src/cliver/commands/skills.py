@@ -77,34 +77,12 @@ def create_skill(cliver: Cliver, name: str, description: tuple, save_global: boo
 
     # Build prompt for the LLM to generate the SKILL.md content
     prompt = _build_create_prompt(name, desc_text)
-
-    # Call the LLM to generate the skill content with a live spinner
-    task_executor = cliver.task_executor
     model = (cliver.session_options or {}).get("model") or None
 
-    with cliver.console.status(
-        f"[bold cyan]Generating skill '{name}'...[/bold cyan]",
-        spinner="dots",
-    ):
-        try:
-            response = task_executor.process_user_input_sync(
-                user_input=prompt,
-                model=model,
-                filter_tools=_no_tools,  # no tools needed for generation
-            )
-        except Exception as e:
-            cliver.output(f"[red]Error generating skill: {e}[/red]")
-            return
-
-    if not response or not hasattr(response, "content") or not response.content:
-        cliver.output("[red]LLM returned no content.[/red]")
+    result = _llm_generate(cliver, prompt, model, f"Generating skill '{name}'...")
+    if not result:
         return
-
-    content = str(response.content).strip()
-
-    # Extract the SKILL.md content from the response
-    # The LLM might wrap it in a code block
-    content = _extract_skill_content(content)
+    content = result
 
     # Write to disk
     skills_dir.mkdir(parents=True, exist_ok=True)
@@ -132,6 +110,42 @@ def show_skill(cliver: Cliver, name: str):
         cliver.output(f"[dim]Allowed tools: {', '.join(skill.allowed_tools)}[/dim]")
     cliver.output("")
     cliver.output(skill.body)
+
+
+@skills.command(name="update", help="Update a skill using LLM generation")
+@click.argument("name", type=str)
+@click.argument("instructions", nargs=-1, required=True)
+@pass_cliver
+def update_skill(cliver: Cliver, name: str, instructions: tuple):
+    """Update an existing skill by asking the LLM to improve it.
+
+    NAME is the skill name to update.
+    INSTRUCTIONS describe how to improve the skill (remaining arguments joined).
+    """
+    manager = SkillManager()
+    skill = manager.get_skill(name)
+    if not skill:
+        cliver.output(f"[red]Skill '{name}' not found.[/red]")
+        _suggest_available(cliver, manager)
+        return
+
+    skill_file = skill.base_dir / "SKILL.md"
+    if not skill_file.is_file():
+        cliver.output(f"[red]Cannot find SKILL.md at {skill_file}[/red]")
+        return
+
+    current_content = skill_file.read_text(encoding="utf-8")
+    improvement_text = " ".join(instructions)
+    prompt = _build_update_prompt(name, current_content, improvement_text)
+    model = (cliver.session_options or {}).get("model") or None
+
+    result = _llm_generate(cliver, prompt, model, f"Updating skill '{name}'...")
+    if not result:
+        return
+    content = result
+
+    skill_file.write_text(content, encoding="utf-8")
+    cliver.output(f"Updated skill at: [green]{skill_file}[/green]")
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +193,35 @@ async def _no_tools(_user_input, _tools):
     return []
 
 
+def _llm_generate(cliver: Cliver, prompt: str, model: str, status_msg: str) -> str | None:
+    """Call LLM to generate content (no tools, no streaming), with spinner and token display.
+
+    Returns extracted SKILL.md content, or None on failure.
+    """
+    from cliver.cli_llm_call import LLMCallOptions, llm_call
+
+    cliver.output(f"[bold cyan]{status_msg}[/bold cyan]")
+    result = llm_call(
+        cliver,
+        LLMCallOptions(
+            user_input=prompt,
+            model=model,
+            stream=False,
+            tools_filter=_no_tools,
+        ),
+    )
+
+    if not result.success or not result.text:
+        if not result.error:
+            cliver.output("[red]LLM returned no content.[/red]")
+        return None
+
+    return _extract_skill_content(result.text.strip())
+
+
+_SKILL_PROMPT_RULES = "IMPORTANT: Do NOT call any skill toolsRespond with ONLY the SKILL.md file content directly. "
+
+
 def _build_create_prompt(name: str, description: str) -> str:
     """Build the prompt for the LLM to generate a SKILL.md file."""
     return (
@@ -195,8 +238,23 @@ def _build_create_prompt(name: str, description: str) -> str:
         f"   - Clear instructions for the LLM when this skill is activated\n"
         f"   - Step-by-step guidance or patterns to follow\n"
         f"   - Any relevant context or constraints\n\n"
-        f"Output ONLY the SKILL.md content, no explanations or wrapping.\n"
-        f"Do not wrap in a code block."
+        f"{_SKILL_PROMPT_RULES}"
+    )
+
+
+def _build_update_prompt(name: str, current_content: str, instructions: str) -> str:
+    """Build the prompt for the LLM to update/improve a SKILL.md file."""
+    return (
+        f"Update the following SKILL.md file for skill '{name}'.\n\n"
+        f"Current content:\n"
+        f"```\n{current_content}\n```\n\n"
+        f"Improvement instructions: {instructions}\n\n"
+        f"Requirements:\n"
+        f"1. Keep the same YAML frontmatter format (--- markers)\n"
+        f"2. The frontmatter MUST keep name: {name}\n"
+        f"3. Apply the improvement instructions to the skill content\n"
+        f"4. Preserve any existing good content that isn't contradicted by the instructions\n\n"
+        f"{_SKILL_PROMPT_RULES}"
     )
 
 
