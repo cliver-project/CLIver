@@ -35,10 +35,7 @@ def skill_cmd(cliver: Cliver, name: str, message: tuple):
     # Build skill system message — injected only on this call.
     # The conversation history carries the context for follow-up messages.
     skill_content = manager.activate_skill(name)
-    skill_system_msg = (
-        f"The user has activated the '{name}' skill. "
-        f"Follow these skill instructions:\n\n{skill_content}"
-    )
+    skill_system_msg = f"The user has activated the '{name}' skill. Follow these skill instructions:\n\n{skill_content}"
 
     def skill_appender():
         return skill_system_msg
@@ -46,14 +43,13 @@ def skill_cmd(cliver: Cliver, name: str, message: tuple):
     user_message = " ".join(message) if message else ""
     if not user_message:
         user_message = (
-            f"I want to use the '{name}' skill. "
-            f"Please explain what this skill does and ask me what I'd like to do."
+            f"I want to use the '{name}' skill. Please explain what this skill does and ask me what I'd like to do."
         )
 
     # Call chat logic directly — same path as normal /chat
-    from cliver.commands.chat import _async_chat, _show_token_usage, _compress_if_needed
-
     from langchain_core.messages import AIMessage, HumanMessage
+
+    from cliver.commands.chat import _async_chat, _compress_if_needed, _show_token_usage
 
     session_options = cliver.session_options or {}
     use_model = session_options.get("model", None)

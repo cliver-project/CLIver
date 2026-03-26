@@ -458,7 +458,7 @@ class Cliver:
         if first_token.lower().startswith("skill:"):
             skill_name = first_token.split(":", 1)[1]
             if skill_name:
-                rest = line[len(first_token):].strip()
+                rest = line[len(first_token) :].strip()
                 parts = ["skill", skill_name]
                 if rest:
                     parts.append(rest)

@@ -6,7 +6,7 @@ and any future dialogs that need user input within the TUI.
 """
 
 import threading
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from rich.console import Console
 from rich.panel import Panel
@@ -107,16 +107,14 @@ def show_dialog(
     # Render choice hints
     if choices:
         body.append("\n")
-        hints = " / ".join(f"[{c.key}]{c.label[len(c.key):]}" for c in choices)
+        hints = " / ".join(f"[{c.key}]{c.label[len(c.key) :]}" for c in choices)
         body.append(hints, style="dim")
 
     console.print()
     console.print(Panel(body, title=title, border_style=border_style, width=width))
 
     # Collect input
-    return _collect_input(
-        console, cliver_inst, choices, numbered_options, default_on_cancel
-    )
+    return _collect_input(console, cliver_inst, choices, numbered_options, default_on_cancel)
 
 
 def _collect_input(

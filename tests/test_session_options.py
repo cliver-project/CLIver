@@ -67,7 +67,8 @@ def test_set_options(load_cliver, init_config, simple_llm_model):
     result = runner.invoke(
         load_cliver,
         [
-            "session", "option",
+            "session",
+            "option",
             "set",
             "--model",
             "test-model",
