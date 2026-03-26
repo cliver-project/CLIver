@@ -94,8 +94,13 @@ class ThinkingIndicator:
         sys.stdout.write("\r" + " " * 60 + "\r")
         sys.stdout.flush()
 
-    def stop(self) -> None:
-        """Stop the animated indicator."""
+    def stop(self, blank_line: bool = True) -> None:
+        """Stop the animated indicator.
+
+        Args:
+            blank_line: Print an extra blank line after stopping (before LLM content).
+                        Set to False when the spinner will be restarted immediately.
+        """
         with self._lock:
             if not self._active:
                 return
@@ -103,6 +108,8 @@ class ThinkingIndicator:
         if self._thread:
             self._thread.join(timeout=1)
             self._thread = None
+        if blank_line:
+            print()
 
     @property
     def active(self) -> bool:
@@ -139,9 +146,9 @@ def create_tool_progress_handler(
         tool = f"[cyan]{event.tool_name}[/cyan]"
 
         if event.event_type == ToolEventType.TOOL_START:
-            # Stop thinking spinner when tool execution begins
+            # Stop thinking spinner when tool execution begins (no blank line — spinner restarts after)
             if thinking:
-                thinking.stop()
+                thinking.stop(blank_line=False)
 
             if not state["in_block"]:
                 console.print()  # blank line before first tool in a batch
@@ -173,6 +180,10 @@ def create_tool_progress_handler(
 
             console.print()  # blank line after completion
 
+            # Restart spinner while LLM processes the tool result
+            if thinking:
+                thinking.start(thinking._model)
+
         elif event.event_type == ToolEventType.TOOL_ERROR:
             duration = f"[dim]{event.duration_ms:.0f}ms[/dim]" if event.duration_ms else ""
             console.print(f"  {icon} {tool} {duration}")
@@ -182,6 +193,10 @@ def create_tool_progress_handler(
                 console.print(f"      [red]{err}[/red]")
             state["in_block"] = False
             console.print()  # blank line after error
+
+            # Restart spinner while LLM processes the error
+            if thinking:
+                thinking.start(thinking._model)
 
     return handler
 

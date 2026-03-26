@@ -31,6 +31,13 @@ _current_profile: Optional["AgentProfile"] = None
 # Tools should call get_input_fn()("prompt") instead of raw input().
 _input_fn = input  # default: standard input
 
+# Global output function — set by CLI layer to support TUI-safe output.
+# Tools should call get_output_fn()("text") instead of raw print().
+_output_fn = print  # default: standard print
+
+# Global CLI instance — set by CLI layer for TUI dialog support.
+_cli_instance = None
+
 
 def set_current_profile(profile: Optional["AgentProfile"]) -> None:
     """Set the active AgentProfile. Called by TaskExecutor at init."""
@@ -52,6 +59,28 @@ def set_input_fn(fn) -> None:
 def get_input_fn():
     """Get the current input function. Tools use this instead of raw input()."""
     return _input_fn
+
+
+def set_output_fn(fn) -> None:
+    """Set the global output function. Called by CLI layer for TUI support."""
+    global _output_fn
+    _output_fn = fn
+
+
+def get_output_fn():
+    """Get the current output function. Tools use this instead of raw print()."""
+    return _output_fn
+
+
+def set_cli_instance(instance) -> None:
+    """Set the global CLI instance. Called by CLI layer at TUI start."""
+    global _cli_instance
+    _cli_instance = instance
+
+
+def get_cli_instance():
+    """Get the CLI instance for TUI dialog support. Returns None in non-TUI mode."""
+    return _cli_instance
 
 
 # Maximum characters of memory to inject into the system prompt.

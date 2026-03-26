@@ -157,13 +157,12 @@ def _list_skills(cliver: Cliver) -> None:
     table.add_column("Name", style="green", no_wrap=True)
     table.add_column("Description", style="white", max_width=60)
     table.add_column("Source", style="cyan", no_wrap=True)
-    table.add_column("Path", style="dim", max_width=50)
 
     for s in all_skills:
         desc = s.description
         if len(desc) > 60:
             desc = desc[:57] + "..."
-        table.add_row(s.name, desc, s.source, str(s.base_dir))
+        table.add_row(s.name, desc, s.source)
 
     cliver.output(table)
 

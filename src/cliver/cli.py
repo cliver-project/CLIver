@@ -16,7 +16,7 @@ from langchain_core.messages.base import BaseMessage
 from prompt_toolkit import Application
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.buffer import Buffer
-from prompt_toolkit.completion import WordCompleter
+from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
@@ -77,6 +77,115 @@ class _IndentedStdout:
         return getattr(self._real, name)
 
 
+class ClickCompleter(Completer):
+    """prompt_toolkit completer that walks the Click command tree.
+
+    Provides completions for commands, subcommands, options, and
+    special forms like /skill:<name>.
+    """
+
+    def __init__(self, group: click.Group):
+        self._group = group
+
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor
+
+        # Only complete slash commands (lines starting with /)
+        if not text.startswith("/"):
+            return
+
+        # Strip the leading / for matching against Click commands
+        stripped = text[1:]
+        parts = stripped.split()
+
+        # If cursor is right after a space, we're completing the next token
+        at_new_token = stripped.endswith(" ") if stripped else True
+
+        if not parts or (len(parts) == 1 and not at_new_token):
+            # Completing the first word (command name) — include / in completion
+            prefix = parts[0].lower() if parts else ""
+            for name, cmd in sorted(self._group.commands.items()):
+                if cmd.hidden:
+                    continue
+                if name.startswith(prefix):
+                    help_text = cmd.get_short_help_str(limit=50) if cmd.help else ""
+                    display_name = f"/{name}"
+                    yield Completion(
+                        display_name,
+                        start_position=-len(text),
+                        display_meta=help_text,
+                    )
+            # Also offer /skill:<name> completions
+            if "skill".startswith(prefix) or prefix.startswith("skill:"):
+                yield from self._skill_completions(prefix, text)
+            return
+
+        # skill:xxx is a complete command — no further completions
+        if parts and ":" in parts[0]:
+            return
+
+        # Walk the command tree to find the current group/command
+        cmd = self._group
+        consumed = 0
+        for i, part in enumerate(parts):
+            if not isinstance(cmd, click.Group):
+                break
+            sub = cmd.get_command(None, part.lower())
+            if sub is None:
+                return  # unrecognized command — no completions
+            cmd = sub
+            consumed = i + 1
+
+        # Remaining parts after resolving the command chain
+        remaining = parts[consumed:]
+        current_prefix = ""
+        if not at_new_token and remaining:
+            current_prefix = remaining[-1].lower()
+
+        # If the resolved command is a group, suggest subcommands
+        if isinstance(cmd, click.Group):
+            for name, sub in sorted(cmd.commands.items()):
+                if sub.hidden:
+                    continue
+                if name.startswith(current_prefix):
+                    help_text = sub.get_short_help_str(limit=50) if sub.help else ""
+                    yield Completion(
+                        name,
+                        start_position=-len(current_prefix),
+                        display_meta=help_text,
+                    )
+
+        # Suggest options for the resolved command
+        if isinstance(cmd, (click.Command, click.Group)):
+            # Collect already-used options
+            used = {p.lower() for p in parts[consumed:] if p.startswith("-")}
+            for param in cmd.params:
+                if isinstance(param, click.Option):
+                    for opt in param.opts + param.secondary_opts:
+                        if opt.lower() in used:
+                            continue
+                        if opt.startswith(current_prefix):
+                            help_text = param.help or ""
+                            yield Completion(
+                                opt,
+                                start_position=-len(current_prefix),
+                                display_meta=help_text[:50],
+                            )
+
+    def _skill_completions(self, prefix: str, full_text: str):
+        """Yield /skill:<name> completions."""
+        try:
+            from cliver.skill_manager import SkillManager
+
+            names = SkillManager().get_skill_names()
+        except Exception:
+            return
+        for name in sorted(names):
+            full = f"/skill:{name}"
+            if full[1:].startswith(prefix):  # match without /
+                yield Completion(full, start_position=-len(full_text))
+
+
 class Cliver:
     """
     The global App is the box for all capabilities.
@@ -130,6 +239,12 @@ class Cliver:
         self._rss_headlines: list[str] = []
         self._rss_index = 0
         self._cancel_requested = False
+        # Pending user input state for TUI mode (permission prompts, ask_user_question)
+        self._permission_pending = None  # threading.Event when waiting
+        self._permission_response = None  # result string
+        self._dialog_choices = None  # list of DialogChoice for validation
+        self._user_input_pending = None  # threading.Event for free-form input
+        self._user_input_response = None  # result string
 
     def init_session(self, group: click.Group, session_options: Dict[str, Any] = None):
         if self.piped:
@@ -176,7 +291,7 @@ class Cliver:
             agent_profile=self.agent_profile,
             token_tracker=self.token_tracker,
             permission_manager=self.permission_manager,
-            on_permission_prompt=_create_permission_prompt(self.console),
+            on_permission_prompt=_create_permission_prompt(self.console, self),
         )
 
     def switch_agent(self, agent_name: str) -> None:
@@ -319,6 +434,9 @@ class Cliver:
             else:
                 cmd_parts = cmd.split()
                 cmd_name = cmd_parts[0] if cmd_parts else ""
+                # skill:xxx is handled in call_cmd
+                if ":" in cmd_name:
+                    return cmd
                 if cmd_name not in self._get_commands():
                     self.console.print(f"[yellow]Unknown command: /{cmd_name}[/yellow]")
                     return None
@@ -334,6 +452,25 @@ class Cliver:
 
     def call_cmd(self, line: str):
         """Call a command with the given name and arguments."""
+        # Handle skill:name — extract name and pass message as a single arg
+        # to avoid shell_split breaking multiline content
+        first_token = line.split(None, 1)[0] if line.strip() else ""
+        if first_token.lower().startswith("skill:"):
+            skill_name = first_token.split(":", 1)[1]
+            if skill_name:
+                rest = line[len(first_token):].strip()
+                parts = ["skill", skill_name]
+                if rest:
+                    parts.append(rest)
+                try:
+                    cliver_cli(args=parts, prog_name="cliver", standalone_mode=False, obj=self)
+                except click.UsageError as e:
+                    if e.ctx:
+                        self.output(e.ctx.get_help())
+                    else:
+                        self.output(str(e))
+                return
+
         try:
             parts = shell_split(line)
         except ValueError:
@@ -343,7 +480,14 @@ class Cliver:
         if parts[0].lower() == "chat" and len(parts) <= 1:
             return
 
-        cliver_cli(args=parts, prog_name="cliver", standalone_mode=False, obj=self)
+        try:
+            cliver_cli(args=parts, prog_name="cliver", standalone_mode=False, obj=self)
+        except click.UsageError as e:
+            # Show help normally instead of red error text
+            if e.ctx:
+                self.output(e.ctx.get_help())
+            else:
+                self.output(str(e))
 
     def cleanup(self):
         """Clean up resources."""
@@ -366,8 +510,28 @@ class Cliver:
         else:
             self._run_tui()
 
+    def _tui_input(self, prompt_text: str = "") -> str:
+        """Input function for TUI mode — routes through the input buffer."""
+        import threading
+
+        if prompt_text:
+            self.output(prompt_text)
+        event = threading.Event()
+        self._user_input_response = None
+        self._user_input_pending = event
+        event.wait()
+        self._user_input_pending = None
+        return self._user_input_response or ""
+
     def _run_tui(self) -> None:
         """Run the persistent TUI with input+toolbar always at the bottom."""
+        # Register TUI input/output functions for tools like ask_user_question
+        from cliver.agent_profile import set_cli_instance, set_input_fn, set_output_fn
+
+        set_input_fn(self._tui_input)
+        set_output_fn(lambda text: self.output(text))
+        set_cli_instance(self)
+
         # Print banner to real stdout before TUI takes over
         default_model = self.config_manager.config.default_model
         agent_name = self.agent_name
@@ -375,20 +539,41 @@ class Cliver:
 
         # Input buffer with history and completion
         history = FileHistory(str(self.history_path))
-        completer = WordCompleter(
-            self.load_commands_names(self._group) if hasattr(self, "_group") else [],
-            ignore_case=True,
-        )
+        completer = ClickCompleter(self._group) if hasattr(self, "_group") else None
 
         _current_task = {"task": None}
 
         def on_accept(buff):
             line = buff.text.strip()
-            if line:
-                history.append_string(line)
             buff.reset()
             if not line:
                 return
+
+            # Handle choice-based dialog response (permission prompt, etc.)
+            if self._permission_pending is not None:
+                choices = self._dialog_choices or []
+                for choice in choices:
+                    if choice.matches(line):
+                        self._permission_response = choice.value
+                        self._permission_pending.set()
+                        return
+                if choices:
+                    valid = ", ".join(c.key for c in choices)
+                    self.output(f"  [yellow]Invalid choice: '{line}'. Use {valid}[/yellow]")
+                    return
+                # No choices defined — treat as free text (shouldn't happen)
+                self._permission_response = line
+                self._permission_pending.set()
+                return
+
+            # Handle free-form user input (ask_user_question tool)
+            if self._user_input_pending is not None:
+                self._user_input_response = line
+                self._user_input_pending.set()
+                return
+
+            if line:
+                history.append_string(line)
             processed = self._preprocess_line(line)
             if processed is None:
                 if line.lower() in ("exit", "quit", "/exit", "/quit"):
@@ -420,6 +605,7 @@ class Cliver:
             history=history,
             auto_suggest=AutoSuggestFromHistory(),
             completer=completer,
+            complete_while_typing=True,
         )
 
         # Key bindings
@@ -427,7 +613,18 @@ class Cliver:
 
         @kb.add("c-c")
         def _ctrl_c(event):
-            """Ctrl+C cancels running task, or exits if idle."""
+            """Ctrl+C cancels running task, pending prompts, or exits if idle."""
+            # Unblock any pending permission or user input prompts
+            if self._permission_pending is not None:
+                self._permission_response = "deny"
+                self._permission_pending.set()
+                self.console.print("\n[yellow]Cancelled.[/yellow]")
+                return
+            if self._user_input_pending is not None:
+                self._user_input_response = ""
+                self._user_input_pending.set()
+                self.console.print("\n[yellow]Cancelled.[/yellow]")
+                return
             if _current_task["task"] and not _current_task["task"].done():
                 _current_task["task"].cancel()
                 self._cancel_requested = True
@@ -483,10 +680,17 @@ class Cliver:
             def create_margin(self, window_render_info, width, height):
                 return [("class:toolbar-border", " │\n")] * height
 
+        def _get_prompt():
+            if self._permission_pending is not None:
+                return [("class:permission-prompt", "⚠ y/n/a/d ❯ ")]
+            if self._user_input_pending is not None:
+                return [("class:permission-prompt", "? ❯ ")]
+            return [("class:prompt", "❯ ")]
+
         input_window = Window(
             content=BufferControl(
                 buffer=input_buffer,
-                input_processors=[BeforeInput([("class:prompt", "❯ ")])],
+                input_processors=[BeforeInput(_get_prompt)],
             ),
             wrap_lines=True,
             dont_extend_height=True,
@@ -503,14 +707,26 @@ class Cliver:
         # Empty spacer to separate output from input box
         spacer_window = Window(height=3, dont_extend_height=True)
 
+        from prompt_toolkit.layout.containers import Float, FloatContainer
+        from prompt_toolkit.layout.menus import CompletionsMenu
+
         layout = Layout(
-            HSplit(
-                [
-                    spacer_window,
-                    border_window,
-                    input_window,
-                    toolbar_window,
-                ]
+            FloatContainer(
+                content=HSplit(
+                    [
+                        spacer_window,
+                        border_window,
+                        input_window,
+                        toolbar_window,
+                    ]
+                ),
+                floats=[
+                    Float(
+                        xcursor=True,
+                        ycursor=True,
+                        content=CompletionsMenu(max_height=10, scroll_offset=1),
+                    ),
+                ],
             ),
             focused_element=input_window,
         )
@@ -526,6 +742,7 @@ class Cliver:
                 "toolbar-mode": "#88aa88",
                 "toolbar-rss": "#cccc88 italic",
                 "toolbar-model": "#88ccff bold",
+                "permission-prompt": "ansiyellow bold",
             }
         )
 
@@ -637,8 +854,9 @@ def loads_commands():
     commands.loads_external_commands(cliver_cli)
 
 
-def _create_permission_prompt(console: Console):
+def _create_permission_prompt(console: Console, cliver_inst: "Cliver" = None):
     """Create a Rich-formatted permission prompt callback."""
+    from cliver.cli_dialog import PERMISSION_CHOICES, show_dialog
     from cliver.permissions import ActionKind, get_tool_meta
 
     _ACTION_LABELS = {
@@ -655,33 +873,24 @@ def _create_permission_prompt(console: Console):
         resource = str(args.get(meta.resource_param, "")) if meta.resource_param else ""
         label, color = _ACTION_LABELS.get(meta.action_kind, ("Unknown", "white"))
 
-        # Build the info panel
-        console.print()
-        console.print("  [bold yellow]⚠  Permission Required[/bold yellow]")
-        console.print("  ┌─────────────────────────────────────────────")
-        console.print(f"  │  Tool:     [bold]{tool_name}[/bold]")
-        console.print(f"  │  Action:   [bold {color}]{label}[/bold {color}]")
+        fields = [
+            ("Tool", tool_name, "bold"),
+            ("Action", label, f"bold {color}"),
+        ]
         if resource:
-            console.print(f"  │  Resource: [cyan]{resource}[/cyan]")
+            fields.append(("Resource", resource, "cyan"))
         if event_args_summary := _format_args_summary(args, meta.resource_param):
-            console.print(f"  │  Args:     [dim]{event_args_summary}[/dim]")
-        console.print("  └─────────────────────────────────────────────")
+            fields.append(("Args", event_args_summary, "dim"))
 
-        # Simple text prompt (works in background thread with patch_stdout)
-        while True:
-            try:
-                console.print("  [dim]\\[y]es / \\[n]o / \\[a]lways allow / \\[d]eny always[/dim]")
-                response = input("  > ").strip().lower()
-            except (EOFError, KeyboardInterrupt):
-                return "deny"
-            if response in ("y", "yes"):
-                return "allow"
-            elif response in ("a", "always"):
-                return "allow_always"
-            elif response in ("n", "no"):
-                return "deny"
-            elif response in ("d", "deny"):
-                return "deny_always"
+        return show_dialog(
+            console=console,
+            cliver_inst=cliver_inst,
+            title="[bold yellow]⚠  Permission Required[/bold yellow]",
+            fields=fields,
+            choices=PERMISSION_CHOICES,
+            border_style="yellow",
+            default_on_cancel="deny",
+        )
 
     return prompt
 

@@ -6,8 +6,6 @@ from typing import List, Optional, Type
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from cliver.agent_profile import get_input_fn
-
 logger = logging.getLogger(__name__)
 
 
@@ -64,46 +62,44 @@ class AskUserQuestionTool(BaseTool):
     tags: list = ["think", "interact", "confirm"]
 
     def _run(self, question: str, options: Optional[List[dict]] = None) -> str:
-        prompt = get_input_fn()
         try:
-            print(f"\n{'=' * 60}")
-            print(f"  Question: {question}")
-            print(f"{'=' * 60}")
+            from cliver.agent_profile import get_cli_instance
+            from cliver.cli_dialog import show_dialog
 
+            cliver_inst = get_cli_instance()
+            console = cliver_inst.console if cliver_inst else None
+
+            # Fallback console for non-TUI mode
+            if console is None:
+                from rich.console import Console
+
+                console = Console()
+
+            # Build numbered options if provided
+            numbered_opts = None
             if options:
-                # Display numbered options
-                for i, opt in enumerate(options, 1):
+                numbered_opts = []
+                for opt in options:
                     label = opt.get("label", "") if isinstance(opt, dict) else opt.label
                     desc = opt.get("description", "") if isinstance(opt, dict) else opt.description
-                    print(f"  [{i}] {label}")
-                    if desc:
-                        print(f"      {desc}")
-                print("  [0] Other (type custom response)")
-                print()
+                    numbered_opts.append((label, desc))
 
-                response = prompt("  Your choice (number or text): ").strip()
+            result = show_dialog(
+                console=console,
+                cliver_inst=cliver_inst,
+                title="[bold cyan]❓ Question[/bold cyan]",
+                body_text=question,
+                numbered_options=numbered_opts,
+                border_style="cyan",
+                default_on_cancel="User cancelled the question.",
+            )
 
-                # Check if it's a number selection
-                try:
-                    choice = int(response)
-                    if 1 <= choice <= len(options):
-                        opt = options[choice - 1]
-                        selected = opt.get("label", "") if isinstance(opt, dict) else opt.label
-                        print(f"  Selected: {selected}")
-                        return f"User selected: {selected}"
-                    elif choice == 0:
-                        custom = prompt("  Your response: ").strip()
-                        return f"User response: {custom}"
-                except ValueError:
-                    pass
+            if numbered_opts and result.startswith("User "):
+                return result
+            if not result or result == "User cancelled the question.":
+                return "User cancelled the question."
+            return f"User response: {result}"
 
-                # Treat as free text
-                return f"User response: {response}"
-            else:
-                response = prompt("  Your response: ").strip()
-                return f"User response: {response}"
-        except (EOFError, KeyboardInterrupt):
-            return "User cancelled the question."
         except Exception as e:
             return f"Error asking user: {str(e)}"
 

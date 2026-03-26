@@ -667,11 +667,31 @@ class TaskExecutor:
                     continue
                 full_tool_name = f"{mcp_server}#{tool_name}" if mcp_server else tool_name
 
+                # Emit start event early so the CLI can stop the spinner
+                # before any permission dialog or tool execution
+                self._emit_tool_event(
+                    ToolEvent(
+                        event_type=ToolEventType.TOOL_START,
+                        tool_name=full_tool_name,
+                        tool_call_id=tool_call_id,
+                        args=args,
+                    )
+                )
+
                 # Permission / confirmation gate
                 denied = await self._check_permission(
                     full_tool_name, args, tool_call_id, messages, llm_response, confirm_tool_exec
                 )
                 if denied is not None:
+                    # Emit end event so spinner restarts for next LLM iteration
+                    self._emit_tool_event(
+                        ToolEvent(
+                            event_type=ToolEventType.TOOL_END,
+                            tool_name=full_tool_name,
+                            tool_call_id=tool_call_id,
+                            result="denied",
+                        )
+                    )
                     return denied
 
                 # Append the tool execution to messages using AIMessage with tool_calls.
@@ -698,16 +718,6 @@ class TaskExecutor:
                     additional_kwargs=extra_kwargs,
                 )
                 messages.append(tool_execution_message)
-
-                # Emit start event
-                self._emit_tool_event(
-                    ToolEvent(
-                        event_type=ToolEventType.TOOL_START,
-                        tool_name=full_tool_name,
-                        tool_call_id=tool_call_id,
-                        args=args,
-                    )
-                )
 
                 # Execute the tool and capture the result
                 start_time = time.monotonic()
@@ -824,7 +834,9 @@ class TaskExecutor:
         )
         messages.append(
             ToolMessage(
-                content=f"Permission denied: {full_tool_name} is not allowed.",
+                content=f"Permission denied: The user denied execution of '{full_tool_name}'. "
+                f"Do NOT retry this tool. Inform the user that the action was skipped "
+                f"and ask how they would like to proceed.",
                 tool_call_id=tool_call_id,
             )
         )

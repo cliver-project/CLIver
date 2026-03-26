@@ -476,7 +476,6 @@ async def _stream_chat(
 
     # Create multimedia response handler
     response_handler = MultimediaResponseHandler(media_dir)
-    first_token_fired = False
 
     try:
         accumulated_chunk = None
@@ -500,11 +499,9 @@ async def _stream_chat(
                 accumulated_chunk = accumulated_chunk + chunk
 
             if hasattr(chunk, "content") and chunk.content:
-                # Stop spinner on first content token
-                if not first_token_fired:
-                    first_token_fired = True
-                    if on_first_token:
-                        on_first_token()
+                # Stop spinner on first content token (or after tool calls restart it)
+                if on_first_token:
+                    on_first_token()
 
                 print(str(chunk.content), end="")
 
