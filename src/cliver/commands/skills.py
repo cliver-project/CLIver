@@ -1,0 +1,221 @@
+"""
+Skills management commands.
+
+List, create, and activate agent skills (SKILL.md files).
+"""
+
+import logging
+from pathlib import Path
+
+import click
+from rich import box
+from rich.table import Table
+
+from cliver.cli import Cliver, pass_cliver
+from cliver.skill_manager import SkillManager, validate_skill_name
+from cliver.util import get_config_dir
+
+logger = logging.getLogger(__name__)
+
+
+@click.group(
+    name="skills",
+    help="Manage agent skills",
+    invoke_without_command=True,
+)
+@pass_cliver
+@click.pass_context
+def skills(ctx, cliver: Cliver):
+    """List, create, or manage skills."""
+    if ctx.invoked_subcommand is None:
+        _list_skills(cliver)
+
+
+@skills.command(name="list", help="List all discovered skills")
+@pass_cliver
+def list_skills(cliver: Cliver):
+    """List all discovered skills with their source locations."""
+    _list_skills(cliver)
+
+
+@skills.command(name="create", help="Create a new skill using LLM generation")
+@click.argument("name", type=str)
+@click.argument("description", nargs=-1, required=True)
+@click.option(
+    "--global",
+    "save_global",
+    is_flag=True,
+    default=False,
+    help="Save to global skills directory instead of project-local .cliver/skills/",
+)
+@pass_cliver
+def create_skill(cliver: Cliver, name: str, description: tuple, save_global: bool):
+    """Create a new skill by asking the LLM to generate a SKILL.md file.
+
+    NAME is the skill name (lowercase, hyphens allowed).
+    DESCRIPTION is what kind of skill it is (remaining arguments joined).
+    """
+    desc_text = " ".join(description)
+
+    # Validate the skill name
+    errors = validate_skill_name(name)
+    if errors:
+        for err in errors:
+            cliver.output(f"[red]{err}[/red]")
+        return
+
+    # Determine target directory
+    if save_global:
+        skills_dir = get_config_dir() / "skills" / name
+    else:
+        skills_dir = Path.cwd() / ".cliver" / "skills" / name
+
+    skill_file = skills_dir / "SKILL.md"
+    if skill_file.exists():
+        cliver.output(f"[yellow]Skill '{name}' already exists at {skill_file}[/yellow]")
+        return
+
+    # Build prompt for the LLM to generate the SKILL.md content
+    prompt = _build_create_prompt(name, desc_text)
+
+    # Call the LLM to generate the skill content with a live spinner
+    task_executor = cliver.task_executor
+    model = (cliver.session_options or {}).get("model") or None
+
+    with cliver.console.status(
+        f"[bold cyan]Generating skill '{name}'...[/bold cyan]",
+        spinner="dots",
+    ):
+        try:
+            response = task_executor.process_user_input_sync(
+                user_input=prompt,
+                model=model,
+                filter_tools=_no_tools,  # no tools needed for generation
+            )
+        except Exception as e:
+            cliver.output(f"[red]Error generating skill: {e}[/red]")
+            return
+
+    if not response or not hasattr(response, "content") or not response.content:
+        cliver.output("[red]LLM returned no content.[/red]")
+        return
+
+    content = str(response.content).strip()
+
+    # Extract the SKILL.md content from the response
+    # The LLM might wrap it in a code block
+    content = _extract_skill_content(content)
+
+    # Write to disk
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    skill_file.write_text(content, encoding="utf-8")
+    cliver.output(f"Created skill at: [green]{skill_file}[/green]")
+    cliver.output("You can edit the file to refine the skill content.")
+
+
+@skills.command(name="show", help="Show the full content of a skill")
+@click.argument("name", type=str)
+@pass_cliver
+def show_skill(cliver: Cliver, name: str):
+    """Display the full content of a skill."""
+    manager = SkillManager()
+    skill = manager.get_skill(name)
+    if not skill:
+        cliver.output(f"[red]Skill '{name}' not found.[/red]")
+        _suggest_available(cliver, manager)
+        return
+
+    cliver.output(f"[bold]Skill: {skill.name}[/bold]")
+    cliver.output(f"[dim]Source: {skill.source} — {skill.base_dir}[/dim]")
+    cliver.output(f"[dim]Description: {skill.description}[/dim]")
+    if skill.allowed_tools:
+        cliver.output(f"[dim]Allowed tools: {', '.join(skill.allowed_tools)}[/dim]")
+    cliver.output("")
+    cliver.output(skill.body)
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _list_skills(cliver: Cliver) -> None:
+    """Display all discovered skills in a Rich table."""
+    manager = SkillManager()
+    all_skills = manager.list_skills()
+
+    if not all_skills:
+        cliver.output("No skills found.")
+        cliver.output("[dim]Skills are discovered from:[/dim]")
+        cliver.output("[dim]  - .cliver/skills/ (project)[/dim]")
+        cliver.output(f"[dim]  - {get_config_dir() / 'skills'} (global)[/dim]")
+        cliver.output("[dim]  - ~/.agents/skills/ (agent-agnostic)[/dim]")
+        cliver.output("[dim]Create one with: /skills create <name> <description>[/dim]")
+        return
+
+    table = Table(title=f"Discovered Skills ({len(all_skills)})", box=box.ROUNDED)
+    table.add_column("Name", style="green", no_wrap=True)
+    table.add_column("Description", style="white", max_width=60)
+    table.add_column("Source", style="cyan", no_wrap=True)
+    table.add_column("Path", style="dim", max_width=50)
+
+    for s in all_skills:
+        desc = s.description
+        if len(desc) > 60:
+            desc = desc[:57] + "..."
+        table.add_row(s.name, desc, s.source, str(s.base_dir))
+
+    cliver.output(table)
+
+
+def _suggest_available(cliver: Cliver, manager: SkillManager) -> None:
+    """Show available skill names as a hint."""
+    names = manager.get_skill_names()
+    if names:
+        cliver.output(f"Available skills: {', '.join(names)}")
+
+
+async def _no_tools(_user_input, _tools):
+    """filter_tools callback that disables all tools."""
+    return []
+
+
+def _build_create_prompt(name: str, description: str) -> str:
+    """Build the prompt for the LLM to generate a SKILL.md file."""
+    return (
+        f"Generate a SKILL.md file for a skill named '{name}'.\n"
+        f"The skill is about: {description}\n\n"
+        f"Requirements:\n"
+        f"1. Start with YAML frontmatter between --- markers\n"
+        f"2. The frontmatter MUST include:\n"
+        f"   - name: {name}\n"
+        f"   - description: A clear, concise description (under 200 chars)\n"
+        f"3. Optionally include in frontmatter:\n"
+        f"   - allowed-tools: space-delimited tool names if the skill needs specific tools\n"
+        f"4. The body (after frontmatter) should contain:\n"
+        f"   - Clear instructions for the LLM when this skill is activated\n"
+        f"   - Step-by-step guidance or patterns to follow\n"
+        f"   - Any relevant context or constraints\n\n"
+        f"Output ONLY the SKILL.md content, no explanations or wrapping.\n"
+        f"Do not wrap in a code block."
+    )
+
+
+def _extract_skill_content(content: str) -> str:
+    """Extract SKILL.md content, stripping any code fences the LLM may add."""
+    # Strip markdown code blocks if present
+    if content.startswith("```"):
+        lines = content.split("\n")
+        # Remove first line (```markdown or ```)
+        lines = lines[1:]
+        # Remove last line if it's ```
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        content = "\n".join(lines)
+
+    # Ensure it starts with ---
+    content = content.strip()
+    if not content.startswith("---"):
+        content = "---\n" + content
+
+    return content
