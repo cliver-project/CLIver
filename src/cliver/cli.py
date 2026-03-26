@@ -541,8 +541,11 @@ class Cliver:
             # Wrap patched stdout with indenter for left margin on ALL output
             _patched = sys.stdout
             sys.stdout = _IndentedStdout(_patched)
-            # Re-create console to pick up indented stdout
-            self.console = Console(file=sys.stdout)
+            # Re-create console to pick up indented stdout.
+            # Subtract indent width so Rich tables/panels fit within the visible area.
+            indent_cols = len(_IndentedStdout.INDENT)
+            effective_width = shutil.get_terminal_size().columns - indent_cols
+            self.console = Console(file=sys.stdout, width=effective_width)
             try:
                 app.run()
             finally:

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Tests for the session-option command (renamed from session).
+Tests for the /session option subgroup.
 Tests the set/reset subcommands and default display behavior.
 """
 
@@ -21,11 +21,9 @@ def _make_session_defaults(cliver_instance):
         "top_p": default_options.top_p,
         "frequency_penalty": default_options.frequency_penalty,
         "options": {},
-        "template": None,
         "stream": False,
         "save_media": False,
         "media_dir": None,
-        "included_tools": None,
     }
 
 
@@ -52,24 +50,24 @@ def _setup(runner, load_cliver):
 
 
 def test_default_displays_options(load_cliver, init_config, simple_llm_model):
-    """Running session-option with no subcommand displays current options."""
+    """Running /session option with no subcommand displays current options."""
     runner = CliRunner()
     cliver_instance = _setup(runner, load_cliver)
 
-    result = runner.invoke(load_cliver, ["session-option"], obj=cliver_instance)
+    result = runner.invoke(load_cliver, ["session", "option"], obj=cliver_instance)
     assert result.exit_code == 0
-    assert "Current session options:" in result.output
+    assert "Session options:" in result.output
 
 
 def test_set_options(load_cliver, init_config, simple_llm_model):
-    """session-option set updates options."""
+    """/session option set updates options."""
     runner = CliRunner()
     cliver_instance = _setup(runner, load_cliver)
 
     result = runner.invoke(
         load_cliver,
         [
-            "session-option",
+            "session", "option",
             "set",
             "--model",
             "test-model",
@@ -84,25 +82,25 @@ def test_set_options(load_cliver, init_config, simple_llm_model):
     assert result.exit_code == 0
 
     # Verify by displaying
-    result = runner.invoke(load_cliver, ["session-option"], obj=cliver_instance)
+    result = runner.invoke(load_cliver, ["session", "option"], obj=cliver_instance)
     assert result.exit_code == 0
     assert "test-model" in result.output
 
 
 def test_reset_subcommand(load_cliver, init_config, simple_llm_model):
-    """session-option reset resets all options to defaults."""
+    """/session option reset resets all options to defaults."""
     runner = CliRunner()
     cliver_instance = _setup(runner, load_cliver)
 
     # Set some values first
     runner.invoke(
         load_cliver,
-        ["session-option", "set", "--model", "test-model", "--temperature", "0.8", "--stream"],
+        ["session", "option", "set", "--model", "test-model", "--temperature", "0.8", "--stream"],
         obj=cliver_instance,
     )
 
     # Reset
-    result = runner.invoke(load_cliver, ["session-option", "reset"], obj=cliver_instance)
+    result = runner.invoke(load_cliver, ["session", "option", "reset"], obj=cliver_instance)
     assert result.exit_code == 0
     assert "reset to defaults" in result.output
 
@@ -118,17 +116,15 @@ def test_individual_set_options(load_cliver, init_config, simple_llm_model):
         (["--max-tokens", "1024"], "Set max_tokens to 1024"),
         (["--top-p", "0.9"], "Set top_p to 0.9"),
         (["--frequency-penalty", "0.3"], "Set frequency_penalty to 0.3"),
-        (["--template", "code"], "Set template to 'code'"),
         (["--stream"], "Enabled streaming"),
         (["--no-stream"], "Disabled streaming"),
         (["--save-media"], "Enabled save-media"),
         (["--no-save-media"], "Disabled save-media"),
         (["--media-dir", "/tmp/test"], "Set media_dir to '/tmp/test'"),
-        (["--included-tools", "all"], "Set included_tools to 'all'"),
     ]
 
     for args, expected in tests:
-        result = runner.invoke(load_cliver, ["session-option", "set"] + args, obj=cliver_instance)
+        result = runner.invoke(load_cliver, ["session", "option", "set"] + args, obj=cliver_instance)
         assert result.exit_code == 0, f"Failed for {args}: {result.output}"
         assert expected in result.output, f"Expected '{expected}' in output for {args}: {result.output}"
 
@@ -140,7 +136,7 @@ def test_additional_options(load_cliver, init_config, simple_llm_model):
 
     result = runner.invoke(
         load_cliver,
-        ["session-option", "set", "--option", "presence_penalty=0.5", "--option", 'stop=["\\n", "###"]'],
+        ["session", "option", "set", "--option", "presence_penalty=0.5", "--option", 'stop=["\\n", "###"]'],
         obj=cliver_instance,
     )
     assert result.exit_code == 0
@@ -149,10 +145,10 @@ def test_additional_options(load_cliver, init_config, simple_llm_model):
 
 
 def test_set_no_args_displays_options(load_cliver, init_config, simple_llm_model):
-    """session-option set with no options displays current values."""
+    """/session option set with no options displays current values."""
     runner = CliRunner()
     cliver_instance = _setup(runner, load_cliver)
 
-    result = runner.invoke(load_cliver, ["session-option", "set"], obj=cliver_instance)
+    result = runner.invoke(load_cliver, ["session", "option", "set"], obj=cliver_instance)
     assert result.exit_code == 0
-    assert "Current session options:" in result.output
+    assert "Session options:" in result.output

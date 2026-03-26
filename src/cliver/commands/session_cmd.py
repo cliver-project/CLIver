@@ -2,7 +2,8 @@
 Session management commands for interactive mode.
 
 Manages conversation sessions — list, load, create, delete, compress.
-Also manages session-scoped permission grants via /session permission.
+Also manages session-scoped permission grants via /session permission
+and inference options via /session option.
 Session recording happens automatically in chat.py after each LLM response.
 """
 
@@ -12,7 +13,9 @@ import click
 from langchain_core.messages import AIMessage, HumanMessage
 
 from cliver.cli import Cliver, pass_cliver
+from cliver.config import ModelOptions
 from cliver.permissions import PermissionAction, PermissionMode
+from cliver.util import parse_key_value_options
 
 
 @click.group(name="session", help="Manage conversation sessions", invoke_without_command=True)
@@ -80,9 +83,18 @@ def load_session(cliver: Cliver, session_id: str):
     # Compress if the loaded history exceeds context window
     _compress_loaded_session(cliver)
 
+    # Restore saved session options (model, temperature, etc.)
+    saved_options = sm.load_options(session_id)
+    if saved_options:
+        cliver.session_options.update(saved_options)
+
     cliver.output(f"Loaded session '{session_id}': {info.get('title', '(untitled)')}")
     msg_count = len(cliver.conversation_messages)
     cliver.output(f"  {len(turns)} conversation turns restored ({msg_count} messages in context).")
+    if saved_options:
+        model = saved_options.get("model")
+        if model:
+            cliver.output(f"  Restored session model: {model}")
     cliver.output("Continue chatting — the conversation history is active.")
 
 
@@ -201,6 +213,190 @@ def _compress_loaded_session(cliver):
         cliver.output(f"[Session compressed: ~{before_tokens} → ~{after_tokens} tokens]")
     except Exception as e:
         cliver.output(f"[Warning: session compression failed: {e}]")
+
+
+# ---------------------------------------------------------------------------
+# /session option — session-scoped inference options
+# ---------------------------------------------------------------------------
+
+
+def _display_options(cliver: Cliver) -> None:
+    """Display current session options, showing real values for everything."""
+    opts = cliver.session_options
+    defaults = ModelOptions()
+
+    # Resolve real values: session override → model config → global defaults
+    default_model = cliver.config_manager.config.default_model or "(none)"
+    model = opts.get("model") or default_model
+
+    # Get per-model option overrides if a model is configured
+    model_config = cliver.config_manager.get_llm_model(model if model != "(none)" else None)
+    model_opts = model_config.options if model_config and model_config.options else defaults
+
+    llm_opts = opts.get("options", {})
+    temperature = llm_opts.get("temperature", model_opts.temperature)
+    max_tokens = llm_opts.get("max_tokens", model_opts.max_tokens)
+    top_p = llm_opts.get("top_p", model_opts.top_p)
+    freq_penalty = llm_opts.get("frequency_penalty", model_opts.frequency_penalty)
+
+    stream = opts.get("stream", True)
+    save_media = opts.get("save_media", False)
+    media_dir = opts.get("media_dir") or "(current directory)"
+
+    cliver.output("Session options:")
+    cliver.output(f"  model:             {model}")
+    cliver.output(f"  stream:            {stream}")
+    cliver.output(f"  temperature:       {temperature}")
+    cliver.output(f"  max_tokens:        {max_tokens}")
+    cliver.output(f"  top_p:             {top_p}")
+    cliver.output(f"  frequency_penalty: {freq_penalty}")
+    cliver.output(f"  save_media:        {save_media}")
+    cliver.output(f"  media_dir:         {media_dir}")
+
+    # Show any extra key=value options
+    extra = {k: v for k, v in llm_opts.items() if k not in ("temperature", "max_tokens", "top_p", "frequency_penalty")}
+    if extra:
+        cliver.output(f"  extra options:     {extra}")
+
+
+@session_cmd.group(name="option", help="Manage inference options for this session", invoke_without_command=True)
+@pass_cliver
+@click.pass_context
+def session_option(ctx, cliver: Cliver):
+    """View or modify persistent inference options for the current session."""
+    if ctx.invoked_subcommand is None:
+        _display_options(cliver)
+
+
+@session_option.command(name="set", help="Set inference options for this session")
+@click.option("--model", "-m", type=str, help="LLM model to use")
+@click.option("--temperature", type=float, help="Temperature parameter")
+@click.option("--max-tokens", type=int, help="Maximum number of tokens")
+@click.option("--top-p", type=float, help="Top-p parameter")
+@click.option("--frequency-penalty", type=float, help="Frequency penalty")
+@click.option("--stream", "-s", is_flag=True, default=None, help="Enable streaming")
+@click.option("--no-stream", is_flag=True, default=None, help="Disable streaming")
+@click.option("--save-media", "-sm", is_flag=True, default=None, help="Enable media saving")
+@click.option("--no-save-media", is_flag=True, default=None, help="Disable media saving")
+@click.option("--media-dir", "-md", type=str, help="Directory for media files")
+@click.option("--option", multiple=True, type=str, help="Additional options (key=value)")
+@pass_cliver
+def set_options(
+    cliver: Cliver,
+    model,
+    temperature,
+    max_tokens,
+    top_p,
+    frequency_penalty,
+    stream,
+    no_stream,
+    save_media,
+    no_save_media,
+    media_dir,
+    option,
+):
+    """Set one or more inference options for the current session."""
+    options_provided = any(
+        [
+            model is not None,
+            temperature is not None,
+            max_tokens is not None,
+            top_p is not None,
+            frequency_penalty is not None,
+            stream is not None,
+            no_stream is not None,
+            save_media is not None,
+            no_save_media is not None,
+            media_dir is not None,
+            len(option) > 0,
+        ]
+    )
+
+    if not options_provided:
+        _display_options(cliver)
+        return 0
+
+    _llm_options = cliver.session_options.get("options", {})
+
+    if model is not None:
+        if not cliver.config_manager.get_llm_model(model):
+            cliver.output(f"Unknown model: {model}, please define it first.")
+            return 1
+        cliver.session_options["model"] = model
+        cliver.output(f"Set model to '{model}' for this session.")
+
+    if temperature is not None:
+        _llm_options["temperature"] = temperature
+        cliver.output(f"Set temperature to {temperature} for this session.")
+
+    if max_tokens is not None:
+        _llm_options["max_tokens"] = max_tokens
+        cliver.output(f"Set max_tokens to {max_tokens} for this session.")
+
+    if top_p is not None:
+        _llm_options["top_p"] = top_p
+        cliver.output(f"Set top_p to {top_p} for this session.")
+
+    if frequency_penalty is not None:
+        _llm_options["frequency_penalty"] = frequency_penalty
+        cliver.output(f"Set frequency_penalty to {frequency_penalty} for this session.")
+
+    if stream is True:
+        cliver.session_options["stream"] = True
+        cliver.output("Enabled streaming for this session.")
+    elif no_stream is True:
+        cliver.session_options["stream"] = False
+        cliver.output("Disabled streaming for this session.")
+
+    if save_media is True:
+        cliver.session_options["save_media"] = True
+        cliver.output("Enabled save-media for this session.")
+    elif no_save_media is True:
+        cliver.session_options["save_media"] = False
+        cliver.output("Disabled save-media for this session.")
+
+    if media_dir is not None:
+        cliver.session_options["media_dir"] = media_dir
+        cliver.output(f"Set media_dir to '{media_dir}' for this session.")
+
+    if option and len(option) > 0:
+        opts_dict = parse_key_value_options(option)
+        _llm_options.update(opts_dict)
+        cliver.output(f"Updated additional options: {dict(opts_dict)}")
+
+    # Persist options into session data so they survive load/restore
+    _persist_session_options(cliver)
+
+    return 0
+
+
+@session_option.command(name="reset", help="Reset all session options to defaults")
+@pass_cliver
+def reset_options(cliver: Cliver):
+    """Reset all session options to their defaults."""
+    default_options = ModelOptions()
+    cliver.session_options = {
+        "model": cliver.config_manager.get_llm_model(),
+        "temperature": default_options.temperature,
+        "max_tokens": default_options.max_tokens,
+        "top_p": default_options.top_p,
+        "frequency_penalty": default_options.frequency_penalty,
+        "options": {},
+        "stream": False,
+        "save_media": False,
+        "media_dir": None,
+    }
+    cliver.output("Session options have been reset to defaults.")
+    _persist_session_options(cliver)
+    return 0
+
+
+def _persist_session_options(cliver: Cliver) -> None:
+    """Save current session options to the session index if a session is active."""
+    if not cliver.current_session_id:
+        return
+    sm = cliver.get_session_manager()
+    sm.save_options(cliver.current_session_id, cliver.session_options)
 
 
 # ---------------------------------------------------------------------------

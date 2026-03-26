@@ -131,6 +131,23 @@ class SessionManager:
             return None
         return {"id": session_id, **index[session_id]}
 
+    def save_options(self, session_id: str, options: Dict[str, Any]) -> None:
+        """Persist session options (model, temperature, etc.) into the session index."""
+        index = self._load_index()
+        if session_id not in index:
+            return
+        # Store only serialisable, non-empty option values
+        clean = {k: v for k, v in options.items() if v is not None and k != "statusbar"}
+        index[session_id]["options"] = clean
+        self._save_index(index)
+
+    def load_options(self, session_id: str) -> Dict[str, Any]:
+        """Load persisted session options. Returns empty dict if none saved."""
+        index = self._load_index()
+        if session_id not in index:
+            return {}
+        return index[session_id].get("options", {})
+
     # -- Index management ------------------------------------------------------
 
     def _load_index(self) -> Dict[str, Dict[str, Any]]:
