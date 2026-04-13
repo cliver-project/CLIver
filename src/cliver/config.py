@@ -176,6 +176,12 @@ class WorkflowConfig(BaseModel):
     )
 
 
+class GatewayConfig(BaseModel):
+    """Configuration for the gateway daemon process."""
+
+    platforms: List[Dict[str, Any]] = Field(default_factory=list, description="Platform adapter configurations")
+
+
 class AppConfig(BaseModel):
     default_agent_name: str = Field(default="CLIver", description="The default agent instance name")
     mcpServers: Dict[str, MCPServerConfig] = {}
@@ -183,6 +189,7 @@ class AppConfig(BaseModel):
     default_model: Optional[str] = Field(default=None, description="The default LLM model")
     workflow: Optional[WorkflowConfig] = Field(default=None, description="Workflow configuration")
     user_agent: Optional[str] = Field(default="CLIver", description="User-Agent header for LLM provider HTTP requests")
+    gateway: Optional[GatewayConfig] = Field(default=None, description="Gateway daemon configuration")
 
     def model_dump(self, **kwargs):
         """Override to exclude null values."""

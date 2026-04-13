@@ -40,6 +40,7 @@ dependencies = [
     "requests>=2.32.3",
     "json-repair>=0.52.0",
     "keyring>=25.0.0",
+    "croniter>=2.0.0",
     "tomli; python_version < '3.11'"
 ]
 
