@@ -5,13 +5,14 @@ Discovers, loads, and caches skills from SKILL.md files in directories,
 following the Agent Skills specification (https://agentskills.io/specification).
 
 Discovery order (later sources override earlier ones with the same name):
-1. {config_dir}/skills/         — user-global (CLIver)
-2. ~/.agents/skills/            — user-global (agent-agnostic)
-3. .cliver/skills/              — project-local (CLIver)
-4. .agent/skills/               — project-local (agent-agnostic)
-5. .claude/skills/              — project-local (Claude Code compat)
-6. .gemini/skills/              — project-local (Gemini compat)
-7. .qwen/skills/                — project-local (Qwen Code compat)
+0. {package}/cliver/skills/       — builtin (shipped with CLIver)
+1. {config_dir}/skills/           — user-global (CLIver)
+2. ~/.agents/skills/              — user-global (agent-agnostic)
+3. .cliver/skills/                — project-local (CLIver)
+4. .agent/skills/                 — project-local (agent-agnostic)
+5. .claude/skills/                — project-local (Claude Code compat)
+6. .gemini/skills/                — project-local (Gemini compat)
+7. .qwen/skills/                  — project-local (Qwen Code compat)
 """
 
 import logging
@@ -273,6 +274,9 @@ _PROJECT_SKILL_DIRS = [
     (".qwen/skills", "project (.qwen compat)"),
 ]
 
+# Builtin skills shipped with the CLIver package (lowest priority).
+_BUILTIN_SKILLS_DIR = Path(__file__).parent / "skills"
+
 
 class SkillManager:
     """Discovers, loads, and caches skills from SKILL.md files.
@@ -288,6 +292,13 @@ class SkillManager:
         if self._skills is not None:
             return
         self._skills = {}
+
+        # 0. Load builtin skills (lowest priority — overridden by everything else)
+        try:
+            found = _discover_skills_in_dir(_BUILTIN_SKILLS_DIR, source="builtin")
+            self._skills.update(found)
+        except Exception as e:
+            logger.debug(f"Could not scan builtin skills: {e}")
 
         # 1. Load global skills (lower priority)
         for path_resolver, source in _GLOBAL_SKILL_DIRS:

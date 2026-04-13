@@ -72,6 +72,8 @@ def skills_dir(tmp_path):
 @pytest.fixture
 def manager(skills_dir, monkeypatch):
     """Create a SkillManager that uses the test skills directory."""
+    # Patch builtin skills to an empty dir so they don't interfere
+    monkeypatch.setattr("cliver.skill_manager._BUILTIN_SKILLS_DIR", skills_dir.parent / "no-builtin")
     # Patch get_config_dir to return a dir that doesn't have skills
     monkeypatch.setattr("cliver.skill_manager.get_config_dir", lambda: skills_dir.parent / "no-global")
     # Patch cwd to point .cliver/skills to our test dir
@@ -441,6 +443,7 @@ class TestFormatSkillList:
         assert "skill(" in output
 
     def test_empty_skills(self, monkeypatch):
+        monkeypatch.setattr("cliver.skill_manager._BUILTIN_SKILLS_DIR", Path("/nonexistent"))
         monkeypatch.setattr("cliver.skill_manager.get_config_dir", lambda: Path("/nonexistent"))
         monkeypatch.setattr("cliver.skill_manager.Path.cwd", lambda: Path("/nonexistent"))
         mgr = SkillManager()
@@ -518,3 +521,60 @@ class TestSkillTool:
         tool = SkillTool()
         result = tool._run(skill_name="nonexistent")
         assert "not found" in result
+
+
+# ---------------------------------------------------------------------------
+# Builtin skill discovery
+# ---------------------------------------------------------------------------
+
+
+class TestBuiltinSkillDiscovery:
+    def test_discovers_builtin_skills(self, tmp_path, monkeypatch):
+        """Builtin skills from the package directory are discovered."""
+        builtin_dir = tmp_path / "builtin_skills" / "my-builtin"
+        builtin_dir.mkdir(parents=True)
+        (builtin_dir / "SKILL.md").write_text("---\nname: my-builtin\ndescription: A builtin skill.\n---\nBuiltin body")
+
+        monkeypatch.setattr("cliver.skill_manager._BUILTIN_SKILLS_DIR", tmp_path / "builtin_skills")
+        monkeypatch.setattr("cliver.skill_manager.get_config_dir", lambda: tmp_path / "no-global")
+        monkeypatch.setattr("cliver.skill_manager.Path.cwd", lambda: tmp_path / "no-project")
+
+        mgr = SkillManager()
+        skill = mgr.get_skill("my-builtin")
+        assert skill is not None
+        assert skill.source == "builtin"
+        assert "Builtin body" in skill.body
+
+    def test_user_skill_overrides_builtin(self, tmp_path, monkeypatch):
+        """User-defined skills override builtin skills with the same name."""
+        builtin_dir = tmp_path / "builtin_skills" / "my-skill"
+        builtin_dir.mkdir(parents=True)
+        (builtin_dir / "SKILL.md").write_text("---\nname: my-skill\ndescription: builtin version\n---\nBuiltin body")
+
+        user_dir = tmp_path / "project" / ".cliver" / "skills" / "my-skill"
+        user_dir.mkdir(parents=True)
+        (user_dir / "SKILL.md").write_text("---\nname: my-skill\ndescription: user version\n---\nUser body")
+
+        monkeypatch.setattr("cliver.skill_manager._BUILTIN_SKILLS_DIR", tmp_path / "builtin_skills")
+        monkeypatch.setattr("cliver.skill_manager.get_config_dir", lambda: tmp_path / "no-global")
+        monkeypatch.setattr("cliver.skill_manager.Path.cwd", lambda: tmp_path / "project")
+
+        mgr = SkillManager()
+        skill = mgr.get_skill("my-skill")
+        assert skill is not None
+        assert skill.description == "user version"
+        assert "User body" in skill.body
+
+    def test_builtin_skills_have_builtin_source_label(self, tmp_path, monkeypatch):
+        """Builtin skills are tagged with 'builtin' source."""
+        builtin_dir = tmp_path / "builtin_skills" / "test-skill"
+        builtin_dir.mkdir(parents=True)
+        (builtin_dir / "SKILL.md").write_text("---\nname: test-skill\ndescription: Test.\n---\nbody")
+
+        monkeypatch.setattr("cliver.skill_manager._BUILTIN_SKILLS_DIR", tmp_path / "builtin_skills")
+        monkeypatch.setattr("cliver.skill_manager.get_config_dir", lambda: tmp_path / "no-global")
+        monkeypatch.setattr("cliver.skill_manager.Path.cwd", lambda: tmp_path / "no-project")
+
+        mgr = SkillManager()
+        skill = mgr.get_skill("test-skill")
+        assert skill.source == "builtin"

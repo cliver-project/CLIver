@@ -201,6 +201,8 @@ class TestSystemPrompt:
         assert "Simple" in prompt
         assert "Medium" in prompt
         assert "Complex" in prompt
-        assert "create_workflow" in prompt
+        assert "skill('brainstorm')" in prompt
+        assert "skill('write-plan')" in prompt
+        assert "skill('execute-plan')" in prompt
         assert "todo_write" in prompt
         assert "todo_read" in prompt
