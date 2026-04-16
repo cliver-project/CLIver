@@ -1,23 +1,22 @@
 """
-Task Manager — thin wrappers around workflow executions with agent ownership.
+Task Manager — scheduled prompt-based tasks with agent ownership.
 
-A task is a YAML definition that references a workflow, provides default
-inputs, and optionally specifies a cron schedule. Tasks are stored
+A task is a YAML definition that provides a prompt for the LLM,
+optional model override, and optional cron schedule. Tasks are stored
 per-agent in {config_dir}/agents/{agent_name}/tasks/.
 
 Task YAML format:
     name: daily-research
     description: Research AI trends daily
-    workflow: research_analysis
-    inputs:
-      topic: "AI trends"
-    schedule: "0 9 * * *"    # optional cron expression
+    prompt: "Research the latest AI trends and summarize the top 3 developments"
+    model: deepseek-r1           # optional model override
+    schedule: "0 9 * * *"        # optional cron expression
 """
 
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 import yaml
 from pydantic import BaseModel, Field
@@ -26,14 +25,14 @@ logger = logging.getLogger(__name__)
 
 
 class TaskDefinition(BaseModel):
-    """A task definition — references a workflow with inputs and optional schedule."""
+    """A task definition — a prompt with optional model override and schedule."""
 
     name: str = Field(..., description="Unique task name")
     description: Optional[str] = Field(None, description="What this task does")
-    workflow: str = Field(..., description="Name of the workflow to execute")
-    inputs: Optional[Dict[str, Any]] = Field(None, description="Default inputs for the workflow")
+    prompt: str = Field(..., description="The prompt to send to the LLM")
+    model: Optional[str] = Field(None, description="Model override for this task")
     schedule: Optional[str] = Field(None, description="Cron expression for recurring execution")
-    permissions: Optional[Any] = Field(None, description="Permission overrides (TaskPermissions) for this task")
+    permissions: Optional[Any] = Field(None, description="Permission overrides for this task")
 
 
 class TaskRun(BaseModel):
@@ -41,7 +40,6 @@ class TaskRun(BaseModel):
 
     task_name: str
     execution_id: str
-    workflow_name: str
     status: str  # completed, failed, cancelled
     started_at: str
     finished_at: Optional[str] = None

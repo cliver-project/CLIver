@@ -8,7 +8,7 @@ import pytest
 from langchain_core.messages import AIMessage
 
 from cliver.config import ModelConfig
-from cliver.llm.llm import TaskExecutor
+from cliver.llm.llm import AgentCore
 from cliver.llm.openai_engine import OpenAICompatibleInferenceEngine
 from cliver.model_capabilities import ModelCapability
 
@@ -42,10 +42,10 @@ class TestFileUpload:
 
     @pytest.fixture
     def task_executor(self, openai_engine):
-        """Create a mock TaskExecutor."""
+        """Create a mock AgentCore."""
         llm_models = {"gpt-4": openai_engine.config}
         mcp_servers = {}
-        executor = TaskExecutor(llm_models, mcp_servers)
+        executor = AgentCore(llm_models, mcp_servers)
         executor.llm_engines["gpt-4"] = openai_engine
         return executor
 

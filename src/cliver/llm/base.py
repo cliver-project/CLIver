@@ -3,12 +3,11 @@ from abc import ABC, abstractmethod
 from typing import Any, AsyncIterator, List, Optional
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessageChunk
+from langchain_core.messages import BaseMessageChunk
 from langchain_core.messages.base import BaseMessage
 from langchain_core.tools import BaseTool
 
 from cliver.config import ModelConfig
-from cliver.llm.errors import get_friendly_error_message
 from cliver.llm.llm_utils import parse_tool_calls_from_content
 from cliver.media import MediaContent
 from cliver.model_capabilities import ModelCapability
@@ -28,29 +27,23 @@ class LLMInferenceEngine(ABC):
         return self.config.get_model_capabilities().supports(capability)
 
     # This method focus on the real LLM inference only.
+    # Exceptions are NOT caught here — they propagate to the Re-Act loop
+    # in AgentCore._process_messages(), which classifies and handles them
+    # (retry, compress, failover) via error_classifier.py.
     async def infer(
         self,
         messages: list[BaseMessage],
         tools: Optional[list[BaseTool]],
         **kwargs: Any,
     ) -> BaseMessage:
-        try:
-            # Convert messages to LLM engine format if needed
-            converted_messages = self.convert_messages_to_engine_specific(messages)
-            _llm = await self._reconstruct_llm(self.llm, tools)
-            response = await _llm.ainvoke(converted_messages, **kwargs)
-            return response
-        except Exception as e:
-            logger.debug(f"Error in infer: {str(e)}", exc_info=True)
-            friendly_error_msg = [
-                get_friendly_error_message(e, "LLM inference"),
-                f"\tmodel: {self.config.name}",
-            ]
-            return AIMessage(
-                content=f"Error: {'\n'.join(friendly_error_msg)}",
-                additional_kwargs={"type": "error"},
-            )
+        converted_messages = self.convert_messages_to_engine_specific(messages)
+        _llm = await self._reconstruct_llm(self.llm, tools)
+        response = await _llm.ainvoke(converted_messages, **kwargs)
+        return response
 
+    # Exceptions are NOT caught here — they propagate to the Re-Act loop
+    # in AgentCore._stream_messages(), which classifies and handles them
+    # (retry, compress, failover) via error_classifier.py.
     async def stream(
         self,
         messages: List[BaseMessage],
@@ -58,24 +51,11 @@ class LLMInferenceEngine(ABC):
         **kwargs: Any,
     ) -> AsyncIterator[BaseMessageChunk]:
         """Stream responses from the LLM."""
-        try:
-            # Convert messages to OpenAI multi-media format if needed
-            converted_messages = self.convert_messages_to_engine_specific(messages)
-            _llm = await self._reconstruct_llm(self.llm, tools)
-            # noinspection PyTypeChecker
-            async for chunk in _llm.astream(input=converted_messages, **kwargs):
-                yield chunk
-        except Exception as e:
-            logger.debug(f"Error in OpenAI stream: {str(e)}", exc_info=True)
-            friendly_error_msg = [
-                get_friendly_error_message(e, "OpenAI inference"),
-                f"\tmodel: {self.config.name}",
-            ]
-            # noinspection PyArgumentList
-            yield AIMessageChunk(
-                content=f"Error: {'\n'.join(friendly_error_msg)}",
-                additional_kwargs={"type": "error"},
-            )
+        converted_messages = self.convert_messages_to_engine_specific(messages)
+        _llm = await self._reconstruct_llm(self.llm, tools)
+        # noinspection PyTypeChecker
+        async for chunk in _llm.astream(input=converted_messages, **kwargs):
+            yield chunk
 
     @abstractmethod
     def convert_messages_to_engine_specific(self, messages: List[BaseMessage]) -> List[BaseMessage]:
@@ -106,7 +86,7 @@ class LLMInferenceEngine(ABC):
 
         Engine subclasses can override this for provider-specific parsing.
         Normalization (arg coercion, validation, MCP splitting) is handled
-        separately by normalize_tool_calls() in TaskExecutor.
+        separately by normalize_tool_calls() in AgentCore.
         """
         if response is None:
             return None
@@ -117,7 +97,7 @@ class LLMInferenceEngine(ABC):
         Build the builtin system prompt for CLIver.
 
         This method can be overridden by engine subclasses.
-        User-provided system messages are appended separately by TaskExecutor.
+        User-provided system messages are appended separately by AgentCore.
         """
         sections = [self._section_identity(self.agent_name)]
         sections.append(self._section_tool_usage())
@@ -130,6 +110,9 @@ class LLMInferenceEngine(ABC):
 
     @staticmethod
     def _section_identity(agent_name: str) -> str:
+        import os
+
+        cwd = os.getcwd()
         return (
             "# Identity\n\n"
             f"You are **{agent_name}**, a general-purpose AI agent. "
@@ -138,7 +121,15 @@ class LLMInferenceEngine(ABC):
             "and anything else the user asks for.\n\n"
             "You can operate in different environments: command-line interfaces, "
             "embedded applications, or as a backend service. "
-            "Adapt your tone, depth, and approach to whatever the user needs."
+            "Adapt your tone, depth, and approach to whatever the user needs.\n\n"
+            "## Working Directory\n\n"
+            f"Your current working directory is: `{cwd}`\n\n"
+            "- All file operations (read, write, list, grep) should be relative to this directory "
+            "unless the user explicitly specifies an absolute path outside it.\n"
+            "- Do NOT list or access `/`, `/etc`, `/usr`, or other system directories "
+            "unless the user specifically asks for it.\n"
+            "- When the user asks to create or save a file without specifying a path, "
+            "save it in the current working directory."
         )
 
     @staticmethod

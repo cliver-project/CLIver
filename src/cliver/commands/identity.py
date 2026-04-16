@@ -42,7 +42,7 @@ def chat_identity(cliver: Cliver):
     prompt = _build_identity_prompt(cliver)
 
     # Route through the chat command so it goes through the normal
-    # TaskExecutor flow (with tools, memory, session recording, etc.)
+    # AgentCore flow (with tools, memory, session recording, etc.)
     cliver.call_cmd(f'chat "{prompt}"')
 
 

@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Build tooling** — `make format` now runs `ruff check --fix` before `ruff format`
 
 ### Fixed
-- Default model sync to TaskExecutor when changed via `/model default`
+- Default model sync to AgentCore when changed via `/model default`
 - Centralized output and TUI layout improvements
 
 ## [0.0.2] - 2025-10-27

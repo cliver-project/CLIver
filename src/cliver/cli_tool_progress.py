@@ -2,7 +2,7 @@
 CLI tool execution progress display using Rich.
 
 This module provides a Rich-based renderer for tool execution events.
-It is ONLY used by the CLI layer — TaskExecutor and the API layer
+It is ONLY used by the CLI layer — AgentCore and the API layer
 have no dependency on this module.
 """
 
@@ -136,7 +136,7 @@ def create_tool_progress_handler(
         thinking: Optional ThinkingIndicator to stop when tools start
 
     Returns:
-        A ToolEventHandler callback for use with TaskExecutor
+        A ToolEventHandler callback for use with AgentCore
     """
     # Track whether we're inside a tool execution block for spacing
     state = {"in_block": False}

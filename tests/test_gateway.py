@@ -34,16 +34,15 @@ class TestGateway:
         gw._control_server.pid_path = config_dir / "gw.pid"
 
         with patch.object(gw, "_create_task_executor", return_value=MagicMock()):
-            with patch.object(gw, "_create_workflow_executor", return_value=MagicMock()):
-                await gw.start()
+            await gw.start()
 
-                assert gw.is_running
-                assert (config_dir / "gw.pid").exists()
+            assert gw.is_running
+            assert (config_dir / "gw.pid").exists()
 
-                await gw.stop()
+            await gw.stop()
 
-                assert not gw.is_running
-                assert not (config_dir / "gw.pid").exists()
+            assert not gw.is_running
+            assert not (config_dir / "gw.pid").exists()
 
     @pytest.mark.asyncio
     async def test_run_with_shutdown(self, config_dir, short_socket_dir):
@@ -53,17 +52,16 @@ class TestGateway:
         gw._control_server.pid_path = config_dir / "gw.pid"
 
         with patch.object(gw, "_create_task_executor", return_value=MagicMock()):
-            with patch.object(gw, "_create_workflow_executor", return_value=MagicMock()):
-                await gw.start()
+            await gw.start()
 
-                # Request shutdown after a short delay
-                async def shutdown_after_delay():
-                    await asyncio.sleep(0.2)
-                    gw._control_server.shutdown_requested = True
+            # Request shutdown after a short delay
+            async def shutdown_after_delay():
+                await asyncio.sleep(0.2)
+                gw._control_server.shutdown_requested = True
 
-                shutdown_task = asyncio.create_task(shutdown_after_delay())
-                await gw.run(tick_interval=0.1)
-                await shutdown_task
-                await gw.stop()
+            shutdown_task = asyncio.create_task(shutdown_after_delay())
+            await gw.run(tick_interval=0.1)
+            await shutdown_task
+            await gw.stop()
 
-                assert not gw.is_running
+            assert not gw.is_running

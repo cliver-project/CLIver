@@ -75,7 +75,7 @@ class CronScheduler:
 
         executed = 0
         for task in due_tasks:
-            logger.info(f"Cron: executing task '{task.name}' (workflow: {task.workflow})")
+            logger.info(f"Cron: executing task '{task.name}'")
             try:
                 await self.run_task_fn(task)
             except Exception as e:

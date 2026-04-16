@@ -1,4 +1,4 @@
-"""Tests for SessionManager — conversation session CRUD and recording."""
+"""Tests for SessionManager — SQLite-backed session CRUD, recording, and search."""
 
 import pytest
 
@@ -27,7 +27,7 @@ class TestSessionLifecycle:
     def test_create_without_title(self, manager):
         sid = manager.create_session()
         info = manager.get_session_info(sid)
-        assert info["title"] == ""
+        assert info["title"] is None or info["title"] == ""
 
     def test_list_sessions_empty(self, manager):
         assert manager.list_sessions() == []
@@ -41,10 +41,9 @@ class TestSessionLifecycle:
     def test_list_sessions_most_recent_first(self, manager):
         s1 = manager.create_session("Older")
         manager.create_session("Newer")
-        # Append to s1 to make it more recently updated
         manager.append_turn(s1, "user", "update")
         sessions = manager.list_sessions()
-        assert sessions[0]["id"] == s1  # s1 was updated more recently
+        assert sessions[0]["id"] == s1
 
     def test_delete_session(self, manager):
         sid = manager.create_session("To delete")
@@ -82,7 +81,6 @@ class TestConversationRecording:
         manager.append_turn(sid, "user", "test")
         turns = manager.load_turns(sid)
         assert "timestamp" in turns[0]
-        assert "UTC" in turns[0]["timestamp"]
 
     def test_turn_count_updates(self, manager):
         sid = manager.create_session()
@@ -94,7 +92,7 @@ class TestConversationRecording:
         assert info["turn_count"] == 3
 
     def test_title_set_from_first_user_message(self, manager):
-        sid = manager.create_session()  # no title
+        sid = manager.create_session()
         manager.append_turn(sid, "user", "What is the meaning of life?")
 
         info = manager.get_session_info(sid)
@@ -147,7 +145,28 @@ class TestConversationRecording:
 
 
 # ---------------------------------------------------------------------------
-# Unicode and special characters
+# Options persistence
+# ---------------------------------------------------------------------------
+
+
+class TestOptions:
+    def test_save_and_load_options(self, manager):
+        sid = manager.create_session()
+        manager.save_options(sid, {"model": "qwen", "temperature": 0.7})
+        opts = manager.load_options(sid)
+        assert opts["model"] == "qwen"
+        assert opts["temperature"] == 0.7
+
+    def test_load_options_empty(self, manager):
+        sid = manager.create_session()
+        assert manager.load_options(sid) == {}
+
+    def test_load_options_nonexistent(self, manager):
+        assert manager.load_options("nope") == {}
+
+
+# ---------------------------------------------------------------------------
+# Unicode
 # ---------------------------------------------------------------------------
 
 
@@ -163,3 +182,76 @@ class TestUnicode:
 
         info = manager.get_session_info(sid)
         assert info["title"] == "日本語テスト"
+
+
+# ---------------------------------------------------------------------------
+# Full-text search
+# ---------------------------------------------------------------------------
+
+
+class TestSearch:
+    def test_search_finds_matching_content(self, manager):
+        sid = manager.create_session("Kubernetes help")
+        manager.append_turn(sid, "user", "How do I deploy to kubernetes?")
+        manager.append_turn(sid, "assistant", "Use kubectl apply to deploy your manifests.")
+
+        results = manager.search("kubernetes")
+        assert len(results) == 1
+        assert results[0]["session_id"] == sid
+        assert len(results[0]["snippets"]) >= 1
+
+    def test_search_no_results(self, manager):
+        sid = manager.create_session()
+        manager.append_turn(sid, "user", "Hello world")
+        results = manager.search("kubernetes")
+        assert results == []
+
+    def test_search_multiple_sessions(self, manager):
+        s1 = manager.create_session("Python help")
+        manager.append_turn(s1, "user", "How to use python decorators?")
+        s2 = manager.create_session("Also python")
+        manager.append_turn(s2, "user", "Python async programming")
+        s3 = manager.create_session("Java stuff")
+        manager.append_turn(s3, "user", "Java spring boot setup")
+
+        results = manager.search("python")
+        assert len(results) == 2
+        session_ids = {r["session_id"] for r in results}
+        assert s1 in session_ids
+        assert s2 in session_ids
+        assert s3 not in session_ids
+
+    def test_search_chinese(self, manager):
+        sid = manager.create_session()
+        manager.append_turn(sid, "user", "如何部署到 kubernetes 集群？")
+        results = manager.search("kubernetes")
+        assert len(results) == 1
+
+    def test_search_returns_snippets(self, manager):
+        sid = manager.create_session()
+        manager.append_turn(sid, "user", "Tell me about kubernetes deployment strategies")
+        results = manager.search("kubernetes")
+        assert len(results) == 1
+        assert len(results[0]["snippets"]) >= 1
+        snippet = results[0]["snippets"][0]
+        assert "role" in snippet
+        assert "content" in snippet
+
+    def test_search_respects_limit(self, manager):
+        for i in range(10):
+            sid = manager.create_session()
+            manager.append_turn(sid, "user", f"Python question {i}")
+        results = manager.search("python", limit=3)
+        assert len(results) <= 3
+
+    def test_search_with_title(self, manager):
+        sid = manager.create_session("My deployment guide")
+        manager.append_turn(sid, "user", "kubernetes setup steps")
+        results = manager.search("kubernetes")
+        assert results[0]["title"] == "My deployment guide"
+
+    def test_update_title(self, manager):
+        sid = manager.create_session()
+        manager.update_title(sid, "New title")
+        info = manager.get_session_info(sid)
+        assert info["title"] == "New title"

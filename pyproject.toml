@@ -62,6 +62,16 @@ docs = [
     "mkdocs-minify-plugin>=0.2.0",
 ]
 
+[project.optional-dependencies]
+telegram = ["python-telegram-bot>=21.0"]
+discord = ["discord.py>=2.3"]
+slack = ["slack-bolt>=1.18", "slack-sdk>=3.27"]
+wechat = ["aiohttp>=3.9"]
+feishu = ["aiohttp>=3.9"]
+api = ["aiohttp>=3.9"]
+browser = ["firecrawl-py>=1.0", "playwright>=1.40"]
+all = ["python-telegram-bot>=21.0", "discord.py>=2.3", "slack-bolt>=1.18", "slack-sdk>=3.27", "aiohttp>=3.9", "firecrawl-py>=1.0", "playwright>=1.40"]
+
 [project.scripts]
 cliver = "cliver.cli:cliver_main"
 

@@ -242,11 +242,11 @@ class TestCompress:
 
 
 # ---------------------------------------------------------------------------
-# Conversation history in TaskExecutor message preparation
+# Conversation history in AgentCore message preparation
 # ---------------------------------------------------------------------------
 
 
-class TestTaskExecutorConversationHistory:
+class TestAgentCoreConversationHistory:
     """Verify conversation_history is inserted correctly into message list."""
 
     @pytest.mark.asyncio
@@ -254,9 +254,9 @@ class TestTaskExecutorConversationHistory:
         """Conversation history should appear between system messages and new user input."""
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from cliver.llm.llm import TaskExecutor
+        from cliver.llm.llm import AgentCore
 
-        # Create a minimal TaskExecutor with mocked dependencies
+        # Create a minimal AgentCore with mocked dependencies
         model_config = ModelConfig(
             name="test-model",
             provider="openai",
@@ -268,7 +268,7 @@ class TestTaskExecutorConversationHistory:
             mock_mcp_instance.get_mcp_tools = AsyncMock(return_value=[])
             mock_mcp.return_value = mock_mcp_instance
 
-            executor = TaskExecutor(
+            executor = AgentCore(
                 llm_models={"test-model": model_config},
                 mcp_servers={},
                 default_model="test-model",
@@ -310,7 +310,7 @@ class TestTaskExecutorConversationHistory:
         """When no conversation_history is passed, behavior is identical to before."""
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from cliver.llm.llm import TaskExecutor
+        from cliver.llm.llm import AgentCore
 
         model_config = ModelConfig(
             name="test-model",
@@ -323,7 +323,7 @@ class TestTaskExecutorConversationHistory:
             mock_mcp_instance.get_mcp_tools = AsyncMock(return_value=[])
             mock_mcp.return_value = mock_mcp_instance
 
-            executor = TaskExecutor(
+            executor = AgentCore(
                 llm_models={"test-model": model_config},
                 mcp_servers={},
                 default_model="test-model",

@@ -1,7 +1,0 @@
-- id: sub_workflow
-  name: Sub Workflow
-  type: workflow
-  workflow: other_workflow_name
-  workflow_inputs:
-    input_data: "{{ fetch_step.outputs.data }}"
-  outputs: [result]

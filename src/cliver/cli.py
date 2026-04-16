@@ -32,11 +32,9 @@ from cliver.cli_tool_progress import ThinkingIndicator, create_tool_progress_han
 from cliver.cli_ui import print_banner
 from cliver.config import ConfigManager
 from cliver.constants import CMD_CHAT
-from cliver.llm import TaskExecutor
+from cliver.llm import AgentCore
 from cliver.permissions import PermissionManager
 from cliver.util import get_config_dir, read_piped_input, stdin_is_piped
-from cliver.workflow.workflow_executor import WorkflowExecutor
-from cliver.workflow.workflow_manager_local import LocalDirectoryWorkflowManager
 
 
 class _IndentedStdout:
@@ -218,14 +216,6 @@ class Cliver:
         # Initialize agent (may be overridden by --agent flag before run)
         self._init_agent(self.config_manager.config.default_agent_name)
 
-        # Initialize workflow components — must be after _init_agent sets task_executor
-        workflow_config = self.config_manager.config.workflow
-        workflow_dirs = workflow_config.workflow_dirs if workflow_config else None
-        self.workflow_manager = LocalDirectoryWorkflowManager(workflow_dirs)
-        self.workflow_executor = WorkflowExecutor(
-            task_executor=self.task_executor, workflow_manager=self.workflow_manager
-        )
-
         # prepare console for interaction
         self.config_dir.mkdir(parents=True, exist_ok=True)
         self.history_path = self.config_dir / "history"
@@ -285,7 +275,7 @@ class Cliver:
             audit_dir=self.config_dir / "audit_logs",
             agent_name=agent_name,
         )
-        self.task_executor = TaskExecutor(
+        self.task_executor = AgentCore(
             llm_models=self.config_manager.list_llm_models(),
             mcp_servers=self.config_manager.list_mcp_servers_for_mcp_caller(),
             default_model=self.config_manager.get_llm_model().name if self.config_manager.get_llm_model() else None,
@@ -296,15 +286,12 @@ class Cliver:
             token_tracker=self.token_tracker,
             permission_manager=self.permission_manager,
             on_permission_prompt=_create_permission_prompt(self.console, self),
+            enabled_toolsets=self.config_manager.config.enabled_toolsets,
         )
 
     def switch_agent(self, agent_name: str) -> None:
         """Switch to a different agent, updating all scoped resources."""
         self._init_agent(agent_name)
-        # Update workflow executor to use the new task executor
-        self.workflow_executor = WorkflowExecutor(
-            task_executor=self.task_executor, workflow_manager=self.workflow_manager
-        )
         # Clear conversation state (different agent = fresh context)
         self.conversation_messages = []
         self.session_history = []
@@ -807,8 +794,44 @@ class CliverGroup(click.Group):
 @click.group(cls=CliverGroup, invoke_without_command=True)
 @click.version_option(version=__version__, prog_name="cliver")
 @click.option("--agent", type=str, default=None, help="Agent instance to use")
+@click.option("--prompt", "-p", type=str, default=None, help="Prompt to send (shorthand for 'chat <prompt>')")
+@click.option(
+    "--output",
+    "output_format",
+    type=click.Choice(["text", "json"]),
+    default=None,
+    help="Output format (used with -p)",
+)
+@click.option("--timeout", type=int, default=None, help="Wall-clock timeout in seconds (used with -p)")
+@click.option(
+    "--permission-mode",
+    type=click.Choice(["default", "auto-edit", "yolo"]),
+    default=None,
+    help="Permission mode override (used with -p)",
+)
+@click.option(
+    "--allow-tool",
+    multiple=True,
+    type=str,
+    help="Pre-grant a tool (used with -p, repeatable)",
+)
+@click.option(
+    "--no-fallback",
+    is_flag=True,
+    default=False,
+    help="Disable automatic model fallback (used with -p)",
+)
 @click.pass_context
-def cliver_cli(ctx: click.Context, agent: str | None):
+def cliver_cli(
+    ctx: click.Context,
+    agent: str | None,
+    prompt: str | None,
+    output_format: str | None,
+    timeout: int | None,
+    permission_mode: str | None,
+    allow_tool: tuple,
+    no_fallback: bool = False,
+):
     """
     Cliver: An application aims to make your CLI clever
     """
@@ -819,6 +842,24 @@ def cliver_cli(ctx: click.Context, agent: str | None):
             cli._init_agent(agent)
             cli.config_manager.set_default_agent_name(agent)
         ctx.obj = cli
+
+    if prompt:
+        # Route -p to chat command with forwarded CI flags
+        from cliver.commands.chat import chat
+
+        invoke_kwargs = {"query": (prompt,)}
+        if output_format:
+            invoke_kwargs["output_format"] = output_format
+        if timeout is not None:
+            invoke_kwargs["timeout"] = timeout
+        if permission_mode:
+            invoke_kwargs["permission_mode"] = permission_mode
+        if allow_tool:
+            invoke_kwargs["allow_tool"] = allow_tool
+        if no_fallback:
+            invoke_kwargs["no_fallback"] = no_fallback
+        ctx.invoke(chat, **invoke_kwargs)
+        return
 
     if ctx.invoked_subcommand is None:
         # If no subcommand is invoked, start interactive mode
@@ -917,5 +958,11 @@ def _format_args_summary(args: dict, skip_key: str | None = None) -> str:
 def cliver_main(*args, **kwargs):
     # loading all click groups and commands before calling it
     loads_commands()
-    # bootstrap the cliver application
-    cliver_cli()
+    # bootstrap the cliver application — use standalone_mode=False
+    # so command return values propagate as exit codes
+    try:
+        rc = cliver_cli(standalone_mode=False)
+    except click.ClickException as e:
+        e.show()
+        sys.exit(e.exit_code)
+    sys.exit(rc or 0)

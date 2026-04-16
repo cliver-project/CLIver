@@ -162,24 +162,35 @@ class WebSocketMCPServerConfig(MCPServerConfig):
     )
 
 
-class WorkflowConfig(BaseModel):
-    """Configuration for workflow execution."""
+class PlatformConfig(BaseModel):
+    """Configuration for a single messaging platform adapter."""
 
-    workflow_dirs: Optional[List[str]] = Field(
-        default=None,
-        description="List of directories to search for workflows. Defaults to "
-        ".cliver/workflows and ~/.config/cliver/workflows",
-    )
-    cache_dir: Optional[str] = Field(
-        default=None,
-        description="Directory for caching workflow execution results. Defaults to ~/.config/cliver/workflow_cache",
-    )
+    type: str = Field(description="Adapter type: builtin name or module path")
+    token: Optional[str] = Field(default=None, description="Bot/API token")
+    home_channel: Optional[str] = Field(default=None, description="Default channel for cron delivery")
+    allowed_users: Optional[List[str]] = Field(default=None, description="Whitelist of user IDs")
+
+    model_config = {"extra": "allow"}
+
+    @property
+    def is_builtin(self) -> bool:
+        return "." not in self.type
+
+
+class APIServerConfig(BaseModel):
+    """Configuration for the OpenAI-compatible API server."""
+
+    enabled: bool = Field(default=False, description="Enable the API server")
+    host: str = Field(default="0.0.0.0", description="Host to bind to")
+    port: int = Field(default=8000, description="Port to listen on")
+    api_key: Optional[str] = Field(default=None, description="API key for authentication (optional)")
 
 
 class GatewayConfig(BaseModel):
     """Configuration for the gateway daemon process."""
 
-    platforms: List[Dict[str, Any]] = Field(default_factory=list, description="Platform adapter configurations")
+    platforms: List[PlatformConfig] = Field(default_factory=list, description="Platform adapter configurations")
+    api_server: Optional[APIServerConfig] = Field(default=None, description="OpenAI-compatible API server")
 
 
 class AppConfig(BaseModel):
@@ -187,8 +198,11 @@ class AppConfig(BaseModel):
     mcpServers: Dict[str, MCPServerConfig] = {}
     models: Dict[str, ModelConfig] = {}
     default_model: Optional[str] = Field(default=None, description="The default LLM model")
-    workflow: Optional[WorkflowConfig] = Field(default=None, description="Workflow configuration")
     user_agent: Optional[str] = Field(default="CLIver", description="User-Agent header for LLM provider HTTP requests")
+    enabled_toolsets: Optional[List[str]] = Field(
+        default=None,
+        description="Override which tool groups are enabled (core, memory, automation, web, browser, container). Default: auto-detect from environment.",
+    )
     gateway: Optional[GatewayConfig] = Field(default=None, description="Gateway daemon configuration")
 
     def model_dump(self, **kwargs):
@@ -269,10 +283,6 @@ class ConfigManager:
                         else:
                             raise ValueError(f"Unknown transport {transport}")
                 config_data["mcpServers"] = converted_servers
-
-            # Handle workflow configuration
-            if "workflow" in config_data and isinstance(config_data["workflow"], dict):
-                config_data["workflow"] = WorkflowConfig(**config_data["workflow"])
 
             return AppConfig(**config_data)
         except Exception as e:

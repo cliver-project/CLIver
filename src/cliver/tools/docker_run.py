@@ -63,7 +63,7 @@ class DockerRunTool(BaseTool):
         "3. Test code in a specific runtime environment\n"
         "4. Run database migrations, linters, formatters in isolated containers\n\n"
         "The container runs in the foreground and returns stdout/stderr output. "
-        "Use 'setup_docker' first to verify the container runtime is available."
+        "The runtime is auto-detected if not specified."
     )
     args_schema: Type[BaseModel] = DockerRunInput
     tags: list = ["execute", "docker", "container"]
@@ -81,7 +81,7 @@ class DockerRunTool(BaseTool):
         # Detect runtime
         rt = self._detect_runtime(runtime)
         if not rt:
-            return "Error: No container runtime found. Use 'setup_docker' to check your environment."
+            return "Error: No container runtime found. Install Docker, Podman, or nerdctl."
 
         timeout_s = min(timeout or DEFAULT_TIMEOUT_S, MAX_TIMEOUT_S)
 

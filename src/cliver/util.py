@@ -223,42 +223,80 @@ def _confirm_tool_execution(prompt="Are you sure? (y/n): ") -> bool:
             return False
 
 
+# Context files to auto-discover, in priority order
+_DEFAULT_CONTEXT_FILES = [
+    "Cliver.md",
+    "CLAUDE.md",
+    "AGENTS.md",
+    ".cursorrules",
+    "README.md",
+]
+
+
 def read_context_files(base_path: str = ".", file_filter: list[str] = None) -> str:
     """
-    Read context from markdown files if they exist.
+    Read context from markdown/config files if they exist.
+
+    Scans the given directory and parent directories up to the git root
+    for context files. Each file is included only once (closest wins).
 
     Args:
-        base_path: The base path to look for context files (default: current directory)
-        file_filter: List of filenames to look for (default: ["Cliver.md"])
+        base_path: The base path to start looking (default: current directory)
+        file_filter: List of filenames to look for (default: common context files)
 
     Returns:
         A string containing the context from the files, or empty string if none found
     """
     import os
 
+    context_files = file_filter if file_filter is not None else _DEFAULT_CONTEXT_FILES
+
+    # Collect directories to scan: base_path + parents up to git root
+    dirs_to_scan = _collect_context_dirs(base_path)
+
     context = ""
+    seen_files: set = set()  # track which filenames we've already loaded
 
-    # Files to look for in order of priority
-    if file_filter is None:
-        context_files = ["Cliver.md"]
-    else:
-        context_files = file_filter
-
-    for filename in context_files:
-        file_path = os.path.join(base_path, filename)
-        if os.path.exists(file_path):
-            try:
-                with open(file_path, "r", encoding="utf-8") as f:
-                    content = f.read()
-                    if content.strip():
-                        context += f"\n# Content from {filename}:\n{content}\n"
-            except Exception as e:
-                # Log error but continue with other files
-                import logging
-
-                logging.warning(f"Could not read {filename}: {e}")
+    for dir_path in dirs_to_scan:
+        for filename in context_files:
+            if filename in seen_files:
+                continue
+            file_path = os.path.join(dir_path, filename)
+            if os.path.exists(file_path):
+                try:
+                    with open(file_path, "r", encoding="utf-8") as f:
+                        content = f.read()
+                        if content.strip():
+                            context += f"\n# Content from {filename}:\n{content}\n"
+                            seen_files.add(filename)
+                except Exception as e:
+                    logging.warning(f"Could not read {filename}: {e}")
 
     return context.strip()
+
+
+def _collect_context_dirs(base_path: str) -> list[str]:
+    """Collect directories to scan for context files.
+
+    Returns [base_path, parent, grandparent, ...] up to the git root
+    or filesystem root, whichever comes first. Max 10 levels.
+    """
+    import os
+
+    dirs = []
+    current = os.path.abspath(base_path)
+
+    for _ in range(10):  # safety cap
+        dirs.append(current)
+        # Stop at git root
+        if os.path.isdir(os.path.join(current, ".git")):
+            break
+        parent = os.path.dirname(current)
+        if parent == current:
+            break  # filesystem root
+        current = parent
+
+    return dirs
 
 
 def parse_key_value_options(option_list: tuple, console=None) -> dict:

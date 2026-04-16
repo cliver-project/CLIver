@@ -125,3 +125,15 @@ def get_friendly_error_message(error: Exception, context: str = "LLM operation")
 
     # Generic error message
     return f"{context} failed: {error_type} - {str(error)}. Please check your configuration and connection."
+
+
+class TaskTimeoutError(Exception):
+    """Raised when a AgentCore operation exceeds its wall-clock timeout.
+
+    Attributes:
+        partial_result: Any partial LLM output accumulated before the timeout.
+    """
+
+    def __init__(self, message: str = "Task timed out", partial_result: str | None = None):
+        super().__init__(message)
+        self.partial_result = partial_result

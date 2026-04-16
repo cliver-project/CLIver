@@ -6,6 +6,7 @@ import click
 from langchain_core.messages import AIMessage, HumanMessage
 
 from cliver.cli import Cliver, interact, pass_cliver
+from cliver.llm.errors import TaskTimeoutError
 from cliver.model_capabilities import ModelCapability
 from cliver.util import create_tools_filter, parse_key_value_options, read_file_content
 
@@ -114,10 +115,41 @@ logger = logging.getLogger(__name__)
     help="File containing system message to append to the conversation",
 )
 @click.option(
+    "--timeout",
+    type=int,
+    default=None,
+    help="Wall-clock timeout in seconds for the entire agent run",
+)
+@click.option(
+    "--output",
+    "output_format",
+    type=click.Choice(["text", "json"]),
+    default="text",
+    help="Output format: text (default) or json for machine-readable output",
+)
+@click.option(
+    "--permission-mode",
+    type=click.Choice(["default", "auto-edit", "yolo"]),
+    default=None,
+    help="Permission mode for this run (overrides config)",
+)
+@click.option(
+    "--allow-tool",
+    multiple=True,
+    type=str,
+    help="Pre-grant a tool for this run (repeatable, supports regex patterns)",
+)
+@click.option(
     "--debug",
     is_flag=True,
     default=False,
     help="Enable debug logging to show detailed logs in console",
+)
+@click.option(
+    "--no-fallback",
+    is_flag=True,
+    default=False,
+    help="Disable automatic model fallback on failure",
 )
 @click.option(
     "--included-tools",
@@ -146,6 +178,11 @@ def chat(
     option: Optional[tuple],
     system_message: Optional[str] = None,
     system_message_file: Optional[str] = None,
+    timeout: Optional[int] = None,
+    output_format: str = "text",
+    permission_mode: Optional[str] = None,
+    allow_tool: tuple = (),
+    no_fallback: bool = False,
     debug: bool = False,
     included_tools: Optional[str] = None,
 ):
@@ -156,6 +193,17 @@ def chat(
         # Enable debug logging
         logging.basicConfig(level=logging.DEBUG)
         logger.debug("Debug logging enabled for chat command")
+
+    # Apply CLI permission overrides
+    if permission_mode:
+        from cliver.permissions import PermissionMode
+
+        cliver.permission_manager.set_mode(PermissionMode(permission_mode))
+    if allow_tool:
+        from cliver.permissions import PermissionAction
+
+        for tool_pattern in allow_tool:
+            cliver.permission_manager.grant_session(tool_pattern, PermissionAction.ALLOW)
 
     # Collect all the LLM configuration options into a dictionary
     options = _chat_options(frequency_penalty, max_tokens, temperature, top_p)
@@ -198,13 +246,43 @@ def chat(
         return 0
 
     # now we can get from the session_options if any
+    import time as _time
+
+    start_time = _time.monotonic()
+    _real_stdout = None
+    use_model = model  # default; overridden inside try if session has one
     try:
+        if output_format == "json":
+            import io
+            import sys
+
+            from rich.console import Console
+
+            _real_stdout = sys.stdout
+            cliver.console = Console(file=io.StringIO(), quiet=True)
+            if hasattr(cliver, "thinking") and cliver.thinking:
+                cliver.thinking = None
+
         _session_options = cliver.session_options or {}
         use_model = _session_options.get("model", model)
         task_executor = cliver.task_executor
         llm_engine = task_executor.get_llm_engine(use_model)
         if not llm_engine:
             # print message that model is not found
+            if output_format == "json":
+                import sys
+
+                duration = _time.monotonic() - start_time
+                _emit_json_result(
+                    _real_stdout or sys.stdout,
+                    False,
+                    "",
+                    use_model,
+                    None,
+                    duration,
+                    error=f"Model '{use_model}' not found.",
+                )
+                return 1
             cliver.output(f"Model '{use_model}' not found.")
             return 1
 
@@ -216,15 +294,57 @@ def chat(
             )
 
         if len(image) > 0 and not llm_engine.supports_capability(ModelCapability.IMAGE_TO_TEXT):
-            cliver.output(f"Model '{use_model}' does not support image processing.")
+            _err_msg = f"Model '{use_model}' does not support image processing."
+            if output_format == "json":
+                import sys
+
+                _emit_json_result(
+                    _real_stdout or sys.stdout,
+                    False,
+                    "",
+                    use_model,
+                    None,
+                    _time.monotonic() - start_time,
+                    error=_err_msg,
+                )
+                return 1
+            cliver.output(_err_msg)
             return 1
 
         if len(audio) > 0 and not llm_engine.supports_capability(ModelCapability.AUDIO_TO_TEXT):
-            cliver.output(f"Model '{use_model}' does not support audio processing.")
+            _err_msg = f"Model '{use_model}' does not support audio processing."
+            if output_format == "json":
+                import sys
+
+                _emit_json_result(
+                    _real_stdout or sys.stdout,
+                    False,
+                    "",
+                    use_model,
+                    None,
+                    _time.monotonic() - start_time,
+                    error=_err_msg,
+                )
+                return 1
+            cliver.output(_err_msg)
             return 1
 
         if len(video) > 0 and not llm_engine.supports_capability(ModelCapability.VIDEO_TO_TEXT):
-            cliver.output(f"Model '{use_model}' does not support video processing.")
+            _err_msg = f"Model '{use_model}' does not support video processing."
+            if output_format == "json":
+                import sys
+
+                _emit_json_result(
+                    _real_stdout or sys.stdout,
+                    False,
+                    "",
+                    use_model,
+                    None,
+                    _time.monotonic() - start_time,
+                    error=_err_msg,
+                )
+                return 1
+            cliver.output(_err_msg)
             return 1
 
         # Convert param tuples to dictionary
@@ -286,10 +406,59 @@ def chat(
                 system_message_appender=system_message_appender,
                 conversation_history=conv_history,
                 on_response=on_response,
+                timeout_s=timeout,
+                auto_fallback=not no_fallback,
             ),
         )
+        if output_format == "json":
+            import sys
+
+            duration = _time.monotonic() - start_time
+            _emit_json_result(
+                _real_stdout or sys.stdout,
+                result.success,
+                result.text or "",
+                use_model,
+                cliver.token_tracker,
+                duration,
+                error=result.error,
+            )
         return 0 if result.success else 1
+    except TaskTimeoutError as e:
+        if output_format == "json":
+            import sys
+
+            duration = _time.monotonic() - start_time
+            _emit_json_result(
+                _real_stdout or sys.stdout,
+                False,
+                e.partial_result or "",
+                use_model,
+                cliver.token_tracker,
+                duration,
+                error=str(e),
+                timeout=True,
+            )
+            return 2
+        cliver.output(f"[yellow]Timeout: {e}[/yellow]")
+        if e.partial_result:
+            cliver.output(f"\nPartial result:\n{e.partial_result}")
+        return 2
     except Exception as e:
+        if output_format == "json":
+            import sys
+
+            duration = _time.monotonic() - start_time
+            _emit_json_result(
+                _real_stdout or sys.stdout,
+                False,
+                "",
+                use_model,
+                None,
+                duration,
+                error=str(e),
+            )
+            return 1
         cliver.output(f"[red]Error: {e}[/red]")
         return 1
 
@@ -336,3 +505,40 @@ def _compress_if_needed(cliver, task_executor, model_config, model_name, new_inp
     cliver.conversation_messages = compressed
     after_tokens = estimate_tokens(cliver.conversation_messages)
     cliver.output(f"\\[Compressed conversation: ~{before_tokens} → ~{after_tokens} tokens]")
+
+
+def _emit_json_result(
+    stdout,
+    success: bool,
+    output: str,
+    model: str | None,
+    token_tracker,
+    duration: float,
+    error: str | None = None,
+    timeout: bool = False,
+):
+    """Emit a single JSON result object to stdout."""
+    import json
+
+    tokens = None
+    if token_tracker and hasattr(token_tracker, "last_usage") and token_tracker.last_usage:
+        last = token_tracker.last_usage
+        tokens = {
+            "input": last.input_tokens,
+            "output": last.output_tokens,
+            "total": last.total_tokens,
+        }
+
+    data = {
+        "success": success,
+        "output": output,
+        "error": error or "",
+        "model": model,
+        "tokens": tokens,
+        "duration_s": round(duration, 2),
+    }
+    if timeout:
+        data["timeout"] = True
+
+    stdout.write(json.dumps(data) + "\n")
+    stdout.flush()

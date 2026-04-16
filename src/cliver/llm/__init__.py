@@ -9,7 +9,7 @@ if os.environ.get("MODE") == "dev":
 
     logging.basicConfig(level=logging.DEBUG)
 
-from cliver.llm.llm import TaskExecutor
+from cliver.llm.llm import AgentCore
 
 # Export for public API
-TaskExecutor = TaskExecutor
+AgentCore = AgentCore

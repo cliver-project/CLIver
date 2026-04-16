@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import random
 import time
 from typing import (
     Any,
@@ -26,7 +27,7 @@ from langchain_core.tools import BaseTool
 from cliver.config import ModelConfig
 from cliver.llm.base import LLMInferenceEngine
 from cliver.llm.deepseek_engine import DeepSeekInferenceEngine
-from cliver.llm.errors import get_friendly_error_message
+from cliver.llm.errors import TaskTimeoutError, get_friendly_error_message
 from cliver.llm.llm_utils import is_thinking, normalize_tool_calls
 from cliver.llm.ollama_engine import OllamaLlamaInferenceEngine
 from cliver.llm.openai_engine import OpenAICompatibleInferenceEngine
@@ -83,11 +84,35 @@ async def default_enhance_prompt(user_input: str, mcp_caller: MCPServersCaller) 
     return []
 
 
-# Tool registry with keyword-based filtering, loaded on first use
+# Tool registry — configured lazily by AgentCore with enabled_toolsets from config
 tool_registry = ToolRegistry()
 
 
-class TaskExecutor:
+def _extract_last_content(messages: List[BaseMessage]) -> str | None:
+    """Extract the last AI content from messages for partial timeout results."""
+    for msg in reversed(messages):
+        if isinstance(msg, AIMessage) and msg.content:
+            content = msg.content
+            if isinstance(content, list):
+                texts = [p["text"] for p in content if isinstance(p, dict) and p.get("type") == "text"]
+                return "\n".join(texts) if texts else None
+            return str(content)
+    return None
+
+
+def _sanitize_messages(messages: List[BaseMessage]) -> List[BaseMessage]:
+    """Sanitize messages before sending to the LLM API.
+
+    Removes surrogate characters that can cause API errors.
+    """
+    for msg in messages:
+        if hasattr(msg, "content") and isinstance(msg.content, str):
+            # Remove surrogate characters
+            msg.content = msg.content.encode("utf-8", errors="replace").decode("utf-8")
+    return messages
+
+
+class AgentCore:
     """
     This is the central place managing the execution of all configured LLM models and MCP servers.
     """
@@ -104,6 +129,7 @@ class TaskExecutor:
         token_tracker=None,
         permission_manager: Optional[PermissionManager] = None,
         on_permission_prompt: Optional[Callable[[str, dict], str]] = None,
+        enabled_toolsets: Optional[List[str]] = None,
     ):
         self.llm_models = llm_models
         self.default_model = default_model
@@ -117,11 +143,23 @@ class TaskExecutor:
         self.mcp_caller = MCPServersCaller(mcp_servers=mcp_servers)
         self.llm_engines: Dict[str, LLMInferenceEngine] = {}
 
-        # Set the active profile so builtin tools (memory, etc.) can access it
+        # Configure tool registry with toolsets from config
+        if enabled_toolsets is not None:
+            global tool_registry
+            tool_registry = ToolRegistry(enabled_toolsets=enabled_toolsets)
+
+        # Tool call counter for skill auto-learning (reset per process_user_input call)
+        self._tool_call_count = 0
+
+        # Set the active profile and executor so builtin tools can access them
         if agent_profile:
             from cliver.agent_profile import set_current_profile
 
             set_current_profile(agent_profile)
+
+        from cliver.agent_profile import set_task_executor
+
+        set_task_executor(self)
 
     def _emit_tool_event(self, event: ToolEvent) -> None:
         """Emit a tool event to the registered handler, if any."""
@@ -179,6 +217,102 @@ class TaskExecutor:
         """
         return self._select_llm_engine(model)
 
+    @staticmethod
+    def _compute_required_capabilities(
+        images: List[str] | None,
+        audio_files: List[str] | None,
+        video_files: List[str] | None,
+        has_tools: bool,
+    ) -> set:
+        """Determine which capabilities this request requires."""
+        from cliver.model_capabilities import ModelCapability
+
+        caps = {ModelCapability.TEXT_TO_TEXT}
+        if images:
+            caps.add(ModelCapability.IMAGE_TO_TEXT)
+        if audio_files:
+            caps.add(ModelCapability.AUDIO_TO_TEXT)
+        if video_files:
+            caps.add(ModelCapability.VIDEO_TO_TEXT)
+        if has_tools:
+            caps.add(ModelCapability.TOOL_CALLING)
+        return caps
+
+    def _find_fallback_model(
+        self,
+        failed_model: str,
+        required_capabilities: set,
+        tried_models: set,
+    ) -> str | None:
+        """Find the next configured model with matching capabilities.
+
+        Iterates self.llm_models in insertion order (config.yaml order).
+        Skips models already tried and models missing required capabilities.
+        """
+        for name, config in self.llm_models.items():
+            if name in tried_models:
+                continue
+            model_caps = config.get_capabilities()
+            if required_capabilities.issubset(model_caps):
+                return name
+        return None
+
+    async def _compress_for_retry(
+        self,
+        messages: List[BaseMessage],
+        llm_engine: LLMInferenceEngine,
+        model_config,
+    ) -> List[BaseMessage]:
+        """Compress conversation messages to fit within context window.
+
+        Separates system messages from conversation, compresses the conversation,
+        then reassembles. Used when context overflow is detected.
+        """
+        from cliver.conversation_compressor import ConversationCompressor, get_context_window
+
+        context_window = get_context_window(model_config)
+        compressor = ConversationCompressor(context_window)
+
+        system_msgs = [m for m in messages if isinstance(m, SystemMessage)]
+        conv_msgs = [m for m in messages if not isinstance(m, SystemMessage)]
+
+        if not conv_msgs:
+            return messages
+
+        compressed_conv = await compressor.compress(conv_msgs, llm_engine)
+        return system_msgs + compressed_conv
+
+    async def _maybe_learn_skill(self, user_input: str, result: BaseMessage) -> None:
+        """Post-task hook: trigger skill review if the task was complex.
+
+        Runs asynchronously after the main task completes. Uses a low-iteration
+        LLM call to evaluate whether to create a reusable SKILL.md.
+        """
+        try:
+            from cliver.skill_reviewer import maybe_review_for_skill
+
+            # Build a brief summary from the user input + result
+            result_text = str(result.content)[:500] if result and result.content else ""
+            task_summary = f"User asked: {user_input[:300]}\nResult: {result_text}"
+
+            skills_dir = None
+            if self.agent_profile:
+                from cliver.util import get_config_dir
+
+                skills_dir = get_config_dir() / "skills"
+
+            skill_name = await maybe_review_for_skill(
+                task_executor=self,
+                tool_call_count=self._tool_call_count,
+                task_summary=task_summary,
+                skills_dir=skills_dir,
+            )
+            if skill_name:
+                logger.info("Auto-learned skill: %s", skill_name)
+        except Exception as e:
+            # Never let skill review crash the main task flow
+            logger.debug("Skill auto-learning failed (non-fatal): %s", e)
+
     def process_user_input_sync(
         self,
         user_input: str,
@@ -197,6 +331,8 @@ class TaskExecutor:
         params: dict = None,
         options: Dict[str, Any] = None,
         conversation_history: Optional[List[BaseMessage]] = None,
+        timeout_s: Optional[int] = None,
+        auto_fallback: bool = True,
     ) -> BaseMessage:
         return asyncio.run(
             self.process_user_input(
@@ -216,6 +352,8 @@ class TaskExecutor:
                 params,
                 options,
                 conversation_history,
+                timeout_s=timeout_s,
+                auto_fallback=auto_fallback,
             )
         )
 
@@ -237,6 +375,8 @@ class TaskExecutor:
         params: dict = None,
         options: Dict[str, Any] = None,
         conversation_history: Optional[List[BaseMessage]] = None,
+        timeout_s: Optional[int] = None,
+        auto_fallback: bool = True,
     ) -> AsyncIterator[BaseMessageChunk]:
         """
         Stream user input through the LLM, handling tool calls if needed.
@@ -282,6 +422,14 @@ class TaskExecutor:
 
         # Since we've enhanced the infer and stream methods to handle multimedia,
         # we can always use the regular stream method
+        required_caps = self._compute_required_capabilities(
+            images,
+            audio_files,
+            video_files,
+            has_tools=bool(llm_tools),
+        )
+        deadline = (time.monotonic() + timeout_s) if timeout_s else None
+
         async for chunk in self._stream_messages(
             llm_engine,
             model,
@@ -292,6 +440,10 @@ class TaskExecutor:
             confirm_tool_exec,
             tool_error_check,
             options=options,
+            deadline=deadline,
+            required_capabilities=required_caps,
+            auto_fallback=auto_fallback,
+            tried_models={model} if model else set(),
         ):
             yield chunk
 
@@ -514,6 +666,8 @@ class TaskExecutor:
         params: dict = None,
         options: Dict[str, Any] = None,
         conversation_history: Optional[List[BaseMessage]] = None,
+        timeout_s: Optional[int] = None,
+        auto_fallback: bool = True,
     ) -> BaseMessage:
         """
         Process user input through the LLM, handling tool calls if needed.
@@ -557,9 +711,18 @@ class TaskExecutor:
             conversation_history,
         )
 
-        # Since we've enhanced the infer and stream methods to handle multimedia,
-        # we can always use the regular infer method
-        return await self._process_messages(
+        # Reset tool call counter for skill auto-learning
+        self._tool_call_count = 0
+
+        required_caps = self._compute_required_capabilities(
+            images,
+            audio_files,
+            video_files,
+            has_tools=bool(llm_tools),
+        )
+        deadline = (time.monotonic() + timeout_s) if timeout_s else None
+
+        result = await self._process_messages(
             llm_engine,
             model,
             messages,
@@ -569,7 +732,16 @@ class TaskExecutor:
             confirm_tool_exec,
             tool_error_check,
             options=options,
+            deadline=deadline,
+            required_capabilities=required_caps,
+            auto_fallback=auto_fallback,
+            tried_models={model} if model else set(),
         )
+
+        # Post-task: trigger skill auto-learning review if task was complex
+        await self._maybe_learn_skill(user_input, result)
+
+        return result
 
     async def _process_messages(
         self,
@@ -582,58 +754,198 @@ class TaskExecutor:
         confirm_tool_exec: Optional[Callable[[str], bool]],
         tool_error_check: Optional[Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]] = None,
         options: Dict[str, Any] = None,
+        deadline: Optional[float] = None,
+        required_capabilities: Optional[set] = None,
+        auto_fallback: bool = True,
+        tried_models: Optional[set] = None,
     ) -> BaseMessage:
         """Handle processing messages with tool calling using a while loop."""
 
         iteration = current_iteration
         consecutive_errors = 0
-        while iteration < max_iterations:
-            options = options or {}
+        retries = 0
+        max_retries = 3
+        compressed_for: set = set()
+        tried = tried_models.copy() if tried_models else set()
+        current_model = model
+        total_attempts = 0
+        max_total_attempts = max_iterations * 3  # hard ceiling including retries/failovers
 
-            # Re-inject current plan state so the LLM stays on track
-            _inject_plan_context(messages)
+        try:
+            while iteration < max_iterations:
+                total_attempts += 1
+                if total_attempts > max_total_attempts:
+                    return AIMessage(content="Stopped: exceeded maximum total attempts.")
+                # Check deadline before each iteration
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise TaskTimeoutError(
+                        "Task timed out",
+                        partial_result=_extract_last_content(messages),
+                    )
 
-            response = await llm_engine.infer(messages, mcp_tools, **options)
-            logger.debug(f"LLM response: {response}")
+                options = options or {}
 
-            # Detect error responses from the engine (connection failures, auth errors, etc.)
-            # These are returned as AIMessage with additional_kwargs={"type": "error"}
-            if _is_error_response(response):
+                # Re-inject current plan state so the LLM stays on track
+                _inject_plan_context(messages)
+
+                # Proactive context overflow check
+                if current_model not in compressed_for:
+                    try:
+                        from cliver.conversation_compressor import estimate_tokens, get_context_window
+
+                        model_config = self._get_llm_model(current_model)
+                        if model_config:
+                            context_window = get_context_window(model_config)
+                            approx_tokens = estimate_tokens(messages)
+                            if approx_tokens > context_window * 0.9:
+                                logger.warning(
+                                    "Context approaching limit (%d/%d tokens), compressing",
+                                    approx_tokens,
+                                    context_window,
+                                )
+                                compressed_for.add(current_model)
+                                messages = await self._compress_for_retry(messages, llm_engine, model_config)
+                    except Exception as comp_err:
+                        logger.warning("Proactive compression failed: %s", comp_err)
+
+                # Sanitize messages before sending to LLM
+                _sanitize_messages(messages)
+
+                try:
+                    response = await llm_engine.infer(messages, mcp_tools, **options)
+                except TaskTimeoutError:
+                    raise
+                except Exception as e:
+                    from cliver.llm.error_classifier import ErrorAction, classify_error
+
+                    classified = classify_error(e)
+                    logger.info(
+                        "LLM error: reason=%s action=%s model=%s",
+                        classified.reason,
+                        classified.action.value,
+                        current_model,
+                    )
+
+                    # RETRY: transient error
+                    if classified.action == ErrorAction.RETRY and retries < max_retries:
+                        retries += 1
+                        base_delay = 1.0
+                        delay = min(base_delay * (2**retries), 30.0)
+                        jitter = random.uniform(0, delay * 0.5)
+                        self._emit_tool_event(
+                            ToolEvent(
+                                event_type=ToolEventType.MODEL_RETRY,
+                                tool_name=current_model,
+                                result=f"{classified.reason} (attempt {retries}/{max_retries})",
+                            )
+                        )
+                        await asyncio.sleep(delay + jitter)
+                        continue
+
+                    # COMPRESS: context overflow
+                    if classified.should_compress and current_model not in compressed_for:
+                        compressed_for.add(current_model)
+                        self._emit_tool_event(
+                            ToolEvent(
+                                event_type=ToolEventType.MODEL_COMPRESS,
+                                tool_name=current_model,
+                            )
+                        )
+                        try:
+                            model_config = self._get_llm_model(current_model)
+                            messages = await self._compress_for_retry(messages, llm_engine, model_config)
+                            retries = 0
+                            continue
+                        except Exception as comp_err:
+                            logger.warning("Compression failed: %s", comp_err)
+
+                    # FAILOVER: switch model — on explicit FAILOVER action,
+                    # OR when retries are exhausted for any error type
+                    should_failover = (
+                        classified.action == ErrorAction.FAILOVER
+                        or (classified.action == ErrorAction.RETRY and retries >= max_retries)
+                    )
+                    if should_failover and auto_fallback:
+                        tried.add(current_model)
+                        next_model = self._find_fallback_model(
+                            current_model,
+                            required_capabilities or set(),
+                            tried,
+                        )
+                        if next_model:
+                            reason = classified.reason
+                            if retries >= max_retries:
+                                reason = f"{reason} (retries exhausted)"
+                            logger.info("Falling back from %s to %s (%s)", current_model, next_model, reason)
+                            self._emit_tool_event(
+                                ToolEvent(
+                                    event_type=ToolEventType.MODEL_FALLBACK,
+                                    tool_name=next_model,
+                                    result=f"from {current_model} ({reason})",
+                                )
+                            )
+                            llm_engine = self._select_llm_engine(next_model)
+                            current_model = next_model
+                            retries = 0
+                            continue
+
+                    # No recovery possible
+                    friendly = get_friendly_error_message(e, "LLM inference")
+                    return AIMessage(content=friendly)
+
+                logger.debug(f"LLM response: {response}")
+
+                # Guard against None response from LLM engine
+                if response is None:
+                    return AIMessage(content="Error: LLM returned empty response.")
+
+                # Detect error responses from the engine (connection failures, auth errors, etc.)
+                # These are returned as AIMessage with additional_kwargs={"type": "error"}
+                if _is_error_response(response):
+                    return response
+
+                # Track token usage from this LLM call
+                self._track_tokens(response, current_model)
+
+                raw_tool_calls = llm_engine.parse_tool_calls(response, current_model)
+                tool_calls = normalize_tool_calls(raw_tool_calls) if raw_tool_calls else None
+                if tool_calls:
+                    stop, result = await self._execute_tool_calls(
+                        tool_calls,
+                        messages,
+                        confirm_tool_exec,
+                        tool_error_check,
+                        llm_response=response,
+                    )
+                    if stop:
+                        return AIMessage(content=result)
+
+                    # Track consecutive error iterations to detect error loops
+                    if _has_tool_errors(tool_calls, messages):
+                        consecutive_errors += 1
+                        if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                            return AIMessage(
+                                content="Stopping: tool calls failed repeatedly. "
+                                "Please check the tool arguments or try a different approach."
+                            )
+                    else:
+                        consecutive_errors = 0
+
+                    retries = 0
+                    iteration += 1
+                    continue
+                # If no tool calls, return the response
                 return response
 
-            # Track token usage from this LLM call
-            self._track_tokens(response, model)
+            return AIMessage(content="Reached maximum number of iterations without a final answer.")
+        finally:
+            # Clean up browser session if active
+            try:
+                from cliver.tools.browser_action import close_browser_session
 
-            raw_tool_calls = llm_engine.parse_tool_calls(response, model)
-            tool_calls = normalize_tool_calls(raw_tool_calls) if raw_tool_calls else None
-            if tool_calls:
-                stop, result = await self._execute_tool_calls(
-                    tool_calls,
-                    messages,
-                    confirm_tool_exec,
-                    tool_error_check,
-                    llm_response=response,
-                )
-                if stop:
-                    return AIMessage(content=result)
-
-                # Track consecutive error iterations to detect error loops
-                if _has_tool_errors(tool_calls, messages):
-                    consecutive_errors += 1
-                    if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
-                        return AIMessage(
-                            content="Stopping: tool calls failed repeatedly. "
-                            "Please check the tool arguments or try a different approach."
-                        )
-                else:
-                    consecutive_errors = 0
-
-                iteration += 1
-                continue
-            # If no tool calls, return the response
-            return response
-
-        return AIMessage(content="Reached maximum number of iterations without a final answer.")
+                await close_browser_session()
+            except Exception:
+                pass
 
     # returns a tuple to indicate if there is error occurs which indicates stop and a string message
     # this may execute multiple tools in sequence in one iteration of response
@@ -657,6 +969,9 @@ class TaskExecutor:
                 When None, tools run without confirmation.
         """
         try:
+            # Track tool calls for skill auto-learning
+            self._tool_call_count += len(tool_calls)
+
             for tool_call in tool_calls:
                 mcp_server = tool_call.get("mcp_server", "")
                 tool_name = tool_call.get("tool_name", "")
@@ -757,8 +1072,16 @@ class TaskExecutor:
             return False, "Tool calls executed successfully"
         except Exception as e:
             logger.error(f"Error processing tool call: {str(e)}", exc_info=True)
+            # Don't hard-stop on tool execution exceptions — feed the error back
+            # to the LLM so it can self-correct, and let consecutive_errors track it.
             friendly_error_msg = get_friendly_error_message(e, "Tool call processing")
-            return True, friendly_error_msg
+            messages.append(
+                ToolMessage(
+                    content=f"Error: {friendly_error_msg}",
+                    tool_call_id=tool_calls[-1].get("tool_call_id", "") if tool_calls else "",
+                )
+            )
+            return False, friendly_error_msg
 
     async def _check_permission(
         self,
@@ -884,102 +1207,245 @@ class TaskExecutor:
         confirm_tool_exec: Optional[Callable[[str], bool]],
         tool_error_check: Optional[Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]],
         options: Dict[str, Any] = None,
+        deadline: Optional[float] = None,
+        required_capabilities: Optional[set] = None,
+        auto_fallback: bool = True,
+        tried_models: Optional[set] = None,
     ) -> AsyncIterator[BaseMessageChunk]:
         """Handle streaming messages with tool calling."""
         iteration = current_iteration
         consecutive_errors = 0
+        retries = 0
+        max_retries = 3
+        compressed_for: set = set()
+        tried = tried_models.copy() if tried_models else set()
+        current_model = model
+        total_attempts = 0
+        max_total_attempts = max_iterations * 3  # hard ceiling including retries/failovers
 
         # keeps streaming unless got the final answer
-        while iteration < max_iterations:
-            # Re-inject current plan state so the LLM stays on track
-            _inject_plan_context(messages)
+        try:
+            while iteration < max_iterations:
+                total_attempts += 1
+                if total_attempts > max_total_attempts:
+                    # noinspection PyArgumentList
+                    yield AIMessageChunk(content="Stopped: exceeded maximum total attempts.")
+                    return
+                # Check deadline before each iteration
+                if deadline is not None and time.monotonic() >= deadline:
+                    raise TaskTimeoutError(
+                        "Task timed out",
+                        partial_result=_extract_last_content(messages),
+                    )
+                # Re-inject current plan state so the LLM stays on track
+                _inject_plan_context(messages)
 
-            # For proper tool call handling in streaming, we'll process differently
-            tool_calls = None
-            accumulated_chunks = None
-            try:
-                options = options or {}
-                async for chunk in llm_engine.stream(messages, mcp_tools, **options):
-                    # Accumulate chunks for tool call detection after stream ends
+                # Proactive context overflow check
+                if current_model not in compressed_for:
                     try:
-                        if not accumulated_chunks:
-                            accumulated_chunks = chunk
-                        else:
-                            accumulated_chunks = accumulated_chunks + chunk
-                    except Exception as e:
-                        logger.debug(f"Chunk accumulation error (non-fatal): {e}")
-                        # If chunk addition fails, keep what we have and skip
+                        from cliver.conversation_compressor import estimate_tokens, get_context_window
 
-                    # Filter out thinking/reasoning content from stream output.
-                    # Reasoning may arrive via additional_kwargs (structured API field)
-                    # or as <think>/<thinking> tags in content (raw model output).
-                    if llm_engine.supports_capability(ModelCapability.THINK_MODE):
-                        # Check for structured reasoning in additional_kwargs
-                        chunk_kwargs = getattr(chunk, "additional_kwargs", {}) or {}
-                        if chunk_kwargs.get("reasoning_content") or chunk_kwargs.get("reasoning"):
-                            continue
-                        # Check for <think> tags in accumulated content
-                        acc_content = getattr(accumulated_chunks, "content", "") or ""
-                        chunks_content = str(acc_content)
-                        if (len(chunks_content) <= 7 and "<think".startswith(chunks_content)) or is_thinking(
-                            chunks_content
-                        ):
-                            continue
-                    yield chunk
+                        model_config = self._get_llm_model(current_model)
+                        if model_config:
+                            context_window = get_context_window(model_config)
+                            approx_tokens = estimate_tokens(messages)
+                            if approx_tokens > context_window * 0.9:
+                                logger.warning(
+                                    "Context approaching limit (%d/%d tokens), compressing",
+                                    approx_tokens,
+                                    context_window,
+                                )
+                                compressed_for.add(current_model)
+                                messages = await self._compress_for_retry(messages, llm_engine, model_config)
+                    except Exception as comp_err:
+                        logger.warning("Proactive compression failed: %s", comp_err)
 
-                # Detect error responses from the engine
-                if accumulated_chunks and _is_error_response(accumulated_chunks):
-                    return
+                # Sanitize messages before sending to LLM
+                _sanitize_messages(messages)
 
-                # Track token usage from the accumulated streaming response
-                if accumulated_chunks:
-                    self._track_tokens(accumulated_chunks, model)
+                # For proper tool call handling in streaming, we'll process differently
+                tool_calls = None
+                accumulated_chunks = None
+                content_yielded = False
+                try:
+                    options = options or {}
+                    async for chunk in llm_engine.stream(messages, mcp_tools, **options):
+                        # Accumulate chunks for tool call detection after stream ends
+                        try:
+                            if not accumulated_chunks:
+                                accumulated_chunks = chunk
+                            else:
+                                accumulated_chunks = accumulated_chunks + chunk
+                        except Exception as e:
+                            logger.debug(f"Chunk accumulation error (non-fatal): {e}")
+                            # If chunk addition fails, keep what we have and skip
 
-                raw_tool_calls = llm_engine.parse_tool_calls(accumulated_chunks, model)
-                tool_calls = normalize_tool_calls(raw_tool_calls) if raw_tool_calls else None
-            except Exception as e:
-                logger.error(f"Error in streaming: {str(e)}", exc_info=True)
-                friendly_error_msg = get_friendly_error_message(e, "LLM streaming")
-                # noinspection PyArgumentList
-                yield AIMessageChunk(
-                    content=f"Error in streaming: {friendly_error_msg}",
-                )
-                return
+                        # Filter out thinking/reasoning content from stream output.
+                        # Reasoning may arrive via additional_kwargs (structured API field)
+                        # or as <think>/<thinking> tags in content (raw model output).
+                        if llm_engine.supports_capability(ModelCapability.THINK_MODE):
+                            # Check for structured reasoning in additional_kwargs
+                            chunk_kwargs = getattr(chunk, "additional_kwargs", {}) or {}
+                            if chunk_kwargs.get("reasoning_content") or chunk_kwargs.get("reasoning"):
+                                continue
+                            # Check for <think> tags in accumulated content
+                            acc_content = getattr(accumulated_chunks, "content", "") or ""
+                            chunks_content = str(acc_content)
+                            if (len(chunks_content) <= 7 and "<think".startswith(chunks_content)) or is_thinking(
+                                chunks_content
+                            ):
+                                continue
+                        if hasattr(chunk, "content") and chunk.content:
+                            content_yielded = True
+                        yield chunk
 
-            # If we found tool calls, execute them and continue after emitting the chunks
-            if tool_calls:
-                stop, result = await self._execute_tool_calls(
-                    tool_calls, messages, confirm_tool_exec, tool_error_check, llm_response=accumulated_chunks
-                )
-                if stop:
-                    if result:
-                        # noinspection PyArgumentList
-                        yield AIMessageChunk(content=result)
-                    return
-
-                # Track consecutive error iterations to detect error loops
-                if _has_tool_errors(tool_calls, messages):
-                    consecutive_errors += 1
-                    if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
-                        # noinspection PyArgumentList
-                        yield AIMessageChunk(
-                            content="Stopping: tool calls failed repeatedly. "
-                            "Please check the tool arguments or try a different approach."
-                        )
+                    # Detect error responses from the engine
+                    if accumulated_chunks and _is_error_response(accumulated_chunks):
                         return
+
+                    # Track token usage from the accumulated streaming response
+                    if accumulated_chunks:
+                        self._track_tokens(accumulated_chunks, current_model)
+
+                    if accumulated_chunks:
+                        raw_tool_calls = llm_engine.parse_tool_calls(accumulated_chunks, current_model)
+                        tool_calls = normalize_tool_calls(raw_tool_calls) if raw_tool_calls else None
+                    else:
+                        raw_tool_calls = None
+                        tool_calls = None
+                except TaskTimeoutError:
+                    raise
+                except Exception as e:
+                    from cliver.llm.error_classifier import ErrorAction, classify_error
+
+                    classified = classify_error(e)
+                    logger.info(
+                        "LLM streaming error: reason=%s action=%s model=%s",
+                        classified.reason,
+                        classified.action.value,
+                        current_model,
+                    )
+
+                    # If content was already yielded to the user, don't retry
+                    # (partial delivery — retrying would duplicate output)
+                    if content_yielded:
+                        logger.warning("Error after partial delivery, not retrying: %s", e)
+                        return
+
+                    # RETRY: transient error
+                    if classified.action == ErrorAction.RETRY and retries < max_retries:
+                        retries += 1
+                        base_delay = 1.0
+                        delay = min(base_delay * (2**retries), 30.0)
+                        jitter = random.uniform(0, delay * 0.5)
+                        self._emit_tool_event(
+                            ToolEvent(
+                                event_type=ToolEventType.MODEL_RETRY,
+                                tool_name=current_model,
+                                result=f"{classified.reason} (attempt {retries}/{max_retries})",
+                            )
+                        )
+                        await asyncio.sleep(delay + jitter)
+                        continue
+
+                    # COMPRESS: context overflow
+                    if classified.should_compress and current_model not in compressed_for:
+                        compressed_for.add(current_model)
+                        self._emit_tool_event(
+                            ToolEvent(
+                                event_type=ToolEventType.MODEL_COMPRESS,
+                                tool_name=current_model,
+                            )
+                        )
+                        try:
+                            model_config = self._get_llm_model(current_model)
+                            messages = await self._compress_for_retry(messages, llm_engine, model_config)
+                            retries = 0
+                            continue
+                        except Exception as comp_err:
+                            logger.warning("Compression failed: %s", comp_err)
+
+                    # FAILOVER: switch model — on explicit FAILOVER action,
+                    # OR when retries are exhausted for any error type
+                    should_failover = (
+                        classified.action == ErrorAction.FAILOVER
+                        or (classified.action == ErrorAction.RETRY and retries >= max_retries)
+                    )
+                    if should_failover and auto_fallback:
+                        tried.add(current_model)
+                        next_model = self._find_fallback_model(
+                            current_model,
+                            required_capabilities or set(),
+                            tried,
+                        )
+                        if next_model:
+                            reason = classified.reason
+                            if retries >= max_retries:
+                                reason = f"{reason} (retries exhausted)"
+                            logger.info("Falling back from %s to %s (%s)", current_model, next_model, reason)
+                            self._emit_tool_event(
+                                ToolEvent(
+                                    event_type=ToolEventType.MODEL_FALLBACK,
+                                    tool_name=next_model,
+                                    result=f"from {current_model} ({reason})",
+                                )
+                            )
+                            llm_engine = self._select_llm_engine(next_model)
+                            current_model = next_model
+                            retries = 0
+                            continue
+
+                    # No recovery possible
+                    friendly_error_msg = get_friendly_error_message(e, "LLM streaming")
+                    # noinspection PyArgumentList
+                    yield AIMessageChunk(
+                        content=f"Error in streaming: {friendly_error_msg}",
+                    )
+                    return
+
+                # If we found tool calls, execute them and continue after emitting the chunks
+                if tool_calls:
+                    stop, result = await self._execute_tool_calls(
+                        tool_calls, messages, confirm_tool_exec, tool_error_check, llm_response=accumulated_chunks
+                    )
+                    if stop:
+                        if result:
+                            # noinspection PyArgumentList
+                            yield AIMessageChunk(content=result)
+                        return
+
+                    # Track consecutive error iterations to detect error loops
+                    if _has_tool_errors(tool_calls, messages):
+                        consecutive_errors += 1
+                        if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                            # noinspection PyArgumentList
+                            yield AIMessageChunk(
+                                content="Stopping: tool calls failed repeatedly. "
+                                "Please check the tool arguments or try a different approach."
+                            )
+                            return
+                    else:
+                        consecutive_errors = 0
+
+                    retries = 0
+                    iteration += 1
+                    continue
                 else:
-                    consecutive_errors = 0
+                    # No tool calls found, we're done with this iteration
+                    # If we reached here, the response is complete
+                    return
 
-                iteration += 1
-                continue
-            else:
-                # No tool calls found, we're done with this iteration
-                # If we reached here, the response is complete
-                return
+            # If we've reached max iterations
+            # noinspection PyArgumentList
+            yield AIMessageChunk(content="Reached maximum number of iterations without a final answer.")
+        finally:
+            # Clean up browser session if active
+            try:
+                from cliver.tools.browser_action import close_browser_session
 
-        # If we've reached max iterations
-        # noinspection PyArgumentList
-        yield AIMessageChunk(content="Reached maximum number of iterations without a final answer.")
+                await close_browser_session()
+            except Exception:
+                pass
 
 
 def _is_error_response(response) -> bool:

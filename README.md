@@ -29,7 +29,7 @@ cliver chat
 - **Memory & Identity** — Persistent knowledge and agent profiles across sessions
 - **Permissions** — Layered tool permission system (default, auto-edit, yolo modes)
 - **Workflows** — Multi-step workflow engine with pause/resume support
-- **Embeddable** — `TaskExecutor` API can be used as a Python library
+- **Embeddable** — `AgentCore` API can be used as a Python library
 
 ## Documentation
 

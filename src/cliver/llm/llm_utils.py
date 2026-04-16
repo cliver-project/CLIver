@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 # ── Tool call normalization ──────────────────────────────────────────────
 #
 # Converts raw parsed tool calls (from the engine layer) into the execution
-# format used by TaskExecutor.  This is intentionally a standalone function
+# format used by AgentCore.  This is intentionally a standalone function
 # — not an overridable engine method — so normalization can never be lost.
 
 
@@ -25,7 +25,7 @@ def normalize_tool_calls(tool_calls: list[dict]) -> list[dict] | None:
             Expected: [{"name": "...", "args": {...}, "id": "..."}]
 
     Returns:
-        Normalized tool calls for TaskExecutor, or None if all invalid.
+        Normalized tool calls for AgentCore, or None if all invalid.
         Format: [{"tool_name": "...", "mcp_server": "...", "args": {...}, "tool_call_id": "..."}]
     """
     if not tool_calls:
@@ -94,7 +94,7 @@ def _coerce_json_string_values(args: dict) -> dict:
     """
     coerced = {}
     for key, value in args.items():
-        if isinstance(value, str) and value and value[0] in ("[", "{"):
+        if isinstance(value, str) and len(value) > 1 and value[0] in ("[", "{"):
             try:
                 coerced[key] = json.loads(value)
             except (json.JSONDecodeError, ValueError):

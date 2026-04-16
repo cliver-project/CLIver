@@ -9,7 +9,7 @@ import pytest
 from langchain_core.messages import AIMessage, AIMessageChunk
 
 from cliver.config import ModelConfig
-from cliver.llm.llm import TaskExecutor
+from cliver.llm.llm import AgentCore
 from cliver.llm.openai_engine import OpenAICompatibleInferenceEngine
 from cliver.media import MediaContent, MediaType
 from cliver.model_capabilities import ModelCapability
@@ -47,10 +47,10 @@ class TestE2EMultimedia:
         # We're using the regular infer method now since we've enhanced it to handle multimedia
         engine.infer = AsyncMock(return_value=mock_response)
 
-        # Create a TaskExecutor with mock OpenAI engine
+        # Create a AgentCore with mock OpenAI engine
         llm_models = {"gpt-4-vision": config}
         mcp_servers = {}
-        executor = TaskExecutor(llm_models, mcp_servers, config)
+        executor = AgentCore(llm_models, mcp_servers, config)
         executor.llm_engines["gpt-4-vision"] = engine
 
         # Create mock media content
@@ -119,10 +119,10 @@ class TestE2EMultimedia:
         # We're using the regular stream method now since we've enhanced it to handle multimedia
         engine.stream = mock_stream
 
-        # Create a TaskExecutor with mock OpenAI engine
+        # Create a AgentCore with mock OpenAI engine
         llm_models = {"gpt-4-vision": config}
         mcp_servers = {}
-        executor = TaskExecutor(llm_models, mcp_servers, config)
+        executor = AgentCore(llm_models, mcp_servers, config)
         executor.llm_engines["gpt-4-vision"] = engine
 
         # Create mock media content

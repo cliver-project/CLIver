@@ -8,7 +8,7 @@ import pytest
 from langchain_core.messages import HumanMessage
 
 from cliver.config import ModelConfig
-from cliver.llm.llm import TaskExecutor
+from cliver.llm.llm import AgentCore
 from cliver.llm.ollama_engine import OllamaLlamaInferenceEngine
 from cliver.llm.openai_engine import OpenAICompatibleInferenceEngine
 from cliver.media import MediaContent, MediaType, load_media_file
@@ -139,15 +139,15 @@ class TestOllamaEngine:
         assert converted_message.additional_kwargs["images"] == ["base64image"]
 
 
-class TestTaskExecutor:
-    """Test TaskExecutor multi-media support."""
+class TestAgentCore:
+    """Test AgentCore multi-media support."""
 
     @pytest.fixture
     def task_executor(self):
-        """Create a mock TaskExecutor."""
+        """Create a mock AgentCore."""
         llm_models = {}
         mcp_servers = {}
-        executor = TaskExecutor(llm_models, mcp_servers)
+        executor = AgentCore(llm_models, mcp_servers)
         return executor
 
     def test_process_user_input_accepts_specific_media_types(self, task_executor):

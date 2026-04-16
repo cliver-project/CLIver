@@ -95,6 +95,8 @@ TOOL_META_REGISTRY: Dict[str, ToolMeta] = {
     "todo_write": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
     "memory_read": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
     "memory_write": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
+    "search_sessions": ToolMeta(ActionKind.READ, ResourceType.NONE),
+    "parallel_tasks": ToolMeta(ActionKind.EXECUTE, ResourceType.NONE),
     "identity_update": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
     "ask_user_question": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
     # Read tools
@@ -103,14 +105,18 @@ TOOL_META_REGISTRY: Dict[str, ToolMeta] = {
     "grep_search": ToolMeta(ActionKind.READ, ResourceType.PATH, "path"),
     # Write tools
     "write_file": ToolMeta(ActionKind.WRITE, ResourceType.PATH, "file_path"),
-    "create_workflow": ToolMeta(ActionKind.WRITE, ResourceType.NONE),
     # Execute tools
     "run_shell_command": ToolMeta(ActionKind.EXECUTE, ResourceType.COMMAND, "command"),
+    "execute_code": ToolMeta(ActionKind.EXECUTE, ResourceType.NONE),
     "docker_run": ToolMeta(ActionKind.EXECUTE, ResourceType.COMMAND, "image"),
-    "setup_docker": ToolMeta(ActionKind.EXECUTE, ResourceType.NONE),
     # Fetch tools
     "web_fetch": ToolMeta(ActionKind.FETCH, ResourceType.URL, "url"),
     "web_search": ToolMeta(ActionKind.FETCH, ResourceType.NONE),
+    # Browser tools
+    "browse_web": ToolMeta(ActionKind.FETCH, ResourceType.URL, "url"),
+    "browser_action": ToolMeta(ActionKind.EXECUTE, ResourceType.NONE),
+    # Audio tools
+    "transcribe_audio": ToolMeta(ActionKind.READ, ResourceType.PATH, "file_path"),
 }
 
 

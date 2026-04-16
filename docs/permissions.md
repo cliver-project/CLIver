@@ -182,11 +182,11 @@ Workflow permissions are scoped — they are active only during execution and au
 
 ## API-Level Usage
 
-The permission system works independently of the CLI. When using CLIver as a Python library, you can configure `PermissionManager` and pass it to `TaskExecutor`:
+The permission system works independently of the CLI. When using CLIver as a Python library, you can configure `PermissionManager` and pass it to `AgentCore`:
 
 ```python
 from cliver.permissions import PermissionManager, PermissionMode
-from cliver.llm import TaskExecutor
+from cliver.llm import AgentCore
 
 # Create permission manager with custom settings
 pm = PermissionManager(
@@ -195,8 +195,8 @@ pm = PermissionManager(
 )
 pm.set_mode(PermissionMode.AUTO_EDIT)
 
-# Pass to TaskExecutor
-executor = TaskExecutor(
+# Pass to AgentCore
+executor = AgentCore(
     llm_models=models,
     mcp_servers=servers,
     permission_manager=pm,

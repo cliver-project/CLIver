@@ -17,8 +17,8 @@ CLIver is a **general-purpose AI agent** — it is not bound to coding or any sp
 
 CLIver is built as a **dual-layer system**:
 
-- **API Layer** (`TaskExecutor`): The core engine — embeddable in any Python application. It handles LLM inference, tool calling, Re-Act loops, permissions, and workflow execution with no dependency on CLI concerns (no terminal, no stdin, no prompt_toolkit). This is the layer you use when integrating CLIver as a library.
-- **CLI Layer** (`Cliver` class + Click commands): A thin interactive shell on top of `TaskExecutor` for terminal users. Provides Rich-formatted output, prompt_toolkit input, and slash commands.
+- **API Layer** (`AgentCore`): The core engine — embeddable in any Python application. It handles LLM inference, tool calling, Re-Act loops, permissions, and workflow execution with no dependency on CLI concerns (no terminal, no stdin, no prompt_toolkit). This is the layer you use when integrating CLIver as a library.
+- **CLI Layer** (`Cliver` class + Click commands): A thin interactive shell on top of `AgentCore` for terminal users. Provides Rich-formatted output, prompt_toolkit input, and slash commands.
 
 Any feature built at the API layer (permissions, workflows, skills, memory) works identically whether invoked from the CLI or from your own Python code.
 
@@ -52,7 +52,7 @@ CLIver follows a modular architecture that allows for easy extension:
 ```mermaid
 graph TD
     A[CLIver Class] --> B[ConfigManager]
-    A --> C[TaskExecutor]
+    A --> C[AgentCore]
     A --> D[CLI Interface]
 
     B --> E[LLM Model Config]

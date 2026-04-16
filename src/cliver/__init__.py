@@ -4,13 +4,13 @@ import sys
 
 from dotenv import load_dotenv
 
-from cliver.llm import TaskExecutor
+from cliver.llm import AgentCore
 from cliver.media_handler import MultimediaResponse, MultimediaResponseHandler
 
 load_dotenv()
 
 # Export for public API
-TaskExecutor = TaskExecutor
+AgentCore = AgentCore
 MultimediaResponse = MultimediaResponse
 MultimediaResponseHandler = MultimediaResponseHandler
 

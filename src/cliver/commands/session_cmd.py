@@ -40,6 +40,43 @@ def session_cmd(ctx, cliver: Cliver):
             cliver.output(f"Session '{cliver.current_session_id}' not found in index.")
 
 
+@session_cmd.command(name="search", help="Search past sessions by content")
+@click.argument("query")
+@click.option("--limit", "-n", type=int, default=10, help="Max results to show")
+@pass_cliver
+def search_sessions(cliver: Cliver, query: str, limit: int):
+    """Full-text search across all past conversation sessions."""
+    sm = cliver.get_session_manager()
+    try:
+        results = sm.search(query, limit=limit)
+    except Exception as e:
+        cliver.output(f"[red]Search failed: {e}[/red]")
+        return
+
+    if not results:
+        cliver.output(f'No sessions found matching "{query}".')
+        return
+
+    cliver.output(f'\n[bold]🔍 {len(results)} session(s) matching "{query}"[/bold]\n')
+
+    for r in results:
+        title = r.get("title") or "(untitled)"
+        sid = r["session_id"]
+        created = r.get("created_at", "")
+        turns = r.get("turn_count", 0)
+
+        cliver.output("━" * 50)
+        cliver.output(f"[bold]📋 {sid}[/bold] — {title}")
+        cliver.output(f"   {created} · {turns} turns\n")
+
+        for snippet in r.get("snippets", [])[:5]:
+            role = snippet["role"]
+            content = snippet["content"]
+            cliver.output(f"   [dim]{role}:[/dim] {content}")
+
+        cliver.output("")
+
+
 @session_cmd.command(name="list", help="List all saved sessions")
 @pass_cliver
 def list_sessions(cliver: Cliver):

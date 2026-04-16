@@ -107,11 +107,11 @@ cliver identity clear
 
 ## Graceful Degradation
 
-When no agent profile is set (e.g., when using TaskExecutor as a library without configuring a profile), the memory and identity tools return "not available" messages instead of failing. This ensures the agent continues to function without these optional features.
+When no agent profile is set (e.g., when using AgentCore as a library without configuring a profile), the memory and identity tools return "not available" messages instead of failing. This ensures the agent continues to function without these optional features.
 
 ## API-Level Usage
 
-When using CLIver as a Python library, set up the agent profile before creating the TaskExecutor:
+When using CLIver as a Python library, set up the agent profile before creating the AgentCore:
 
 ```python
 from cliver.agent_profile import AgentProfile, set_current_profile

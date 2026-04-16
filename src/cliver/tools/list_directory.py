@@ -14,7 +14,10 @@ logger = logging.getLogger(__name__)
 class ListDirectoryInput(BaseModel):
     """Input schema for the list_directory tool."""
 
-    path: str = Field(description="The absolute path to the directory to list (must be absolute, not relative).")
+    path: str = Field(
+        default=".",
+        description="Directory path to list. Defaults to current working directory. Use relative paths when possible.",
+    )
     ignore: Optional[List[str]] = Field(
         default=None,
         description='List of glob patterns to ignore (e.g., ["*.pyc", "__pycache__"]).',

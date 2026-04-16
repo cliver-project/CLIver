@@ -5,20 +5,27 @@ for status/stop, and platform adapters for messaging integrations.
 """
 
 import asyncio
+import importlib
 import logging
+import tempfile
 import uuid
 from pathlib import Path
 from typing import List, Optional
 
 from cliver.agent_profile import AgentProfile
 from cliver.config import ConfigManager
+from cliver.gateway.adapters import BUILTIN_ADAPTERS
 from cliver.gateway.control import ControlServer
-from cliver.gateway.platform_adapter import PlatformAdapter
+from cliver.gateway.platform_adapter import (
+    MediaAttachment,
+    MessageEvent,
+    PlatformAdapter,
+    split_message,
+)
 from cliver.gateway.scheduler import CronScheduler
-from cliver.llm import TaskExecutor
+from cliver.llm import AgentCore
+from cliver.session_manager import SessionManager
 from cliver.task_manager import TaskDefinition, TaskManager, TaskRun
-from cliver.workflow.workflow_executor import WorkflowExecutor
-from cliver.workflow.workflow_manager_local import LocalDirectoryWorkflowManager
 
 logger = logging.getLogger(__name__)
 
@@ -47,16 +54,15 @@ class Gateway:
         )
         self._scheduler: Optional[CronScheduler] = None
         self._adapters: List[PlatformAdapter] = []
-        self._task_executor: Optional[TaskExecutor] = None
-        self._workflow_executor: Optional[WorkflowExecutor] = None
+        self._task_executor: Optional[AgentCore] = None
+        self._api_server = None
 
     async def start(self) -> None:
         """Initialize components and start the control server."""
         logger.info(f"Gateway starting (agent: {self.agent_name})")
 
-        # Initialize TaskExecutor and WorkflowExecutor
+        # Initialize AgentCore
         self._task_executor = self._create_task_executor()
-        self._workflow_executor = self._create_workflow_executor()
 
         # Initialize cron scheduler
         agent_profile = AgentProfile(self.agent_name, self.config_dir)
@@ -70,6 +76,32 @@ class Gateway:
             run_task_fn=self._run_task,
         )
 
+        # Load and start platform adapters
+        self._adapters = self._load_adapters()
+        for adapter in self._adapters:
+            try:
+                await adapter.start(on_message=self._handle_message)
+                logger.info(f"Started adapter: {adapter.name}")
+            except Exception as e:
+                logger.error(f"Failed to start adapter {adapter.name}: {e}")
+
+        # Start API server if configured
+        config_manager = ConfigManager(self.config_dir)
+        gateway_config = config_manager.config.gateway
+        if gateway_config and gateway_config.api_server and gateway_config.api_server.enabled:
+            try:
+                from cliver.gateway.api_server import APIServer
+
+                self._api_server = APIServer(
+                    task_executor=self._task_executor,
+                    config=gateway_config.api_server,
+                )
+                await self._api_server.start()
+            except ImportError:
+                logger.error("aiohttp not installed. Install with: pip install cliver[api]")
+            except Exception as e:
+                logger.error(f"Failed to start API server: {e}")
+
         # Start control server
         await self._control_server.start()
         self.is_running = True
@@ -78,6 +110,13 @@ class Gateway:
     async def stop(self) -> None:
         """Stop all components and clean up."""
         logger.info("Gateway stopping")
+
+        # Stop API server
+        if self._api_server:
+            try:
+                await self._api_server.stop()
+            except Exception as e:
+                logger.error(f"Error stopping API server: {e}")
 
         # Stop adapters
         for adapter in self._adapters:
@@ -120,7 +159,7 @@ class Gateway:
         logger.info("Gateway main loop exiting (shutdown requested)")
 
     async def _run_task(self, task: TaskDefinition) -> None:
-        """Execute a scheduled task via the workflow executor."""
+        """Execute a scheduled task by sending its prompt to AgentCore."""
         execution_id = str(uuid.uuid4())[:8]
         logger.info(f"Running task '{task.name}' (execution: {execution_id})")
 
@@ -130,16 +169,14 @@ class Gateway:
         run_record = TaskRun(
             task_name=task.name,
             execution_id=execution_id,
-            workflow_name=task.workflow,
             status="running",
             started_at=TaskManager.timestamp_now(),
         )
 
         try:
-            await self._workflow_executor.execute_workflow(
-                workflow_name=task.workflow,
-                inputs=task.inputs or {},
-                execution_id=execution_id,
+            await self._task_executor.process_user_input(
+                user_input=task.prompt,
+                model=task.model,
             )
             run_record.status = "completed"
         except Exception as e:
@@ -150,28 +187,206 @@ class Gateway:
             run_record.finished_at = TaskManager.timestamp_now()
             task_manager.record_run(run_record)
 
-    def _create_task_executor(self) -> TaskExecutor:
-        """Create a TaskExecutor from config (same config the CLI uses)."""
+    def _create_task_executor(self) -> AgentCore:
+        """Create a AgentCore from config (same config the CLI uses)."""
         config_manager = ConfigManager(self.config_dir)
         agent_profile = AgentProfile(self.agent_name, self.config_dir)
         agent_profile.ensure_dirs()
 
-        return TaskExecutor(
+        return AgentCore(
             llm_models=config_manager.list_llm_models(),
             mcp_servers=config_manager.list_mcp_servers_for_mcp_caller(),
             default_model=(config_manager.get_llm_model().name if config_manager.get_llm_model() else None),
             user_agent=config_manager.config.user_agent,
             agent_name=self.agent_name,
             agent_profile=agent_profile,
+            enabled_toolsets=config_manager.config.enabled_toolsets,
         )
 
-    def _create_workflow_executor(self) -> WorkflowExecutor:
-        """Create a WorkflowExecutor from config."""
+    # -- Session & adapter resolution -----------------------------------------
+
+    @staticmethod
+    def _resolve_session_key(event: MessageEvent) -> str:
+        """Build a session key from a message event.
+
+        Groups: keyed by platform:channel_id (shared context).
+        DMs: keyed by platform:user_id (private context).
+        """
+        if event.is_group:
+            return f"{event.platform}:{event.channel_id}"
+        return f"{event.platform}:{event.user_id}"
+
+    @staticmethod
+    def _resolve_adapter_class(adapter_type: str) -> str:
+        """Resolve an adapter type to its full module.ClassName path.
+
+        Builtin types (no dots) are looked up in BUILTIN_ADAPTERS.
+        Custom types (with dots) are returned as-is.
+        """
+        if "." not in adapter_type:
+            if adapter_type not in BUILTIN_ADAPTERS:
+                raise ValueError(
+                    f"Unknown adapter type '{adapter_type}'. Available: {', '.join(BUILTIN_ADAPTERS.keys())}"
+                )
+            return BUILTIN_ADAPTERS[adapter_type]
+        return adapter_type
+
+    @staticmethod
+    def _import_adapter_class(class_path: str):
+        """Dynamically import and return an adapter class."""
+        module_path, class_name = class_path.rsplit(".", 1)
+        module = importlib.import_module(module_path)
+        return getattr(module, class_name)
+
+    def _load_adapters(self) -> List[PlatformAdapter]:
+        """Load and instantiate adapters from config."""
         config_manager = ConfigManager(self.config_dir)
-        workflow_config = config_manager.config.workflow
-        workflow_dirs = workflow_config.workflow_dirs if workflow_config else None
+        gateway_config = config_manager.config.gateway
+        if not gateway_config or not gateway_config.platforms:
+            return []
 
-        return WorkflowExecutor(
-            task_executor=self._task_executor,
-            workflow_manager=LocalDirectoryWorkflowManager(workflow_dirs),
-        )
+        adapters = []
+        for platform_config in gateway_config.platforms:
+            try:
+                class_path = self._resolve_adapter_class(platform_config.type)
+                adapter_cls = self._import_adapter_class(class_path)
+                adapter = adapter_cls(platform_config)
+                adapters.append(adapter)
+                logger.info(f"Loaded adapter: {adapter.name}")
+            except Exception as e:
+                logger.error(f"Failed to load adapter '{platform_config.type}': {e}")
+
+        return adapters
+
+    # -- Message handling -----------------------------------------------------
+
+    async def _handle_message(self, event: MessageEvent) -> None:
+        """Central message handler -- routes platform messages to AgentCore."""
+        if not self._task_executor:
+            logger.error("AgentCore not initialized")
+            return
+
+        # Find the adapter for this platform
+        adapter = self._get_adapter(event.platform)
+        if not adapter:
+            logger.error(f"No adapter found for platform '{event.platform}'")
+            return
+
+        # Resolve session
+        session_key = self._resolve_session_key(event)
+        agent_profile = AgentProfile(self.agent_name, self.config_dir)
+        sm = SessionManager(agent_profile.sessions_dir)
+
+        # Get or create session
+        session_id = self._get_or_create_session(sm, session_key)
+
+        # Show typing indicator
+        try:
+            await adapter.send_typing(event.channel_id)
+        except Exception as e:
+            logger.debug(f"Typing indicator failed: {e}")
+
+        # Prepare media as temp files for AgentCore
+        images, audio_files = [], []
+        transcribed_texts = []
+        for media in event.media:
+            if media.data:
+                suffix = _media_suffix(media)
+                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+                tmp.write(media.data)
+                tmp.close()
+                if media.type == "image":
+                    images.append(tmp.name)
+                elif media.type == "voice":
+                    # Auto-transcribe voice messages to text
+                    try:
+                        from cliver.tools.transcribe_audio import transcribe_voice_message
+
+                        transcript = await transcribe_voice_message(tmp.name)
+                        if transcript:
+                            transcribed_texts.append(transcript)
+                            logger.info("Voice message transcribed: %.100s", transcript)
+                        else:
+                            audio_files.append(tmp.name)
+                    except Exception as e:
+                        logger.debug(f"Voice transcription failed, passing raw audio: {e}")
+                        audio_files.append(tmp.name)
+
+        # Prepend transcribed voice text to user input
+        if transcribed_texts:
+            voice_text = " ".join(transcribed_texts)
+            if event.text:
+                event.text = f"{event.text}\n\n[Voice message]: {voice_text}"
+            else:
+                event.text = voice_text
+
+        # Load conversation history
+        turns = sm.load_turns(session_id)
+        from langchain_core.messages import AIMessage, HumanMessage
+
+        conversation_history = []
+        for turn in turns:
+            if turn["role"] == "user":
+                conversation_history.append(HumanMessage(content=turn["content"]))
+            elif turn["role"] == "assistant":
+                conversation_history.append(AIMessage(content=turn["content"]))
+
+        # Record user turn
+        sm.append_turn(session_id, "user", event.text)
+
+        # Run AgentCore
+        try:
+            response = await self._task_executor.process_user_input(
+                user_input=event.text,
+                images=images or None,
+                audio_files=audio_files or None,
+                conversation_history=conversation_history or None,
+            )
+
+            response_text = str(response.content) if response and response.content else "No response."
+        except Exception as e:
+            logger.error(f"AgentCore error: {e}")
+            response_text = f"Error: {e}"
+
+        # Record assistant turn
+        sm.append_turn(session_id, "assistant", response_text)
+
+        # Format and send response
+        formatted = adapter.format_message(response_text)
+        chunks = split_message(formatted, adapter.max_message_length())
+
+        for chunk in chunks:
+            try:
+                await adapter.send_text(event.channel_id, chunk)
+            except Exception as e:
+                logger.error(f"Failed to send message: {e}")
+
+    def _get_adapter(self, platform_name: str) -> Optional[PlatformAdapter]:
+        """Find the adapter for a given platform name."""
+        for adapter in self._adapters:
+            if adapter.name == platform_name:
+                return adapter
+        return None
+
+    def _get_or_create_session(self, sm: SessionManager, session_key: str) -> str:
+        """Get existing session by key or create a new one.
+
+        Uses the session title field to store the session key for lookup.
+        """
+        sessions = sm.list_sessions()
+        for s in sessions:
+            if s.get("title") == session_key:
+                return s["id"]
+        return sm.create_session(title=session_key)
+
+
+def _media_suffix(media: MediaAttachment) -> str:
+    """Determine file suffix from media type/mime."""
+    if media.mime_type:
+        ext = media.mime_type.split("/")[-1]
+        return f".{ext}"
+    if media.type == "image":
+        return ".png"
+    if media.type == "voice":
+        return ".ogg"
+    return ".bin"

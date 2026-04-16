@@ -22,10 +22,14 @@ logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Current profile registry — single source of truth for the active profile.
-# Set by TaskExecutor at init, accessed by builtin tools (memory, etc.).
+# Set by AgentCore at init, accessed by builtin tools (memory, etc.).
 # ---------------------------------------------------------------------------
 
 _current_profile: Optional["AgentProfile"] = None
+
+# Global AgentCore reference — set by AgentCore at init.
+# Tools like parallel_tasks need this to spawn concurrent LLM calls.
+_task_executor = None
 
 # Global input function — set by CLI layer to support TUI-safe input.
 # Tools should call get_input_fn()("prompt") instead of raw input().
@@ -40,7 +44,7 @@ _cli_instance = None
 
 
 def set_current_profile(profile: Optional["AgentProfile"]) -> None:
-    """Set the active AgentProfile. Called by TaskExecutor at init."""
+    """Set the active AgentProfile. Called by AgentCore at init."""
     global _current_profile
     _current_profile = profile
 
@@ -48,6 +52,17 @@ def set_current_profile(profile: Optional["AgentProfile"]) -> None:
 def get_current_profile() -> Optional["AgentProfile"]:
     """Get the active AgentProfile. Used by builtin tools that need it."""
     return _current_profile
+
+
+def set_task_executor(executor) -> None:
+    """Set the active AgentCore. Called by AgentCore at init."""
+    global _task_executor
+    _task_executor = executor
+
+
+def get_task_executor():
+    """Get the active AgentCore. Used by tools that need LLM calls."""
+    return _task_executor
 
 
 def set_input_fn(fn) -> None:
@@ -111,6 +126,7 @@ class AgentProfile:
         self.identity_file = self.agent_dir / "identity.md"
         self.tasks_dir = self.agent_dir / "tasks"
         self.sessions_dir = self.agent_dir / "sessions"
+        self.workflows_dir = self.agent_dir / "workflows"
 
         # Global-scoped paths
         self.global_memory_file = self.config_dir / "memory.md"
@@ -118,6 +134,7 @@ class AgentProfile:
     def ensure_dirs(self) -> None:
         """Create the agent directory structure on first use."""
         self.agent_dir.mkdir(parents=True, exist_ok=True)
+        self.workflows_dir.mkdir(parents=True, exist_ok=True)
 
     # -- Memory ----------------------------------------------------------------
 

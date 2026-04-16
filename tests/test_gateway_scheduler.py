@@ -31,14 +31,14 @@ class TestCronScheduler:
         task_manager.save_task(
             TaskDefinition(
                 name="every-minute",
-                workflow="test-workflow",
+                prompt="test prompt",
                 schedule="* * * * *",
             )
         )
         task_manager.save_task(
             TaskDefinition(
                 name="no-schedule",
-                workflow="test-workflow",
+                prompt="test prompt",
             )
         )
 
@@ -57,7 +57,7 @@ class TestCronScheduler:
         task_manager.save_task(
             TaskDefinition(
                 name="once-per-minute",
-                workflow="test-workflow",
+                prompt="test prompt",
                 schedule="* * * * *",
             )
         )
@@ -102,7 +102,7 @@ class TestCronScheduler:
         task_manager.save_task(
             TaskDefinition(
                 name="tick-test",
-                workflow="test-workflow",
+                prompt="test prompt",
                 schedule="* * * * *",
             )
         )
@@ -125,7 +125,7 @@ class TestCronScheduler:
         task_manager.save_task(
             TaskDefinition(
                 name="failing-task",
-                workflow="test-workflow",
+                prompt="test prompt",
                 schedule="* * * * *",
             )
         )

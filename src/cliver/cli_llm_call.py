@@ -7,7 +7,7 @@ Handles the full request/response lifecycle including:
 - Token usage display
 - Error handling
 
-This is a CLI-layer component — TaskExecutor and API layer have no dependency on it.
+This is a CLI-layer component — AgentCore and API layer have no dependency on it.
 """
 
 import asyncio
@@ -17,9 +17,11 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
 
 from langchain_core.messages import BaseMessage
 
+from cliver.llm.errors import TaskTimeoutError
+
 if TYPE_CHECKING:
     from cliver.cli import Cliver
-    from cliver.llm import TaskExecutor
+    from cliver.llm import AgentCore
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +60,8 @@ class LLMCallOptions:
     system_message_appender: Optional[Callable] = None
     conversation_history: Optional[List[BaseMessage]] = None
     on_response: Optional[Callable[[str], None]] = None
+    timeout_s: Optional[int] = None
+    auto_fallback: bool = True
 
 
 def llm_call(cliver: "Cliver", opts: LLMCallOptions) -> LLMCallResult:
@@ -86,6 +90,10 @@ def llm_call(cliver: "Cliver", opts: LLMCallOptions) -> LLMCallResult:
             result = _stream_call(task_executor, opts, thinking, console)
         else:
             result = _sync_call(task_executor, opts, thinking, console)
+    except TaskTimeoutError:
+        if thinking:
+            thinking.stop()
+        raise  # Let the caller (chat command) handle timeout
     except Exception as e:
         if thinking:
             thinking.stop()
@@ -106,7 +114,7 @@ def llm_call(cliver: "Cliver", opts: LLMCallOptions) -> LLMCallResult:
 
 
 def _stream_call(
-    task_executor: "TaskExecutor",
+    task_executor: "AgentCore",
     opts: LLMCallOptions,
     thinking,
     console,
@@ -138,6 +146,8 @@ def _stream_call(
                 filter_tools=opts.tools_filter,
                 system_message_appender=opts.system_message_appender,
                 conversation_history=opts.conversation_history,
+                timeout_s=opts.timeout_s,
+                auto_fallback=opts.auto_fallback,
             ):
                 if accumulated_chunk is None:
                     accumulated_chunk = chunk
@@ -188,7 +198,7 @@ def _stream_call(
 
 
 def _sync_call(
-    task_executor: "TaskExecutor",
+    task_executor: "AgentCore",
     opts: LLMCallOptions,
     thinking,
     console,
@@ -211,6 +221,8 @@ def _sync_call(
         filter_tools=opts.tools_filter,
         system_message_appender=opts.system_message_appender,
         conversation_history=opts.conversation_history,
+        timeout_s=opts.timeout_s,
+        auto_fallback=opts.auto_fallback,
     )
 
     # Stop spinner before printing response
@@ -248,15 +260,35 @@ def _show_token_usage(cliver: "Cliver") -> None:
     if not tracker or not tracker.last_usage:
         return
 
+    from cliver.cost_tracker import CostTracker, format_cost
     from cliver.token_tracker import format_tokens
 
     last = tracker.last_usage
     session = tracker.get_session_total()
     model = tracker.last_model or "?"
 
+    cache_info = ""
+    if last.cached_tokens > 0:
+        cache_info = f" [dim green]cached: {format_tokens(last.cached_tokens)}[/dim green]"
+
+    # Cost estimation
+    cost_info = ""
+    cost_tracker = getattr(cliver, "cost_tracker", None)
+    if cost_tracker is None:
+        cost_tracker = CostTracker()
+        cliver.cost_tracker = cost_tracker
+
+    estimate = cost_tracker.estimate_cost(model, last.input_tokens, last.output_tokens, last.cached_tokens)
+    if estimate.total_cost > 0:
+        session_cost = cost_tracker.get_session_total()
+        cost_info = f"  [dim]cost:[/dim] [bold]{format_cost(estimate.total_cost, estimate.currency)}[/bold]"
+        if session_cost > estimate.total_cost:
+            cost_info += f" [dim](session: {format_cost(session_cost, estimate.currency)})[/dim]"
+
     cliver.output(
         f"[dim]◆ {model}[/dim]  "
         f"[dim]tokens:[/dim] [bold]{format_tokens(last.total_tokens)}[/bold] "
-        f"[dim](in: {format_tokens(last.input_tokens)}, out: {format_tokens(last.output_tokens)})[/dim]  "
+        f"[dim](in: {format_tokens(last.input_tokens)}, out: {format_tokens(last.output_tokens)})[/dim]"
+        f"{cache_info}{cost_info}  "
         f"[dim]session:[/dim] [bold]{format_tokens(session.total_tokens)}[/bold]"
     )

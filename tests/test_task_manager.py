@@ -17,22 +17,22 @@ def manager(tmp_path):
 
 class TestTaskDefinition:
     def test_minimal(self):
-        t = TaskDefinition(name="t", workflow="wf")
+        t = TaskDefinition(name="t", prompt="do something")
         assert t.name == "t"
-        assert t.workflow == "wf"
-        assert t.inputs is None
+        assert t.prompt == "do something"
+        assert t.model is None
         assert t.schedule is None
 
     def test_full(self):
         t = TaskDefinition(
             name="daily",
             description="Run daily",
-            workflow="analysis",
-            inputs={"topic": "AI"},
+            prompt="Research AI trends",
+            model="deepseek-r1",
             schedule="0 9 * * *",
         )
         assert t.schedule == "0 9 * * *"
-        assert t.inputs["topic"] == "AI"
+        assert t.model == "deepseek-r1"
 
 
 # ---------------------------------------------------------------------------
@@ -42,21 +42,20 @@ class TestTaskDefinition:
 
 class TestCRUD:
     def test_save_and_get(self, manager):
-        task = TaskDefinition(name="my-task", workflow="wf", inputs={"x": 1})
+        task = TaskDefinition(name="my-task", prompt="do x")
         manager.save_task(task)
 
         loaded = manager.get_task("my-task")
         assert loaded is not None
         assert loaded.name == "my-task"
-        assert loaded.workflow == "wf"
-        assert loaded.inputs["x"] == 1
+        assert loaded.prompt == "do x"
 
     def test_list_empty(self, manager):
         assert manager.list_tasks() == []
 
     def test_list_tasks(self, manager):
-        manager.save_task(TaskDefinition(name="a", workflow="wf1"))
-        manager.save_task(TaskDefinition(name="b", workflow="wf2"))
+        manager.save_task(TaskDefinition(name="a", prompt="p1"))
+        manager.save_task(TaskDefinition(name="b", prompt="p2"))
 
         tasks = manager.list_tasks()
         names = [t.name for t in tasks]
@@ -67,14 +66,14 @@ class TestCRUD:
         assert manager.get_task("nope") is None
 
     def test_overwrite(self, manager):
-        manager.save_task(TaskDefinition(name="t", workflow="old"))
-        manager.save_task(TaskDefinition(name="t", workflow="new"))
+        manager.save_task(TaskDefinition(name="t", prompt="old"))
+        manager.save_task(TaskDefinition(name="t", prompt="new"))
 
         loaded = manager.get_task("t")
-        assert loaded.workflow == "new"
+        assert loaded.prompt == "new"
 
     def test_remove(self, manager):
-        manager.save_task(TaskDefinition(name="t", workflow="wf"))
+        manager.save_task(TaskDefinition(name="t", prompt="p"))
         assert manager.remove_task("t") is True
         assert manager.get_task("t") is None
 
@@ -82,12 +81,11 @@ class TestCRUD:
         assert manager.remove_task("nope") is False
 
     def test_remove_also_removes_runs(self, manager):
-        manager.save_task(TaskDefinition(name="t", workflow="wf"))
+        manager.save_task(TaskDefinition(name="t", prompt="p"))
         manager.record_run(
             TaskRun(
                 task_name="t",
                 execution_id="e1",
-                workflow_name="wf",
                 status="completed",
                 started_at="2026-01-01",
             )
@@ -99,12 +97,11 @@ class TestCRUD:
 
     def test_list_excludes_runs_files(self, manager):
         """Runs files (.runs.yaml) should not appear as tasks."""
-        manager.save_task(TaskDefinition(name="t", workflow="wf"))
+        manager.save_task(TaskDefinition(name="t", prompt="p"))
         manager.record_run(
             TaskRun(
                 task_name="t",
                 execution_id="e1",
-                workflow_name="wf",
                 status="completed",
                 started_at="2026-01-01",
             )
@@ -125,7 +122,6 @@ class TestRunHistory:
         run = TaskRun(
             task_name="t",
             execution_id="e1",
-            workflow_name="wf",
             status="completed",
             started_at="2026-01-01 09:00 UTC",
             finished_at="2026-01-01 09:05 UTC",
@@ -143,7 +139,6 @@ class TestRunHistory:
                 TaskRun(
                     task_name="t",
                     execution_id=f"e{i}",
-                    workflow_name="wf",
                     status="completed",
                     started_at=f"2026-01-0{i + 1}",
                 )
@@ -161,7 +156,6 @@ class TestRunHistory:
                 TaskRun(
                     task_name="t",
                     execution_id=f"e{i}",
-                    workflow_name="wf",
                     status="completed",
                     started_at=f"run-{i}",
                 )
@@ -178,7 +172,6 @@ class TestRunHistory:
             TaskRun(
                 task_name="t",
                 execution_id="e1",
-                workflow_name="wf",
                 status="failed",
                 started_at="2026-01-01",
                 error="connection timeout",
@@ -199,7 +192,7 @@ class TestSchedule:
     def test_save_and_load_schedule(self, manager):
         task = TaskDefinition(
             name="cron-task",
-            workflow="wf",
+            prompt="check status",
             schedule="30 8 * * 1-5",
         )
         manager.save_task(task)
@@ -208,7 +201,7 @@ class TestSchedule:
         assert loaded.schedule == "30 8 * * 1-5"
 
     def test_no_schedule_is_none(self, manager):
-        task = TaskDefinition(name="once", workflow="wf")
+        task = TaskDefinition(name="once", prompt="do once")
         manager.save_task(task)
 
         loaded = manager.get_task("once")

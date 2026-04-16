@@ -444,17 +444,17 @@ class TestSetMode:
 
 
 # ---------------------------------------------------------------------------
-# TaskExecutor integration
+# AgentCore integration
 # ---------------------------------------------------------------------------
 
 
-class TestTaskExecutorPermissionGate:
-    """Test that PermissionManager integrates with TaskExecutor._check_permission."""
+class TestAgentCorePermissionGate:
+    """Test that PermissionManager integrates with AgentCore._check_permission."""
 
     def _make_executor(self, pm, on_prompt=None):
-        from cliver.llm.llm import TaskExecutor
+        from cliver.llm.llm import AgentCore
 
-        te = TaskExecutor.__new__(TaskExecutor)
+        te = AgentCore.__new__(AgentCore)
         te.permission_manager = pm
         te.on_permission_prompt = on_prompt
         te.on_tool_event = None
@@ -678,35 +678,13 @@ class TestSettingsLoading:
         assert perms.mode == PermissionMode.YOLO
         assert len(perms.rules) == 1
 
-    def test_workflow_model_with_permissions(self):
-        """Workflow model accepts permissions field."""
-        from cliver.workflow.workflow_models import Workflow
-
-        w = Workflow(
-            name="test",
-            permissions={"mode": "auto-edit", "rules": [{"tool": ".*", "action": "allow"}]},
-        )
-        assert w.permissions is not None
-
-    def test_llm_step_with_permissions(self):
-        """LLMStep model accepts permissions field."""
-        from cliver.workflow.workflow_models import LLMStep
-
-        step = LLMStep(
-            id="s1",
-            name="analyze",
-            prompt="test",
-            permissions={"rules": [{"tool": "read_file", "action": "allow"}]},
-        )
-        assert step.permissions is not None
-
     def test_task_definition_with_permissions(self):
         """TaskDefinition model accepts permissions field."""
         from cliver.task_manager import TaskDefinition
 
         td = TaskDefinition(
             name="daily",
-            workflow="report",
+            prompt="generate report",
             permissions={"mode": "yolo"},
         )
         assert td.permissions is not None

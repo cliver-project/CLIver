@@ -9,7 +9,7 @@ CLIver is designed with extensibility in mind, allowing you to customize its fun
 
 ## Using CLIver as a Python Library
 
-CLIver's core engine (`TaskExecutor`) is designed to be **independent of the CLI layer**. It has no dependencies on terminal I/O, prompt_toolkit, or Rich — making it suitable for embedding in web services, automation scripts, or other applications.
+CLIver's core engine (`AgentCore`) is designed to be **independent of the CLI layer**. It has no dependencies on terminal I/O, prompt_toolkit, or Rich — making it suitable for embedding in web services, automation scripts, or other applications.
 
 All features — LLM inference, tool calling, permissions, workflows, skills, and memory — work identically whether invoked from the CLI or from your own Python code.
 

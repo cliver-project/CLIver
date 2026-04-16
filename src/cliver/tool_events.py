@@ -1,7 +1,7 @@
 """
 Tool execution event types for CLIver.
 
-These events are emitted by TaskExecutor during tool execution.
+These events are emitted by AgentCore during tool execution.
 The CLI layer can subscribe to these events to render progress
 displays. API consumers can provide their own handler or ignore them.
 
@@ -19,6 +19,9 @@ class ToolEventType(str, Enum):
     TOOL_START = "tool_start"
     TOOL_END = "tool_end"
     TOOL_ERROR = "tool_error"
+    MODEL_RETRY = "model_retry"
+    MODEL_COMPRESS = "model_compress"
+    MODEL_FALLBACK = "model_fallback"
 
 
 @dataclass

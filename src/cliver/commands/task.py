@@ -9,10 +9,7 @@ from typing import Optional
 import click
 
 from cliver.cli import Cliver, pass_cliver
-from cliver.commands.console_callback_handler import ConsoleCallbackHandler
 from cliver.task_manager import TaskDefinition, TaskManager, TaskRun
-from cliver.util import parse_key_value_options
-from cliver.workflow.workflow_executor import WorkflowExecutor
 
 
 @click.group(name="task", help="Manage and run agent tasks")
@@ -34,41 +31,34 @@ def list_tasks(cliver: Cliver):
 
     for t in tasks:
         schedule = f"  schedule: {t.schedule}" if t.schedule else ""
+        model = f"  model: {t.model}" if t.model else ""
         desc = f"  — {t.description}" if t.description else ""
-        cliver.output(f"  {t.name}: workflow={t.workflow}{desc}{schedule}")
+        cliver.output(f"  {t.name}:{desc}{model}{schedule}")
 
     return 0
 
 
 @task.command(name="create", help="Create a new task")
 @click.argument("name")
-@click.option("--workflow", "-w", required=True, help="Workflow name to execute")
+@click.option("--prompt", "-p", required=True, help="Prompt to send to the LLM")
 @click.option("--description", "-d", default=None, help="Task description")
-@click.option("--input", "-i", "inputs", multiple=True, type=str, help="Input variables (key=value)")
+@click.option("--model", "-m", default=None, help="Model override for this task")
 @click.option("--schedule", "-s", default=None, help="Cron expression for recurring execution")
 @pass_cliver
 def create_task(
     cliver: Cliver,
     name: str,
-    workflow: str,
+    prompt: str,
     description: Optional[str],
-    inputs: tuple,
+    model: Optional[str],
     schedule: Optional[str],
 ):
     """Create a new task definition."""
-    # Verify workflow exists
-    wf = cliver.workflow_manager.load_workflow(workflow)
-    if not wf:
-        cliver.output(f"Workflow '{workflow}' not found.")
-        return 1
-
-    input_dict = parse_key_value_options(inputs) if inputs else None
-
     task_def = TaskDefinition(
         name=name,
         description=description,
-        workflow=workflow,
-        inputs=input_dict,
+        prompt=prompt,
+        model=model,
         schedule=schedule,
     )
 
@@ -80,26 +70,21 @@ def create_task(
 
 @task.command(name="run", help="Run a task")
 @click.argument("name")
-@click.option("--input", "-i", "inputs", multiple=True, type=str, help="Override input variables (key=value)")
-@click.option("--verbose", "-v", is_flag=True, help="Show detailed execution progress")
+@click.option("--model", "-m", default=None, help="Override the task's model")
 @pass_cliver
-def run_task(cliver: Cliver, name: str, inputs: tuple, verbose: bool):
-    """Run a task by executing its workflow."""
+def run_task(cliver: Cliver, name: str, model: Optional[str]):
+    """Run a task by sending its prompt to the LLM."""
     manager = TaskManager(cliver.agent_profile.tasks_dir)
     task_def = manager.get_task(name)
     if not task_def:
         cliver.output(f"Task '{name}' not found.")
         return 1
 
-    # Merge task inputs with overrides
-    task_inputs = dict(task_def.inputs or {})
-    if inputs:
-        task_inputs.update(parse_key_value_options(inputs))
-
-    execution_id = str(uuid.uuid4())
+    execution_id = str(uuid.uuid4())[:8]
     started_at = TaskManager.timestamp_now()
+    use_model = model or task_def.model
 
-    cliver.output(f"Running task '{name}' (workflow: {task_def.workflow})...")
+    cliver.output(f"Running task '{name}'...")
 
     # Push task-level permissions if defined
     task_perms_pushed = False
@@ -114,31 +99,20 @@ def run_task(cliver: Cliver, name: str, inputs: tuple, verbose: bool):
         cliver.permission_manager.push_task_scope(perms)
         task_perms_pushed = True
 
-    # Create executor with callback handler
-    callback = ConsoleCallbackHandler(output=cliver.output) if verbose else None
-    executor = WorkflowExecutor(
-        task_executor=cliver.task_executor,
-        workflow_manager=cliver.workflow_manager,
-        callback_handler=callback,
-    )
-
     try:
         result = asyncio.run(
-            executor.execute_workflow(
-                workflow_name=task_def.workflow,
-                inputs=task_inputs,
-                execution_id=execution_id,
+            cliver.task_executor.process_user_input(
+                user_input=task_def.prompt,
+                model=use_model,
             )
         )
 
-        status = result.status if result else "failed"
-        error = result.error if result else "No result returned"
+        status = "completed" if result else "failed"
+        error = None if result else "No result returned"
 
-        # Record the run
         run = TaskRun(
             task_name=name,
             execution_id=execution_id,
-            workflow_name=task_def.workflow,
             status=status,
             started_at=started_at,
             finished_at=TaskManager.timestamp_now(),
@@ -147,9 +121,9 @@ def run_task(cliver: Cliver, name: str, inputs: tuple, verbose: bool):
         manager.record_run(run)
 
         if status == "completed":
-            cliver.output(f"Task '{name}' completed successfully.")
+            cliver.output(f"Task '{name}' completed.")
         else:
-            cliver.output(f"Task '{name}' {status}: {error}")
+            cliver.output(f"Task '{name}' failed: {error}")
 
         return 0 if status == "completed" else 1
 
@@ -157,7 +131,6 @@ def run_task(cliver: Cliver, name: str, inputs: tuple, verbose: bool):
         run = TaskRun(
             task_name=name,
             execution_id=execution_id,
-            workflow_name=task_def.workflow,
             status="failed",
             started_at=started_at,
             finished_at=TaskManager.timestamp_now(),

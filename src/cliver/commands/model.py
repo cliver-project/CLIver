@@ -110,7 +110,7 @@ def set_default_model(cliver: Cliver, name: str):
         return
 
     if cliver.config_manager.set_default_model(name):
-        # Sync to the running TaskExecutor
+        # Sync to the running AgentCore
         cliver.task_executor.default_model = name
         cliver.output(f"Default model set to: [green]{name}[/green]")
     else:

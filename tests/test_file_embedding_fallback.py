@@ -9,7 +9,7 @@ from langchain_core.messages import AIMessage
 
 from cliver.config import ModelConfig, ModelOptions
 from cliver.llm.base import LLMInferenceEngine
-from cliver.llm.llm import TaskExecutor
+from cliver.llm.llm import AgentCore
 from cliver.model_capabilities import ModelCapability
 
 
@@ -51,10 +51,10 @@ class TestFileEmbeddingFallback:
 
     @pytest.fixture
     def task_executor(self, mock_engine):
-        """Create a mock TaskExecutor."""
+        """Create a mock AgentCore."""
         llm_models = {"test-model": mock_engine.config}
         mcp_servers = {}
-        executor = TaskExecutor(llm_models, mcp_servers)
+        executor = AgentCore(llm_models, mcp_servers)
         executor.llm_engines["test-model"] = mock_engine
         return executor
 
