@@ -147,7 +147,9 @@ class ToolRegistry:
 
         logger.info(
             "Tool registry: %d tools enabled (from %d total). Toolsets: %s",
-            len(self._tools), len(all_tools_by_name), ", ".join(sorted(enabled)),
+            len(self._tools),
+            len(all_tools_by_name),
+            ", ".join(sorted(enabled)),
         )
 
     def _resolve_enabled_toolsets(self) -> Set[str]:

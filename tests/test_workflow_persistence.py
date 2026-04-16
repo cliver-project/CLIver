@@ -78,12 +78,16 @@ class TestExecutionState:
 
     def test_state_overwritten_on_save(self, store):
         state1 = WorkflowExecutionState(
-            workflow_name="wf", execution_id="e1", status="running",
+            workflow_name="wf",
+            execution_id="e1",
+            status="running",
             context=ExecutionContext(workflow_name="wf"),
         )
         store.save_state(state1)
         state2 = WorkflowExecutionState(
-            workflow_name="wf", execution_id="e1", status="completed",
+            workflow_name="wf",
+            execution_id="e1",
+            status="completed",
             context=ExecutionContext(workflow_name="wf"),
         )
         store.save_state(state2)

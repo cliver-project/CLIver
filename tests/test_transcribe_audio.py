@@ -62,8 +62,10 @@ class TestTranscribeAudioTool:
         mock_client = MagicMock()
         mock_client.audio.transcriptions.create.return_value = mock_transcript
 
-        with patch("cliver.tools.transcribe_audio.get_task_executor", return_value=mock_executor), \
-             patch("cliver.tools.transcribe_audio.OpenAI", return_value=mock_client):
+        with (
+            patch("cliver.tools.transcribe_audio.get_task_executor", return_value=mock_executor),
+            patch("cliver.tools.transcribe_audio.OpenAI", return_value=mock_client),
+        ):
             tool = TranscribeAudioTool()
             result = tool._run(file_path=str(audio_file))
 
@@ -71,10 +73,12 @@ class TestTranscribeAudioTool:
 
     def test_tool_in_core_toolset(self):
         from cliver.tool_registry import TOOLSETS
+
         assert "transcribe_audio" in TOOLSETS["core"]
 
     def test_tool_registered(self):
         from cliver.tool_registry import ToolRegistry
+
         registry = ToolRegistry()
         assert "transcribe_audio" in registry.tool_names
 
@@ -105,8 +109,10 @@ class TestTranscribeVoiceMessage:
         mock_client = MagicMock()
         mock_client.audio.transcriptions.create.return_value = mock_transcript
 
-        with patch("cliver.tools.transcribe_audio.get_task_executor", return_value=mock_executor), \
-             patch("cliver.tools.transcribe_audio.OpenAI", return_value=mock_client):
+        with (
+            patch("cliver.tools.transcribe_audio.get_task_executor", return_value=mock_executor),
+            patch("cliver.tools.transcribe_audio.OpenAI", return_value=mock_client),
+        ):
             result = asyncio.run(transcribe_voice_message(str(audio_file)))
 
         assert result == "Transcribed voice message"

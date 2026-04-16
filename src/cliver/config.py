@@ -201,7 +201,7 @@ class AppConfig(BaseModel):
     user_agent: Optional[str] = Field(default="CLIver", description="User-Agent header for LLM provider HTTP requests")
     enabled_toolsets: Optional[List[str]] = Field(
         default=None,
-        description="Override which tool groups are enabled (core, memory, automation, web, browser, container). Default: auto-detect from environment.",
+        description="Override which tool groups are enabled. Default: auto-detect from environment.",
     )
     gateway: Optional[GatewayConfig] = Field(default=None, description="Gateway daemon configuration")
 

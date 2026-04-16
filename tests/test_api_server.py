@@ -59,12 +59,15 @@ class TestAPIServerEndpoints:
 
     def test_parse_chat_request_with_history(self):
         server, _ = self._make_server()
-        body = {"model": "qwen", "messages": [
-            {"role": "system", "content": "You are helpful"},
-            {"role": "user", "content": "first"},
-            {"role": "assistant", "content": "answer"},
-            {"role": "user", "content": "second"},
-        ]}
+        body = {
+            "model": "qwen",
+            "messages": [
+                {"role": "system", "content": "You are helpful"},
+                {"role": "user", "content": "first"},
+                {"role": "assistant", "content": "answer"},
+                {"role": "user", "content": "second"},
+            ],
+        }
         parsed = server._parse_chat_request(body)
         assert parsed["user_input"] == "second"
         assert len(parsed["conversation_history"]) == 2
@@ -78,7 +81,12 @@ class TestAPIServerEndpoints:
 
     def test_parse_chat_request_options(self):
         server, _ = self._make_server()
-        body = {"model": "qwen", "messages": [{"role": "user", "content": "hello"}], "temperature": 0.5, "max_tokens": 100}
+        body = {
+            "model": "qwen",
+            "messages": [{"role": "user", "content": "hello"}],
+            "temperature": 0.5,
+            "max_tokens": 100,
+        }
         parsed = server._parse_chat_request(body)
         assert parsed["options"]["temperature"] == 0.5
         assert parsed["options"]["max_tokens"] == 100

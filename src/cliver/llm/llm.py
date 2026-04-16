@@ -861,9 +861,8 @@ class AgentCore:
 
                     # FAILOVER: switch model — on explicit FAILOVER action,
                     # OR when retries are exhausted for any error type
-                    should_failover = (
-                        classified.action == ErrorAction.FAILOVER
-                        or (classified.action == ErrorAction.RETRY and retries >= max_retries)
+                    should_failover = classified.action == ErrorAction.FAILOVER or (
+                        classified.action == ErrorAction.RETRY and retries >= max_retries
                     )
                     if should_failover and auto_fallback:
                         tried.add(current_model)
@@ -1367,9 +1366,8 @@ class AgentCore:
 
                     # FAILOVER: switch model — on explicit FAILOVER action,
                     # OR when retries are exhausted for any error type
-                    should_failover = (
-                        classified.action == ErrorAction.FAILOVER
-                        or (classified.action == ErrorAction.RETRY and retries >= max_retries)
+                    should_failover = classified.action == ErrorAction.FAILOVER or (
+                        classified.action == ErrorAction.RETRY and retries >= max_retries
                     )
                     if should_failover and auto_fallback:
                         tried.add(current_model)

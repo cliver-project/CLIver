@@ -75,6 +75,7 @@ class TestEnvironmentGating:
     def test_browse_web_excluded_without_api_key(self):
         # Remove FIRECRAWL_API_KEY
         import os
+
         os.environ.pop("FIRECRAWL_API_KEY", None)
         registry = ToolRegistry()
         registry._tools = None

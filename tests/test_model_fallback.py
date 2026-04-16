@@ -465,10 +465,14 @@ class TestModelFallbackIntegration:
         result = CliRunner().invoke(
             load_cliver,
             [
-                "-p", "hello",
-                "--output", "json",
-                "--timeout", "60",
-                "--permission-mode", "yolo",
+                "-p",
+                "hello",
+                "--output",
+                "json",
+                "--timeout",
+                "60",
+                "--permission-mode",
+                "yolo",
                 "--no-fallback",
             ],
             catch_exceptions=False,

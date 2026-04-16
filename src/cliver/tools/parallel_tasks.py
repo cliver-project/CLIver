@@ -20,9 +20,7 @@ logger = logging.getLogger(__name__)
 class ParallelTasksInput(BaseModel):
     """Input schema for parallel_tasks."""
 
-    tasks: List[str] = Field(
-        description="List of prompts to execute in parallel. Each prompt is an independent task."
-    )
+    tasks: List[str] = Field(description="List of prompts to execute in parallel. Each prompt is an independent task.")
 
 
 class ParallelTasksTool(BaseTool):

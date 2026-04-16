@@ -34,8 +34,10 @@ class TestPlatformConfig:
 class TestAdapterRegistry:
     def test_builtin_registry_has_telegram(self):
         from cliver.gateway.adapters import BUILTIN_ADAPTERS
+
         assert "telegram" in BUILTIN_ADAPTERS
 
     def test_builtin_registry_has_discord(self):
         from cliver.gateway.adapters import BUILTIN_ADAPTERS
+
         assert "discord" in BUILTIN_ADAPTERS

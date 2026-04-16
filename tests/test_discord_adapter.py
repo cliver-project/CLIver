@@ -1,12 +1,10 @@
 """Tests for Discord adapter -- formatting and config."""
 
-import pytest
-
 
 class TestDiscordFormatting:
     def test_format_message_passthrough(self):
-        from cliver.gateway.adapters.discord import DiscordAdapter
         from cliver.config import PlatformConfig
+        from cliver.gateway.adapters.discord import DiscordAdapter
 
         cfg = PlatformConfig(type="discord", token="fake")
         adapter = DiscordAdapter(cfg)
@@ -17,8 +15,8 @@ class TestDiscordFormatting:
 
 class TestDiscordMaxLength:
     def test_max_length_is_2000(self):
-        from cliver.gateway.adapters.discord import DiscordAdapter
         from cliver.config import PlatformConfig
+        from cliver.gateway.adapters.discord import DiscordAdapter
 
         cfg = PlatformConfig(type="discord", token="fake")
         adapter = DiscordAdapter(cfg)
@@ -27,8 +25,8 @@ class TestDiscordMaxLength:
 
 class TestDiscordConfig:
     def test_adapter_name(self):
-        from cliver.gateway.adapters.discord import DiscordAdapter
         from cliver.config import PlatformConfig
+        from cliver.gateway.adapters.discord import DiscordAdapter
 
         cfg = PlatformConfig(type="discord", token="fake")
         adapter = DiscordAdapter(cfg)

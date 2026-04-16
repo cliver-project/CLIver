@@ -1,9 +1,7 @@
 """Tests for autonomous skill learning — post-task skill review."""
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
-
-import pytest
+from unittest.mock import AsyncMock, MagicMock
 
 from cliver.skill_reviewer import (
     DEFAULT_SKILL_NUDGE_THRESHOLD,

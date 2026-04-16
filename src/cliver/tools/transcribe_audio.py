@@ -75,7 +75,7 @@ def _find_audio_model() -> Optional[dict]:
 
     from cliver.model_capabilities import ModelCapability
 
-    for name, model_config in executor.llm_models.items():
+    for _name, model_config in executor.llm_models.items():
         caps = model_config.get_capabilities()
         if ModelCapability.AUDIO_TO_TEXT in caps:
             return {

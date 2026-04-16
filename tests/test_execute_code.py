@@ -20,11 +20,13 @@ class TestExecuteCodeTool:
 
     def test_multiline_script(self):
         tool = ExecuteCodeTool()
-        result = tool._run(code="""
+        result = tool._run(
+            code="""
 import json
 data = {"name": "CLIver", "tools": 20}
 print(json.dumps(data))
-""")
+"""
+        )
         assert "CLIver" in result
         assert "20" in result
 
@@ -35,13 +37,15 @@ print(json.dumps(data))
         (tmp_path / "input.txt").write_text("hello from file")
 
         tool = ExecuteCodeTool()
-        result = tool._run(code="""
+        result = tool._run(
+            code="""
 with open("input.txt") as f:
     content = f.read()
 with open("output.txt", "w") as f:
     f.write(content.upper())
 print("done")
-""")
+"""
+        )
         assert "done" in result
         assert (tmp_path / "output.txt").read_text() == "HELLO FROM FILE"
 
@@ -78,9 +82,11 @@ print("done")
 
     def test_tool_in_core_toolset(self):
         from cliver.tool_registry import TOOLSETS
+
         assert "execute_code" in TOOLSETS["core"]
 
     def test_tool_registered(self):
         from cliver.tool_registry import ToolRegistry
+
         registry = ToolRegistry()
         assert "execute_code" in registry.tool_names

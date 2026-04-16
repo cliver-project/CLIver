@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from cliver.workflow.persistence import WorkflowStore
 from cliver.workflow.workflow_executor import WorkflowExecutor
 from cliver.workflow.workflow_models import (
     Branch,
@@ -14,7 +15,6 @@ from cliver.workflow.workflow_models import (
     Workflow,
     WorkflowExecutionState,
 )
-from cliver.workflow.persistence import WorkflowStore
 
 
 @pytest.fixture

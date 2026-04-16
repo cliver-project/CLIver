@@ -71,7 +71,8 @@ async def maybe_review_for_skill(
     if tool_call_count < threshold:
         logger.debug(
             "Skipping skill review: %d tool calls < threshold %d",
-            tool_call_count, threshold,
+            tool_call_count,
+            threshold,
         )
         return None
 
@@ -94,7 +95,8 @@ async def maybe_review_for_skill(
 
     logger.info(
         "Triggering skill review: %d tool calls, summary: %.100s",
-        tool_call_count, task_summary,
+        tool_call_count,
+        task_summary,
     )
 
     try:

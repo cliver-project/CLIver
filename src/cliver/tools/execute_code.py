@@ -54,9 +54,7 @@ class ExecuteCodeTool(BaseTool):
 
         # Write code to a temp file (avoids shell escaping issues)
         try:
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=".py", delete=False, encoding="utf-8"
-            ) as f:
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as f:
                 f.write(code)
                 script_path = f.name
         except Exception as e:
