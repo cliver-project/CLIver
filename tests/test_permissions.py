@@ -26,9 +26,9 @@ class TestPermissionRuleMatching:
     """Test regex tool matching and fnmatch resource matching."""
 
     def test_exact_builtin_tool_match(self):
-        rule = PermissionRule(tool="read_file", action=PermissionAction.ALLOW)
-        assert rule.matches_tool("read_file")
-        assert not rule.matches_tool("write_file")
+        rule = PermissionRule(tool="Read", action=PermissionAction.ALLOW)
+        assert rule.matches_tool("Read")
+        assert not rule.matches_tool("Write")
 
     def test_mcp_tool_exact_match(self):
         rule = PermissionRule(tool="github#create_issue", action=PermissionAction.ALLOW)
@@ -50,46 +50,46 @@ class TestPermissionRuleMatching:
 
     def test_catch_all_wildcard(self):
         rule = PermissionRule(tool=".*", action=PermissionAction.ALLOW)
-        assert rule.matches_tool("read_file")
+        assert rule.matches_tool("Read")
         assert rule.matches_tool("github#create_issue")
 
     def test_all_mcp_tools_wildcard(self):
         rule = PermissionRule(tool=".*#.*", action=PermissionAction.ALLOW)
         assert rule.matches_tool("github#create_issue")
         assert rule.matches_tool("ocp#get_pods")
-        assert not rule.matches_tool("read_file")  # No '#' separator
+        assert not rule.matches_tool("Read")  # No '#' separator
 
     def test_resource_glob_path(self):
-        rule = PermissionRule(tool="read_file", resource="/data/reports/**", action=PermissionAction.ALLOW)
+        rule = PermissionRule(tool="Read", resource="/data/reports/**", action=PermissionAction.ALLOW)
         assert rule.matches_resource("/data/reports/q1.csv")
         assert rule.matches_resource("/data/reports/2024/jan.csv")
         assert not rule.matches_resource("/etc/passwd")
 
     def test_resource_glob_url(self):
-        rule = PermissionRule(tool="web_fetch", resource="https://docs.python.org/**", action=PermissionAction.ALLOW)
+        rule = PermissionRule(tool="WebFetch", resource="https://docs.python.org/**", action=PermissionAction.ALLOW)
         assert rule.matches_resource("https://docs.python.org/3/library/os.html")
         assert not rule.matches_resource("https://evil.com/malware")
 
     def test_resource_glob_command(self):
-        rule = PermissionRule(tool="run_shell_command", resource="git *", action=PermissionAction.ALLOW)
+        rule = PermissionRule(tool="Bash", resource="git *", action=PermissionAction.ALLOW)
         assert rule.matches_resource("git status")
         assert rule.matches_resource("git diff HEAD")
         assert not rule.matches_resource("rm -rf /")
 
     def test_no_resource_pattern_matches_all(self):
-        rule = PermissionRule(tool="read_file", action=PermissionAction.ALLOW)
+        rule = PermissionRule(tool="Read", action=PermissionAction.ALLOW)
         assert rule.matches_resource(None)
         assert rule.matches_resource("/any/path")
 
     def test_resource_pattern_with_none_resource(self):
-        rule = PermissionRule(tool="read_file", resource="/data/**", action=PermissionAction.ALLOW)
+        rule = PermissionRule(tool="Read", resource="/data/**", action=PermissionAction.ALLOW)
         assert not rule.matches_resource(None)
 
     def test_full_match(self):
-        rule = PermissionRule(tool="read_file", resource="/data/**", action=PermissionAction.ALLOW)
-        assert rule.matches("read_file", "/data/file.txt")
-        assert not rule.matches("read_file", "/etc/passwd")
-        assert not rule.matches("write_file", "/data/file.txt")
+        rule = PermissionRule(tool="Read", resource="/data/**", action=PermissionAction.ALLOW)
+        assert rule.matches("Read", "/data/file.txt")
+        assert not rule.matches("Read", "/etc/passwd")
+        assert not rule.matches("Write", "/data/file.txt")
 
     def test_regex_fullmatch_not_partial(self):
         """Ensure regex uses fullmatch, not search/match."""
@@ -105,24 +105,24 @@ class TestPermissionRuleMatching:
 
 class TestToolMeta:
     def test_builtin_tool_lookup(self):
-        meta = get_tool_meta("read_file")
+        meta = get_tool_meta("Read")
         assert meta.action_kind == ActionKind.READ
         assert meta.resource_type == ResourceType.PATH
         assert meta.resource_param == "file_path"
 
     def test_safe_tool(self):
-        meta = get_tool_meta("skill")
+        meta = get_tool_meta("Skill")
         assert meta.action_kind == ActionKind.SAFE
         assert meta.resource_type == ResourceType.NONE
 
     def test_execute_tool(self):
-        meta = get_tool_meta("run_shell_command")
+        meta = get_tool_meta("Bash")
         assert meta.action_kind == ActionKind.EXECUTE
         assert meta.resource_type == ResourceType.COMMAND
         assert meta.resource_param == "command"
 
     def test_fetch_tool(self):
-        meta = get_tool_meta("web_fetch")
+        meta = get_tool_meta("WebFetch")
         assert meta.action_kind == ActionKind.FETCH
         assert meta.resource_type == ResourceType.URL
 
@@ -150,29 +150,29 @@ class TestPermissionManagerModes:
         """Safe tools are auto-allowed in all modes."""
         for mode in PermissionMode:
             pm = self._make_manager(mode)
-            assert pm.check("skill", {}) == PermissionDecision.ALLOW
-            assert pm.check("todo_read", {}) == PermissionDecision.ALLOW
+            assert pm.check("Skill", {}) == PermissionDecision.ALLOW
+            assert pm.check("TodoRead", {}) == PermissionDecision.ALLOW
 
     def test_default_mode_asks_for_non_safe(self):
         pm = self._make_manager(PermissionMode.DEFAULT)
-        assert pm.check("read_file", {"file_path": "/tmp/x"}) == PermissionDecision.ASK
-        assert pm.check("write_file", {"file_path": "/tmp/x"}) == PermissionDecision.ASK
-        assert pm.check("run_shell_command", {"command": "ls"}) == PermissionDecision.ASK
-        assert pm.check("web_fetch", {"url": "https://x.com"}) == PermissionDecision.ASK
+        assert pm.check("Read", {"file_path": "/tmp/x"}) == PermissionDecision.ASK
+        assert pm.check("Write", {"file_path": "/tmp/x"}) == PermissionDecision.ASK
+        assert pm.check("Bash", {"command": "ls"}) == PermissionDecision.ASK
+        assert pm.check("WebFetch", {"url": "https://x.com"}) == PermissionDecision.ASK
 
     def test_auto_edit_allows_read_write(self):
         pm = self._make_manager(PermissionMode.AUTO_EDIT)
-        assert pm.check("read_file", {"file_path": "/tmp/x"}) == PermissionDecision.ALLOW
-        assert pm.check("write_file", {"file_path": "/tmp/x"}) == PermissionDecision.ALLOW
-        assert pm.check("run_shell_command", {"command": "ls"}) == PermissionDecision.ASK
-        assert pm.check("web_fetch", {"url": "https://x.com"}) == PermissionDecision.ASK
+        assert pm.check("Read", {"file_path": "/tmp/x"}) == PermissionDecision.ALLOW
+        assert pm.check("Write", {"file_path": "/tmp/x"}) == PermissionDecision.ALLOW
+        assert pm.check("Bash", {"command": "ls"}) == PermissionDecision.ASK
+        assert pm.check("WebFetch", {"url": "https://x.com"}) == PermissionDecision.ASK
 
     def test_yolo_allows_everything(self):
         pm = self._make_manager(PermissionMode.YOLO)
-        assert pm.check("read_file", {"file_path": "/tmp/x"}) == PermissionDecision.ALLOW
-        assert pm.check("write_file", {"file_path": "/tmp/x"}) == PermissionDecision.ALLOW
-        assert pm.check("run_shell_command", {"command": "rm -rf /"}) == PermissionDecision.ALLOW
-        assert pm.check("web_fetch", {"url": "https://x.com"}) == PermissionDecision.ALLOW
+        assert pm.check("Read", {"file_path": "/tmp/x"}) == PermissionDecision.ALLOW
+        assert pm.check("Write", {"file_path": "/tmp/x"}) == PermissionDecision.ALLOW
+        assert pm.check("Bash", {"command": "rm -rf /"}) == PermissionDecision.ALLOW
+        assert pm.check("WebFetch", {"url": "https://x.com"}) == PermissionDecision.ALLOW
 
     def test_mcp_tool_defaults_to_execute(self):
         pm = self._make_manager(PermissionMode.DEFAULT)
@@ -200,20 +200,20 @@ class TestPermissionManagerRules:
     def test_allow_rule_matches(self):
         pm = self._make_manager(
             [
-                {"tool": "read_file", "resource": "/data/**", "action": "allow"},
+                {"tool": "Read", "resource": "/data/**", "action": "allow"},
             ]
         )
-        assert pm.check("read_file", {"file_path": "/data/x.csv"}) == PermissionDecision.ALLOW
+        assert pm.check("Read", {"file_path": "/data/x.csv"}) == PermissionDecision.ALLOW
 
     def test_deny_rule_wins_over_allow(self):
         pm = self._make_manager(
             [
-                {"tool": "read_file", "action": "allow"},
-                {"tool": "read_file", "resource": "/etc/**", "action": "deny"},
+                {"tool": "Read", "action": "allow"},
+                {"tool": "Read", "resource": "/etc/**", "action": "deny"},
             ]
         )
-        assert pm.check("read_file", {"file_path": "/etc/passwd"}) == PermissionDecision.DENY
-        assert pm.check("read_file", {"file_path": "/tmp/x"}) == PermissionDecision.ALLOW
+        assert pm.check("Read", {"file_path": "/etc/passwd"}) == PermissionDecision.DENY
+        assert pm.check("Read", {"file_path": "/tmp/x"}) == PermissionDecision.ALLOW
 
     def test_mcp_server_wildcard_allow(self):
         pm = self._make_manager(
@@ -231,35 +231,35 @@ class TestPermissionManagerRules:
                 {"tool": ".*", "action": "allow"},
             ]
         )
-        assert pm.check("read_file", {"file_path": "/any"}) == PermissionDecision.ALLOW
+        assert pm.check("Read", {"file_path": "/any"}) == PermissionDecision.ALLOW
         assert pm.check("github#create_issue", {}) == PermissionDecision.ALLOW
 
     def test_constrained_allow_denies_unmatched_resource(self):
         """When a tool has specific resource rules, non-matching resources are denied."""
         pm = self._make_manager(
             [
-                {"tool": "read_file", "resource": "/data/reports/**", "action": "allow"},
+                {"tool": "Read", "resource": "/data/reports/**", "action": "allow"},
                 {"tool": ".*", "action": "allow"},
             ]
         )
         # Matches resource constraint
-        assert pm.check("read_file", {"file_path": "/data/reports/q1.csv"}) == PermissionDecision.ALLOW
+        assert pm.check("Read", {"file_path": "/data/reports/q1.csv"}) == PermissionDecision.ALLOW
         # Does NOT match — constrained, so wildcard cannot override
-        assert pm.check("read_file", {"file_path": "/etc/passwd"}) == PermissionDecision.ASK
+        assert pm.check("Read", {"file_path": "/etc/passwd"}) == PermissionDecision.ASK
         # Other tools still allowed by wildcard
-        assert pm.check("run_shell_command", {"command": "ls"}) == PermissionDecision.ALLOW
+        assert pm.check("Bash", {"command": "ls"}) == PermissionDecision.ALLOW
 
     def test_constrained_allow_multiple_resources(self):
         pm = self._make_manager(
             [
-                {"tool": "web_fetch", "resource": "https://api.github.com/**", "action": "allow"},
-                {"tool": "web_fetch", "resource": "https://docs.python.org/**", "action": "allow"},
+                {"tool": "WebFetch", "resource": "https://api.github.com/**", "action": "allow"},
+                {"tool": "WebFetch", "resource": "https://docs.python.org/**", "action": "allow"},
                 {"tool": ".*", "action": "allow"},
             ]
         )
-        assert pm.check("web_fetch", {"url": "https://api.github.com/repos"}) == PermissionDecision.ALLOW
-        assert pm.check("web_fetch", {"url": "https://docs.python.org/3/"}) == PermissionDecision.ALLOW
-        assert pm.check("web_fetch", {"url": "https://evil.com"}) == PermissionDecision.ASK
+        assert pm.check("WebFetch", {"url": "https://api.github.com/repos"}) == PermissionDecision.ALLOW
+        assert pm.check("WebFetch", {"url": "https://docs.python.org/3/"}) == PermissionDecision.ALLOW
+        assert pm.check("WebFetch", {"url": "https://evil.com"}) == PermissionDecision.ASK
 
     def test_server_wide_wildcard_not_treated_as_specific(self):
         """server#.* rules should not trigger constrained-allow for individual tools."""
@@ -288,13 +288,13 @@ class TestSessionGrants:
 
     def test_session_grant_allow(self):
         pm = self._make_manager()
-        pm.grant_session("read_file", PermissionAction.ALLOW)
-        assert pm.check("read_file", {"file_path": "/any"}) == PermissionDecision.ALLOW
+        pm.grant_session("Read", PermissionAction.ALLOW)
+        assert pm.check("Read", {"file_path": "/any"}) == PermissionDecision.ALLOW
 
     def test_session_grant_deny(self):
         pm = self._make_manager()
-        pm.grant_session("run_shell_command", PermissionAction.DENY)
-        assert pm.check("run_shell_command", {"command": "ls"}) == PermissionDecision.DENY
+        pm.grant_session("Bash", PermissionAction.DENY)
+        assert pm.check("Bash", {"command": "ls"}) == PermissionDecision.DENY
 
     def test_session_grant_mcp_tool(self):
         pm = self._make_manager()
@@ -305,16 +305,16 @@ class TestSessionGrants:
 
     def test_clear_session_grants(self):
         pm = self._make_manager()
-        pm.grant_session("read_file", PermissionAction.ALLOW)
+        pm.grant_session("Read", PermissionAction.ALLOW)
         pm.clear_session_grants()
-        assert pm.check("read_file", {"file_path": "/tmp/x"}) == PermissionDecision.ASK
+        assert pm.check("Read", {"file_path": "/tmp/x"}) == PermissionDecision.ASK
 
     def test_deny_rule_wins_over_session_grant(self):
         """Deny rules from config always win over session grants."""
         pm = self._make_manager()
-        pm.rules = [PermissionRule(tool="read_file", resource="/etc/**", action=PermissionAction.DENY)]
-        pm.grant_session("read_file", PermissionAction.ALLOW)
-        assert pm.check("read_file", {"file_path": "/etc/passwd"}) == PermissionDecision.DENY
+        pm.rules = [PermissionRule(tool="Read", resource="/etc/**", action=PermissionAction.DENY)]
+        pm.grant_session("Read", PermissionAction.ALLOW)
+        assert pm.check("Read", {"file_path": "/etc/passwd"}) == PermissionDecision.DENY
 
 
 # ---------------------------------------------------------------------------
@@ -336,52 +336,52 @@ class TestTaskScopePermissions:
         pm.push_task_scope(
             TaskPermissions(
                 rules=[
-                    PermissionRule(tool="read_file", action=PermissionAction.ALLOW),
+                    PermissionRule(tool="Read", action=PermissionAction.ALLOW),
                 ]
             )
         )
-        assert pm.check("read_file", {"file_path": "/any"}) == PermissionDecision.ALLOW
+        assert pm.check("Read", {"file_path": "/any"}) == PermissionDecision.ALLOW
         pm.pop_task_scope()
-        assert pm.check("read_file", {"file_path": "/any"}) == PermissionDecision.ASK
+        assert pm.check("Read", {"file_path": "/any"}) == PermissionDecision.ASK
 
     def test_task_scope_mode_override(self):
         pm = self._make_manager()
         pm.push_task_scope(TaskPermissions(mode=PermissionMode.YOLO))
-        assert pm.check("run_shell_command", {"command": "rm -rf /"}) == PermissionDecision.ALLOW
+        assert pm.check("Bash", {"command": "rm -rf /"}) == PermissionDecision.ALLOW
         pm.pop_task_scope()
-        assert pm.check("run_shell_command", {"command": "rm -rf /"}) == PermissionDecision.ASK
+        assert pm.check("Bash", {"command": "rm -rf /"}) == PermissionDecision.ASK
 
     def test_nested_task_scopes_accumulate(self):
         pm = self._make_manager()
         pm.push_task_scope(
             TaskPermissions(
                 rules=[
-                    PermissionRule(tool="read_file", action=PermissionAction.ALLOW),
+                    PermissionRule(tool="Read", action=PermissionAction.ALLOW),
                 ]
             )
         )
         pm.push_task_scope(
             TaskPermissions(
                 rules=[
-                    PermissionRule(tool="write_file", action=PermissionAction.ALLOW),
+                    PermissionRule(tool="Write", action=PermissionAction.ALLOW),
                 ]
             )
         )
         # Both should be allowed
-        assert pm.check("read_file", {"file_path": "/any"}) == PermissionDecision.ALLOW
-        assert pm.check("write_file", {"file_path": "/any"}) == PermissionDecision.ALLOW
+        assert pm.check("Read", {"file_path": "/any"}) == PermissionDecision.ALLOW
+        assert pm.check("Write", {"file_path": "/any"}) == PermissionDecision.ALLOW
         # Pop inner scope
         pm.pop_task_scope()
-        assert pm.check("read_file", {"file_path": "/any"}) == PermissionDecision.ALLOW
-        assert pm.check("write_file", {"file_path": "/any"}) == PermissionDecision.ASK
+        assert pm.check("Read", {"file_path": "/any"}) == PermissionDecision.ALLOW
+        assert pm.check("Write", {"file_path": "/any"}) == PermissionDecision.ASK
 
     def test_innermost_mode_wins(self):
         pm = self._make_manager()
         pm.push_task_scope(TaskPermissions(mode=PermissionMode.YOLO))
         pm.push_task_scope(TaskPermissions(mode=PermissionMode.AUTO_EDIT))
         # Inner AUTO_EDIT wins over outer YOLO
-        assert pm.check("run_shell_command", {"command": "ls"}) == PermissionDecision.ASK
-        assert pm.check("read_file", {"file_path": "/any"}) == PermissionDecision.ALLOW
+        assert pm.check("Bash", {"command": "ls"}) == PermissionDecision.ASK
+        assert pm.check("Read", {"file_path": "/any"}) == PermissionDecision.ALLOW
 
     def test_task_scope_deny_wins(self):
         pm = self._make_manager()
@@ -389,12 +389,12 @@ class TestTaskScopePermissions:
             TaskPermissions(
                 rules=[
                     PermissionRule(tool=".*", action=PermissionAction.ALLOW),
-                    PermissionRule(tool="run_shell_command", resource="rm *", action=PermissionAction.DENY),
+                    PermissionRule(tool="Bash", resource="rm *", action=PermissionAction.DENY),
                 ]
             )
         )
-        assert pm.check("read_file", {"file_path": "/any"}) == PermissionDecision.ALLOW
-        assert pm.check("run_shell_command", {"command": "rm -rf /"}) == PermissionDecision.DENY
+        assert pm.check("Read", {"file_path": "/any"}) == PermissionDecision.ALLOW
+        assert pm.check("Bash", {"command": "rm -rf /"}) == PermissionDecision.DENY
 
     def test_task_scope_constrained_allow(self):
         """Constrained-allow applies to task rules too."""
@@ -402,20 +402,20 @@ class TestTaskScopePermissions:
         pm.push_task_scope(
             TaskPermissions(
                 rules=[
-                    PermissionRule(tool="read_file", resource="/data/**", action=PermissionAction.ALLOW),
+                    PermissionRule(tool="Read", resource="/data/**", action=PermissionAction.ALLOW),
                     PermissionRule(tool=".*", action=PermissionAction.ALLOW),
                 ]
             )
         )
-        assert pm.check("read_file", {"file_path": "/data/x.csv"}) == PermissionDecision.ALLOW
-        assert pm.check("read_file", {"file_path": "/etc/passwd"}) == PermissionDecision.ASK
-        assert pm.check("write_file", {"file_path": "/any"}) == PermissionDecision.ALLOW
+        assert pm.check("Read", {"file_path": "/data/x.csv"}) == PermissionDecision.ALLOW
+        assert pm.check("Read", {"file_path": "/etc/passwd"}) == PermissionDecision.ASK
+        assert pm.check("Write", {"file_path": "/any"}) == PermissionDecision.ALLOW
 
     def test_task_grant_all(self):
         """A task with mode: yolo grants everything."""
         pm = self._make_manager()
         pm.push_task_scope(TaskPermissions(mode=PermissionMode.YOLO))
-        assert pm.check("run_shell_command", {"command": "anything"}) == PermissionDecision.ALLOW
+        assert pm.check("Bash", {"command": "anything"}) == PermissionDecision.ALLOW
         assert pm.check("github#delete_repo", {}) == PermissionDecision.ALLOW
 
     def test_pop_empty_stack_is_safe(self):
@@ -437,10 +437,10 @@ class TestSetMode:
         pm._task_stack = []
 
         pm.set_mode(PermissionMode.YOLO)
-        assert pm.check("run_shell_command", {"command": "ls"}) == PermissionDecision.ALLOW
+        assert pm.check("Bash", {"command": "ls"}) == PermissionDecision.ALLOW
 
         pm.set_mode(PermissionMode.DEFAULT)
-        assert pm.check("run_shell_command", {"command": "ls"}) == PermissionDecision.ASK
+        assert pm.check("Bash", {"command": "ls"}) == PermissionDecision.ASK
 
 
 # ---------------------------------------------------------------------------
@@ -472,15 +472,15 @@ class TestAgentCorePermissionGate:
     async def test_allow_returns_none(self):
         pm = self._make_pm(mode=PermissionMode.YOLO)
         te = self._make_executor(pm)
-        result = await te._check_permission("read_file", {"file_path": "/x"}, "id1", [], None, None)
+        result = await te._check_permission("Read", {"file_path": "/x"}, "id1", [], None, None)
         assert result is None  # Proceed
 
     @pytest.mark.asyncio
     async def test_deny_returns_continue(self):
-        pm = self._make_pm(rules=[{"tool": "run_shell_command", "action": "deny"}])
+        pm = self._make_pm(rules=[{"tool": "Bash", "action": "deny"}])
         te = self._make_executor(pm)
         messages = []
-        result = await te._check_permission("run_shell_command", {"command": "rm"}, "id1", messages, None, None)
+        result = await te._check_permission("Bash", {"command": "rm"}, "id1", messages, None, None)
         assert result == (False, None)  # Continue loop, don't stop
         # Should have appended AIMessage + ToolMessage
         assert len(messages) == 2
@@ -490,7 +490,7 @@ class TestAgentCorePermissionGate:
     async def test_ask_user_allows(self):
         pm = self._make_pm()
         te = self._make_executor(pm, on_prompt=lambda name, args: "allow")
-        result = await te._check_permission("read_file", {"file_path": "/x"}, "id1", [], None, None)
+        result = await te._check_permission("Read", {"file_path": "/x"}, "id1", [], None, None)
         assert result is None
 
     @pytest.mark.asyncio
@@ -498,7 +498,7 @@ class TestAgentCorePermissionGate:
         pm = self._make_pm()
         te = self._make_executor(pm, on_prompt=lambda name, args: "deny")
         messages = []
-        result = await te._check_permission("read_file", {"file_path": "/x"}, "id1", messages, None, None)
+        result = await te._check_permission("Read", {"file_path": "/x"}, "id1", messages, None, None)
         assert result == (False, None)
         assert len(messages) == 2
 
@@ -506,23 +506,23 @@ class TestAgentCorePermissionGate:
     async def test_ask_user_allow_always_grants_session(self):
         pm = self._make_pm()
         te = self._make_executor(pm, on_prompt=lambda name, args: "allow_always")
-        await te._check_permission("read_file", {"file_path": "/x"}, "id1", [], None, None)
+        await te._check_permission("Read", {"file_path": "/x"}, "id1", [], None, None)
         # Should now be session-granted
-        assert pm.check("read_file", {"file_path": "/any"}) == PermissionDecision.ALLOW
+        assert pm.check("Read", {"file_path": "/any"}) == PermissionDecision.ALLOW
 
     @pytest.mark.asyncio
     async def test_ask_user_deny_always_grants_session(self):
         pm = self._make_pm()
         te = self._make_executor(pm, on_prompt=lambda name, args: "deny_always")
-        await te._check_permission("read_file", {"file_path": "/x"}, "id1", [], None, None)
-        assert pm.check("read_file", {"file_path": "/any"}) == PermissionDecision.DENY
+        await te._check_permission("Read", {"file_path": "/x"}, "id1", [], None, None)
+        assert pm.check("Read", {"file_path": "/any"}) == PermissionDecision.DENY
 
     @pytest.mark.asyncio
     async def test_safe_tools_skip_prompt(self):
         pm = self._make_pm()
         prompt_called = []
         te = self._make_executor(pm, on_prompt=lambda n, a: prompt_called.append(1) or "allow")
-        result = await te._check_permission("skill", {}, "id1", [], None, None)
+        result = await te._check_permission("Skill", {}, "id1", [], None, None)
         assert result is None
         assert len(prompt_called) == 0  # Never prompted
 
@@ -532,15 +532,15 @@ class TestAgentCorePermissionGate:
         te = self._make_executor(pm=None)
         te.permission_manager = None
         result = await te._check_permission(
-            "read_file", {"file_path": "/x"}, "id1", [], None, confirm_tool_exec=lambda prompt: False
+            "Read", {"file_path": "/x"}, "id1", [], None, confirm_tool_exec=lambda prompt: False
         )
-        assert result == (True, "Stopped at tool execution: read_file")
+        assert result == (True, "Stopped at tool execution: Read")
 
     @pytest.mark.asyncio
     async def test_no_permission_manager_no_confirm_auto_allows(self):
         te = self._make_executor(pm=None)
         te.permission_manager = None
-        result = await te._check_permission("read_file", {"file_path": "/x"}, "id1", [], None, None)
+        result = await te._check_permission("Read", {"file_path": "/x"}, "id1", [], None, None)
         assert result is None
 
 
@@ -561,14 +561,14 @@ class TestSettingsLoading:
             {
                 "permission_mode": "auto-edit",
                 "permissions": [
-                    {"tool": "read_file", "action": "allow"},
+                    {"tool": "Read", "action": "allow"},
                 ],
             },
         )
         pm = PermissionManager(global_config_dir=global_dir)
         assert pm.mode == PermissionMode.AUTO_EDIT
         assert len(pm.rules) == 1
-        assert pm.rules[0].tool == "read_file"
+        assert pm.rules[0].tool == "Read"
 
     def test_load_local_settings(self, tmp_path):
         local_dir = tmp_path / "local"
@@ -593,7 +593,7 @@ class TestSettingsLoading:
             {
                 "permission_mode": "default",
                 "permissions": [
-                    {"tool": "read_file", "action": "allow"},
+                    {"tool": "Read", "action": "allow"},
                 ],
             },
         )
@@ -602,7 +602,7 @@ class TestSettingsLoading:
             {
                 "permission_mode": "yolo",
                 "permissions": [
-                    {"tool": "write_file", "action": "allow"},
+                    {"tool": "Write", "action": "allow"},
                 ],
             },
         )
@@ -611,8 +611,8 @@ class TestSettingsLoading:
         assert pm.mode == PermissionMode.YOLO
         # Rules accumulate (global first, then local)
         assert len(pm.rules) == 2
-        assert pm.rules[0].tool == "read_file"
-        assert pm.rules[1].tool == "write_file"
+        assert pm.rules[0].tool == "Read"
+        assert pm.rules[1].tool == "Write"
 
     def test_missing_files_graceful(self, tmp_path):
         """No settings files → defaults (mode=default, no rules)."""
@@ -672,7 +672,7 @@ class TestSettingsLoading:
         """TaskPermissions can be constructed from a dict (as loaded from YAML)."""
         perms_dict = {
             "mode": "yolo",
-            "rules": [{"tool": "read_file", "action": "allow"}],
+            "rules": [{"tool": "Read", "action": "allow"}],
         }
         perms = TaskPermissions(**perms_dict)
         assert perms.mode == PermissionMode.YOLO
@@ -692,52 +692,52 @@ class TestSettingsLoading:
     def test_nested_workflow_permission_accumulation(self):
         """Simulates workflow -> step nested permission scopes."""
         pm = PermissionManager()
-        assert pm.check("read_file", {"file_path": "/x"}) == PermissionDecision.ASK
-        assert pm.check("write_file", {"file_path": "/x"}) == PermissionDecision.ASK
+        assert pm.check("Read", {"file_path": "/x"}) == PermissionDecision.ASK
+        assert pm.check("Write", {"file_path": "/x"}) == PermissionDecision.ASK
 
         # Workflow scope: allow read_file
         pm.push_task_scope(
             TaskPermissions(
                 rules=[
-                    PermissionRule(tool="read_file", action=PermissionAction.ALLOW),
+                    PermissionRule(tool="Read", action=PermissionAction.ALLOW),
                 ]
             )
         )
-        assert pm.check("read_file", {"file_path": "/x"}) == PermissionDecision.ALLOW
-        assert pm.check("write_file", {"file_path": "/x"}) == PermissionDecision.ASK
+        assert pm.check("Read", {"file_path": "/x"}) == PermissionDecision.ALLOW
+        assert pm.check("Write", {"file_path": "/x"}) == PermissionDecision.ASK
 
         # Step scope: allow write_file too
         pm.push_task_scope(
             TaskPermissions(
                 rules=[
-                    PermissionRule(tool="write_file", action=PermissionAction.ALLOW),
+                    PermissionRule(tool="Write", action=PermissionAction.ALLOW),
                 ]
             )
         )
-        assert pm.check("read_file", {"file_path": "/x"}) == PermissionDecision.ALLOW
-        assert pm.check("write_file", {"file_path": "/x"}) == PermissionDecision.ALLOW
+        assert pm.check("Read", {"file_path": "/x"}) == PermissionDecision.ALLOW
+        assert pm.check("Write", {"file_path": "/x"}) == PermissionDecision.ALLOW
 
         # Pop step scope
         pm.pop_task_scope()
-        assert pm.check("write_file", {"file_path": "/x"}) == PermissionDecision.ASK
+        assert pm.check("Write", {"file_path": "/x"}) == PermissionDecision.ASK
 
         # Pop workflow scope
         pm.pop_task_scope()
-        assert pm.check("read_file", {"file_path": "/x"}) == PermissionDecision.ASK
+        assert pm.check("Read", {"file_path": "/x"}) == PermissionDecision.ASK
 
     def test_save_rule_to_global(self, tmp_path):
         global_dir = tmp_path / "global"
         global_dir.mkdir()
         pm = PermissionManager(global_config_dir=global_dir)
 
-        rule = PermissionRule(tool="read_file", resource="/data/**", action=PermissionAction.ALLOW)
+        rule = PermissionRule(tool="Read", resource="/data/**", action=PermissionAction.ALLOW)
         pm.save_rule(rule, "global")
 
         assert len(pm.rules) == 1
         # Verify written to file
         data = yaml.safe_load((global_dir / "cliver-settings.yaml").read_text())
         assert len(data["permissions"]) == 1
-        assert data["permissions"][0]["tool"] == "read_file"
+        assert data["permissions"][0]["tool"] == "Read"
 
     def test_save_rule_to_local(self, tmp_path):
         global_dir = tmp_path / "global"
@@ -758,8 +758,8 @@ class TestSettingsLoading:
             global_dir / "cliver-settings.yaml",
             {
                 "permissions": [
-                    {"tool": "read_file", "action": "allow"},
-                    {"tool": "write_file", "action": "allow"},
+                    {"tool": "Read", "action": "allow"},
+                    {"tool": "Write", "action": "allow"},
                 ],
             },
         )
@@ -768,12 +768,12 @@ class TestSettingsLoading:
 
         pm.remove_rule(0)
         assert len(pm.rules) == 1
-        assert pm.rules[0].tool == "write_file"
+        assert pm.rules[0].tool == "Write"
 
         # Verify file updated
         data = yaml.safe_load((global_dir / "cliver-settings.yaml").read_text())
         assert len(data["permissions"]) == 1
-        assert data["permissions"][0]["tool"] == "write_file"
+        assert data["permissions"][0]["tool"] == "Write"
 
     def test_save_mode(self, tmp_path):
         global_dir = tmp_path / "global"
@@ -795,14 +795,14 @@ class TestSettingsLoading:
             {
                 "permission_mode": "default",
                 "permissions": [
-                    {"tool": "read_file", "resource": "/data/**", "action": "allow"},
-                    {"tool": "run_shell_command", "resource": "git *", "action": "allow"},
-                    {"tool": "run_shell_command", "resource": "rm *", "action": "deny"},
+                    {"tool": "Read", "resource": "/data/**", "action": "allow"},
+                    {"tool": "Bash", "resource": "git *", "action": "allow"},
+                    {"tool": "Bash", "resource": "rm *", "action": "deny"},
                 ],
             },
         )
         pm = PermissionManager(global_config_dir=global_dir)
-        assert pm.check("read_file", {"file_path": "/data/x.csv"}) == PermissionDecision.ALLOW
-        assert pm.check("read_file", {"file_path": "/etc/passwd"}) == PermissionDecision.ASK
-        assert pm.check("run_shell_command", {"command": "git status"}) == PermissionDecision.ALLOW
-        assert pm.check("run_shell_command", {"command": "rm -rf /"}) == PermissionDecision.DENY
+        assert pm.check("Read", {"file_path": "/data/x.csv"}) == PermissionDecision.ALLOW
+        assert pm.check("Read", {"file_path": "/etc/passwd"}) == PermissionDecision.ASK
+        assert pm.check("Bash", {"command": "git status"}) == PermissionDecision.ALLOW
+        assert pm.check("Bash", {"command": "rm -rf /"}) == PermissionDecision.DENY

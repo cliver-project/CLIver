@@ -23,7 +23,7 @@ class WriteFileInput(BaseModel):
 class WriteFileTool(BaseTool):
     """Writes content to a specified file in the local filesystem."""
 
-    name: str = "write_file"
+    name: str = "Write"
     description: str = (
         "Writes content to a specified file in the local filesystem. "
         "Creates the file and any parent directories if they don't exist. "

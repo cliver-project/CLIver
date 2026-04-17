@@ -181,6 +181,13 @@ MODEL_CAPABILITIES = {
         ModelCapability.TOOL_CALLING,
         ModelCapability.JSON_MODE,
     },
+    # MiniMax models
+    "minimax*": {
+        ModelCapability.TEXT_TO_TEXT,
+        ModelCapability.TOOL_CALLING,
+        ModelCapability.JSON_MODE,
+        ModelCapability.THINK_MODE,
+    },
     # Llama models (Meta)
     "llama3*": {
         ModelCapability.TEXT_TO_TEXT,
@@ -242,14 +249,15 @@ class ModelCapabilityDetector:
         capabilities = PROVIDER_CAPABILITIES.get(provider, set())
 
         # Override with model-specific capabilities if available
+        model_name_lower = model_name.lower()
         for pattern, model_caps in MODEL_CAPABILITIES.items():
-            # Handle wildcard patterns
+            # Handle wildcard patterns (case-insensitive)
             if pattern.endswith("*"):
                 prefix = pattern[:-1]
-                if model_name.startswith(prefix):
+                if model_name_lower.startswith(prefix):
                     capabilities = model_caps
                     break
-            elif model_name == pattern:
+            elif model_name_lower == pattern:
                 capabilities = model_caps
                 break
 

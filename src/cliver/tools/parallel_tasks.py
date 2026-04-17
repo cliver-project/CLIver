@@ -26,7 +26,7 @@ class ParallelTasksInput(BaseModel):
 class ParallelTasksTool(BaseTool):
     """Run multiple independent tasks in parallel and combine results."""
 
-    name: str = "parallel_tasks"
+    name: str = "Parallel"
     description: str = (
         "Execute multiple independent prompts in parallel and return all results. "
         "Use when the user asks for multiple unrelated things that can be done concurrently, "

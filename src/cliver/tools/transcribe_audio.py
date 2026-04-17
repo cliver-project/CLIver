@@ -34,7 +34,7 @@ class TranscribeAudioInput(BaseModel):
 class TranscribeAudioTool(BaseTool):
     """Transcribe audio files to text using a configured model with AUDIO_TO_TEXT capability."""
 
-    name: str = "transcribe_audio"
+    name: str = "Transcribe"
     description: str = (
         "Transcribe an audio or voice file to text. Supports mp3, wav, ogg, m4a, webm, flac. "
         "Use when you receive audio files or voice messages that need to be converted to text. "

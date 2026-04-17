@@ -8,7 +8,7 @@ from cliver.tools.parallel_tasks import ParallelTasksTool
 class TestParallelTasksTool:
     def test_tool_has_correct_name(self):
         tool = ParallelTasksTool()
-        assert tool.name == "parallel_tasks"
+        assert tool.name == "Parallel"
 
     def test_tool_has_description(self):
         tool = ParallelTasksTool()
@@ -84,4 +84,4 @@ class TestParallelTasksTool:
         from cliver.tool_registry import ToolRegistry
 
         registry = ToolRegistry()
-        assert "parallel_tasks" in registry.tool_names
+        assert "Parallel" in registry.tool_names

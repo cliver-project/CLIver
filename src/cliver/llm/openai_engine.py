@@ -1,8 +1,9 @@
 import json
 import logging
-from typing import Dict, List, Optional
+from typing import Any, AsyncIterator, Dict, List, Optional
 
-from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.messages import BaseMessage, BaseMessageChunk, HumanMessage
+from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
 from openai import OpenAI
 
@@ -23,7 +24,14 @@ class OpenAICompatibleInferenceEngine(LLMInferenceEngine):
         super().__init__(config, user_agent=user_agent, agent_name=agent_name)
         self.options = {}
         if self.config and self.config.options:
-            self.options = self.config.options.model_dump()
+            # Only include user-specified options, not ModelOptions defaults.
+            # Prevents sending unsupported params (e.g. frequency_penalty)
+            # to providers that reject them (MiniMax, Qwen, etc.).
+            self.options = self.config.options.model_dump(exclude_unset=True)
+
+        # Sanitize options for provider-specific restrictions
+        self._model_name_lower = (self.config.name_in_provider or self.config.name).lower()
+        self.options = _sanitize_options(self._model_name_lower, self.options)
 
         default_headers = {"User-Agent": user_agent} if user_agent else None
 
@@ -50,6 +58,25 @@ class OpenAICompatibleInferenceEngine(LLMInferenceEngine):
             default_headers=default_headers,
             **self.options,
         )
+
+    async def infer(
+        self,
+        messages: list[BaseMessage],
+        tools: Optional[list[BaseTool]],
+        **kwargs: Any,
+    ) -> BaseMessage:
+        kwargs = _sanitize_options(self._model_name_lower, kwargs)
+        return await super().infer(messages, tools, **kwargs)
+
+    async def stream(
+        self,
+        messages: List[BaseMessage],
+        tools: Optional[list[BaseTool]],
+        **kwargs: Any,
+    ) -> AsyncIterator[BaseMessageChunk]:
+        kwargs = _sanitize_options(self._model_name_lower, kwargs)
+        async for chunk in super().stream(messages, tools, **kwargs):
+            yield chunk
 
     def upload_file(self, file_path: str, purpose: str = "assistants") -> Optional[str]:
         """
@@ -132,22 +159,16 @@ class OpenAICompatibleInferenceEngine(LLMInferenceEngine):
 
     def convert_messages_to_engine_specific(self, messages: List[BaseMessage]) -> List[BaseMessage]:
         """
-        Convert messages to OpenAI multimedia format.
+        Convert messages for OpenAI-compatible providers.
 
-        OpenAI expects multimedia content in the format:
-        {
-            "role": "user",
-            "content": [
-                {"type": "text", "text": "What's in this image?"},
-                {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/..."
-                    }
-                }
-            ]
-        }
+        Handles two transformations:
+        1. Merge multiple SystemMessages into one — many providers (MiniMax,
+           GLM, etc.) only accept a single system message.
+        2. Convert multimedia HumanMessages to the OpenAI content-parts format.
         """
+        # Merge all SystemMessages into a single one
+        messages = _merge_system_messages(messages)
+
         converted_messages = []
         for message in messages:
             if isinstance(message, HumanMessage):
@@ -310,3 +331,76 @@ class OpenAICompatibleInferenceEngine(LLMInferenceEngine):
                             )
 
         return media_content
+
+
+# ---------------------------------------------------------------------------
+# System message merging
+# ---------------------------------------------------------------------------
+
+
+def _merge_system_messages(messages: List[BaseMessage]) -> List[BaseMessage]:
+    """Merge multiple SystemMessages into a single one.
+
+    Many OpenAI-compatible providers (MiniMax, GLM, etc.) reject requests
+    with more than one system message. This collects all SystemMessage
+    content and emits a single SystemMessage at the front, preserving
+    the order of all other messages.
+    """
+    from langchain_core.messages import SystemMessage
+
+    system_parts: list[str] = []
+    other_messages: list[BaseMessage] = []
+
+    for msg in messages:
+        if isinstance(msg, SystemMessage) and isinstance(msg.content, str):
+            system_parts.append(msg.content)
+        else:
+            other_messages.append(msg)
+
+    if len(system_parts) <= 1:
+        return messages  # nothing to merge
+
+    merged = SystemMessage(content="\n\n".join(system_parts))
+    return [merged] + other_messages
+
+
+# ---------------------------------------------------------------------------
+# Provider-specific parameter sanitization
+# ---------------------------------------------------------------------------
+
+# Providers whose OpenAI-compatible endpoints reject frequency_penalty /
+# presence_penalty (or silently ignore them, but may error in some modes).
+_STRIP_PENALTY_PREFIXES = ("minimax",)
+
+# Providers whose temperature range is (0, 1] instead of OpenAI's [0, 2].
+_CLAMP_TEMP_PREFIXES = ("minimax",)
+
+_MIN_TEMPERATURE = 0.01  # smallest value accepted by restrictive providers
+
+
+def _sanitize_options(model_name: str, options: dict) -> dict:
+    """Adjust inference options for provider-specific restrictions.
+
+    Called once during engine construction. Modifies a copy, not in-place.
+    """
+    if not options:
+        return options
+
+    opts = dict(options)
+
+    # Strip unsupported penalty params
+    if any(model_name.startswith(p) for p in _STRIP_PENALTY_PREFIXES):
+        opts.pop("frequency_penalty", None)
+        opts.pop("presence_penalty", None)
+        opts.pop("logit_bias", None)
+
+    # Clamp temperature to (0, 1] for providers that reject 0 or >1
+    if any(model_name.startswith(p) for p in _CLAMP_TEMP_PREFIXES):
+        temp = opts.get("temperature")
+        if temp is not None:
+            if temp <= 0:
+                opts["temperature"] = _MIN_TEMPERATURE
+            elif temp > 1.0:
+                opts["temperature"] = 1.0
+
+    return opts

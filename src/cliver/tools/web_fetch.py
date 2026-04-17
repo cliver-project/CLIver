@@ -27,7 +27,7 @@ class WebFetchInput(BaseModel):
 class WebFetchTool(BaseTool):
     """Fetches content from a URL and converts HTML to readable text."""
 
-    name: str = "web_fetch"
+    name: str = "WebFetch"
     description: str = (
         "Fetches content from a specified URL and returns it as readable text.\n"
         "- Takes a URL and an optional prompt as input\n"

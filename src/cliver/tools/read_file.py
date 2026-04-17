@@ -38,7 +38,7 @@ class ReadFileInput(BaseModel):
 class ReadFileTool(BaseTool):
     """Reads and returns the content of a specified file."""
 
-    name: str = "read_file"
+    name: str = "Read"
     description: str = (
         "Reads and returns the content of a specified file. "
         "If the file is large, the content will be truncated. "

@@ -8,7 +8,7 @@ from cliver.tools.browse_web import BrowseWebTool
 class TestBrowseWebTool:
     def test_tool_name(self):
         tool = BrowseWebTool()
-        assert tool.name == "browse_web"
+        assert tool.name == "Browse"
 
     @patch.dict("os.environ", {"FIRECRAWL_API_KEY": ""}, clear=False)
     def test_missing_api_key(self):
@@ -37,5 +37,5 @@ class TestBrowseWebTool:
         from cliver.tool_registry import ToolRegistry
 
         registry = ToolRegistry()
-        tool = registry.get_tool_by_name("browse_web")
+        tool = registry.get_tool_by_name("Browse")
         assert tool is not None

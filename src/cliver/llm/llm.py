@@ -1062,7 +1062,7 @@ class AgentCore:
                             event_type=ToolEventType.TOOL_END,
                             tool_name=full_tool_name,
                             tool_call_id=tool_call_id,
-                            result=tool_result_content[:200],  # truncate for display
+                            result=tool_result_content,
                             duration_ms=duration_ms,
                         )
                     )
@@ -1266,6 +1266,8 @@ class AgentCore:
                 tool_calls = None
                 accumulated_chunks = None
                 content_yielded = False
+                was_thinking = False
+                post_think_strip = False  # strip leading whitespace after </think>
                 try:
                     options = options or {}
                     async for chunk in llm_engine.stream(messages, mcp_tools, **options):
@@ -1286,6 +1288,7 @@ class AgentCore:
                             # Check for structured reasoning in additional_kwargs
                             chunk_kwargs = getattr(chunk, "additional_kwargs", {}) or {}
                             if chunk_kwargs.get("reasoning_content") or chunk_kwargs.get("reasoning"):
+                                was_thinking = True
                                 continue
                             # Check for <think> tags in accumulated content
                             acc_content = getattr(accumulated_chunks, "content", "") or ""
@@ -1293,7 +1296,33 @@ class AgentCore:
                             if (len(chunks_content) <= 7 and "<think".startswith(chunks_content)) or is_thinking(
                                 chunks_content
                             ):
+                                was_thinking = True
                                 continue
+                            # Exiting think mode: the accumulated content now
+                            # holds the full <think>…</think> block plus any
+                            # real content that arrived in the same chunk.
+                            # Strip the think block from the accumulated text
+                            # and yield only the clean remainder.
+                            if was_thinking:
+                                was_thinking = False
+                                from cliver.llm.llm_utils import remove_thinking_sections
+
+                                cleaned = remove_thinking_sections(chunks_content).lstrip("\n")
+                                if cleaned:
+                                    # noinspection PyArgumentList
+                                    chunk = type(chunk)(content=cleaned)
+                                else:
+                                    post_think_strip = True
+                                    continue
+                            # Strip leading blank lines from subsequent chunks
+                            # until we reach real content after a think block.
+                            if post_think_strip and hasattr(chunk, "content") and chunk.content:
+                                stripped = chunk.content.lstrip("\n")
+                                if not stripped:
+                                    continue
+                                post_think_strip = False
+                                # noinspection PyArgumentList
+                                chunk = type(chunk)(content=stripped)
                         if hasattr(chunk, "content") and chunk.content:
                             content_yielded = True
                         yield chunk

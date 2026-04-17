@@ -39,17 +39,17 @@ class RunShellCommandInput(BaseModel):
 class RunShellCommandTool(BaseTool):
     """Executes shell commands with timeout and output capture."""
 
-    name: str = "run_shell_command"
+    name: str = "Bash"
     description: str = (
         "Executes a given shell command and returns its output. "
         "Use this for terminal operations like git, npm, docker, pip, make, etc. "
         "Do NOT use this for file operations (reading, writing, searching) - "
-        "use the specialized tools (read_file, write_file, grep_search, list_directory) instead.\n\n"
+        "use the specialized tools (Read, Write, Grep, LS) instead.\n\n"
         "Usage notes:\n"
         "- The command is required.\n"
         f"- Timeout defaults to {DEFAULT_TIMEOUT_MS // 1000}s, max {MAX_TIMEOUT_MS // 1000}s.\n"
         "- Write a clear description of what the command does.\n"
-        "- Avoid using this tool with find, grep, cat, head, tail, sed, awk - "
+        "- Avoid using this tool with find, grep, cat, head, tail, sed, awk — "
         "use the dedicated builtin tools instead."
     )
     args_schema: Type[BaseModel] = RunShellCommandInput

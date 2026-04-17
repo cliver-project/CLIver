@@ -38,7 +38,7 @@ class ExecuteCodeInput(BaseModel):
 class ExecuteCodeTool(BaseTool):
     """Execute Python code in a sandboxed subprocess."""
 
-    name: str = "execute_code"
+    name: str = "Exec"
     description: str = (
         "Execute a Python script in an isolated subprocess and return its output. "
         "Use this for multi-step data processing, file manipulation, calculations, "

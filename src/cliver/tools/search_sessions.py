@@ -25,7 +25,7 @@ class SearchSessionsInput(BaseModel):
 class SearchSessionsTool(BaseTool):
     """Search past conversation sessions for relevant context."""
 
-    name: str = "search_sessions"
+    name: str = "SearchSessions"
     description: str = (
         "Search past conversation sessions using full-text search. "
         "Use when the user references prior work, asks about previous discussions, "

@@ -26,7 +26,7 @@ class WebSearchInput(BaseModel):
 class WebSearchTool(BaseTool):
     """Searches the web for up-to-date information."""
 
-    name: str = "web_search"
+    name: str = "WebSearch"
     description: str = (
         "Searches the web and returns results to inform responses. "
         "Provides up-to-date information for current events and recent data "

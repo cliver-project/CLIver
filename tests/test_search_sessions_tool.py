@@ -8,7 +8,7 @@ from cliver.tools.search_sessions import SearchSessionsTool
 class TestSearchSessionsTool:
     def test_tool_has_correct_name(self):
         tool = SearchSessionsTool()
-        assert tool.name == "search_sessions"
+        assert tool.name == "SearchSessions"
 
     def test_tool_has_description(self):
         tool = SearchSessionsTool()

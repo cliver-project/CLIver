@@ -119,11 +119,11 @@ class TestNormalizeToolCalls:
     def test_valid_tool_call(self):
         result = normalize_tool_calls(
             [
-                {"name": "read_file", "args": {"file_path": "/tmp/x"}, "id": "call_123"},
+                {"name": "Read", "args": {"file_path": "/tmp/x"}, "id": "call_123"},
             ]
         )
         assert len(result) == 1
-        assert result[0]["tool_name"] == "read_file"
+        assert result[0]["tool_name"] == "Read"
         assert result[0]["mcp_server"] == ""
         assert result[0]["args"] == {"file_path": "/tmp/x"}
         assert result[0]["tool_call_id"] == "call_123"
@@ -140,7 +140,7 @@ class TestNormalizeToolCalls:
     def test_missing_id_generates_uuid(self):
         result = normalize_tool_calls(
             [
-                {"name": "read_file", "args": {}},
+                {"name": "Read", "args": {}},
             ]
         )
         assert len(result[0]["tool_call_id"]) > 0
@@ -148,7 +148,7 @@ class TestNormalizeToolCalls:
     def test_none_args_normalized(self):
         result = normalize_tool_calls(
             [
-                {"name": "todo_read", "args": None, "id": "c1"},
+                {"name": "TodoRead", "args": None, "id": "c1"},
             ]
         )
         assert result[0]["args"] == {}
@@ -156,7 +156,7 @@ class TestNormalizeToolCalls:
     def test_string_args_parsed(self):
         result = normalize_tool_calls(
             [
-                {"name": "read_file", "args": '{"file_path": "/tmp/x"}', "id": "c1"},
+                {"name": "Read", "args": '{"file_path": "/tmp/x"}', "id": "c1"},
             ]
         )
         assert result[0]["args"] == {"file_path": "/tmp/x"}
@@ -166,12 +166,12 @@ class TestNormalizeToolCalls:
         result = normalize_tool_calls(
             [
                 {"name": None, "args": {}},
-                {"name": "read_file", "args": {}, "id": "c1"},
+                {"name": "Read", "args": {}, "id": "c1"},
                 {"args": {}},  # no name
             ]
         )
         assert len(result) == 1
-        assert result[0]["tool_name"] == "read_file"
+        assert result[0]["tool_name"] == "Read"
 
 
 # ── _is_error_response ──
@@ -235,21 +235,21 @@ class TestParseToolCallsFromContent:
         assert parse_tool_calls_from_content(None) is None
 
     def test_structured_tool_calls(self):
-        msg = AIMessage(content="", tool_calls=[{"name": "read_file", "args": {}, "id": "c1"}])
+        msg = AIMessage(content="", tool_calls=[{"name": "Read", "args": {}, "id": "c1"}])
         result = parse_tool_calls_from_content(msg)
         assert len(result) == 1
-        assert result[0]["name"] == "read_file"
+        assert result[0]["name"] == "Read"
 
     def test_empty_content_no_tool_calls(self):
         msg = AIMessage(content="")
         assert parse_tool_calls_from_content(msg) is None
 
     def test_tool_calls_in_text(self):
-        content = '{"tool_calls": [{"name": "read_file", "args": {"file_path": "/tmp/x"}, "id": "c1"}]}'
+        content = '{"tool_calls": [{"name": "Read", "args": {"file_path": "/tmp/x"}, "id": "c1"}]}'
         msg = AIMessage(content=content)
         result = parse_tool_calls_from_content(msg)
         assert result is not None
-        assert result[0]["name"] == "read_file"
+        assert result[0]["name"] == "Read"
 
     def test_tool_calls_inside_thinking_ignored(self):
         """Tool calls mentioned inside <think> blocks should NOT be parsed as real calls."""
@@ -263,14 +263,14 @@ class TestParseToolCallsFromContent:
     def test_tool_calls_with_nested_args(self):
         """Regex-based parsing must handle nested JSON in args."""
         content = (
-            '{"tool_calls": [{"name": "ask_user_question", '
+            '{"tool_calls": [{"name": "Ask", '
             '"args": {"question": "Pick", "options": [{"label": "A", "description": "opt A"}]}, '
             '"id": "c1"}]}'
         )
         msg = AIMessage(content=content)
         result = parse_tool_calls_from_content(msg)
         assert result is not None
-        assert result[0]["name"] == "ask_user_question"
+        assert result[0]["name"] == "Ask"
 
     def test_no_tool_calls_keyword(self):
         msg = AIMessage(content="Just a normal response with no tools")

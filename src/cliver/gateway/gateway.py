@@ -7,6 +7,7 @@ for status/stop, and platform adapters for messaging integrations.
 import asyncio
 import importlib
 import logging
+import logging.handlers
 import tempfile
 import uuid
 from pathlib import Path
@@ -193,6 +194,9 @@ class Gateway:
         agent_profile = AgentProfile(self.agent_name, self.config_dir)
         agent_profile.ensure_dirs()
 
+        gateway_config = config_manager.config.gateway
+        tool_handler = _create_gateway_tool_handler(self.config_dir, gateway_config)
+
         return AgentCore(
             llm_models=config_manager.list_llm_models(),
             mcp_servers=config_manager.list_mcp_servers_for_mcp_caller(),
@@ -201,6 +205,7 @@ class Gateway:
             agent_name=self.agent_name,
             agent_profile=agent_profile,
             enabled_toolsets=config_manager.config.enabled_toolsets,
+            on_tool_event=tool_handler,
         )
 
     # -- Session & adapter resolution -----------------------------------------
@@ -378,6 +383,65 @@ class Gateway:
             if s.get("title") == session_key:
                 return s["id"]
         return sm.create_session(title=session_key)
+
+
+def _create_gateway_tool_handler(config_dir: Path, gateway_config=None):
+    """Create a tool event handler that logs to a rotating file.
+
+    Returns None if no gateway config is provided (tool events are silent).
+    """
+    from cliver.tool_events import ToolEvent, ToolEventType
+
+    # Resolve log file path
+    if gateway_config and gateway_config.log_file:
+        log_path = Path(gateway_config.log_file)
+    else:
+        log_path = Path(config_dir) / "gateway.log"
+
+    max_bytes = gateway_config.log_max_bytes if gateway_config else 10 * 1024 * 1024
+    backup_count = gateway_config.log_backup_count if gateway_config else 5
+
+    # Set up a dedicated rotating logger
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    tool_logger = logging.getLogger("cliver.gateway.tools")
+    tool_logger.setLevel(logging.INFO)
+    # Avoid duplicate handlers on restart
+    if not tool_logger.handlers:
+        handler = logging.handlers.RotatingFileHandler(
+            str(log_path),
+            maxBytes=max_bytes,
+            backupCount=backup_count,
+            encoding="utf-8",
+        )
+        handler.setFormatter(logging.Formatter("%(asctime)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
+        tool_logger.addHandler(handler)
+
+    def _handler(event: ToolEvent) -> None:
+        if event.event_type == ToolEventType.TOOL_START:
+            args_summary = ""
+            if event.args:
+                parts = []
+                for k, v in event.args.items():
+                    val = str(v)
+                    if len(val) > 200:
+                        val = val[:197] + "…"
+                    parts.append(f"{k}={val}")
+                args_summary = " " + ", ".join(parts[:5])
+            tool_logger.info("[START] %s%s", event.tool_name, args_summary)
+
+        elif event.event_type == ToolEventType.TOOL_END:
+            duration = f" ({event.duration_ms:.0f}ms)" if event.duration_ms else ""
+            tool_logger.info("[DONE]  %s%s", event.tool_name, duration)
+            if event.result:
+                # Log full result (the rotating handler limits total disk usage)
+                for line in event.result.splitlines():
+                    tool_logger.info("        %s", line)
+
+        elif event.event_type == ToolEventType.TOOL_ERROR:
+            duration = f" ({event.duration_ms:.0f}ms)" if event.duration_ms else ""
+            tool_logger.warning("[ERROR] %s%s: %s", event.tool_name, duration, event.error)
+
+    return _handler
 
 
 def _media_suffix(media: MediaAttachment) -> str:

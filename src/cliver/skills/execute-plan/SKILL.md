@@ -1,7 +1,7 @@
 ---
 name: execute-plan
 description: Systematically execute a written implementation plan task by task with verification. Use after write-plan or when you have a step-by-step plan to implement.
-allowed-tools: read_file write_file list_directory grep_search run_shell_command todo_write todo_read ask_user_question skill
+allowed-tools: Read Write LS Grep Bash TodoWrite TodoRead Ask Skill
 ---
 
 # Execute Plan
@@ -12,23 +12,23 @@ Systematically execute a written implementation plan, task by task, with verific
 
 ### Step 1: Load and Review the Plan
 
-Read the plan document using `read_file`. Before starting execution:
+Read the plan document using `Read`. Before starting execution:
 - Review the plan critically — flag any concerns
 - Check that prerequisites are met (dependencies installed, files exist, etc.)
-- If anything looks wrong or unclear, ask the user via `ask_user_question` before proceeding
+- If anything looks wrong or unclear, ask the user via `Ask` before proceeding
 
 ### Step 2: Create Task Checklist
 
-Use `todo_write` to create a checklist from the plan's tasks. Each todo item corresponds to one task in the plan.
+Use `TodoWrite` to create a checklist from the plan's tasks. Each todo item corresponds to one task in the plan.
 
 ### Step 3: Execute Tasks
 
 For each task in the plan:
 
-1. **Mark in progress** — update `todo_write` to set the task as `in_progress`
+1. **Mark in progress** — update `TodoWrite` to set the task as `in_progress`
 2. **Follow steps exactly** — execute each step as written in the plan
 3. **Run verifications** — execute any verification commands and check the output matches expectations
-4. **Mark completed** — update `todo_write` to set the task as `completed`
+4. **Mark completed** — update `TodoWrite` to set the task as `completed`
 
 ### Step 4: Handle Blockers
 
@@ -39,7 +39,7 @@ When you encounter a problem, **stop and ask** — never guess or improvise:
 - Verification output doesn't match expectations
 - Files that don't exist or have unexpected content
 
-Use `ask_user_question` to describe the blocker and ask for guidance.
+Use `Ask` to describe the blocker and ask for guidance.
 
 ### Step 5: Summarize
 

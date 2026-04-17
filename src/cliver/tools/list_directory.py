@@ -27,7 +27,7 @@ class ListDirectoryInput(BaseModel):
 class ListDirectoryTool(BaseTool):
     """Lists files and subdirectories within a specified directory."""
 
-    name: str = "list_directory"
+    name: str = "LS"
     description: str = (
         "Lists the names of files and subdirectories directly within a specified directory path. "
         "Can optionally ignore entries matching provided glob patterns. "

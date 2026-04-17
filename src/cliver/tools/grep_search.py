@@ -35,7 +35,7 @@ class GrepSearchInput(BaseModel):
 class GrepSearchTool(BaseTool):
     """Searches file contents using regex patterns."""
 
-    name: str = "grep_search"
+    name: str = "Grep"
     description: str = (
         "A powerful search tool for finding patterns in file contents. "
         "Supports full regex syntax (e.g., 'log.*Error', 'function\\s+\\w+'). "

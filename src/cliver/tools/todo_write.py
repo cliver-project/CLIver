@@ -72,7 +72,7 @@ class TodoWriteInput(BaseModel):
 class TodoWriteTool(BaseTool):
     """Creates and manages a structured task list for the current session."""
 
-    name: str = "todo_write"
+    name: str = "TodoWrite"
     description: str = (
         "Creates and manages a structured task list for your current session. "
         "This helps track progress, organize complex tasks, and demonstrate thoroughness.\n\n"

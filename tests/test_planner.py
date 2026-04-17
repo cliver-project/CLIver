@@ -225,8 +225,8 @@ class TestSystemPromptPlanning:
         assert "## Planning" in prompt
         assert "Simple" in prompt
         assert "Medium" in prompt
-        assert "todo_write" in prompt
-        assert "todo_read" in prompt
+        assert "TodoWrite" in prompt
+        assert "TodoRead" in prompt
 
     def test_system_prompt_contains_skill_section(self):
         from cliver.llm.base import LLMInferenceEngine

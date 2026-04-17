@@ -53,7 +53,7 @@ class DockerRunInput(BaseModel):
 class DockerRunTool(BaseTool):
     """Runs a one-time container for a specific purpose."""
 
-    name: str = "docker_run"
+    name: str = "Docker"
     description: str = (
         "Runs a one-time (ephemeral) container using Docker, Podman, or nerdctl. "
         "The container is automatically removed after execution (--rm flag).\n\n"

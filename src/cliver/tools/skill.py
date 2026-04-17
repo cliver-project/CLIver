@@ -33,7 +33,7 @@ class SkillTool(BaseTool):
     with the specific skill name to activate it.
     """
 
-    name: str = "skill"
+    name: str = "Skill"
     description: str = (
         "Activate a skill to get specialized instructions and context for a domain. "
         "Skills provide expert knowledge, tool usage guidance, and step-by-step "

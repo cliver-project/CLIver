@@ -84,7 +84,7 @@ class BrowserActionInput(BaseModel):
 
 
 class BrowserActionTool(BaseTool):
-    name: str = "browser_action"
+    name: str = "Browser"
     description: str = (
         "Control a headless browser — navigate to URLs, click elements, fill forms, "
         "take screenshots, extract text, run JavaScript. Use for web interaction, "

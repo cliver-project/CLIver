@@ -17,7 +17,7 @@ class TodoReadInput(BaseModel):
 class TodoReadTool(BaseTool):
     """Read the current plan/todo list without modifying it."""
 
-    name: str = "todo_read"
+    name: str = "TodoRead"
     description: str = (
         "Read the current plan/todo list to check progress. "
         "Returns the full todo list with status of each item. "

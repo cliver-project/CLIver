@@ -7,21 +7,21 @@ from cliver.tool_registry import TOOLSETS, ToolRegistry
 
 class TestToolsetDefinitions:
     def test_core_toolset_has_essentials(self):
-        assert "read_file" in TOOLSETS["core"]
-        assert "write_file" in TOOLSETS["core"]
-        assert "run_shell_command" in TOOLSETS["core"]
+        assert "Read" in TOOLSETS["core"]
+        assert "Write" in TOOLSETS["core"]
+        assert "Bash" in TOOLSETS["core"]
 
     def test_memory_toolset(self):
-        assert "memory_read" in TOOLSETS["memory"]
-        assert "memory_write" in TOOLSETS["memory"]
+        assert "MemoryRead" in TOOLSETS["memory"]
+        assert "MemoryWrite" in TOOLSETS["memory"]
 
     def test_web_toolset(self):
-        assert "web_fetch" in TOOLSETS["web"]
-        assert "web_search" in TOOLSETS["web"]
-        assert "browse_web" in TOOLSETS["web"]
+        assert "WebFetch" in TOOLSETS["web"]
+        assert "WebSearch" in TOOLSETS["web"]
+        assert "Browse" in TOOLSETS["web"]
 
     def test_browser_toolset(self):
-        assert "browser_action" in TOOLSETS["browser"]
+        assert "Browser" in TOOLSETS["browser"]
 
     def test_all_toolsets_accounted(self):
         """Every tool should be in exactly one toolset."""
@@ -29,37 +29,37 @@ class TestToolsetDefinitions:
         for tools in TOOLSETS.values():
             all_in_toolsets.update(tools)
         # Core tools we always expect
-        assert "read_file" in all_in_toolsets
-        assert "skill" in all_in_toolsets
+        assert "Read" in all_in_toolsets
+        assert "Skill" in all_in_toolsets
 
 
 class TestDefaultToolsets:
     def test_core_always_included(self):
         registry = ToolRegistry()
         names = registry.tool_names
-        assert "read_file" in names
-        assert "write_file" in names
-        assert "run_shell_command" in names
+        assert "Read" in names
+        assert "Write" in names
+        assert "Bash" in names
 
     def test_memory_always_included(self):
         registry = ToolRegistry()
         names = registry.tool_names
-        assert "memory_read" in names
-        assert "memory_write" in names
+        assert "MemoryRead" in names
+        assert "MemoryWrite" in names
 
     def test_automation_always_included(self):
         registry = ToolRegistry()
         names = registry.tool_names
-        assert "skill" in names
-        assert "todo_read" in names
-        assert "ask_user_question" in names
+        assert "Skill" in names
+        assert "TodoRead" in names
+        assert "Ask" in names
 
     def test_web_fetch_always_available(self):
         """web_fetch and web_search should always be available."""
         registry = ToolRegistry()
         names = registry.tool_names
-        assert "web_fetch" in names
-        assert "web_search" in names
+        assert "WebFetch" in names
+        assert "WebSearch" in names
 
 
 class TestEnvironmentGating:
@@ -69,7 +69,7 @@ class TestEnvironmentGating:
         registry._tools = None  # force reload
         registry._ensure_loaded()
         names = registry.tool_names
-        assert "browse_web" in names
+        assert "Browse" in names
 
     @patch.dict("os.environ", {}, clear=True)
     def test_browse_web_excluded_without_api_key(self):
@@ -81,7 +81,7 @@ class TestEnvironmentGating:
         registry._tools = None
         registry._ensure_loaded()
         names = registry.tool_names
-        assert "browse_web" not in names
+        assert "Browse" not in names
 
 
 class TestUserOverride:
@@ -89,28 +89,28 @@ class TestUserOverride:
         """User can specify which toolsets to enable."""
         registry = ToolRegistry(enabled_toolsets=["core"])
         names = registry.tool_names
-        assert "read_file" in names
+        assert "Read" in names
         # memory is always included even if not specified
-        assert "memory_read" in names
+        assert "MemoryRead" in names
         # web should NOT be included (not in enabled list)
-        assert "web_fetch" not in names
+        assert "WebFetch" not in names
 
     def test_explicit_includes_always_enabled(self):
         """Always-enabled toolsets can't be disabled."""
         registry = ToolRegistry(enabled_toolsets=[])
         names = registry.tool_names
         # core, memory, automation still included
-        assert "read_file" in names
-        assert "memory_read" in names
-        assert "skill" in names
+        assert "Read" in names
+        assert "MemoryRead" in names
+        assert "Skill" in names
 
 
 class TestToolAccess:
     def test_get_tool_by_name(self):
         registry = ToolRegistry()
-        tool = registry.get_tool_by_name("read_file")
+        tool = registry.get_tool_by_name("Read")
         assert tool is not None
-        assert tool.name == "read_file"
+        assert tool.name == "Read"
 
     def test_get_tool_by_name_nonexistent(self):
         registry = ToolRegistry()
@@ -120,7 +120,7 @@ class TestToolAccess:
         """Disabled tools can still be executed directly (MCP, workflow)."""
         registry = ToolRegistry(enabled_toolsets=["core"])
         # web_fetch is disabled but should still be findable
-        tool = registry.get_tool_by_name("web_fetch")
+        tool = registry.get_tool_by_name("WebFetch")
         assert tool is not None
 
     def test_user_input_does_not_filter(self):

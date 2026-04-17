@@ -2,7 +2,7 @@
 name: workflow-create
 description: Create a reusable workflow from a natural language description. The LLM designs a DAG of steps with dependencies, branching, and state propagation, then outputs valid workflow YAML.
 keywords: workflow, create, automate, pipeline, dag, steps
-allowed-tools: read_file list_directory grep_search run_shell_command write_file ask_user_question skill
+allowed-tools: Read LS Grep Bash Write Ask Skill
 ---
 
 # Create Workflow
@@ -65,7 +65,7 @@ steps:
 
 ## 4. Save the Workflow
 
-After generating the YAML, save it using `write_file` to:
+After generating the YAML, save it using `Write` to:
 `{agent_workflows_dir}/{workflow-name}.yaml`
 
 Tell the user the workflow is saved and how to run it:

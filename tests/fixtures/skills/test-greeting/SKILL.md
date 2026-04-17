@@ -3,7 +3,7 @@ name: test-greeting
 description: >
   Greet the user in different languages.
   Use when the user asks for a greeting or wants to say hello.
-allowed-tools: web_search
+allowed-tools: WebSearch
 parameters:
   default_language: english
 ---

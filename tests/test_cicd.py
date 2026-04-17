@@ -149,7 +149,7 @@ class TestPermissionFlags:
         """--allow-tool should be accepted."""
         result = CliRunner().invoke(
             load_cliver,
-            ["chat", "--allow-tool", "run_shell_command", "hello"],
+            ["chat", "--allow-tool", "Bash", "hello"],
             catch_exceptions=False,
         )
         assert "no such option: --allow-tool" not in result.output
@@ -161,9 +161,9 @@ class TestPermissionFlags:
             [
                 "chat",
                 "--allow-tool",
-                "run_shell_command",
+                "Bash",
                 "--allow-tool",
-                "read_file",
+                "Read",
                 "hello",
             ],
             catch_exceptions=False,
@@ -279,7 +279,7 @@ class TestCICDIntegration:
                 "--permission-mode",
                 "yolo",
                 "--allow-tool",
-                "run_shell_command",
+                "Bash",
             ],
             catch_exceptions=False,
         )
@@ -301,7 +301,7 @@ class TestCICDIntegration:
                 "--permission-mode",
                 "yolo",
                 "--allow-tool",
-                "read_file",
+                "Read",
                 "hello",
             ],
             catch_exceptions=False,

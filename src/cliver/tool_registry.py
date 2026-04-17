@@ -6,12 +6,12 @@ Default toolsets are auto-determined — no config required. Users can override
 via config if they want fewer/more tools.
 
 Toolsets:
-- core: file ops, shell, grep (always included)
-- memory: memory, identity, session search (always included)
-- automation: skill, todo, parallel_tasks, ask_user (always included)
-- web: web_fetch, web_search, browse_web (browse_web requires FIRECRAWL_API_KEY)
-- browser: browser_action (requires playwright installed)
-- container: docker_run (requires docker/podman)
+- core: Read, Write, LS, Grep, Bash, Exec, Transcribe (always included)
+- memory: MemoryRead, MemoryWrite, Identity, SearchSessions (always included)
+- automation: Skill, TodoRead, TodoWrite, Ask, Parallel (always included)
+- web: WebFetch, WebSearch, Browse (Browse requires FIRECRAWL_API_KEY)
+- browser: Browser (requires playwright installed)
+- container: Docker (requires docker/podman)
 """
 
 import inspect
@@ -29,37 +29,37 @@ logger = logging.getLogger(__name__)
 # Toolset definitions: toolset_name → set of tool names
 TOOLSETS: Dict[str, Set[str]] = {
     "core": {
-        "read_file",
-        "write_file",
-        "list_directory",
-        "grep_search",
-        "run_shell_command",
-        "execute_code",
-        "transcribe_audio",
+        "Read",
+        "Write",
+        "LS",
+        "Grep",
+        "Bash",
+        "Exec",
+        "Transcribe",
     },
     "memory": {
-        "memory_read",
-        "memory_write",
-        "identity_update",
-        "search_sessions",
+        "MemoryRead",
+        "MemoryWrite",
+        "Identity",
+        "SearchSessions",
     },
     "automation": {
-        "skill",
-        "todo_read",
-        "todo_write",
-        "ask_user_question",
-        "parallel_tasks",
+        "Skill",
+        "TodoRead",
+        "TodoWrite",
+        "Ask",
+        "Parallel",
     },
     "web": {
-        "web_fetch",
-        "web_search",
-        "browse_web",
+        "WebFetch",
+        "WebSearch",
+        "Browse",
     },
     "browser": {
-        "browser_action",
+        "Browser",
     },
     "container": {
-        "docker_run",
+        "Docker",
     },
 }
 
@@ -77,7 +77,7 @@ _TOOLSET_CHECKS: Dict[str, callable] = {
 # Per-tool environment checks for tools within enabled toolsets.
 # If a tool's check fails, it's excluded even if its toolset is enabled.
 _TOOL_CHECKS: Dict[str, callable] = {
-    "browse_web": lambda: bool(os.environ.get("FIRECRAWL_API_KEY")),
+    "Browse": lambda: bool(os.environ.get("FIRECRAWL_API_KEY")),
 }
 
 

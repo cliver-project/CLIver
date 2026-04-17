@@ -45,7 +45,7 @@ class AskUserQuestionInput(BaseModel):
 class AskUserQuestionTool(BaseTool):
     """Asks the user a question and returns their response."""
 
-    name: str = "ask_user_question"
+    name: str = "Ask"
     description: str = (
         "Use this tool when you need to ask the user a question during execution. "
         "This allows you to:\n"

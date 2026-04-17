@@ -87,7 +87,7 @@ def add_rule(cliver: Cliver):
 
     # 1. Tool pattern
     console.print("\n[bold]1. Tool pattern[/bold]")
-    console.print("   [dim]Examples: read_file, github#.*, run_shell_command, .*[/dim]")
+    console.print("   [dim]Examples: Read, github#.*, Bash, .*[/dim]")
     try:
         tool = input("   > ").strip()
     except (EOFError, KeyboardInterrupt):

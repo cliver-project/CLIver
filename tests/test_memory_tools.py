@@ -204,6 +204,6 @@ class TestSystemPromptMemory:
 
         prompt = LLMInferenceEngine._section_interaction_guidelines()
         assert "Memory & Identity" in prompt
-        assert "memory_read" in prompt
-        assert "memory_write" in prompt
-        assert "identity_update" in prompt
+        assert "MemoryRead" in prompt
+        assert "MemoryWrite" in prompt
+        assert "Identity" in prompt

@@ -90,33 +90,33 @@ class ToolMeta:
 
 TOOL_META_REGISTRY: Dict[str, ToolMeta] = {
     # Safe tools (no side effects)
-    "skill": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
-    "todo_read": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
-    "todo_write": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
-    "memory_read": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
-    "memory_write": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
-    "search_sessions": ToolMeta(ActionKind.READ, ResourceType.NONE),
-    "parallel_tasks": ToolMeta(ActionKind.EXECUTE, ResourceType.NONE),
-    "identity_update": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
-    "ask_user_question": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
+    "Skill": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
+    "TodoRead": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
+    "TodoWrite": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
+    "MemoryRead": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
+    "MemoryWrite": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
+    "SearchSessions": ToolMeta(ActionKind.READ, ResourceType.NONE),
+    "Parallel": ToolMeta(ActionKind.EXECUTE, ResourceType.NONE),
+    "Identity": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
+    "Ask": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
     # Read tools
-    "read_file": ToolMeta(ActionKind.READ, ResourceType.PATH, "file_path"),
-    "list_directory": ToolMeta(ActionKind.READ, ResourceType.PATH, "path"),
-    "grep_search": ToolMeta(ActionKind.READ, ResourceType.PATH, "path"),
+    "Read": ToolMeta(ActionKind.READ, ResourceType.PATH, "file_path"),
+    "LS": ToolMeta(ActionKind.READ, ResourceType.PATH, "path"),
+    "Grep": ToolMeta(ActionKind.READ, ResourceType.PATH, "path"),
     # Write tools
-    "write_file": ToolMeta(ActionKind.WRITE, ResourceType.PATH, "file_path"),
+    "Write": ToolMeta(ActionKind.WRITE, ResourceType.PATH, "file_path"),
     # Execute tools
-    "run_shell_command": ToolMeta(ActionKind.EXECUTE, ResourceType.COMMAND, "command"),
-    "execute_code": ToolMeta(ActionKind.EXECUTE, ResourceType.NONE),
-    "docker_run": ToolMeta(ActionKind.EXECUTE, ResourceType.COMMAND, "image"),
+    "Bash": ToolMeta(ActionKind.EXECUTE, ResourceType.COMMAND, "command"),
+    "Exec": ToolMeta(ActionKind.EXECUTE, ResourceType.NONE),
+    "Docker": ToolMeta(ActionKind.EXECUTE, ResourceType.COMMAND, "image"),
     # Fetch tools
-    "web_fetch": ToolMeta(ActionKind.FETCH, ResourceType.URL, "url"),
-    "web_search": ToolMeta(ActionKind.FETCH, ResourceType.NONE),
+    "WebFetch": ToolMeta(ActionKind.FETCH, ResourceType.URL, "url"),
+    "WebSearch": ToolMeta(ActionKind.FETCH, ResourceType.NONE),
     # Browser tools
-    "browse_web": ToolMeta(ActionKind.FETCH, ResourceType.URL, "url"),
-    "browser_action": ToolMeta(ActionKind.EXECUTE, ResourceType.NONE),
+    "Browse": ToolMeta(ActionKind.FETCH, ResourceType.URL, "url"),
+    "Browser": ToolMeta(ActionKind.EXECUTE, ResourceType.NONE),
     # Audio tools
-    "transcribe_audio": ToolMeta(ActionKind.READ, ResourceType.PATH, "file_path"),
+    "Transcribe": ToolMeta(ActionKind.READ, ResourceType.PATH, "file_path"),
 }
 
 

@@ -2,7 +2,7 @@
 name: ci
 description: Guides the agent through CI/CD workflows — read task, implement, test, commit, and optionally create a PR. Use when running in CI pipelines or automated batch jobs.
 keywords: ci, cd, pipeline, automated, batch, github actions, jenkins, prow
-allowed-tools: read_file list_directory grep_search run_shell_command write_file todo_write todo_read
+allowed-tools: Read LS Grep Bash Write TodoWrite TodoRead
 ---
 
 # CI/CD Workflow

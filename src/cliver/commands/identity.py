@@ -78,7 +78,7 @@ def _build_identity_prompt(cliver: Cliver) -> str:
             "I want to update my identity profile. Here is my current profile:\n\n"
             f"{current}\n\n"
             "Please ask me a few questions to update or add to this profile. "
-            "After I answer, use the identity_update tool to save the updated profile. "
+            "After I answer, use the Identity tool to save the updated profile. "
             "Keep all existing information and add the new details."
         )
     else:
@@ -87,5 +87,5 @@ def _build_identity_prompt(cliver: Cliver) -> str:
             "Please ask me a few questions to learn about me — "
             "my name, role, location, preferences for how you should respond, "
             "and anything else that would help you assist me better. "
-            "After I answer, use the identity_update tool to save my profile."
+            "After I answer, use the Identity tool to save my profile."
         )

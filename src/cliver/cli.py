@@ -796,6 +796,12 @@ class CliverGroup(click.Group):
 @click.option("--agent", type=str, default=None, help="Agent instance to use")
 @click.option("--prompt", "-p", type=str, default=None, help="Prompt to send (shorthand for 'chat <prompt>')")
 @click.option(
+    "--infile",
+    type=click.Path(exists=True, file_okay=True, dir_okay=False, readable=True),
+    default=None,
+    help="Read a file and use its content as the prompt",
+)
+@click.option(
     "--output",
     "output_format",
     type=click.Choice(["text", "json"]),
@@ -826,6 +832,7 @@ def cliver_cli(
     ctx: click.Context,
     agent: str | None,
     prompt: str | None,
+    infile: str | None,
     output_format: str | None,
     timeout: int | None,
     permission_mode: str | None,
@@ -843,11 +850,18 @@ def cliver_cli(
             cli.config_manager.set_default_agent_name(agent)
         ctx.obj = cli
 
-    if prompt:
-        # Route -p to chat command with forwarded CI flags
+    # --infile: read file content as prompt (--prompt takes precedence)
+    effective_prompt = prompt
+    if not effective_prompt and infile:
+        from cliver.util import read_file_content
+
+        effective_prompt = read_file_content(infile)
+
+    if effective_prompt:
+        # Route to chat command with forwarded CI flags
         from cliver.commands.chat import chat
 
-        invoke_kwargs = {"query": (prompt,)}
+        invoke_kwargs = {"query": (effective_prompt,)}
         if output_format:
             invoke_kwargs["output_format"] = output_format
         if timeout is not None:
@@ -965,4 +979,6 @@ def cliver_main(*args, **kwargs):
     except click.ClickException as e:
         e.show()
         sys.exit(e.exit_code)
+    except (KeyboardInterrupt, click.Abort):
+        sys.exit(130)
     sys.exit(rc or 0)

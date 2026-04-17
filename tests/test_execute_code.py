@@ -6,7 +6,7 @@ from cliver.tools.execute_code import ExecuteCodeTool
 class TestExecuteCodeTool:
     def test_tool_name(self):
         tool = ExecuteCodeTool()
-        assert tool.name == "execute_code"
+        assert tool.name == "Exec"
 
     def test_simple_print(self):
         tool = ExecuteCodeTool()
@@ -83,10 +83,10 @@ print("done")
     def test_tool_in_core_toolset(self):
         from cliver.tool_registry import TOOLSETS
 
-        assert "execute_code" in TOOLSETS["core"]
+        assert "Exec" in TOOLSETS["core"]
 
     def test_tool_registered(self):
         from cliver.tool_registry import ToolRegistry
 
         registry = ToolRegistry()
-        assert "execute_code" in registry.tool_names
+        assert "Exec" in registry.tool_names

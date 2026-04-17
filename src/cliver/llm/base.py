@@ -171,44 +171,44 @@ class LLMInferenceEngine(ABC):
         return (
             "# Interaction Guidelines\n\n"
             "## Asking the user\n\n"
-            "Use the `ask_user_question` tool when you need to:\n"
+            "Use the `Ask` tool when you need to:\n"
             "- Clarify ambiguous instructions\n"
             "- Confirm before destructive or irreversible actions\n"
             "- Choose between multiple valid approaches\n"
             "- Gather missing information that you cannot determine on your own\n\n"
             "Do **not** ask for confirmation on routine, safe, or clearly specified tasks.\n\n"
             "## Skills\n\n"
-            "Use the `skill` tool to discover and activate specialized skills. "
-            "Call `skill(skill_name='list')` to see available skills. "
+            "Use the `Skill` tool to discover and activate specialized skills. "
+            "Call `Skill(skill_name='list')` to see available skills. "
             "When a task matches a skill's domain, activate it to get expert instructions.\n\n"
             "## Planning\n\n"
             "When you receive a request, assess its complexity:\n\n"
             "1. **Simple** (1-2 steps): Respond directly. Call tools as needed. No plan required.\n"
-            "2. **Medium** (3-5 steps): Use `todo_write` to create a task list, then work through "
+            "2. **Medium** (3-5 steps): Use `TodoWrite` to create a task list, then work through "
             "each task. Mark items `in_progress` when you begin and `completed` when done. "
-            "Use `todo_read` to review your progress at any time.\n"
+            "Use `TodoRead` to review your progress at any time.\n"
             "3. **Complex** (5+ steps, design decisions, multi-file changes): "
             "Use the structured planning pipeline via builtin skills:\n"
-            "   - `skill('brainstorm')` — explore, clarify, design, get user approval\n"
-            "   - `skill('write-plan')` — create a detailed implementation plan\n"
-            "   - `skill('execute-plan')` — systematic execution with verification\n"
+            "   - `Skill('brainstorm')` — explore, clarify, design, get user approval\n"
+            "   - `Skill('write-plan')` — create a detailed implementation plan\n"
+            "   - `Skill('execute-plan')` — systematic execution with verification\n"
             "   Each skill guides you through its process step by step. "
             "You can also use any skill independently when appropriate.\n\n"
-            "When using `todo_write`:\n"
+            "When using `TodoWrite`:\n"
             "- Create the full plan **first**, then start executing\n"
             "- Each call replaces the entire list — always include all items\n"
             "- Mark each task `in_progress` before starting, `completed` when done\n"
             "- After completing all tasks, provide a final summary to the user\n\n"
             "## Memory & Identity\n\n"
             "You have persistent memory and an identity profile that survive across conversations.\n\n"
-            "**Memory** (`memory_read` / `memory_write`): a curated knowledge base organized by topic.\n"
+            "**Memory** (`MemoryRead` / `MemoryWrite`): a curated knowledge base organized by topic.\n"
             "- Organize by topic headings (`## Project Setup`, `## User Preferences`), not chronologically\n"
             "- Before appending, read existing memory to avoid duplicates\n"
             "- Periodically consolidate: use `rewrite` mode to merge related entries, remove outdated ones, "
             "and keep the document concise\n"
             "- Keep entries factual and concise — no narratives or session-specific details\n"
             "- Do **not** save trivial, temporary, or obvious information\n\n"
-            "**Identity** (`identity_update`): a living markdown document describing who "
+            "**Identity** (`Identity`): a living markdown document describing who "
             "the user is (name, location, role, preferences) and how you should behave. "
             "Unlike memory, identity is **rewritten as a whole** — always include all existing "
             "information plus updates. Read the current identity first to avoid losing data.\n\n"
@@ -235,9 +235,12 @@ class LLMInferenceEngine(ABC):
         if tools and len(tools) > 0:
             capabilities = self.config.get_capabilities()
             if ModelCapability.TOOL_CALLING in capabilities:
-                # Only use strict=True for providers that fully support OpenAI's
-                # strict function calling (native OpenAI). Most OpenAI-compatible
-                # providers (DeepSeek, Qwen, GLM, vLLM) don't support it.
-                use_strict = ModelCapability.FUNCTION_CALLING in capabilities
-                _llm = _llm.bind_tools(tools, strict=use_strict)
+                if ModelCapability.FUNCTION_CALLING in capabilities:
+                    # Native OpenAI: use strict function calling
+                    _llm = _llm.bind_tools(tools, strict=True)
+                else:
+                    # Other providers: bind tools without the strict field.
+                    # Passing strict=False explicitly adds "strict": false to
+                    # each function schema, which some providers reject.
+                    _llm = _llm.bind_tools(tools)
         return _llm

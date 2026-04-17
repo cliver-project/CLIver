@@ -191,6 +191,12 @@ class GatewayConfig(BaseModel):
 
     platforms: List[PlatformConfig] = Field(default_factory=list, description="Platform adapter configurations")
     api_server: Optional[APIServerConfig] = Field(default=None, description="OpenAI-compatible API server")
+    log_file: Optional[str] = Field(
+        default=None,
+        description="Path to the gateway rotating log file. Default: {config_dir}/gateway.log",
+    )
+    log_max_bytes: int = Field(default=10 * 1024 * 1024, description="Max size per log file in bytes (default 10MB)")
+    log_backup_count: int = Field(default=5, description="Number of rotated log files to keep (default 5)")
 
 
 class AppConfig(BaseModel):

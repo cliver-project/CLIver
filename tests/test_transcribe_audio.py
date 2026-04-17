@@ -25,7 +25,7 @@ def _mock_executor_with_audio_model():
 class TestTranscribeAudioTool:
     def test_tool_name(self):
         tool = TranscribeAudioTool()
-        assert tool.name == "transcribe_audio"
+        assert tool.name == "Transcribe"
 
     def test_file_not_found(self):
         tool = TranscribeAudioTool()
@@ -74,13 +74,13 @@ class TestTranscribeAudioTool:
     def test_tool_in_core_toolset(self):
         from cliver.tool_registry import TOOLSETS
 
-        assert "transcribe_audio" in TOOLSETS["core"]
+        assert "Transcribe" in TOOLSETS["core"]
 
     def test_tool_registered(self):
         from cliver.tool_registry import ToolRegistry
 
         registry = ToolRegistry()
-        assert "transcribe_audio" in registry.tool_names
+        assert "Transcribe" in registry.tool_names
 
 
 class TestTranscribeVoiceMessage:

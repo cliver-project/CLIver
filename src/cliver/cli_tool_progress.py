@@ -18,6 +18,9 @@ _STATUS_ICONS = {
     ToolEventType.TOOL_START: "[bold yellow]⟳[/bold yellow]",
     ToolEventType.TOOL_END: "[bold green]✓[/bold green]",
     ToolEventType.TOOL_ERROR: "[bold red]✗[/bold red]",
+    ToolEventType.MODEL_RETRY: "[bold yellow]↻[/bold yellow]",
+    ToolEventType.MODEL_COMPRESS: "[bold blue]⊘[/bold blue]",
+    ToolEventType.MODEL_FALLBACK: "[bold magenta]⇢[/bold magenta]",
 }
 
 # ─── Plan Status Icons ────────────────────────────────────────────────────────
@@ -172,10 +175,15 @@ def create_tool_progress_handler(
         elif event.event_type == ToolEventType.TOOL_END:
             duration = f"[dim]{event.duration_ms:.0f}ms[/dim]" if event.duration_ms else ""
             console.print(f"  {icon} {tool} {duration}")
+
+            # Show tool result preview
+            if event.result and event.result not in ("denied", "(no output)"):
+                _render_tool_result(console, event.result)
+
             state["in_block"] = False
 
-            # Render plan progress when todo_write completes
-            if event.tool_name == "todo_write":
+            # Render plan progress when TodoWrite completes
+            if event.tool_name == "TodoWrite":
                 _render_plan_progress(console)
 
             console.print()  # blank line after completion
@@ -198,7 +206,58 @@ def create_tool_progress_handler(
             if thinking:
                 thinking.start(thinking._model)
 
+        elif event.event_type == ToolEventType.MODEL_FALLBACK:
+            if thinking:
+                thinking.stop(blank_line=False)
+            model = f"[bold magenta]{event.tool_name}[/bold magenta]"
+            reason = f"[dim]{event.result}[/dim]" if event.result else ""
+            console.print(f"\n  {icon} Falling back to {model}  {reason}\n")
+            if thinking:
+                thinking.start(event.tool_name)
+
+        elif event.event_type == ToolEventType.MODEL_RETRY:
+            if thinking:
+                thinking.stop(blank_line=False)
+            model = f"[yellow]{event.tool_name}[/yellow]"
+            reason = f"[dim]{event.result}[/dim]" if event.result else ""
+            console.print(f"\n  {icon} Retrying {model}  {reason}\n")
+            if thinking:
+                thinking.start(event.tool_name)
+
+        elif event.event_type == ToolEventType.MODEL_COMPRESS:
+            if thinking:
+                thinking.stop(blank_line=False)
+            model = f"[blue]{event.tool_name}[/blue]"
+            console.print(f"\n  {icon} Compressing context for {model}\n")
+            if thinking:
+                thinking.start(event.tool_name)
+
     return handler
+
+
+# ─── Tool Result Display ─────────────────────────────────────────────────────
+
+_MAX_RESULT_LINES = 15
+_MAX_LINE_WIDTH = 120
+
+
+def _render_tool_result(console: Console, result: str) -> None:
+    """Render a compact preview of the tool result output."""
+    lines = result.splitlines()
+    total = len(lines)
+
+    # Truncate lines that are too wide
+    display_lines = []
+    for line in lines[:_MAX_RESULT_LINES]:
+        if len(line) > _MAX_LINE_WIDTH:
+            line = line[:_MAX_LINE_WIDTH] + "…"
+        display_lines.append(line)
+
+    body = "\n".join(display_lines)
+    if total > _MAX_RESULT_LINES:
+        body += f"\n[dim]… ({total - _MAX_RESULT_LINES} more lines)[/dim]"
+
+    console.print(f"      [dim]{body}[/dim]")
 
 
 # ─── Plan Progress Display ────────────────────────────────────────────────────

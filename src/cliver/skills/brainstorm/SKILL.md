@@ -1,7 +1,7 @@
 ---
 name: brainstorm
 description: Turn ideas into validated design specs through collaborative dialogue before implementation. Use when facing complex tasks with design decisions, multiple valid approaches, or multi-file changes.
-allowed-tools: read_file list_directory grep_search run_shell_command todo_write todo_read ask_user_question write_file skill
+allowed-tools: Read LS Grep Bash TodoWrite TodoRead Ask Write Skill
 ---
 
 # Brainstorm
@@ -14,19 +14,19 @@ Do NOT write any implementation code, scaffold any project, or take any implemen
 
 ## Process
 
-You MUST follow these steps in order. Use `todo_write` to create a checklist from these steps and track your progress.
+You MUST follow these steps in order. Use `TodoWrite` to create a checklist from these steps and track your progress.
 
 ### Step 1: Explore Project Context
 
 Before asking questions, understand the current state:
-- Read relevant files (`read_file`), check directory structure (`list_directory`)
-- Check recent git history: `run_shell_command` with `git log --oneline -10`
-- Search for related code: `grep_search`
+- Read relevant files (`Read`), check directory structure (`LS`)
+- Check recent git history: `Bash` with `git log --oneline -10`
+- Search for related code: `Grep`
 - Look for existing docs, README, CLAUDE.md, or design files
 
 ### Step 2: Ask Clarifying Questions
 
-Ask questions **one at a time** using `ask_user_question`. Do not batch multiple questions.
+Ask questions **one at a time** using `Ask`. Do not batch multiple questions.
 
 - Prefer multiple choice when possible — easier to answer than open-ended
 - Focus on understanding: purpose, constraints, success criteria
@@ -40,7 +40,7 @@ Once you understand the requirements, propose 2-3 different approaches:
 - Lead with your recommended option and explain why
 - Keep descriptions concise — focus on the key differentiators
 
-Ask the user which approach they prefer via `ask_user_question`.
+Ask the user which approach they prefer via `Ask`.
 
 ### Step 4: Present Design
 
@@ -57,7 +57,7 @@ Sections to cover (as applicable):
 
 ### Step 5: Write Design Doc
 
-Save the validated design using `write_file`:
+Save the validated design using `Write`:
 - Path: `temp/design/YYYY-MM-DD-<topic>-design.md`
 - Include: goal, architecture, design decisions, detailed changes, what does NOT change
 
@@ -70,7 +70,7 @@ After writing the doc, review it yourself:
 3. **Scope check:** Is this focused enough for a single implementation plan?
 4. **Ambiguity check:** Could any requirement be interpreted two ways? Pick one and make it explicit.
 
-Fix any issues by rewriting the doc with `write_file`.
+Fix any issues by rewriting the doc with `Write`.
 
 ### Step 7: User Reviews Spec
 
@@ -86,7 +86,7 @@ Once the user approves the spec, activate the planning skill:
 
 > "Design approved. Now activating the planning skill to create an implementation plan."
 
-Call `skill(skill_name='write-plan')` to continue.
+Call `Skill(skill_name='write-plan')` to continue.
 
 ## Key Principles
 

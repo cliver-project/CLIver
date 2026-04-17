@@ -38,7 +38,7 @@ def skills_dir(tmp_path):
         metadata:
           author: test-org
           version: "1.0"
-        allowed-tools: web_search web_fetch
+        allowed-tools: WebSearch WebFetch
         ---
 
         # Web Search
@@ -194,7 +194,7 @@ class TestParseSkillMd:
     def test_frontmatter_fields(self):
         path = FIXTURES_DIR / "test-greeting" / "SKILL.md"
         skill = _parse_skill_md(path)
-        assert skill.allowed_tools == ["web_search"]
+        assert skill.allowed_tools == ["WebSearch"]
         assert skill.frontmatter["parameters"] == {"default_language": "english"}
 
     def test_missing_frontmatter(self, tmp_path):
@@ -317,7 +317,7 @@ class TestSkillManagerDiscovery:
         assert skill.license == "Apache-2.0"
         assert skill.compatibility == "Requires internet access"
         assert skill.metadata == {"author": "test-org", "version": "1.0"}
-        assert skill.allowed_tools == ["web_search", "web_fetch"]
+        assert skill.allowed_tools == ["WebSearch", "WebFetch"]
 
 
 # ---------------------------------------------------------------------------

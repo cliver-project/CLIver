@@ -37,7 +37,7 @@ Review the conversation and determine if a reusable skill should be created.
 - A similar skill already exists
 
 If you decide to create a skill:
-1. Use the `write_file` tool to create a SKILL.md file at: {skills_dir}/{skill_name}/SKILL.md
+1. Use the `Write` tool to create a SKILL.md file at: {skills_dir}/{skill_name}/SKILL.md
 2. The SKILL.md must have YAML frontmatter with: name, description, keywords
 3. The body should document the approach, steps, and key decisions
 4. The skill name should be short, descriptive, lowercase with hyphens

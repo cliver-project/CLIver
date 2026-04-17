@@ -9,7 +9,7 @@ from cliver.tools.browser_action import BrowserActionTool, BrowserSession
 class TestBrowserActionTool:
     def test_tool_name(self):
         tool = BrowserActionTool()
-        assert tool.name == "browser_action"
+        assert tool.name == "Browser"
 
     def test_unknown_action(self):
         tool = BrowserActionTool()
@@ -71,7 +71,7 @@ class TestBrowserActionTool:
 
         registry = ToolRegistry()
         # May be excluded from LLM tools (no playwright) but always accessible by name
-        tool = registry.get_tool_by_name("browser_action")
+        tool = registry.get_tool_by_name("Browser")
         assert tool is not None
 
 

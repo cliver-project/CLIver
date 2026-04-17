@@ -1,7 +1,7 @@
 ---
 name: write-plan
 description: Create detailed, step-by-step implementation plans from design specs. Use after brainstorming or when you have a spec/requirements for a multi-step task.
-allowed-tools: read_file list_directory grep_search run_shell_command todo_write todo_read ask_user_question write_file skill
+allowed-tools: Read LS Grep Bash TodoWrite TodoRead Ask Write Skill
 ---
 
 # Write Plan
@@ -14,7 +14,7 @@ Create comprehensive implementation plans assuming the engineer has zero context
 
 If coming from the brainstorm skill, read the design doc from `temp/design/`. Otherwise, ask the user for the spec or requirements.
 
-Use `read_file` to load the spec. Understand the goal, architecture, and all changes before writing the plan.
+Use `Read` to load the spec. Understand the goal, architecture, and all changes before writing the plan.
 
 ### Step 2: Map the File Structure
 
@@ -38,7 +38,7 @@ For each task, list concrete steps:
 
 ### Step 4: Write the Plan Document
 
-Save the plan using `write_file`:
+Save the plan using `Write`:
 - Path: `temp/design/YYYY-MM-DD-<topic>-plan.md`
 
 Use this structure:
@@ -111,7 +111,7 @@ Once the user approves the plan, activate the execution skill:
 
 > "Plan approved. Now activating the execution skill to implement the plan."
 
-Call `skill(skill_name='execute-plan')` to continue.
+Call `Skill(skill_name='execute-plan')` to continue.
 
 ## Principles
 

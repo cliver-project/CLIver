@@ -19,10 +19,10 @@ class BrowseWebInput(BaseModel):
 
 
 class BrowseWebTool(BaseTool):
-    name: str = "browse_web"
+    name: str = "Browse"
     description: str = (
         "Fetch a webpage and extract its content as clean markdown. "
-        "Much better than web_fetch for reading articles, documentation, "
+        "Much better than WebFetch for reading articles, documentation, "
         "or extracting structured data from URLs. Requires FIRECRAWL_API_KEY."
     )
     args_schema: Type[BaseModel] = BrowseWebInput

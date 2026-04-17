@@ -30,7 +30,7 @@ class MemoryReadInput(BaseModel):
 class MemoryReadTool(BaseTool):
     """Read persistent memory to recall knowledge from previous sessions."""
 
-    name: str = "memory_read"
+    name: str = "MemoryRead"
     description: str = (
         "Read your persistent memory to recall knowledge from previous conversations. "
         "Returns both global memory (shared across all agents) and your agent-specific memory. "
@@ -89,7 +89,7 @@ class MemoryWriteInput(BaseModel):
 class MemoryWriteTool(BaseTool):
     """Save knowledge to persistent memory for future sessions."""
 
-    name: str = "memory_write"
+    name: str = "MemoryWrite"
     description: str = (
         "Save important knowledge to your persistent memory so you can recall it "
         "in future conversations.\n\n"
@@ -110,7 +110,7 @@ class MemoryWriteTool(BaseTool):
         "- A decision is made that should persist across sessions\n\n"
         "When NOT to use:\n"
         "- Temporary or session-specific information\n"
-        "- Information already in memory (check with memory_read first)\n"
+        "- Information already in memory (check with MemoryRead first)\n"
         "- Trivial or obvious facts"
     )
     args_schema: Type[BaseModel] = MemoryWriteInput
@@ -149,7 +149,7 @@ class IdentityUpdateInput(BaseModel):
 class IdentityUpdateTool(BaseTool):
     """Update the identity profile — a living document about the agent and user."""
 
-    name: str = "identity_update"
+    name: str = "Identity"
     description: str = (
         "Update the identity profile — a living markdown document that describes "
         "who you are (agent persona) and who the user is (their profile).\n\n"
