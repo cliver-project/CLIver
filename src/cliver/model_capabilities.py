@@ -13,6 +13,7 @@ class ProviderEnum(str, Enum):
 
     OLLAMA = "ollama"
     OPENAI = "openai"
+    ANTHROPIC = "anthropic"
     VLLM = "vllm"
 
 
@@ -48,6 +49,13 @@ PROVIDER_CAPABILITIES = {
         ModelCapability.TEXT_TO_TEXT,
         ModelCapability.IMAGE_TO_TEXT,
         ModelCapability.TOOL_CALLING,
+    },
+    "anthropic": {
+        ModelCapability.TEXT_TO_TEXT,
+        ModelCapability.IMAGE_TO_TEXT,
+        ModelCapability.TOOL_CALLING,
+        ModelCapability.JSON_MODE,
+        ModelCapability.THINK_MODE,
     },
     "vllm": {
         ModelCapability.TEXT_TO_TEXT,
@@ -187,6 +195,33 @@ MODEL_CAPABILITIES = {
         ModelCapability.TOOL_CALLING,
         ModelCapability.JSON_MODE,
         ModelCapability.THINK_MODE,
+    },
+    # Claude models (Anthropic)
+    "claude-opus*": {
+        ModelCapability.TEXT_TO_TEXT,
+        ModelCapability.IMAGE_TO_TEXT,
+        ModelCapability.TOOL_CALLING,
+        ModelCapability.JSON_MODE,
+        ModelCapability.THINK_MODE,
+    },
+    "claude-sonnet*": {
+        ModelCapability.TEXT_TO_TEXT,
+        ModelCapability.IMAGE_TO_TEXT,
+        ModelCapability.TOOL_CALLING,
+        ModelCapability.JSON_MODE,
+        ModelCapability.THINK_MODE,
+    },
+    "claude-haiku*": {
+        ModelCapability.TEXT_TO_TEXT,
+        ModelCapability.IMAGE_TO_TEXT,
+        ModelCapability.TOOL_CALLING,
+        ModelCapability.JSON_MODE,
+    },
+    "claude*": {
+        ModelCapability.TEXT_TO_TEXT,
+        ModelCapability.IMAGE_TO_TEXT,
+        ModelCapability.TOOL_CALLING,
+        ModelCapability.JSON_MODE,
     },
     # Llama models (Meta)
     "llama3*": {

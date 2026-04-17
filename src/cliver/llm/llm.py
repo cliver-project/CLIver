@@ -59,6 +59,10 @@ def create_llm_engine(
         if name.startswith("deepseek"):
             return DeepSeekInferenceEngine(model, user_agent=user_agent, agent_name=agent_name)
         return OpenAICompatibleInferenceEngine(model, user_agent=user_agent, agent_name=agent_name)
+    elif model.provider == "anthropic":
+        from cliver.llm.anthropic_engine import AnthropicInferenceEngine
+
+        return AnthropicInferenceEngine(model, user_agent=user_agent, agent_name=agent_name)
     return None
 
 
@@ -1282,41 +1286,73 @@ class AgentCore:
                             # If chunk addition fails, keep what we have and skip
 
                         # Filter out thinking/reasoning content from stream output.
-                        # Reasoning may arrive via additional_kwargs (structured API field)
-                        # or as <think>/<thinking> tags in content (raw model output).
+                        # Reasoning may arrive in three forms:
+                        # 1. additional_kwargs with reasoning_content (DeepSeek API)
+                        # 2. Content block list with type='thinking' (Anthropic API)
+                        # 3. <think>/<thinking> tags in string content (OpenAI-compat)
                         if llm_engine.supports_capability(ModelCapability.THINK_MODE):
                             # Check for structured reasoning in additional_kwargs
                             chunk_kwargs = getattr(chunk, "additional_kwargs", {}) or {}
                             if chunk_kwargs.get("reasoning_content") or chunk_kwargs.get("reasoning"):
                                 was_thinking = True
                                 continue
-                            # Check for <think> tags in accumulated content
-                            acc_content = getattr(accumulated_chunks, "content", "") or ""
-                            chunks_content = str(acc_content)
-                            if (len(chunks_content) <= 7 and "<think".startswith(chunks_content)) or is_thinking(
-                                chunks_content
-                            ):
-                                was_thinking = True
-                                continue
-                            # Exiting think mode: the accumulated content now
-                            # holds the full <think>…</think> block plus any
-                            # real content that arrived in the same chunk.
-                            # Strip the think block from the accumulated text
-                            # and yield only the clean remainder.
-                            if was_thinking:
-                                was_thinking = False
-                                from cliver.llm.llm_utils import remove_thinking_sections
 
-                                cleaned = remove_thinking_sections(chunks_content).lstrip("\n")
-                                if cleaned:
-                                    # noinspection PyArgumentList
-                                    chunk = type(chunk)(content=cleaned)
-                                else:
-                                    post_think_strip = True
+                            # Check for Anthropic-style content blocks (list of dicts).
+                            # Thinking blocks are filtered; text blocks are
+                            # extracted as plain strings for downstream display.
+                            chunk_content = getattr(chunk, "content", None)
+                            if isinstance(chunk_content, list):
+                                text_parts = []
+                                has_thinking = False
+                                for block in chunk_content:
+                                    if isinstance(block, dict):
+                                        if block.get("type") == "thinking":
+                                            has_thinking = True
+                                        elif block.get("type") == "text":
+                                            text_parts.append(block.get("text", ""))
+                                if has_thinking and not text_parts:
+                                    was_thinking = True
                                     continue
+                                # Convert list-of-blocks to plain string
+                                joined = "".join(text_parts)
+                                if has_thinking:
+                                    was_thinking = False
+                                # noinspection PyArgumentList
+                                chunk = type(chunk)(content=joined)
+                                chunk_content = joined
+
+                            # Check for <think> tags in accumulated string content
+                            if isinstance(chunk_content, str) or chunk_content is None:
+                                acc_content = getattr(accumulated_chunks, "content", "") or ""
+                                if isinstance(acc_content, str):
+                                    chunks_content = acc_content
+                                    if (
+                                        len(chunks_content) <= 7 and "<think".startswith(chunks_content)
+                                    ) or is_thinking(chunks_content):
+                                        was_thinking = True
+                                        continue
+                                    # Exiting think mode: strip the think block from
+                                    # accumulated text, yield only the clean remainder.
+                                    if was_thinking:
+                                        was_thinking = False
+                                        from cliver.llm.llm_utils import remove_thinking_sections
+
+                                        cleaned = remove_thinking_sections(chunks_content).lstrip("\n")
+                                        if cleaned:
+                                            # noinspection PyArgumentList
+                                            chunk = type(chunk)(content=cleaned)
+                                        else:
+                                            post_think_strip = True
+                                            continue
+
+                            # Exiting think mode from Anthropic blocks
+                            if was_thinking and isinstance(chunk_content, str):
+                                was_thinking = False
+                                post_think_strip = True
+
                             # Strip leading blank lines from subsequent chunks
                             # until we reach real content after a think block.
-                            if post_think_strip and hasattr(chunk, "content") and chunk.content:
+                            if post_think_strip and hasattr(chunk, "content") and isinstance(chunk.content, str):
                                 stripped = chunk.content.lstrip("\n")
                                 if not stripped:
                                     continue
