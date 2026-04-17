@@ -794,6 +794,7 @@ class CliverGroup(click.Group):
 @click.group(cls=CliverGroup, invoke_without_command=True)
 @click.version_option(version=__version__, prog_name="cliver")
 @click.option("--agent", type=str, default=None, help="Agent instance to use")
+@click.option("--model", "-m", type=str, default=None, help="LLM model to use (implies --no-fallback)")
 @click.option("--prompt", "-p", type=str, default=None, help="Prompt to send (shorthand for 'chat <prompt>')")
 @click.option(
     "--infile",
@@ -831,6 +832,7 @@ class CliverGroup(click.Group):
 def cliver_cli(
     ctx: click.Context,
     agent: str | None,
+    model: str | None,
     prompt: str | None,
     infile: str | None,
     output_format: str | None,
@@ -862,6 +864,9 @@ def cliver_cli(
         from cliver.commands.chat import chat
 
         invoke_kwargs = {"query": (effective_prompt,)}
+        if model:
+            invoke_kwargs["model"] = model
+            invoke_kwargs["no_fallback"] = True  # --model implies --no-fallback
         if output_format:
             invoke_kwargs["output_format"] = output_format
         if timeout is not None:
@@ -877,7 +882,10 @@ def cliver_cli(
 
     if ctx.invoked_subcommand is None:
         # If no subcommand is invoked, start interactive mode
-        interact(cli)
+        session_options = {}
+        if model:
+            session_options["model"] = model
+        interact(cli, session_options if session_options else None)
 
 
 @cliver_cli.command(name="help", hidden=True)
