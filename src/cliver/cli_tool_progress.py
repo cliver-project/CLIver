@@ -23,6 +23,65 @@ _STATUS_ICONS = {
     ToolEventType.MODEL_FALLBACK: "[bold magenta]⇢[/bold magenta]",
 }
 
+# ─── Tool Activity Descriptions ──────────────────────────────────────────────
+# Template-based human-readable descriptions for tool calls.
+# Each entry maps a tool name to a function that takes the args dict and
+# returns a short description string.  Tools not listed here fall back to
+# showing the raw tool name.
+
+_TOOL_DESCRIPTIONS = {
+    "Read": lambda a: f"Reading {_short_path(a.get('file_path', ''))}",
+    "Write": lambda a: f"Writing {_short_path(a.get('file_path', ''))}",
+    "LS": lambda a: f"Listing {_short_path(a.get('path', '.'))}",
+    "Grep": lambda a: f"Searching for '{_trunc(a.get('pattern', ''), 40)}'"
+    + (f" in {_short_path(a.get('path', ''))}" if a.get("path", ".") != "." else ""),
+    "Bash": lambda a: f"Running {_trunc(a.get('description') or a.get('command', ''), 50)}",
+    "Exec": lambda a: "Executing Python code",
+    "WebFetch": lambda a: f"Fetching {_trunc(a.get('url', ''), 50)}",
+    "WebSearch": lambda a: f"Searching web for '{_trunc(a.get('query', ''), 40)}'",
+    "Browse": lambda a: f"Browsing {_trunc(a.get('url', ''), 50)}",
+    "Browser": lambda a: f"Browser {a.get('action', 'action')}",
+    "Ask": lambda a: "Asking user",
+    "TodoRead": lambda _: "Reading plan",
+    "TodoWrite": lambda _: "Updating plan",
+    "MemoryRead": lambda _: "Reading memory",
+    "MemoryWrite": lambda _: "Saving to memory",
+    "Identity": lambda _: "Updating identity",
+    "Skill": lambda a: f"Activating skill '{a.get('skill_name', '')}'",
+    "Docker": lambda a: f"Running container {_trunc(a.get('image', ''), 40)}",
+    "Transcribe": lambda a: f"Transcribing {_short_path(a.get('file_path', ''))}",
+    "SearchSessions": lambda a: f"Searching sessions for '{_trunc(a.get('query', ''), 40)}'",
+    "Parallel": lambda a: f"Running {len(a.get('tasks', []))} tasks in parallel",
+    "WorkflowValidate": lambda a: "Validating workflow" if a.get("action") == "validate" else "Loading workflow schema",
+}
+
+
+def _trunc(s: str, n: int) -> str:
+    return s if len(s) <= n else s[: n - 1] + "…"
+
+
+def _short_path(p: str) -> str:
+    """Show just filename or last 2 path components."""
+    if not p:
+        return "."
+    parts = p.replace("\\", "/").rstrip("/").split("/")
+    if len(parts) <= 2:
+        return p
+    return "…/" + "/".join(parts[-2:])
+
+
+def _describe_tool(tool_name: str, args: dict | None) -> str:
+    """Generate a human-readable description for a tool call."""
+    fn = _TOOL_DESCRIPTIONS.get(tool_name)
+    if fn and args is not None:
+        try:
+            return fn(args)
+        except Exception:
+            pass
+    # Fallback: just the tool name
+    return tool_name
+
+
 # ─── Plan Status Icons ────────────────────────────────────────────────────────
 
 _PLAN_ICONS = {
@@ -157,20 +216,9 @@ def create_tool_progress_handler(
                 console.print()  # blank line before first tool in a batch
                 state["in_block"] = True
 
-            # Tool name and arguments preview
-            args_preview = ""
-            if event.args:
-                parts = []
-                for k, v in event.args.items():
-                    val = str(v)
-                    if len(val) > 60:
-                        val = val[:57] + "…"
-                    parts.append(f"[dim]{k}=[/dim]{val}")
-                args_preview = f"  ({', '.join(parts[:3])})"
-                if len(event.args) > 3:
-                    args_preview += f" [dim]+{len(event.args) - 3} more[/dim]"
-
-            console.print(f"  {icon} {tool}{args_preview}")
+            # Human-readable activity description
+            desc = _describe_tool(event.tool_name, event.args)
+            console.print(f"  {icon} [dim]{desc}[/dim]")
 
         elif event.event_type == ToolEventType.TOOL_END:
             duration = f"[dim]{event.duration_ms:.0f}ms[/dim]" if event.duration_ms else ""

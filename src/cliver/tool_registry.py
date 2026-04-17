@@ -49,6 +49,7 @@ TOOLSETS: Dict[str, Set[str]] = {
         "TodoWrite",
         "Ask",
         "Parallel",
+        "WorkflowValidate",
     },
     "web": {
         "WebFetch",

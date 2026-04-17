@@ -20,4 +20,5 @@ from cliver.tools.todo_write import todo_write  # noqa: F401
 from cliver.tools.transcribe_audio import transcribe_audio  # noqa: F401
 from cliver.tools.web_fetch import web_fetch  # noqa: F401
 from cliver.tools.web_search import web_search  # noqa: F401
+from cliver.tools.workflow_validate import workflow_validate  # noqa: F401
 from cliver.tools.write_file import write_file  # noqa: F401

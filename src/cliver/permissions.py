@@ -99,6 +99,7 @@ TOOL_META_REGISTRY: Dict[str, ToolMeta] = {
     "Parallel": ToolMeta(ActionKind.EXECUTE, ResourceType.NONE),
     "Identity": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
     "Ask": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
+    "WorkflowValidate": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
     # Read tools
     "Read": ToolMeta(ActionKind.READ, ResourceType.PATH, "file_path"),
     "LS": ToolMeta(ActionKind.READ, ResourceType.PATH, "path"),

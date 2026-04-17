@@ -2,7 +2,7 @@
 name: workflow-create
 description: Create a reusable workflow from a natural language description. The LLM designs a DAG of steps with dependencies, branching, and state propagation, then outputs valid workflow YAML.
 keywords: workflow, create, automate, pipeline, dag, steps
-allowed-tools: Read LS Grep Bash Write Ask Skill
+allowed-tools: Read LS Grep Bash Write Ask Skill WorkflowValidate
 ---
 
 # Create Workflow
@@ -17,17 +17,26 @@ Ask the user what they want to automate. Clarify:
 - What inputs does the workflow need?
 - Should any steps run in parallel?
 
-## 2. Design the DAG
+## 2. Get the Schema (if needed)
+
+If you are unsure about the exact fields for a step type, call:
+```
+WorkflowValidate(action='schema')
+```
+This returns the complete field reference for all step types.
+Only call this when you need it — skip for simple workflows.
+
+## 3. Design the DAG
 
 Plan the workflow as a directed acyclic graph:
 - Each step has a unique `id` and a `type` (llm, function, human, decision, workflow)
 - Steps declare `depends_on` to specify execution order
-- Use `DecisionStep` for if/else branching
+- Use `decision` type for if/else branching
 - Steps pass results via `outputs` and Jinja2 templates: `{{ step_id.outputs.key }}`
 
-## 3. Output Workflow YAML
+## 4. Output Workflow YAML
 
-Generate a valid YAML block matching this schema:
+Generate a valid YAML block. Example:
 
 ```yaml
 name: workflow-name
@@ -37,35 +46,43 @@ inputs:
 
 steps:
   - id: unique_id
-    type: llm                           # llm | function | human | decision | workflow
+    type: llm
     name: Human-readable name
-    prompt: "Your prompt here"          # For LLM steps
-    outputs: [named_output]             # Optional: name the output for downstream steps
-    depends_on: [other_step_id]         # Optional: dependencies
-    condition: "jinja2 expression"      # Optional: skip if false
-    retry: 0                            # Optional: retry count on failure
+    prompt: "Your prompt here"
+    outputs: [named_output]
+    depends_on: [other_step_id]
 
   - id: branch_point
     type: decision
     name: Choose path
-    depends_on: [previous_step]
+    depends_on: [unique_id]
     branches:
-      - condition: "'success' in previous_step.outputs.result"
+      - condition: "'success' in unique_id.outputs.result"
         next_step: success_step
-      - condition: "'failure' in previous_step.outputs.result"
+      - condition: "'failure' in unique_id.outputs.result"
         next_step: failure_step
-    default: failure_step               # Fallback if no branch matches
+    default: failure_step
 
   - id: human_approval
     type: human
     name: Get approval
     prompt: "Approve deployment to production?"
-    depends_on: [build_step]
+    depends_on: [branch_point]
 ```
 
-## 4. Save the Workflow
+## 5. Validate Before Saving
 
-After generating the YAML, save it using `Write` to:
+**Always validate before saving.** Call:
+```
+WorkflowValidate(action='validate', yaml_content='...')
+```
+This checks YAML syntax, required fields, step type schemas,
+dependency references, and cycle detection. Fix any reported
+errors and re-validate until it returns `Valid`.
+
+## 6. Save the Workflow
+
+After validation passes, save using `Write` to:
 `{agent_workflows_dir}/{workflow-name}.yaml`
 
 Tell the user the workflow is saved and how to run it:
@@ -80,3 +97,4 @@ Tell the user the workflow is saved and how to run it:
 - Use `{{ inputs.param_name }}` to reference workflow inputs
 - DecisionStep branches are evaluated in order — first match wins
 - Keep workflows focused — one workflow per automation goal
+- **Always validate, then save** — never save unvalidated YAML
