@@ -20,6 +20,36 @@ from cliver.template_utils import render_template_if_needed
 logger = logging.getLogger(__name__)
 
 
+class RateLimitConfig(BaseModel):
+    """Rate limit configuration for an LLM provider."""
+
+    requests: int = Field(description="Number of requests allowed in the period")
+    period: str = Field(description="Time period, e.g. '5h', '30m', '1d', or seconds as string")
+    margin: float = Field(default=0.1, description="Safety margin (0.1 = 10% slower than limit)")
+
+
+class ProviderConfig(BaseModel):
+    """Configuration for an LLM provider (API endpoint + credentials + rate limit)."""
+
+    name: str
+    type: str = Field(description="Provider type: openai, ollama, anthropic")
+    api_url: str = Field(description="Base URL for the provider API")
+    api_key: Optional[str] = Field(default=None, description="API key (supports Jinja2 templates)")
+    rate_limit: Optional[RateLimitConfig] = Field(default=None, description="Rate limit for API calls")
+
+    model_config = {"extra": "allow"}
+
+    def get_api_key(self) -> Optional[str]:
+        if self.api_key is None:
+            return None
+        return render_template_if_needed(self.api_key)
+
+    def model_dump(self, **kwargs):
+        data = super().model_dump(**kwargs)
+        data.pop("name", None)
+        return {k: v for k, v in data.items() if v is not None}
+
+
 class ModelOptions(BaseModel):
     temperature: float = Field(default=0.7, description="Sampling temperature")
     top_p: float = Field(default=0.3, description="Top-p sampling cutoff")
