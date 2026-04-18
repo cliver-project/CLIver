@@ -295,6 +295,11 @@ def _display_options(cliver: Cliver) -> None:
     if extra:
         cliver.output(f"  extra options:     {extra}")
 
+    # Show model exclusions
+    excluded = cliver.task_executor.excluded_models
+    if excluded:
+        cliver.output(f"\n  excluded models:   {', '.join(sorted(excluded))}")
+
 
 @session_cmd.group(name="option", help="Manage inference options for this session", invoke_without_command=True)
 @pass_cliver
@@ -423,9 +428,34 @@ def reset_options(cliver: Cliver):
         "save_media": False,
         "media_dir": None,
     }
+    cliver.task_executor.excluded_models.clear()
     cliver.output("Session options have been reset to defaults.")
     _persist_session_options(cliver)
     return 0
+
+
+@session_option.command(name="exclude", help="Exclude a model from fallback for this session")
+@click.argument("model_name")
+@pass_cliver
+def option_model_exclude(cliver: Cliver, model_name: str):
+    """Exclude a model from being used as a fallback target."""
+    if model_name not in cliver.config_manager.list_llm_models():
+        cliver.output(f"Unknown model: {model_name}")
+        return
+    cliver.task_executor.excluded_models.add(model_name)
+    cliver.output(f"Excluded '{model_name}' from fallback for this session.")
+
+
+@session_option.command(name="include", help="Re-include an excluded model for fallback")
+@click.argument("model_name")
+@pass_cliver
+def option_model_include(cliver: Cliver, model_name: str):
+    """Re-include a previously excluded model."""
+    if model_name in cliver.task_executor.excluded_models:
+        cliver.task_executor.excluded_models.discard(model_name)
+        cliver.output(f"Re-included '{model_name}' for fallback.")
+    else:
+        cliver.output(f"'{model_name}' is not excluded.")
 
 
 def _persist_session_options(cliver: Cliver) -> None:
