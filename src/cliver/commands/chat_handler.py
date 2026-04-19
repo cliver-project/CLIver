@@ -146,6 +146,92 @@ def run_chat(cliver: "Cliver", opts: ChatOptions) -> LLMCallResult:
     return result
 
 
+async def async_run_chat(cliver: "Cliver", opts: ChatOptions) -> LLMCallResult:
+    """Async chat execution — used by TUI CommandDispatcher.
+
+    This is the async version that uses async_llm_call instead of llm_call.
+
+    Args:
+        cliver: The Cliver CLI instance.
+        opts: Chat options.
+
+    Returns:
+        LLMCallResult with the response text and metadata.
+    """
+    from cliver.cli_llm_call import async_llm_call
+
+    session_options = cliver.session_options or {}
+    use_model = session_options.get("model", opts.model)
+    task_executor = cliver.task_executor
+
+    llm_engine = task_executor.get_llm_engine(use_model)
+    if not llm_engine:
+        cliver.output(f"Model '{use_model}' not found.")
+        return LLMCallResult(success=False, error=f"Model '{use_model}' not found.")
+
+    err = _check_capabilities(llm_engine, opts, use_model)
+    if err:
+        cliver.output(f"[red]{err}[/red]")
+        return LLMCallResult(success=False, error=err)
+
+    use_stream = session_options.get("stream", opts.stream)
+    use_included_tools = session_options.get("included_tools", opts.included_tools)
+
+    llm_options: dict = session_options.get("options", {})
+    if opts.options:
+        llm_options.update(opts.options)
+
+    tools_filter = None
+    if use_included_tools and len(use_included_tools.strip()) > 0:
+        tools_filter = create_tools_filter(use_included_tools)
+
+    system_message_appender = None
+    sys_msg = opts.system_message_content or session_options.get("system_message_content")
+    if sys_msg and len(sys_msg.strip()) > 0:
+
+        def system_message_appender():
+            return sys_msg
+
+    cliver.record_turn("user", opts.text)
+
+    model_config = task_executor._get_llm_model(use_model)
+    if model_config and cliver.conversation_messages:
+        _compress_if_needed(cliver, task_executor, model_config, use_model, opts.text)
+
+    conv_history = list(cliver.conversation_messages) if cliver.conversation_messages else None
+    cliver.conversation_messages.append(HumanMessage(content=opts.text))
+
+    def on_response(text: str):
+        cliver.record_turn("assistant", text)
+        cliver.conversation_messages.append(AIMessage(content=text))
+
+    result = await async_llm_call(
+        cliver,
+        LLMCallOptions(
+            user_input=opts.text,
+            model=use_model,
+            stream=use_stream,
+            images=opts.images,
+            audio_files=opts.audio_files,
+            video_files=opts.video_files,
+            files=opts.files,
+            template=opts.template,
+            params=opts.params,
+            options=llm_options,
+            save_media=opts.save_media,
+            media_dir=opts.media_dir,
+            tools_filter=tools_filter,
+            system_message_appender=system_message_appender,
+            conversation_history=conv_history,
+            on_response=on_response,
+            timeout_s=opts.timeout_s,
+            auto_fallback=opts.auto_fallback,
+            on_pending_input=opts.on_pending_input,
+        ),
+    )
+    return result
+
+
 def _check_capabilities(llm_engine, opts: ChatOptions, model_name: str) -> Optional[str]:
     """Check if the model supports the requested capabilities.
 
