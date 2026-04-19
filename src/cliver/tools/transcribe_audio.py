@@ -80,7 +80,7 @@ def _find_audio_model() -> Optional[dict]:
         if ModelCapability.AUDIO_TO_TEXT in caps:
             return {
                 "api_key": model_config.get_api_key(),
-                "url": model_config.url,
+                "url": model_config.get_resolved_url(),
                 "model_name": model_config.name_in_provider or model_config.name,
             }
     return None

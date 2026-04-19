@@ -61,9 +61,18 @@ class MediaContent:
     filename: Optional[str] = None
     source: str = "local"  # local, url, etc.
 
+    def is_url(self) -> bool:
+        """Check if data is a URL rather than base64-encoded content."""
+        return self.data.startswith("http://") or self.data.startswith("https://")
+
     def save(self, file_path: Path) -> bool:
         """
         Save the media content to a file.
+
+        Handles three data formats:
+        - URL (http/https): downloads the content
+        - Data URL (data:mime;base64,...): extracts and decodes base64
+        - Raw base64: decodes directly
 
         Args:
             file_path: Path where to save the file
@@ -75,16 +84,18 @@ class MediaContent:
             Exception: If failed to save the file
         """
         try:
-            # Handle data URLs (data:image/jpeg;base64,...)
-            if self.data.startswith("data:"):
+            if self.is_url():
+                import httpx
+
+                resp = httpx.get(self.data, timeout=120, follow_redirects=True)
+                resp.raise_for_status()
+                binary_data = resp.content
+            elif self.data.startswith("data:"):
                 base64_data = self.data.split(",", 1)[1] if "," in self.data else self.data
+                binary_data = base64.b64decode(base64_data)
             else:
-                base64_data = self.data
+                binary_data = base64.b64decode(self.data)
 
-            # Decode base64 data
-            binary_data = base64.b64decode(base64_data)
-
-            # Write to file
             with open(file_path, "wb") as f:
                 f.write(binary_data)
 

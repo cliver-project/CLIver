@@ -96,7 +96,7 @@ class DeepSeekInferenceEngine(OpenAICompatibleInferenceEngine):
         resolved_api_key = self.config.get_api_key()
         self.llm = ChatDeepSeek(
             model=self.config.name_in_provider or self.config.name,
-            base_url=self.config.url,
+            base_url=self.config.get_resolved_url(),
             api_key=resolved_api_key,
             default_headers=default_headers,
             **self.options,

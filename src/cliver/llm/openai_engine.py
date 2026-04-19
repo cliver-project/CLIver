@@ -37,12 +37,13 @@ class OpenAICompatibleInferenceEngine(LLMInferenceEngine):
 
         # Resolve API key (supports vault:<service>:<key> references)
         resolved_api_key = self.config.get_api_key()
+        resolved_url = self.config.get_resolved_url()
 
         # Initialize OpenAI client for file operations
         if resolved_api_key:
             self.openai_client = OpenAI(
                 api_key=resolved_api_key,
-                base_url=self.config.url if self.config.url else None,
+                base_url=resolved_url if resolved_url else None,
                 default_headers=default_headers,
             )
         else:
@@ -53,7 +54,7 @@ class OpenAICompatibleInferenceEngine(LLMInferenceEngine):
 
         self.llm = ChatOpenAI(
             model=self.config.name_in_provider or self.config.name,
-            base_url=self.config.url,
+            base_url=resolved_url,
             api_key=resolved_api_key,
             default_headers=default_headers,
             **self.options,

@@ -22,6 +22,7 @@ class ToolEventType(str, Enum):
     MODEL_RETRY = "model_retry"
     MODEL_COMPRESS = "model_compress"
     MODEL_FALLBACK = "model_fallback"
+    MODEL_RATE_LIMIT = "model_rate_limit"
 
 
 @dataclass

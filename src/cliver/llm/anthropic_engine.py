@@ -29,6 +29,7 @@ class AnthropicInferenceEngine(LLMInferenceEngine):
             self.options = self.config.options.model_dump(exclude_unset=True)
 
         resolved_api_key = self.config.get_api_key()
+        resolved_url = self.config.get_resolved_url()
         default_headers = {"User-Agent": user_agent} if user_agent else {}
 
         # ChatAnthropic constructor kwargs
@@ -39,8 +40,8 @@ class AnthropicInferenceEngine(LLMInferenceEngine):
         }
 
         # base_url for Anthropic-compatible providers
-        if self.config.url:
-            llm_kwargs["anthropic_api_url"] = self.config.url
+        if resolved_url:
+            llm_kwargs["anthropic_api_url"] = resolved_url
 
         # Map supported options
         for key in ("temperature", "top_p", "top_k", "max_tokens"):

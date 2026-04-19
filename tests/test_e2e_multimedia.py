@@ -28,6 +28,7 @@ class TestE2EMultimedia:
         config.url = "https://api.openai.com/v1"
         config.api_key = "test-key"
         config.get_api_key = Mock(return_value="test-key")
+        config.get_resolved_url = Mock(return_value="https://api.openai.com/v1")
         config.options = None
 
         # Mock capabilities
@@ -88,6 +89,7 @@ class TestE2EMultimedia:
         config.url = "https://api.openai.com/v1"
         config.api_key = "test-key"
         config.get_api_key = Mock(return_value="test-key")
+        config.get_resolved_url = Mock(return_value="https://api.openai.com/v1")
         config.options = None
 
         # Mock capabilities

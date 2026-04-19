@@ -21,6 +21,7 @@ _STATUS_ICONS = {
     ToolEventType.MODEL_RETRY: "[bold yellow]↻[/bold yellow]",
     ToolEventType.MODEL_COMPRESS: "[bold blue]⊘[/bold blue]",
     ToolEventType.MODEL_FALLBACK: "[bold magenta]⇢[/bold magenta]",
+    ToolEventType.MODEL_RATE_LIMIT: "[bold cyan]⏱[/bold cyan]",
 }
 
 # ─── Tool Activity Descriptions ──────────────────────────────────────────────
@@ -277,6 +278,15 @@ def create_tool_progress_handler(
                 thinking.stop(blank_line=False)
             model = f"[blue]{event.tool_name}[/blue]"
             console.print(f"\n  {icon} Compressing context for {model}\n")
+            if thinking:
+                thinking.start(event.tool_name)
+
+        elif event.event_type == ToolEventType.MODEL_RATE_LIMIT:
+            if thinking:
+                thinking.stop(blank_line=False)
+            model = f"[cyan]{event.tool_name}[/cyan]"
+            detail = f"[dim]{event.result}[/dim]" if event.result else ""
+            console.print(f"\n  {icon} Rate limit pacing {model}  {detail}\n")
             if thinking:
                 thinking.start(event.tool_name)
 

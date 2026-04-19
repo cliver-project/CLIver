@@ -25,7 +25,7 @@ class OllamaLlamaInferenceEngine(LLMInferenceEngine):
 
         self.llm = Ollama(
             model=self.config.name_in_provider or self.config.name,
-            base_url=self.config.url,
+            base_url=self.config.get_resolved_url(),
             client_kwargs=client_kwargs,
             **self.options,
         )

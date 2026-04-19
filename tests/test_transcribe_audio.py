@@ -13,6 +13,7 @@ def _mock_executor_with_audio_model():
     mock_config = MagicMock()
     mock_config.get_capabilities.return_value = {ModelCapability.AUDIO_TO_TEXT, ModelCapability.TEXT_TO_TEXT}
     mock_config.get_api_key.return_value = "test-key"
+    mock_config.get_resolved_url.return_value = "https://api.example.com/v1"
     mock_config.url = "https://api.example.com/v1"
     mock_config.name_in_provider = "whisper-1"
     mock_config.name = "whisper"

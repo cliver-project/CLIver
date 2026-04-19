@@ -197,7 +197,7 @@ class Gateway:
         gateway_config = config_manager.config.gateway
         tool_handler = _create_gateway_tool_handler(self.config_dir, gateway_config)
 
-        return AgentCore(
+        executor = AgentCore(
             llm_models=config_manager.list_llm_models(),
             mcp_servers=config_manager.list_mcp_servers_for_mcp_caller(),
             default_model=(config_manager.get_llm_model().name if config_manager.get_llm_model() else None),
@@ -207,6 +207,8 @@ class Gateway:
             enabled_toolsets=config_manager.config.enabled_toolsets,
             on_tool_event=tool_handler,
         )
+        executor.configure_rate_limits(config_manager.config.providers)
+        return executor
 
     # -- Session & adapter resolution -----------------------------------------
 

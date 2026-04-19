@@ -36,6 +36,8 @@ class ProviderConfig(BaseModel):
     api_url: str = Field(description="Base URL for the provider API")
     api_key: Optional[str] = Field(default=None, description="API key (supports Jinja2 templates)")
     rate_limit: Optional[RateLimitConfig] = Field(default=None, description="Rate limit for API calls")
+    image_url: Optional[str] = Field(default=None, description="Full URL for image generation endpoint")
+    audio_url: Optional[str] = Field(default=None, description="Full URL for audio generation endpoint")
 
     model_config = {"extra": "allow"}
 
@@ -62,7 +64,7 @@ class ModelOptions(BaseModel):
 class ModelConfig(BaseModel):
     name: str
     provider: str
-    url: str
+    url: Optional[str] = Field(default=None, description="API URL for the model (overrides provider)")
     name_in_provider: Optional[str] = Field(default=None, description="Internal name used by provider")
     api_key: Optional[str] = Field(default=None, description="API key for the model")
     options: Optional[ModelOptions] = Field(default=None, description="Options for model")
@@ -77,6 +79,30 @@ class ModelConfig(BaseModel):
     )
 
     model_config = {"extra": "allow"}
+
+    # Internal: set during config loading, not serialized
+    _provider_config: Optional["ProviderConfig"] = None
+
+    def get_provider_type(self) -> str:
+        """Return the provider type.
+
+        If a ProviderConfig is linked, returns its type; otherwise falls back
+        to the legacy ``provider`` field (which doubles as type).
+        """
+        if self._provider_config is not None:
+            return self._provider_config.type
+        return self.provider
+
+    def get_resolved_url(self) -> Optional[str]:
+        """Return the effective API URL.
+
+        Priority: model-level ``url`` > linked ProviderConfig ``api_url`` > None.
+        """
+        if self.url is not None:
+            return self.url
+        if self._provider_config is not None:
+            return self._provider_config.api_url
+        return None
 
     def get_capabilities(self) -> Set[ModelCapability]:
         """
@@ -107,24 +133,29 @@ class ModelConfig(BaseModel):
         - Plain text: returned as-is
         - "{{ keyring('service', 'key') }}": resolved from system keyring
         - "{{ env.VARIABLE }}": resolved from environment variable
+        - Falls back to linked ProviderConfig's api_key if model-level key is not set
         - None: if not configured or resolution fails
         """
-        if self.api_key is None:
-            return None
-        return render_template_if_needed(self.api_key)
+        if self.api_key is not None:
+            return render_template_if_needed(self.api_key)
+        if self._provider_config is not None:
+            return self._provider_config.get_api_key()
+        return None
 
     def get_model_capabilities(self) -> ModelCapabilities:
         detector = ModelCapabilityDetector()
-        capabilities = detector.detect_capabilities(self.provider, self.name)
+        capabilities = detector.detect_capabilities(self.get_provider_type(), self.name)
         return capabilities
 
     # we need to override this for persistence purpose to skip null values on saving
     # as we already have the name as the key, we don't want to persistent the name to the config json
     def model_dump(self, **kwargs):
-        """Override to exclude name field and null values."""
+        """Override to exclude name field, null values, and internal attributes."""
         data = super().model_dump(**kwargs)
         # Remove name field since it's redundant (key in models dict)
         data.pop("name", None)
+        # Remove internal provider config (not serialized)
+        data.pop("_provider_config", None)
         # Remove null values
         result = {k: v for k, v in data.items() if v is not None}
 
@@ -231,6 +262,7 @@ class GatewayConfig(BaseModel):
 
 class AppConfig(BaseModel):
     default_agent_name: str = Field(default="CLIver", description="The default agent instance name")
+    providers: Dict[str, ProviderConfig] = Field(default_factory=dict)
     mcpServers: Dict[str, MCPServerConfig] = {}
     models: Dict[str, ModelConfig] = {}
     default_model: Optional[str] = Field(default=None, description="The default LLM model")
@@ -299,6 +331,13 @@ class ConfigManager:
                                 logger.warning(f"Warning: Invalid capability in model {name}: {e}")
                                 model["capabilities"] = None
 
+            # Parse providers section
+            if "providers" in config_data and isinstance(config_data["providers"], dict):
+                for pname, pdata in config_data["providers"].items():
+                    if isinstance(pdata, dict):
+                        pdata["name"] = pname
+                        config_data["providers"][pname] = ProviderConfig(**pdata)
+
             mcp_servers_data = config_data.get("mcpServers")
             if mcp_servers_data and isinstance(mcp_servers_data, dict):
                 converted_servers = {}
@@ -320,10 +359,44 @@ class ConfigManager:
                             raise ValueError(f"Unknown transport {transport}")
                 config_data["mcpServers"] = converted_servers
 
-            return AppConfig(**config_data)
+            app_config = AppConfig(**config_data)
+            self._link_models_to_providers(app_config)
+            return app_config
         except Exception as e:
             logger.error("Error loading configuration: %s", e, stack_info=True, exc_info=True)
             raise e
+
+    def _link_models_to_providers(self, config: AppConfig) -> None:
+        """Link models to their provider configs.
+
+        For models whose ``provider`` field matches a key in ``config.providers``,
+        sets the internal ``_provider_config`` reference.  For legacy models that
+        have an inline ``url`` but no matching provider, creates synthetic
+        ``ProviderConfig`` objects in memory (not persisted) so that the
+        resolution helpers work uniformly.
+        """
+        # Phase 1: link models to explicitly-declared providers
+        if config.providers:
+            for model in config.models.values():
+                if model.provider in config.providers:
+                    model._provider_config = config.providers[model.provider]
+
+        # Phase 2: create synthetic providers for legacy inline-url models
+        synthetic: dict[str, ProviderConfig] = {}
+        for model in config.models.values():
+            if model._provider_config is not None:
+                continue
+            if not model.url:
+                continue
+            key = f"{model.provider}|{model.url}|{model.api_key or ''}"
+            if key not in synthetic:
+                synthetic[key] = ProviderConfig(
+                    name=f"_auto_{len(synthetic)}",
+                    type=model.provider,
+                    api_url=model.url,
+                    api_key=model.api_key,
+                )
+            model._provider_config = synthetic[key]
 
     def _save_config(self) -> None:
         """Save configuration to YAML file."""
@@ -332,6 +405,13 @@ class ConfigManager:
                 self.config_dir.mkdir(parents=True, exist_ok=True)
 
             config_data = self.config.model_dump()
+
+            # Handle providers serialization
+            if "providers" in config_data:
+                serialized_providers = {}
+                for name, prov in self.config.providers.items():
+                    serialized_providers[name] = prov.model_dump()
+                config_data["providers"] = serialized_providers
 
             # Handle MCP servers serialization — use each server's model_dump
             # to exclude redundant name field
@@ -622,6 +702,66 @@ class ConfigManager:
         """Set the User-Agent header string."""
         self.config.user_agent = user_agent
         self._save_config()
+
+    def add_or_update_provider(
+        self,
+        name: str,
+        type: str,
+        api_url: str,
+        api_key: Optional[str] = None,
+        rate_limit: Optional[RateLimitConfig] = None,
+        image_url: Optional[str] = None,
+        audio_url: Optional[str] = None,
+    ) -> None:
+        prov = self.config.providers.get(name)
+        if prov:
+            prov.type = type
+            prov.api_url = api_url
+            if api_key is not None:
+                prov.api_key = api_key
+            if rate_limit is not None:
+                prov.rate_limit = rate_limit
+            if image_url is not None:
+                prov.image_url = image_url
+            if audio_url is not None:
+                prov.audio_url = audio_url
+        else:
+            self.config.providers[name] = ProviderConfig(
+                name=name,
+                type=type,
+                api_url=api_url,
+                api_key=api_key,
+                rate_limit=rate_limit,
+                image_url=image_url,
+                audio_url=audio_url,
+            )
+        # Re-link models referencing this provider
+        for model in self.config.models.values():
+            if model.provider == name:
+                model._provider_config = self.config.providers[name]
+        self._save_config()
+
+    def remove_provider(self, name: str) -> bool:
+        if name in self.config.providers:
+            referencing = [m.name for m in self.config.models.values() if m.provider == name]
+            if referencing:
+                raise ValueError(f"Cannot remove provider '{name}': used by models: {', '.join(referencing)}")
+            self.config.providers.pop(name)
+            self._save_config()
+            return True
+        return False
+
+    def set_provider_rate_limit(self, name: str, rate_limit: Optional[RateLimitConfig]) -> bool:
+        """Set or clear the rate limit on an existing provider."""
+        prov = self.config.providers.get(name)
+        if not prov:
+            return False
+        prov.rate_limit = rate_limit
+        self._save_config()
+        return True
+
+    def list_providers(self) -> Dict[str, ProviderConfig]:
+        return self.config.providers
 
     def get_llm_model(self, name: Optional[str] = None) -> Optional[ModelConfig]:
         if not name:

@@ -29,8 +29,10 @@ from cliver.llm.base import LLMInferenceEngine
 from cliver.llm.deepseek_engine import DeepSeekInferenceEngine
 from cliver.llm.errors import TaskTimeoutError, get_friendly_error_message
 from cliver.llm.llm_utils import is_thinking, normalize_tool_calls
+from cliver.llm.media_generation import get_image_helper
 from cliver.llm.ollama_engine import OllamaLlamaInferenceEngine
 from cliver.llm.openai_engine import OpenAICompatibleInferenceEngine
+from cliver.llm.rate_limiter import RateLimiter, parse_period
 from cliver.mcp_server_caller import MCPServersCaller
 from cliver.media import load_media_file
 from cliver.model_capabilities import ModelCapability
@@ -51,15 +53,16 @@ MAX_CONSECUTIVE_ERRORS = 3
 def create_llm_engine(
     model: ModelConfig, user_agent: str = None, agent_name: str = "CLIver"
 ) -> Optional[LLMInferenceEngine]:
-    if model.provider == "ollama":
+    provider_type = model.get_provider_type()
+    if provider_type == "ollama":
         return OllamaLlamaInferenceEngine(model, user_agent=user_agent, agent_name=agent_name)
-    elif model.provider == "openai":
+    elif provider_type == "openai":
         # Route to model-specific engines for providers with API quirks
         name = (model.name_in_provider or model.name).lower()
         if name.startswith("deepseek"):
             return DeepSeekInferenceEngine(model, user_agent=user_agent, agent_name=agent_name)
         return OpenAICompatibleInferenceEngine(model, user_agent=user_agent, agent_name=agent_name)
-    elif model.provider == "anthropic":
+    elif provider_type == "anthropic":
         from cliver.llm.anthropic_engine import AnthropicInferenceEngine
 
         return AnthropicInferenceEngine(model, user_agent=user_agent, agent_name=agent_name)
@@ -152,8 +155,19 @@ class AgentCore:
             global tool_registry
             tool_registry = ToolRegistry(enabled_toolsets=enabled_toolsets)
 
+        # Session-scoped model exclusion — prevents excluded models from
+        # being used as fallback targets.  Managed via /session option commands.
+        self.excluded_models: set[str] = set()
+
         # Tool call counter for skill auto-learning (reset per process_user_input call)
         self._tool_call_count = 0
+
+        # Accumulated media from tool calls (e.g., ImageGenerate).
+        # Reset per process_user_input call, attached to final response.
+        self._generated_media: list = []
+
+        # Per-provider rate limiter (configured via configure_rate_limits)
+        self.rate_limiter = RateLimiter()
 
         # Set the active profile and executor so builtin tools can access them
         if agent_profile:
@@ -172,6 +186,123 @@ class AgentCore:
                 self.on_tool_event(event)
             except Exception as e:
                 logger.debug(f"Tool event handler error: {e}")
+
+    def configure_rate_limits(self, providers: dict) -> None:
+        """Configure rate limiter from provider configs."""
+        for name, prov_config in providers.items():
+            rate_limit = getattr(prov_config, "rate_limit", None)
+            if rate_limit:
+                try:
+                    period_s = parse_period(rate_limit.period)
+                    self.rate_limiter.configure(name, rate_limit.requests, period_s, rate_limit.margin)
+                except Exception as e:
+                    logger.warning("Invalid rate limit for provider %s: %s", name, e)
+
+    async def _wait_for_rate_limit(self, model: str) -> None:
+        """Wait for rate limit if the model's provider has one configured."""
+        model_config = self._get_llm_model(model)
+        if not model_config:
+            return
+        provider_name = model_config.provider
+        wait_time = self.rate_limiter.get_wait_time(provider_name)
+        if wait_time > 0.01:
+            self._emit_tool_event(
+                ToolEvent(
+                    event_type=ToolEventType.MODEL_RATE_LIMIT,
+                    tool_name=model,
+                    result=f"waiting {wait_time:.1f}s",
+                )
+            )
+        await self.rate_limiter.wait(provider_name)
+
+    async def generate_image(self, prompt: str, model: str = None, **params) -> BaseMessage:
+        """Generate images from a text prompt via the provider's image API.
+
+        All HTTP calls are made here — helpers only format requests and parse
+        responses. This keeps all external API calls centralized in AgentCore.
+
+        Resolution order:
+        1. If model specified → use its provider's image_url
+        2. Scan llm_models for TEXT_TO_IMAGE capability
+        3. Scan providers for any with image_url set
+        """
+        provider_config, model_name = self._resolve_image_provider(model)
+        if not provider_config or not getattr(provider_config, "image_url", None):
+            return AIMessage(content="Error: No model or provider with image generation support configured.")
+
+        await self.rate_limiter.wait(provider_config.name)
+
+        try:
+            helper = get_image_helper(provider_config.image_url)
+            request_body = helper.build_request(prompt, model_name, **params)
+            response_data = await self._call_generation_api(
+                provider_config.image_url,
+                provider_config.get_api_key(),
+                request_body,
+            )
+            media_list = helper.parse_response(response_data)
+        except Exception as e:
+            logger.error("Image generation failed: %s", e)
+            return AIMessage(content=f"Error generating image: {e}")
+
+        # Accumulate media so it can be attached to the final Re-Act response
+        self._generated_media.extend(media_list)
+
+        urls = [m.data for m in media_list if m.data]
+        content = f"Generated {len(media_list)} image(s):\n" + "\n".join(urls) if urls else "Image generated."
+
+        return AIMessage(
+            content=content,
+            additional_kwargs={"media_content": media_list},
+        )
+
+    async def _call_generation_api(self, url: str, api_key: str, body: dict) -> dict:
+        """Make an HTTP POST to a generation API endpoint.
+
+        Centralizes all generation API calls (image, audio) so that
+        rate limiting, error handling, and logging are in one place.
+        """
+        import httpx
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        async with httpx.AsyncClient(timeout=120) as client:
+            resp = await client.post(url, json=body, headers=headers)
+            resp.raise_for_status()
+            return resp.json()
+
+    def _resolve_image_provider(self, model: str = None):
+        """Resolve which provider and model name to use for image generation.
+
+        Returns (ProviderConfig, model_name) or (None, None).
+        """
+        from cliver.model_capabilities import ModelCapability
+
+        # 1. Explicit model
+        if model:
+            mc = self._get_llm_model(model)
+            if mc:
+                prov = getattr(mc, "_provider_config", None)
+                if prov and getattr(prov, "image_url", None):
+                    return prov, mc.name_in_provider or mc.name
+
+        # 2. Scan for model with TEXT_TO_IMAGE capability
+        for _name, mc in self.llm_models.items():
+            caps = mc.get_capabilities()
+            if ModelCapability.TEXT_TO_IMAGE in caps:
+                prov = getattr(mc, "_provider_config", None)
+                if prov and getattr(prov, "image_url", None):
+                    return prov, mc.name_in_provider or mc.name
+
+        # 3. Scan all models' providers for any with image_url
+        for _name, mc in self.llm_models.items():
+            prov = getattr(mc, "_provider_config", None)
+            if prov and getattr(prov, "image_url", None):
+                return prov, None
+
+        return None, None
 
     def _track_tokens(self, response, model: str) -> None:
         """Extract and record token usage from an LLM response."""
@@ -251,10 +382,11 @@ class AgentCore:
         """Find the next configured model with matching capabilities.
 
         Iterates self.llm_models in insertion order (config.yaml order).
-        Skips models already tried and models missing required capabilities.
+        Skips models already tried, session-excluded models, and models
+        missing required capabilities.
         """
         for name, config in self.llm_models.items():
-            if name in tried_models:
+            if name in tried_models or name in self.excluded_models:
                 continue
             model_caps = config.get_capabilities()
             if required_capabilities.issubset(model_caps):
@@ -405,6 +537,15 @@ class AgentCore:
             options: Dictionary of additional options to override LLM configurations.
         """
 
+        # Route generation-only models directly (skip Re-Act loop)
+        _model_config = self._get_llm_model(model)
+        if _model_config:
+            _caps = _model_config.get_capabilities()
+            if ModelCapability.TEXT_TO_IMAGE in _caps and ModelCapability.TEXT_TO_TEXT not in _caps:
+                result = await self.generate_image(user_input, model, **(options or {}))
+                yield AIMessageChunk(content=result.content, additional_kwargs=result.additional_kwargs)
+                return
+
         (
             llm_engine,
             llm_tools,
@@ -424,8 +565,9 @@ class AgentCore:
             conversation_history,
         )
 
-        # Since we've enhanced the infer and stream methods to handle multimedia,
-        # we can always use the regular stream method
+        # Reset per-call state
+        self._generated_media = []
+
         required_caps = self._compute_required_capabilities(
             images,
             audio_files,
@@ -450,6 +592,13 @@ class AgentCore:
             tried_models={model} if model else set(),
         ):
             yield chunk
+
+        # Yield a final chunk with any media generated by tools
+        if self._generated_media:
+            yield AIMessageChunk(
+                content="",
+                additional_kwargs={"media_content": self._generated_media},
+            )
 
     async def _prepare_messages_and_tools(
         self,
@@ -696,6 +845,13 @@ class AgentCore:
             options: Additional options for LLM inference that can override what the ModelConfig is defined.
         """
 
+        # Route generation-only models directly (skip Re-Act loop)
+        _model_config = self._get_llm_model(model)
+        if _model_config:
+            _caps = _model_config.get_capabilities()
+            if ModelCapability.TEXT_TO_IMAGE in _caps and ModelCapability.TEXT_TO_TEXT not in _caps:
+                return await self.generate_image(user_input, model, **(options or {}))
+
         (
             llm_engine,
             llm_tools,
@@ -715,8 +871,9 @@ class AgentCore:
             conversation_history,
         )
 
-        # Reset tool call counter for skill auto-learning
+        # Reset per-call state
         self._tool_call_count = 0
+        self._generated_media = []
 
         required_caps = self._compute_required_capabilities(
             images,
@@ -741,6 +898,12 @@ class AgentCore:
             auto_fallback=auto_fallback,
             tried_models={model} if model else set(),
         )
+
+        # Attach any media generated by tools (e.g., ImageGenerate) to the final response
+        if self._generated_media and isinstance(result, AIMessage):
+            kwargs = dict(result.additional_kwargs) if result.additional_kwargs else {}
+            kwargs["media_content"] = self._generated_media
+            result = AIMessage(content=result.content, additional_kwargs=kwargs)
 
         # Post-task: trigger skill auto-learning review if task was complex
         await self._maybe_learn_skill(user_input, result)
@@ -814,6 +977,9 @@ class AgentCore:
 
                 # Sanitize messages before sending to LLM
                 _sanitize_messages(messages)
+
+                # Pace calls according to provider rate limit
+                await self._wait_for_rate_limit(current_model)
 
                 try:
                     response = await llm_engine.infer(messages, mcp_tools, **options)
@@ -1265,6 +1431,9 @@ class AgentCore:
 
                 # Sanitize messages before sending to LLM
                 _sanitize_messages(messages)
+
+                # Pace calls according to provider rate limit
+                await self._wait_for_rate_limit(current_model)
 
                 # For proper tool call handling in streaming, we'll process differently
                 tool_calls = None

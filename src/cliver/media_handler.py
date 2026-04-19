@@ -112,9 +112,17 @@ class MultimediaResponseHandler:
                             text_content += item.get("text", "")
                         # TODO: Handle other content types if needed
 
-        # Extract media content using the LLM engine if provided
+        # Extract media content from the response
         media_content = []
-        if llm_engine and response:
+
+        # Check additional_kwargs for media from generate_image() / generation helpers
+        if hasattr(response, "additional_kwargs"):
+            kwargs_media = response.additional_kwargs.get("media_content", [])
+            if kwargs_media:
+                media_content.extend(kwargs_media)
+
+        # Also extract media using the LLM engine (for inline chat media like DALL-E)
+        if llm_engine and response and not media_content:
             try:
                 media_content = llm_engine.extract_media_from_response(response)
             except Exception as e:

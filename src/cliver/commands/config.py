@@ -90,6 +90,30 @@ def show_config(cliver: Cliver):
             )
         )
 
+        # ── Providers ──
+        if cfg.providers:
+            prov_table = Table(box=box.SIMPLE_HEAVY, padding=(0, 1))
+            prov_table.add_column("Name", style="green")
+            prov_table.add_column("Type", style="magenta")
+            prov_table.add_column("API URL", style="blue")
+            prov_table.add_column("API Key", style="dim")
+            prov_table.add_column("Rate Limit", style="yellow")
+            prov_table.add_column("Image URL", style="dim")
+
+            for name, prov in cfg.providers.items():
+                api_key_display = _mask_value(prov.api_key) if prov.api_key else "-"
+                rl = f"{prov.rate_limit.requests}/{prov.rate_limit.period}" if prov.rate_limit else "-"
+                prov_table.add_row(name, prov.type, prov.api_url, api_key_display, rl, prov.image_url or "-")
+
+            console.print(
+                Panel(
+                    prov_table,
+                    title="[bold blue]Providers[/bold blue]",
+                    border_style="blue",
+                    padding=(0, 1),
+                )
+            )
+
         # ── Models ──
         if cfg.models:
             model_panels = []
@@ -241,6 +265,46 @@ def _mask_secrets(data, keys_to_mask=("api_key",)):
         for item in data:
             if isinstance(item, (dict, list)):
                 _mask_secrets(item, keys_to_mask)
+
+
+# noinspection PyUnresolvedReferences
+@config.command(name="rate-limit", help="Set or show rate limit for a provider")
+@click.argument("provider_name")
+@click.argument("limit", required=False)
+@pass_cliver
+def config_rate_limit(cliver: Cliver, provider_name: str, limit: str):
+    """Set or show rate limit for a provider.
+
+    Usage:
+      cliver config rate-limit minimax 5000/5h   # set limit
+      cliver config rate-limit minimax            # show current limit
+    """
+    from cliver.commands.provider import _parse_rate_limit
+
+    providers = cliver.config_manager.list_providers()
+    if provider_name not in providers:
+        cliver.output(f"Provider '{provider_name}' not found.")
+        available = ", ".join(providers.keys()) if providers else "(none)"
+        cliver.output(f"Available providers: {available}")
+        return
+
+    if limit is None:
+        prov = providers[provider_name]
+        if prov.rate_limit:
+            cliver.output(
+                f"Rate limit for '{provider_name}': "
+                f"{prov.rate_limit.requests}/{prov.rate_limit.period} "
+                f"(margin: {prov.rate_limit.margin:.0%})"
+            )
+        else:
+            cliver.output(f"No rate limit set for '{provider_name}'.")
+        return
+
+    rl = _parse_rate_limit(limit)
+    if cliver.config_manager.set_provider_rate_limit(provider_name, rl):
+        cliver.output(f"Rate limit for '{provider_name}' set to {rl.requests}/{rl.period}.")
+    else:
+        cliver.output(f"Failed to update rate limit for '{provider_name}'.")
 
 
 # noinspection PyUnresolvedReferences

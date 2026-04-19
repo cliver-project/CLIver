@@ -288,6 +288,7 @@ class Cliver:
             on_permission_prompt=_create_permission_prompt(self.console, self),
             enabled_toolsets=self.config_manager.config.enabled_toolsets,
         )
+        self.task_executor.configure_rate_limits(self.config_manager.config.providers)
 
     def switch_agent(self, agent_name: str) -> None:
         """Switch to a different agent, updating all scoped resources."""

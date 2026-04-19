@@ -196,6 +196,10 @@ MODEL_CAPABILITIES = {
         ModelCapability.JSON_MODE,
         ModelCapability.THINK_MODE,
     },
+    # MiniMax image generation
+    "image-01*": {
+        ModelCapability.TEXT_TO_IMAGE,
+    },
     # Claude models (Anthropic)
     "claude-opus*": {
         ModelCapability.TEXT_TO_TEXT,

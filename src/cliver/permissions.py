@@ -118,6 +118,8 @@ TOOL_META_REGISTRY: Dict[str, ToolMeta] = {
     "Browser": ToolMeta(ActionKind.EXECUTE, ResourceType.NONE),
     # Audio tools
     "Transcribe": ToolMeta(ActionKind.READ, ResourceType.PATH, "file_path"),
+    # Image generation tools
+    "ImageGenerate": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
 }
 
 

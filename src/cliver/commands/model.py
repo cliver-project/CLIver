@@ -3,7 +3,7 @@ from rich import box
 from rich.table import Table
 
 from cliver.cli import Cliver, pass_cliver
-from cliver.model_capabilities import ModelCapability, ProviderEnum
+from cliver.model_capabilities import ModelCapability
 from cliver.util import parse_key_value_options
 
 
@@ -151,9 +151,9 @@ def remove_llm_model(cliver: Cliver, name: str):
 @click.option(
     "--provider",
     "-p",
-    type=click.Choice([p.value for p in ProviderEnum]),
+    type=str,
     required=True,
-    help="The provider of the LLM Model",
+    help="The provider of the LLM Model (provider name or type: ollama, openai, anthropic, vllm)",
 )
 @click.option(
     "--api-key",
@@ -165,7 +165,7 @@ def remove_llm_model(cliver: Cliver, name: str):
     "--url",
     "-u",
     type=str,
-    required=True,
+    required=False,
     help="The url of the LLM Provider service",
 )
 @click.option(
@@ -226,8 +226,8 @@ def add_llm_model(
 @click.option(
     "--provider",
     "-p",
-    type=click.Choice([p.value for p in ProviderEnum]),
-    help="The provider of the LLM Model",
+    type=str,
+    help="The provider of the LLM Model (provider name or type: ollama, openai, anthropic, vllm)",
 )
 @click.option(
     "--api-key",

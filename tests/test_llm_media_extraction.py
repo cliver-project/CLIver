@@ -27,6 +27,7 @@ class TestLLMMediaExtraction:
         config.url = "https://api.openai.com/v1"
         config.api_key = "test-key"
         config.get_api_key = Mock(return_value="test-key")
+        config.get_resolved_url = Mock(return_value="https://api.openai.com/v1")
         config.options = None
 
         # Mock capabilities
@@ -49,6 +50,7 @@ class TestLLMMediaExtraction:
         config.provider = "ollama"
         config.name_in_provider = "llava"
         config.url = "http://localhost:11434"
+        config.get_resolved_url = Mock(return_value="http://localhost:11434")
         config.options = None  # Add the missing options attribute
         config.model_dump = Mock(return_value={})
 

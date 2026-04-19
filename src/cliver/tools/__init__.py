@@ -8,6 +8,7 @@ from cliver.tools.browser_action import browser_action  # noqa: F401
 from cliver.tools.docker_run import docker_run  # noqa: F401
 from cliver.tools.execute_code import execute_code  # noqa: F401
 from cliver.tools.grep_search import grep_search  # noqa: F401
+from cliver.tools.image_generate import image_generate  # noqa: F401
 from cliver.tools.list_directory import list_directory  # noqa: F401
 from cliver.tools.memory import identity_update, memory_read, memory_write  # noqa: F401
 from cliver.tools.parallel_tasks import parallel_tasks  # noqa: F401
