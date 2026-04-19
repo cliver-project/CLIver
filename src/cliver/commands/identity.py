@@ -43,7 +43,20 @@ def chat_identity(cliver: Cliver):
 
     # Route through the chat command so it goes through the normal
     # AgentCore flow (with tools, memory, session recording, etc.)
-    cliver.call_cmd(f'chat "{prompt}"')
+    from cliver.cli import cliver_cli
+
+    try:
+        cliver_cli(
+            args=["chat", prompt],
+            prog_name="cliver",
+            standalone_mode=False,
+            obj=cliver,
+        )
+    except click.UsageError as e:
+        if e.ctx:
+            cliver.output(e.ctx.get_help())
+        else:
+            cliver.output(str(e))
 
 
 @identity.command(name="clear", help="Clear the identity profile")

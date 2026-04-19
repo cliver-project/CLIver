@@ -4,12 +4,9 @@ Cliver CLI Module
 The main entrance of the cliver application
 """
 
-import asyncio
-import concurrent.futures
 import shutil
 import sys
 from pathlib import Path
-from shlex import split as shell_split
 from typing import Any, Dict
 
 import click
@@ -32,7 +29,6 @@ from cliver.agent_profile import AgentProfile
 from cliver.cli_tool_progress import ThinkingIndicator, create_tool_progress_handler
 from cliver.cli_ui import print_banner
 from cliver.config import ConfigManager
-from cliver.constants import CMD_CHAT
 from cliver.llm import AgentCore
 from cliver.permissions import PermissionManager
 from cliver.util import get_config_dir, read_piped_input, stdin_is_piped
@@ -410,78 +406,6 @@ class Cliver:
             ]
         )
 
-    # ─── Command Processing ──────────────────────────────────────────────────
-
-    def _preprocess_line(self, line: str) -> str | None:
-        """Preprocess input line: handle slash commands, validation, routing."""
-        if line.lower() in ("exit", "quit", "/exit", "/quit"):
-            return None  # signal to exit
-
-        if line.startswith("/"):
-            if len(line) == 1:
-                return None
-            cmd = line[1:]
-            if cmd.lower().startswith("help"):
-                args = cmd[4:].strip()
-                return f"help {args}".strip() if args else "help"
-            else:
-                cmd_parts = cmd.split()
-                cmd_name = cmd_parts[0] if cmd_parts else ""
-                # skill:xxx is handled in call_cmd
-                if ":" in cmd_name:
-                    return cmd
-                if cmd_name not in self._get_commands():
-                    self.console.print(f"[yellow]Unknown command: /{cmd_name}[/yellow]")
-                    return None
-                # Convert `/cmd --help` to `help cmd`
-                if "--help" in cmd_parts:
-                    cmd_parts.remove("--help")
-                    return f"help {' '.join(cmd_parts)}"
-                return cmd
-        elif not line.lower().startswith(f"{CMD_CHAT} "):
-            return f"{CMD_CHAT} {line}"
-
-        return line
-
-    def call_cmd(self, line: str):
-        """Call a command with the given name and arguments."""
-        # Handle skill:name — extract name and pass message as a single arg
-        # to avoid shell_split breaking multiline content
-        first_token = line.split(None, 1)[0] if line.strip() else ""
-        if first_token.lower().startswith("skill:"):
-            skill_name = first_token.split(":", 1)[1]
-            if skill_name:
-                rest = line[len(first_token) :].strip()
-                parts = ["skill", skill_name]
-                if rest:
-                    parts.append(rest)
-                try:
-                    cliver_cli(args=parts, prog_name="cliver", standalone_mode=False, obj=self)
-                except click.UsageError as e:
-                    if e.ctx:
-                        self.output(e.ctx.get_help())
-                    else:
-                        self.output(str(e))
-                return
-
-        try:
-            parts = shell_split(line)
-        except ValueError:
-            parts = line.split()
-        if not parts or len(parts) == 0:
-            return
-        if parts[0].lower() == "chat" and len(parts) <= 1:
-            return
-
-        try:
-            cliver_cli(args=parts, prog_name="cliver", standalone_mode=False, obj=self)
-        except click.UsageError as e:
-            # Show help normally instead of red error text
-            if e.ctx:
-                self.output(e.ctx.get_help())
-            else:
-                self.output(str(e))
-
     def cleanup(self):
         """Clean up resources."""
         self.session_options = {}
@@ -499,7 +423,19 @@ class Cliver:
                 self.console.print("[bold yellow]No data received from stdin.[/bold yellow]")
             else:
                 if user_data.lower() not in ("exit", "quit"):
-                    self.call_cmd(user_data)
+                    # Route piped input as a chat command through Click
+                    try:
+                        cliver_cli(
+                            args=["chat", user_data],
+                            prog_name="cliver",
+                            standalone_mode=False,
+                            obj=self,
+                        )
+                    except click.UsageError as e:
+                        if e.ctx:
+                            self.output(e.ctx.get_help())
+                        else:
+                            self.output(str(e))
         else:
             self._run_tui()
 
@@ -534,7 +470,52 @@ class Cliver:
         history = FileHistory(str(self.history_path))
         completer = ClickCompleter(self._group) if hasattr(self, "_group") else None
 
-        _current_task = {"task": None}
+        from cliver.command_dispatcher import CommandDispatcher
+        from cliver.commands.handlers import (
+            handle_agent,
+            handle_capabilities,
+            handle_config,
+            handle_cost,
+            handle_help,
+            handle_identity,
+            handle_mcp,
+            handle_model,
+            handle_permissions,
+            handle_provider,
+            handle_session,
+            handle_skill,
+            handle_skills,
+            handle_task,
+            handle_workflow,
+        )
+
+        dispatcher = CommandDispatcher(self)
+        dispatcher.register("help", handle_help)
+        dispatcher.register("model", handle_model)
+        dispatcher.register("session", handle_session)
+        dispatcher.register("config", handle_config)
+        dispatcher.register("permissions", handle_permissions)
+        dispatcher.register("skill", handle_skill)
+        dispatcher.register("identity", handle_identity)
+        dispatcher.register("mcp", handle_mcp)
+        dispatcher.register("agent", handle_agent)
+        dispatcher.register("cost", handle_cost)
+        dispatcher.register("capabilities", handle_capabilities)
+        dispatcher.register("provider", handle_provider)
+        dispatcher.register("task", handle_task)
+        dispatcher.register("workflow", handle_workflow)
+        dispatcher.register("skills", handle_skills)
+
+        async def chat_runner(text: str):
+            from cliver.commands.chat_handler import ChatOptions, async_run_chat
+
+            opts = ChatOptions(
+                text=text,
+                on_pending_input=dispatcher.drain_pending,
+            )
+            await async_run_chat(self, opts)
+
+        dispatcher.set_chat_runner(chat_runner)
 
         def on_accept(buff):
             line = buff.text.strip()
@@ -542,7 +523,7 @@ class Cliver:
             if not line:
                 return
 
-            # Handle choice-based dialog response (permission prompt, etc.)
+            # Handle permission/user input prompts (unchanged)
             if self._permission_pending is not None:
                 choices = self._dialog_choices or []
                 for choice in choices:
@@ -554,12 +535,10 @@ class Cliver:
                     valid = ", ".join(c.key for c in choices)
                     self.output(f"  [yellow]Invalid choice: '{line}'. Use {valid}[/yellow]")
                     return
-                # No choices defined — treat as free text (shouldn't happen)
                 self._permission_response = line
                 self._permission_pending.set()
                 return
 
-            # Handle free-form user input (ask_user_question tool)
             if self._user_input_pending is not None:
                 self._user_input_response = line
                 self._user_input_pending.set()
@@ -567,30 +546,14 @@ class Cliver:
 
             if line:
                 history.append_string(line)
-            processed = self._preprocess_line(line)
-            if processed is None:
-                if line.lower() in ("exit", "quit", "/exit", "/quit"):
-                    # Cancel any running task before exiting
-                    if _current_task["task"] and not _current_task["task"].done():
-                        _current_task["task"].cancel()
-                        self._cancel_requested = True
-                    app.exit()
-                return
-            # Echo the user's input in a distinct style
-            self.output(f"\n[bold green]❯[/bold green] [bold]{line}[/bold]")
-            self._cancel_requested = False
-            _current_task["task"] = app.create_background_task(_run_command(processed))
 
-        async def _run_command(line):
-            loop = asyncio.get_event_loop()
-            try:
-                await loop.run_in_executor(None, lambda: self.call_cmd(line))
-            except (SystemExit, asyncio.CancelledError):
-                pass
-            except Exception as e:
-                self.console.print(f"[red]Error: {e}[/red]")
-            finally:
-                _current_task["task"] = None
+            async def _dispatch():
+                result = await dispatcher.dispatch(line)
+                if result == "exit":
+                    app.exit()
+
+            self._cancel_requested = False
+            app.create_background_task(_dispatch())
 
         input_buffer = Buffer(
             accept_handler=on_accept,
@@ -607,23 +570,19 @@ class Cliver:
         @kb.add("c-c")
         def _ctrl_c(event):
             """Ctrl+C cancels running task, pending prompts, or exits if idle."""
-            # Unblock any pending permission or user input prompts
             if self._permission_pending is not None:
                 self._permission_response = "deny"
                 self._permission_pending.set()
-                self.console.print("\n[yellow]Cancelled.[/yellow]")
                 return
             if self._user_input_pending is not None:
                 self._user_input_response = ""
                 self._user_input_pending.set()
-                self.console.print("\n[yellow]Cancelled.[/yellow]")
                 return
-            if _current_task["task"] and not _current_task["task"].done():
-                _current_task["task"].cancel()
+            if dispatcher.is_chat_active:
+                dispatcher._active_chat_task.cancel()
                 self._cancel_requested = True
-                self.console.print("\n[yellow]Cancelled.[/yellow]")
-            else:
-                event.app.exit()
+                return
+            event.app.exit()
 
         @kb.add("c-g")
         def _open_editor(event):
@@ -747,31 +706,18 @@ class Cliver:
         )
         self._app = app
 
-        # Use daemon threads so lingering executor work doesn't block exit
-        _executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=4,
-            thread_name_prefix="cliver-bg",
-        )
-
         with patch_stdout(raw=True):
-            # Wrap patched stdout with indenter for left margin on ALL output
             _patched = sys.stdout
             sys.stdout = _IndentedStdout(_patched)
-            # Re-create console to pick up indented stdout.
-            # Subtract indent width so Rich tables/panels fit within the visible area.
             indent_cols = len(_IndentedStdout.INDENT)
             effective_width = shutil.get_terminal_size().columns - indent_cols
             self.console = Console(file=sys.stdout, width=effective_width)
             try:
-                loop = asyncio.get_event_loop_policy().get_event_loop()
-                loop.set_default_executor(_executor)
                 app.run()
             finally:
-                _executor.shutdown(wait=False, cancel_futures=True)
                 sys.stdout = _patched
                 self.console = Console()
 
-        # Clean up
         self.cleanup()
 
 
