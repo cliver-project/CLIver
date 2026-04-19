@@ -265,6 +265,145 @@ def _sync_call(
     return LLMCallResult(success=True, text=text, response=response)
 
 
+async def async_stream_call(
+    task_executor: "AgentCore",
+    opts: LLMCallOptions,
+    thinking,
+    console,
+) -> LLMCallResult:
+    """Execute a streaming LLM call (async version).
+
+    This is the async version of _stream_call. It uses async for directly
+    instead of wrapping in asyncio.run().
+    """
+    from cliver.media_handler import MultimediaResponseHandler
+
+    response_handler = MultimediaResponseHandler(opts.media_dir)
+
+    first_token_emitted = False
+
+    def on_first_token():
+        nonlocal first_token_emitted
+        if thinking:
+            thinking.stop()
+        if not first_token_emitted:
+            first_token_emitted = True
+            console.print("[dim]─" * 50 + "[/dim]")
+
+    try:
+        accumulated_chunk = None
+
+        async for chunk in task_executor.stream_user_input(
+            user_input=opts.user_input,
+            images=opts.images or None,
+            audio_files=opts.audio_files or None,
+            video_files=opts.video_files or None,
+            files=opts.files or None,
+            model=opts.model,
+            template=opts.template,
+            params=opts.params,
+            options=opts.options,
+            filter_tools=opts.tools_filter,
+            system_message_appender=opts.system_message_appender,
+            conversation_history=opts.conversation_history,
+            timeout_s=opts.timeout_s,
+            auto_fallback=opts.auto_fallback,
+            on_pending_input=opts.on_pending_input,
+        ):
+            if accumulated_chunk is None:
+                accumulated_chunk = chunk
+            else:
+                accumulated_chunk = accumulated_chunk + chunk
+
+            if hasattr(chunk, "content") and chunk.content:
+                on_first_token()
+                print(str(chunk.content), end="")
+
+        # Final flush
+        print(flush=True)
+
+        text = ""
+        if accumulated_chunk:
+            llm_engine = task_executor.get_llm_engine(opts.model)
+            multimedia_response = response_handler.process_response(
+                accumulated_chunk, llm_engine=llm_engine, auto_save_media=opts.save_media
+            )
+
+            if multimedia_response.has_media():
+                console.print()
+                media_count = len(multimedia_response.media_content)
+                console.print(f"\n\\[Media Content: {media_count} items]")
+                for i, media in enumerate(multimedia_response.media_content):
+                    info = f"  {i + 1}. {media.type.value}"
+                    if media.filename:
+                        info += f" ({media.filename})"
+                    if media.mime_type:
+                        info += f" \\[{media.mime_type}]"
+                    console.print(info)
+
+            if hasattr(accumulated_chunk, "content") and accumulated_chunk.content:
+                text = str(accumulated_chunk.content)
+
+        console.print()  # trailing newline
+        return LLMCallResult(success=True, text=text, response=accumulated_chunk)
+
+    except ValueError as e:
+        if "File upload is not supported" in str(e):
+            console.print(f"[red]Error: {e}[/red]")
+            console.print("Will use content embedding as fallback.")
+        else:
+            raise
+        return LLMCallResult(success=False, error=str(e))
+
+
+async def async_llm_call(cliver: "Cliver", opts: LLMCallOptions) -> LLMCallResult:
+    """Execute an LLM call with full CLI presentation (async version).
+
+    This is the async version of llm_call. It calls async_stream_call instead of _stream_call.
+
+    Args:
+        cliver: The Cliver CLI instance (provides console, thinking, token_tracker).
+        opts: LLM call options.
+
+    Returns:
+        LLMCallResult with the response text and metadata.
+    """
+    task_executor = cliver.task_executor
+    console = cliver.console
+    thinking = getattr(cliver, "thinking", None)
+
+    # Start spinner
+    if thinking:
+        thinking.start(opts.model or "")
+
+    try:
+        if opts.stream:
+            result = await async_stream_call(task_executor, opts, thinking, console)
+        else:
+            result = _sync_call(task_executor, opts, thinking, console)
+    except TaskTimeoutError:
+        if thinking:
+            thinking.stop()
+        raise  # Let the caller (chat command) handle timeout
+    except Exception as e:
+        if thinking:
+            thinking.stop()
+        cliver.output(f"[red]Error: {e}[/red]")
+        return LLMCallResult(success=False, error=str(e))
+    finally:
+        if thinking:
+            thinking.stop()
+
+    # Notify caller of response text
+    if result.success and result.text and opts.on_response:
+        opts.on_response(result.text)
+
+    # Display token usage
+    _show_token_usage(cliver)
+
+    return result
+
+
 def _show_token_usage(cliver: "Cliver") -> None:
     """Display token usage after a chat response using Rich formatting."""
     tracker = getattr(cliver, "token_tracker", None)
