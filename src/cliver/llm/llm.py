@@ -1788,7 +1788,6 @@ def _drain_pending_input(
         logger.info("Injected pending user input (%d chars)", len(pending))
 
 
-
 def _format_tool_result(tool_result) -> str:
     """Format tool result into a string for ToolMessage content.
 

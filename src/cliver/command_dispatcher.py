@@ -65,8 +65,7 @@ class CommandDispatcher:
     async def _handle_chat_input(self, text: str) -> None:
         if self._active_chat_task and not self._active_chat_task.done():
             self._pending_input.append(text)
-            logger.info("Appended pending input (%d chars), %d pending total",
-                        len(text), len(self._pending_input))
+            logger.info("Appended pending input (%d chars), %d pending total", len(text), len(self._pending_input))
             return
 
         if self._chat_runner is None:
