@@ -62,6 +62,7 @@ class LLMCallOptions:
     on_response: Optional[Callable[[str], None]] = None
     timeout_s: Optional[int] = None
     auto_fallback: bool = True
+    on_pending_input: Optional[Callable[[], Optional[str]]] = None
 
 
 def llm_call(cliver: "Cliver", opts: LLMCallOptions) -> LLMCallResult:
@@ -154,6 +155,7 @@ def _stream_call(
                 conversation_history=opts.conversation_history,
                 timeout_s=opts.timeout_s,
                 auto_fallback=opts.auto_fallback,
+                on_pending_input=opts.on_pending_input,
             ):
                 if accumulated_chunk is None:
                     accumulated_chunk = chunk
@@ -229,6 +231,7 @@ def _sync_call(
         conversation_history=opts.conversation_history,
         timeout_s=opts.timeout_s,
         auto_fallback=opts.auto_fallback,
+        on_pending_input=opts.on_pending_input,
     )
 
     # Stop spinner before printing response
