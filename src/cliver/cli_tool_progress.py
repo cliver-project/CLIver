@@ -6,11 +6,14 @@ It is ONLY used by the CLI layer — AgentCore and the API layer
 have no dependency on this module.
 """
 
+import logging
 import threading
 
 from rich.console import Console
 
 from cliver.tool_events import ToolEvent, ToolEventHandler, ToolEventType
+
+logger = logging.getLogger(__name__)
 
 # ─── Status Icons ─────────────────────────────────────────────────────────────
 
@@ -265,13 +268,8 @@ def create_tool_progress_handler(
                 thinking.start(event.tool_name)
 
         elif event.event_type == ToolEventType.MODEL_RETRY:
-            if thinking:
-                thinking.stop(blank_line=False)
-            model = f"[yellow]{event.tool_name}[/yellow]"
-            reason = f"[dim]{event.result}[/dim]" if event.result else ""
-            console.print(f"\n  {icon} Retrying {model}  {reason}\n")
-            if thinking:
-                thinking.start(event.tool_name)
+            reason = event.result or ""
+            logger.info("Retrying %s  %s", event.tool_name, reason)
 
         elif event.event_type == ToolEventType.MODEL_COMPRESS:
             if thinking:
@@ -282,13 +280,8 @@ def create_tool_progress_handler(
                 thinking.start(event.tool_name)
 
         elif event.event_type == ToolEventType.MODEL_RATE_LIMIT:
-            if thinking:
-                thinking.stop(blank_line=False)
-            model = f"[cyan]{event.tool_name}[/cyan]"
-            detail = f"[dim]{event.result}[/dim]" if event.result else ""
-            console.print(f"\n  {icon} Rate limit pacing {model}  {detail}\n")
-            if thinking:
-                thinking.start(event.tool_name)
+            detail = event.result or ""
+            logger.info("Rate limit pacing %s  %s", event.tool_name, detail)
 
     return handler
 

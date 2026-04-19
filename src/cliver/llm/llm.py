@@ -628,31 +628,32 @@ class AgentCore:
 
         llm_engine = self._select_llm_engine(model)
         logger.debug(f"Selected LLM engine: {type(llm_engine)}")
-        # Add system message to instruct the LLM about tool usage
-        system_message = llm_engine.system_message()
+        # Build a single system prompt with all sections
+        system_parts = [llm_engine.system_message()]
         if system_message_appender:
             system_message_extra = system_message_appender()
             if system_message_extra and len(system_message_extra) > 0:
-                system_message = f"{system_message}\n{system_message_extra}"
+                system_parts.append(system_message_extra)
 
-        # Create initial messages with system message
-        messages: list[BaseMessage] = [
-            SystemMessage(content=system_message),
-        ]
-        # Always apply the default enhancement function to get context from Cliver.md
+        # Merge context from CLAUDE.md / Cliver.md etc.
         default_enhanced_messages = await default_enhance_prompt(user_input, self.mcp_caller)
-        if default_enhanced_messages and len(default_enhanced_messages) > 0:
-            messages.extend(default_enhanced_messages)
+        for msg in default_enhanced_messages or []:
+            if isinstance(msg, SystemMessage) and isinstance(msg.content, str):
+                system_parts.append(msg.content)
 
-        # Inject agent identity and memory into the context
+        # Merge agent identity and memory
         if self.agent_profile:
             identity_content = self.agent_profile.load_identity()
             if identity_content:
-                messages.append(SystemMessage(content=f"# Identity Profile\n\n{identity_content}"))
+                system_parts.append(f"# Identity Profile\n\n{identity_content}")
 
             memory_content = self.agent_profile.load_memory()
             if memory_content:
-                messages.append(SystemMessage(content=f"# Agent Memory\n\n{memory_content}"))
+                system_parts.append(f"# Agent Memory\n\n{memory_content}")
+
+        messages: list[BaseMessage] = [
+            SystemMessage(content="\n\n".join(system_parts)),
+        ]
 
         llm_tools: List[BaseTool] = []
         # mcp_tools are langchain BaseTool coming from MCP server, the name follows 'mcp_server_name#tool_name'
@@ -1713,10 +1714,10 @@ _PLAN_CONTEXT_PREFIX = "[Plan Status]"
 
 
 def _inject_plan_context(messages: List[BaseMessage]) -> None:
-    """Inject current todo plan state into the message list.
+    """Inject current todo plan state into the first SystemMessage.
 
-    If a plan exists (via todo_write), appends a SystemMessage with the
-    current status so the LLM always knows where it is in its plan,
+    If a plan exists (via todo_write), appends the plan status to the
+    existing system message so the LLM always knows where it is in its plan,
     even if earlier todo_write results have scrolled out of attention.
 
     Also adds a completion hint when all tasks are done.
@@ -1727,24 +1728,27 @@ def _inject_plan_context(messages: List[BaseMessage]) -> None:
     if not todos:
         return
 
-    # Remove any previous plan-context message to avoid stacking
-    messages[:] = [m for m in messages if not _is_plan_context_message(m)]
-
     summary = format_todo_summary(todos)
-
-    # Check if all tasks are completed
     all_completed = all(item.get("status") == "completed" for item in todos)
     if all_completed:
         summary += "\n\nAll planned tasks are completed. Provide your final summary to the user."
 
+    plan_block = f"\n\n{_PLAN_CONTEXT_PREFIX}\n{summary}"
+
+    # Find the first SystemMessage and update it in-place
+    for msg in messages:
+        if isinstance(msg, SystemMessage) and isinstance(msg.content, str):
+            # Strip any previous plan block, then append fresh one
+            content = msg.content
+            plan_idx = content.find(f"\n\n{_PLAN_CONTEXT_PREFIX}")
+            if plan_idx != -1:
+                content = content[:plan_idx]
+            msg.content = content + plan_block
+            return
+
+    # Fallback: no SystemMessage found (shouldn't happen), append one
     messages.append(SystemMessage(content=f"{_PLAN_CONTEXT_PREFIX}\n{summary}"))
 
-
-def _is_plan_context_message(msg: BaseMessage) -> bool:
-    """Check if a message is a plan-context injection."""
-    return (
-        isinstance(msg, SystemMessage) and isinstance(msg.content, str) and msg.content.startswith(_PLAN_CONTEXT_PREFIX)
-    )
 
 
 def _format_tool_result(tool_result) -> str:

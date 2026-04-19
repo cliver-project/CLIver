@@ -3,7 +3,7 @@
 import pytest
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 
-from cliver.llm.llm import _PLAN_CONTEXT_PREFIX, _inject_plan_context, _is_plan_context_message
+from cliver.llm.llm import _PLAN_CONTEXT_PREFIX, _inject_plan_context
 from cliver.tools.todo_read import TodoReadTool
 from cliver.tools.todo_write import TodoWriteTool, format_todo_summary
 
@@ -97,11 +97,11 @@ class TestTodoRead:
 
 class TestInjectPlanContext:
     def test_no_injection_when_no_plan(self):
-        messages = [HumanMessage(content="hello")]
+        messages = [SystemMessage(content="system"), HumanMessage(content="hello")]
         _inject_plan_context(messages)
-        assert len(messages) == 1  # no plan context added
+        assert _PLAN_CONTEXT_PREFIX not in messages[0].content
 
-    def test_injects_plan_when_todos_exist(self):
+    def test_injects_plan_into_system_message(self):
         write_tool = TodoWriteTool()
         write_tool._run(
             todos=[
@@ -109,16 +109,15 @@ class TestInjectPlanContext:
             ]
         )
 
-        messages = [HumanMessage(content="hello")]
+        messages = [SystemMessage(content="You are helpful."), HumanMessage(content="hello")]
         _inject_plan_context(messages)
-        assert len(messages) == 2
-        plan_msg = messages[-1]
-        assert isinstance(plan_msg, SystemMessage)
-        assert _PLAN_CONTEXT_PREFIX in plan_msg.content
-        assert "Do thing" in plan_msg.content
+        assert len(messages) == 2  # no new message added
+        assert _PLAN_CONTEXT_PREFIX in messages[0].content
+        assert "Do thing" in messages[0].content
+        assert messages[0].content.startswith("You are helpful.")
 
     def test_replaces_stale_plan_context(self):
-        """Should not stack multiple plan context messages."""
+        """Should not stack multiple plan blocks in the system message."""
         write_tool = TodoWriteTool()
         write_tool._run(
             todos=[
@@ -126,9 +125,9 @@ class TestInjectPlanContext:
             ]
         )
 
-        messages = [HumanMessage(content="hello")]
+        messages = [SystemMessage(content="You are helpful."), HumanMessage(content="hello")]
         _inject_plan_context(messages)
-        assert len(messages) == 2
+        assert "First" in messages[0].content
 
         # Update the plan
         write_tool._run(
@@ -140,10 +139,9 @@ class TestInjectPlanContext:
 
         # Inject again — should replace, not stack
         _inject_plan_context(messages)
-        plan_messages = [m for m in messages if _is_plan_context_message(m)]
-        assert len(plan_messages) == 1
-        assert "Second" in plan_messages[0].content
-        assert "First" in plan_messages[0].content
+        assert messages[0].content.count(_PLAN_CONTEXT_PREFIX) == 1
+        assert "Second" in messages[0].content
+        assert "First" in messages[0].content
 
     def test_completion_hint_when_all_done(self):
         write_tool = TodoWriteTool()
@@ -153,11 +151,10 @@ class TestInjectPlanContext:
             ]
         )
 
-        messages = [HumanMessage(content="do it")]
+        messages = [SystemMessage(content="system"), HumanMessage(content="do it")]
         _inject_plan_context(messages)
-        plan_msg = messages[-1]
-        assert "All planned tasks are completed" in plan_msg.content
-        assert "final summary" in plan_msg.content
+        assert "All planned tasks are completed" in messages[0].content
+        assert "final summary" in messages[0].content
 
     def test_no_completion_hint_when_work_remains(self):
         write_tool = TodoWriteTool()
@@ -168,13 +165,12 @@ class TestInjectPlanContext:
             ]
         )
 
-        messages = [HumanMessage(content="do it")]
+        messages = [SystemMessage(content="system"), HumanMessage(content="do it")]
         _inject_plan_context(messages)
-        plan_msg = messages[-1]
-        assert "All planned tasks are completed" not in plan_msg.content
+        assert "All planned tasks are completed" not in messages[0].content
 
     def test_preserves_other_messages(self):
-        """Plan injection should not remove non-plan system messages."""
+        """Plan injection merges into system message, does not add new messages."""
         write_tool = TodoWriteTool()
         write_tool._run(
             todos=[
@@ -188,28 +184,24 @@ class TestInjectPlanContext:
             ToolMessage(content="result", tool_call_id="123"),
         ]
         _inject_plan_context(messages)
-        # Original 3 messages + 1 plan context
-        assert len(messages) == 4
-        assert messages[0].content == "You are a helpful agent."
+        assert len(messages) == 3  # no new message
+        assert messages[0].content.startswith("You are a helpful agent.")
+        assert _PLAN_CONTEXT_PREFIX in messages[0].content
 
+    def test_fallback_appends_when_no_system_message(self):
+        """If no SystemMessage exists, falls back to appending one."""
+        write_tool = TodoWriteTool()
+        write_tool._run(
+            todos=[
+                {"id": "1", "content": "Do thing", "status": "pending"},
+            ]
+        )
 
-# ---------------------------------------------------------------------------
-# _is_plan_context_message
-# ---------------------------------------------------------------------------
-
-
-class TestIsPlanContextMessage:
-    def test_identifies_plan_message(self):
-        msg = SystemMessage(content=f"{_PLAN_CONTEXT_PREFIX}\nSome plan")
-        assert _is_plan_context_message(msg) is True
-
-    def test_rejects_normal_system_message(self):
-        msg = SystemMessage(content="You are a helpful assistant.")
-        assert _is_plan_context_message(msg) is False
-
-    def test_rejects_human_message(self):
-        msg = HumanMessage(content=f"{_PLAN_CONTEXT_PREFIX}\nfake")
-        assert _is_plan_context_message(msg) is False
+        messages = [HumanMessage(content="hello")]
+        _inject_plan_context(messages)
+        assert len(messages) == 2
+        assert isinstance(messages[-1], SystemMessage)
+        assert "Do thing" in messages[-1].content
 
 
 # ---------------------------------------------------------------------------

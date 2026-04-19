@@ -5,6 +5,7 @@ The main entrance of the cliver application
 """
 
 import asyncio
+import concurrent.futures
 import shutil
 import sys
 from pathlib import Path
@@ -746,6 +747,12 @@ class Cliver:
         )
         self._app = app
 
+        # Use daemon threads so lingering executor work doesn't block exit
+        _executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=4,
+            thread_name_prefix="cliver-bg",
+        )
+
         with patch_stdout(raw=True):
             # Wrap patched stdout with indenter for left margin on ALL output
             _patched = sys.stdout
@@ -756,8 +763,11 @@ class Cliver:
             effective_width = shutil.get_terminal_size().columns - indent_cols
             self.console = Console(file=sys.stdout, width=effective_width)
             try:
+                loop = asyncio.get_event_loop_policy().get_event_loop()
+                loop.set_default_executor(_executor)
                 app.run()
             finally:
+                _executor.shutdown(wait=False, cancel_futures=True)
                 sys.stdout = _patched
                 self.console = Console()
 

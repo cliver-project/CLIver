@@ -177,7 +177,7 @@ class TestCompress:
 
         # Should have a summary message + recent turns
         assert len(result) > 0
-        assert isinstance(result[0], SystemMessage)
+        assert isinstance(result[0], HumanMessage)
         assert result[0].content.startswith(SUMMARY_PREFIX)
         # Recent turns should be HumanMessage/AIMessage
         assert any(isinstance(m, HumanMessage) for m in result[1:])
@@ -218,7 +218,7 @@ class TestCompress:
         # Should fall back to truncation — fewer messages than original
         assert len(result) < len(history)
         # First message should be truncation note
-        assert isinstance(result[0], SystemMessage)
+        assert isinstance(result[0], HumanMessage)
         assert "truncated" in result[0].content.lower()
 
     async def test_compress_calls_llm_with_older_turns(self):

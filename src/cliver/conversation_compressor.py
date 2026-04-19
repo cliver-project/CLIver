@@ -9,7 +9,7 @@ verbatim. Falls back to simple truncation if the compression LLM call fails.
 import logging
 from typing import List
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.messages.base import BaseMessage
 
 from cliver.config import ModelConfig
@@ -34,6 +34,8 @@ _CONTEXT_WINDOW_DEFAULTS = {
     "gemini": 1048576,
     "llama": 131072,
     "mistral": 131072,
+    "minimax": 1048576,
+    "glm": 131072,
 }
 
 COMPRESSION_PROMPT = """Summarize the following conversation concisely. Preserve:
@@ -85,7 +87,7 @@ def estimate_tokens_str(text: str) -> int:
 
 def _is_summary_message(msg: BaseMessage) -> bool:
     """Check if a message is a conversation summary."""
-    return isinstance(msg, SystemMessage) and isinstance(msg.content, str) and msg.content.startswith(SUMMARY_PREFIX)
+    return isinstance(msg, HumanMessage) and isinstance(msg.content, str) and msg.content.startswith(SUMMARY_PREFIX)
 
 
 def _format_turns_for_compression(messages: List[BaseMessage]) -> str:
@@ -192,7 +194,7 @@ class ConversationCompressor:
         # Try LLM-based compression
         try:
             summary = await self._generate_summary(older_turns, llm_engine)
-            summary_msg = SystemMessage(content=f"{SUMMARY_PREFIX}\n{summary}")
+            summary_msg = HumanMessage(content=f"{SUMMARY_PREFIX}\n{summary}")
             logger.info(
                 f"Compressed {len(older_turns)} messages into summary "
                 f"(~{estimate_tokens(older_turns)} → ~{estimate_tokens([summary_msg])} tokens)"
@@ -239,7 +241,7 @@ class ConversationCompressor:
 
         # Prepend a note about truncation
         if len(result) < len(conversation_history):
-            note = SystemMessage(content=f"{SUMMARY_PREFIX}\nEarlier conversation was truncated due to length.")
+            note = HumanMessage(content=f"{SUMMARY_PREFIX}\nEarlier conversation was truncated due to length.")
             result.insert(0, note)
 
         return result
