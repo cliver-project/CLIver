@@ -202,29 +202,6 @@ def show_config(cliver: Cliver):
                 )
             )
 
-        # ── Workflow ──
-        if cfg.workflow:
-            wf = cfg.workflow
-            wf_table = Table(box=None, show_header=False, padding=(0, 2))
-            wf_table.add_column("Key", style="dim", min_width=16)
-            wf_table.add_column("Value")
-
-            if wf.workflow_dirs:
-                wf_table.add_row("Workflow Dirs", "\n".join(wf.workflow_dirs))
-            if wf.cache_dir:
-                wf_table.add_row("Cache Dir", wf.cache_dir)
-
-            # Only show if there's content
-            if wf.workflow_dirs or wf.cache_dir:
-                console.print(
-                    Panel(
-                        wf_table,
-                        title="[bold blue]Workflow[/bold blue]",
-                        border_style="blue",
-                        padding=(0, 1),
-                    )
-                )
-
         # ── Config path footer ──
         config_path = cliver.config_manager.config_file
         console.print(Text(f"  Config file: {config_path}", style="dim"))
