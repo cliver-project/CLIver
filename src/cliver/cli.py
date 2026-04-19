@@ -575,8 +575,8 @@ class Cliver:
                         self._cancel_requested = True
                     app.exit()
                 return
-            # Echo the user's input to the output area
-            self.output(f"\n[bold green]❯[/bold green] {line}")
+            # Echo the user's input in a distinct style
+            self.output(f"\n[bold green]❯[/bold green] [bold]{line}[/bold]")
             self._cancel_requested = False
             _current_task["task"] = app.create_background_task(_run_command(processed))
 

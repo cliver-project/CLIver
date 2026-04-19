@@ -124,9 +124,15 @@ def _stream_call(
 
     response_handler = MultimediaResponseHandler(opts.media_dir)
 
+    first_token_emitted = False
+
     def on_first_token():
+        nonlocal first_token_emitted
         if thinking:
             thinking.stop()
+        if not first_token_emitted:
+            first_token_emitted = True
+            console.print("[dim]─" * 50 + "[/dim]")
 
     try:
         accumulated_chunk = None
@@ -228,6 +234,8 @@ def _sync_call(
     # Stop spinner before printing response
     if thinking:
         thinking.stop()
+
+    console.print("[dim]─" * 50 + "[/dim]")
 
     text = ""
     if response:
