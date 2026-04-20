@@ -1,0 +1,42 @@
+name: research_analysis
+description: Research a topic and provide analysis
+
+agents:
+  researcher:
+    model: deepseek-r1
+    system_message: "You are a thorough researcher. Provide detailed findings."
+  analyst:
+    model: qwen
+    system_message: "You are an analyst. Synthesize information clearly."
+
+inputs:
+  topic: "How AI will change human's life"
+
+outputs_dir: .cliver/workflow-runs/research_analysis
+
+steps:
+  - id: research_topic
+    name: Research Topic
+    type: llm
+    agent: researcher
+    prompt: "Research the topic: {{ inputs.topic }}"
+    outputs: [research]
+    output_format: md
+
+  - id: analyze_findings
+    name: Analyze Findings
+    type: llm
+    agent: analyst
+    prompt: "Analyze the research findings: {{ research_topic.outputs.research }}"
+    depends_on: [research_topic]
+    outputs: [analysis]
+    output_format: md
+
+  - id: generate_report
+    name: Generate Report
+    type: llm
+    agent: researcher
+    prompt: "Generate a final report based on: {{ analyze_findings.outputs.analysis }} for topic {{ inputs.topic }}"
+    depends_on: [analyze_findings]
+    outputs: [report]
+    output_format: md

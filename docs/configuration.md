@@ -30,23 +30,23 @@ The sample configuration file above demonstrates the key components of CLIver's 
 - **agent_name**: The display name of the AI agent (default: "CLIver")
 - **default_model**: The default LLM model to use when none is specified
 
+- **providers**: Defines LLM provider connections (see [Providers](#providers) below)
+    - `deepseek`: An OpenAI-compatible provider with API URL, key, and pricing
+    - `ollama`: A local Ollama provider
+
 - **models**: Defines the LLM models available to CLIver
-    - `deepseek-r1`: An example using the OpenAI provider with:
+    - `deepseek-r1`: References the `deepseek` provider with:
         - `name_in_provider`: The model name as known to the provider
-        - `provider`: The LLM provider type (openai, ollama, vllm)
-        - `api_key`: API key — supports Jinja2 template expressions for env vars or keyring
-        - `url`: Endpoint for the LLM service
-    - `llama3`: An example using the Ollama provider with:
+        - `provider`: Name of a configured provider
+    - `llama3`: References the `ollama` provider with:
         - `name_in_provider`: The model name as known to Ollama
-        - `provider`: Specifies the Ollama provider
-        - `api_key`: API key retrieved from system keyring using `{{ keyring('service', 'key') }}`
-        - `url`: Endpoint for the Ollama service
+        - `provider`: Name of a configured provider
+        - `pricing`: Optional model-level pricing override
 
 - **mcpServers**: Configures Model Context Protocol (MCP) servers that extend CLIver's capabilities
     - `time`: An example MCP server for time-related queries with:
         - `args`: Command-line arguments for the MCP server
         - `command`: The command to execute the MCP server
-        - `env`: Environment variables for the MCP server
         - `transport`: Communication method (stdio, sse, streamable_http, websocket)
 
 #### Template Support and Secrets Management
@@ -59,6 +59,53 @@ CLIver supports Jinja2 templating in configuration files for dynamic value resol
 
 This approach keeps sensitive information secure while allowing flexible configuration management.
 
+
+## Providers
+
+CLIver supports configuring LLM providers with `ProviderConfig`, which centralizes connection details, rate limiting, and pricing for all models under a given provider. Models can reference a provider by name instead of repeating `url` and `api_key`.
+
+```yaml
+providers:
+  deepseek:
+    type: openai
+    api_url: https://api.deepseek.com/v1
+    api_key: "{{ env.DEEPSEEK_API_KEY }}"
+    rate_limit:
+      requests: 500
+      period: 1h
+    pricing:
+      currency: CNY
+      input: 1.0
+      output: 4.0
+      cached_input: 0.25
+```
+
+### Provider Fields
+
+| Field | Description |
+|-------|-------------|
+| `type` | Provider type (`openai`, `ollama`, `vllm`) |
+| `api_url` | Base URL for the provider API |
+| `api_key` | API key (supports Jinja2 templates) |
+| `rate_limit.requests` | Maximum requests allowed per period |
+| `rate_limit.period` | Time window (e.g., `1m`, `1h`, `1d`) |
+| `pricing.currency` | Currency code (e.g., `USD`, `CNY`) |
+| `pricing.input` | Cost per 1M input tokens |
+| `pricing.output` | Cost per 1M output tokens |
+| `pricing.cached_input` | Cost per 1M cached input tokens |
+
+Models can also override pricing at the model level:
+
+```yaml
+models:
+  deepseek-r1:
+    name_in_provider: deepseek-reasoner
+    provider: deepseek
+    pricing:
+      currency: CNY
+      input: 2.0
+      output: 8.0
+```
 
 ## Configuration Validation
 

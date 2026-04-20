@@ -26,9 +26,10 @@ cliver chat
 - **Multi-provider LLM support** — OpenAI-compatible (Qwen, DeepSeek, etc.), Ollama, vLLM
 - **MCP integration** — Connect to any MCP server for extended tool capabilities
 - **Skills** — LLM-driven skill activation following the [Agent Skills](https://agentskills.io) specification
-- **Memory & Identity** — Persistent knowledge and agent profiles across sessions
+- **Memory & Identity** — Persistent knowledge and `CliverProfile` management across sessions
 - **Permissions** — Layered tool permission system (default, auto-edit, yolo modes)
-- **Workflows** — Multi-step workflow engine with pause/resume support
+- **Workflows** — LangGraph-powered multi-step workflow engine with subagent isolation and pause/resume support
+- **Cost Tracking** — Config-based pricing per provider and model (no hardcoded tables)
 - **Embeddable** — `AgentCore` API can be used as a Python library
 
 ## Documentation
