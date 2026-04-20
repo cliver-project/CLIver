@@ -247,6 +247,17 @@ class Cliver:
         """Centralized output method. All CLI display should go through this."""
         self.console.print(*args, **kwargs)
 
+    def echo_user_input(self, text: str) -> None:
+        """Echo user input with a distinct background block in the conversation output."""
+        import shutil as _shutil
+
+        tw = _shutil.get_terminal_size().columns
+        # Pad the line to full terminal width for a solid background block
+        prefix = " ❯ "
+        line = f"{prefix}{text}"
+        padded = line.ljust(tw)
+        self.console.print(f"\n[bold white on #2d2d44]{padded}[/bold white on #2d2d44]")
+
     def _init_agent(self, agent_name: str) -> None:
         """Initialize (or reinitialize) all agent-scoped components.
 
@@ -599,6 +610,34 @@ class Cliver:
             """Ctrl+G opens $EDITOR for extended input."""
             event.current_buffer.open_in_editor()
 
+        @kb.add("c-o")
+        def _expand_output(event):
+            """Ctrl+O expands the last truncated tool output in a pager."""
+            import subprocess
+            import tempfile
+
+            from cliver.cli_tool_progress import get_last_full_output
+
+            text, tool_name = get_last_full_output()
+            if not text:
+                self.output("[dim]No truncated output to expand.[/dim]")
+                return
+
+            header = f"── {tool_name} (full output) ──\n\n" if tool_name else ""
+            full = header + text
+
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
+                f.write(full)
+                tmp_path = f.name
+
+            try:
+                import os
+
+                pager = os.environ.get("PAGER", "less")
+                subprocess.run([pager, tmp_path])
+            finally:
+                os.unlink(tmp_path)
+
         _last_esc = {"t": 0.0}
 
         @kb.add("escape")
@@ -618,12 +657,13 @@ class Cliver:
             tw = shutil.get_terminal_size().columns
             label = " Cliver "
             line = "╭─" + label + "─" * max(0, tw - len(label) - 3) + "╮"
-            return FormattedText([("class:toolbar-border", line)])
+            return FormattedText([("class:input-border", line)])
 
         border_window = Window(
             content=FormattedTextControl(_input_top_border),
             height=1,
             dont_extend_height=True,
+            style="class:input-area",
         )
 
         from prompt_toolkit.layout.margins import Margin
@@ -633,14 +673,14 @@ class Cliver:
                 return 2
 
             def create_margin(self, window_render_info, width, height):
-                return [("class:toolbar-border", "│ \n")] * height
+                return [("class:input-border", "│ \n")] * height
 
         class RightBorderMargin(Margin):
             def get_width(self, get_ui_content):
                 return 2
 
             def create_margin(self, window_render_info, width, height):
-                return [("class:toolbar-border", " │\n")] * height
+                return [("class:input-border", " │\n")] * height
 
         def _get_prompt():
             if self._permission_pending is not None:
@@ -658,6 +698,7 @@ class Cliver:
             dont_extend_height=True,
             left_margins=[LeftBorderMargin()],
             right_margins=[RightBorderMargin()],
+            style="class:input-area",
         )
 
         toolbar_window = Window(
@@ -697,6 +738,8 @@ class Cliver:
 
         style = Style.from_dict(
             {
+                "input-area": "bg:#1a1a2e",
+                "input-border": "#555555 bg:#1a1a2e",
                 "prompt": "ansigreen bold",
                 "toolbar-border": "#555555",
                 "toolbar-cwd": "#aaaaaa",

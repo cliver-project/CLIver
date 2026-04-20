@@ -58,7 +58,7 @@ class CommandDispatcher:
             return None
 
         # Plain text → chat
-        self._cliver.output(f"\n[bold green]❯[/bold green] [bold]{stripped}[/bold]")
+        self._cliver.echo_user_input(stripped)
         await self._handle_chat_input(stripped)
         return None
 
@@ -79,7 +79,7 @@ class CommandDispatcher:
             await self._chat_runner(initial_text)
             while self._pending_input:
                 next_text = self._pending_input.pop(0)
-                self._cliver.output(f"\n[bold green]❯[/bold green] [bold]{next_text}[/bold]")
+                self._cliver.echo_user_input(next_text)
                 await self._chat_runner(next_text)
         except asyncio.CancelledError:
             logger.info("Chat task cancelled")

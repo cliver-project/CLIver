@@ -138,10 +138,13 @@ def _show_per_agent(cliver: Cliver, results: dict, model: str) -> None:
 
 def _print_usage_line(cliver: Cliver, label: str, usage: TokenUsage) -> None:
     """Print a formatted usage line."""
+    cache_part = ""
+    if usage.cached_tokens > 0:
+        cache_part = f"  [green]cached: {format_tokens(usage.cached_tokens):>7s}[/green]"
     cliver.output(
         f"  {label:20s}  in: {format_tokens(usage.input_tokens):>7s}  "
         f"out: {format_tokens(usage.output_tokens):>7s}  "
-        f"total: {format_tokens(usage.total_tokens):>7s}"
+        f"total: {format_tokens(usage.total_tokens):>7s}{cache_part}"
     )
 
 

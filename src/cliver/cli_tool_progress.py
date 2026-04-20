@@ -15,6 +15,16 @@ from cliver.tool_events import ToolEvent, ToolEventHandler, ToolEventType
 
 logger = logging.getLogger(__name__)
 
+# ─── Last Output Buffer (for Ctrl+O expand) ──────────────────────────────────
+
+_last_full_output: dict = {"text": "", "tool": ""}
+
+
+def get_last_full_output() -> tuple[str, str]:
+    """Return (text, tool_name) of the last truncated tool output."""
+    return _last_full_output["text"], _last_full_output["tool"]
+
+
 # ─── Status Icons ─────────────────────────────────────────────────────────────
 
 _STATUS_ICONS = {
@@ -230,7 +240,7 @@ def create_tool_progress_handler(
 
             # Show tool result preview
             if event.result and event.result not in ("denied", "(no output)"):
-                _render_tool_result(console, event.result)
+                _render_tool_result(console, event.result, event.tool_name)
 
             state["in_block"] = False
 
@@ -292,7 +302,7 @@ _MAX_RESULT_LINES = 15
 _MAX_LINE_WIDTH = 120
 
 
-def _render_tool_result(console: Console, result: str) -> None:
+def _render_tool_result(console: Console, result: str, tool_name: str = "") -> None:
     """Render a compact preview of the tool result output."""
     lines = result.splitlines()
     total = len(lines)
@@ -304,11 +314,18 @@ def _render_tool_result(console: Console, result: str) -> None:
             line = line[:_MAX_LINE_WIDTH] + "…"
         display_lines.append(line)
 
+    was_truncated = total > _MAX_RESULT_LINES or any(len(ln) > _MAX_LINE_WIDTH for ln in lines)
+
     body = "\n".join(display_lines)
     if total > _MAX_RESULT_LINES:
-        body += f"\n[dim]… ({total - _MAX_RESULT_LINES} more lines)[/dim]"
+        body += f"\n[dim]… ({total - _MAX_RESULT_LINES} more lines, Ctrl+O to expand)[/dim]"
 
     console.print(f"      [dim]{body}[/dim]")
+
+    # Store full output for Ctrl+O expansion
+    if was_truncated:
+        _last_full_output["text"] = result
+        _last_full_output["tool"] = tool_name
 
 
 # ─── Plan Progress Display ────────────────────────────────────────────────────

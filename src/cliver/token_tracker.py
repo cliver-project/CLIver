@@ -224,6 +224,7 @@ class TokenTracker:
             results[rec_model][rec_agent] += TokenUsage(
                 input_tokens=record.get("in", 0),
                 output_tokens=record.get("out", 0),
+                cached_tokens=record.get("cached", 0),
             )
 
         return results
