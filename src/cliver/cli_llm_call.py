@@ -357,50 +357,16 @@ async def async_stream_call(
 
 
 async def async_llm_call(cliver: "Cliver", opts: LLMCallOptions) -> LLMCallResult:
-    """Execute an LLM call with full CLI presentation (async version).
+    """Execute an LLM call from the async TUI event loop.
 
-    This is the async version of llm_call. It calls async_stream_call instead of _stream_call.
-
-    Args:
-        cliver: The Cliver CLI instance (provides console, thinking, token_tracker).
-        opts: LLM call options.
-
-    Returns:
-        LLMCallResult with the response text and metadata.
+    Runs the synchronous llm_call in an executor thread so that blocking
+    operations (permission prompts, user input dialogs) don't deadlock
+    the TUI event loop.
     """
-    task_executor = cliver.task_executor
-    console = cliver.console
-    thinking = getattr(cliver, "thinking", None)
+    import asyncio
 
-    # Start spinner
-    if thinking:
-        thinking.start(opts.model or "")
-
-    try:
-        if opts.stream:
-            result = await async_stream_call(task_executor, opts, thinking, console)
-        else:
-            result = _sync_call(task_executor, opts, thinking, console)
-    except TaskTimeoutError:
-        if thinking:
-            thinking.stop()
-        raise  # Let the caller (chat command) handle timeout
-    except Exception as e:
-        if thinking:
-            thinking.stop()
-        cliver.output(f"[red]Error: {e}[/red]")
-        return LLMCallResult(success=False, error=str(e))
-    finally:
-        if thinking:
-            thinking.stop()
-
-    # Notify caller of response text
-    if result.success and result.text and opts.on_response:
-        opts.on_response(result.text)
-
-    # Display token usage
-    _show_token_usage(cliver)
-
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, lambda: llm_call(cliver, opts))
     return result
 
 
