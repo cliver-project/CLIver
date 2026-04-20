@@ -410,7 +410,7 @@ def _show_token_usage(cliver: "Cliver") -> None:
     if not tracker or not tracker.last_usage:
         return
 
-    from cliver.cost_tracker import CostTracker, format_cost
+    from cliver.cost_tracker import format_cost
     from cliver.token_tracker import format_tokens
 
     last = tracker.last_usage
@@ -425,8 +425,7 @@ def _show_token_usage(cliver: "Cliver") -> None:
     cost_info = ""
     cost_tracker = getattr(cliver, "cost_tracker", None)
     if cost_tracker is None:
-        cost_tracker = CostTracker()
-        cliver.cost_tracker = cost_tracker
+        return
 
     estimate = cost_tracker.estimate_cost(model, last.input_tokens, last.output_tokens, last.cached_tokens)
     if estimate.total_cost > 0:

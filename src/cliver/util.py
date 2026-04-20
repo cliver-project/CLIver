@@ -223,39 +223,52 @@ def _confirm_tool_execution(prompt="Are you sure? (y/n): ") -> bool:
             return False
 
 
-# Context files to auto-discover, in priority order
+# Primary context file; falls back to CLAUDE.md if Cliver.md is absent.
 _DEFAULT_CONTEXT_FILES = [
     "Cliver.md",
     "CLAUDE.md",
-    "AGENTS.md",
-    ".cursorrules",
-    "README.md",
 ]
 
+MAX_CONTEXT_FILE_CHARS = 4000
 
-def read_context_files(base_path: str = ".", file_filter: list[str] = None) -> str:
+
+def _truncate(text: str, max_chars: int) -> str:
+    if len(text) > max_chars:
+        return text[:max_chars] + "\n...(truncated)"
+    return text
+
+
+def read_context_files(
+    base_path: str = ".",
+    file_filter: list[str] = None,
+    max_chars: int = MAX_CONTEXT_FILE_CHARS,
+) -> str:
     """
-    Read context from markdown/config files if they exist.
+    Read context from context files found in the project tree.
 
-    Scans the given directory and parent directories up to the git root
-    for context files. Each file is included only once (closest wins).
+    Default behaviour (no *file_filter*): reads only the **first** file
+    found from ``[Cliver.md, CLAUDE.md]`` — Cliver.md is preferred,
+    CLAUDE.md serves as fallback.  This keeps the system prompt lean.
+
+    When *file_filter* is provided explicitly, **all** matching files are
+    included (backwards-compatible with callers that pass a custom list).
+
+    Each file is truncated to *max_chars* to avoid bloating the system
+    prompt.
 
     Args:
         base_path: The base path to start looking (default: current directory)
-        file_filter: List of filenames to look for (default: common context files)
-
-    Returns:
-        A string containing the context from the files, or empty string if none found
+        file_filter: List of filenames to look for
+        max_chars: Maximum characters per file (default: 4000, ~1000 tokens)
     """
     import os
 
-    context_files = file_filter if file_filter is not None else _DEFAULT_CONTEXT_FILES
-
-    # Collect directories to scan: base_path + parents up to git root
+    use_defaults = file_filter is None
+    context_files = _DEFAULT_CONTEXT_FILES if use_defaults else file_filter
     dirs_to_scan = _collect_context_dirs(base_path)
 
     context = ""
-    seen_files: set = set()  # track which filenames we've already loaded
+    seen_files: set = set()
 
     for dir_path in dirs_to_scan:
         for filename in context_files:
@@ -266,9 +279,13 @@ def read_context_files(base_path: str = ".", file_filter: list[str] = None) -> s
                 try:
                     with open(file_path, "r", encoding="utf-8") as f:
                         content = f.read()
-                        if content.strip():
-                            context += f"\n# Content from {filename}:\n{content}\n"
-                            seen_files.add(filename)
+                        if not content.strip():
+                            continue
+                        content = _truncate(content, max_chars)
+                        context += f"\n# Content from {filename}:\n{content}\n"
+                        seen_files.add(filename)
+                        if use_defaults:
+                            return context.strip()
                 except Exception as e:
                     logging.warning(f"Could not read {filename}: {e}")
 

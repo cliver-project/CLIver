@@ -22,33 +22,6 @@ _CURRENCY_SYMBOLS = {
     "JPY": "¥",
 }
 
-# Pricing per million tokens: (input, output, cached_input, currency)
-# Sources: provider pricing pages as of 2026-04
-_MODEL_PRICING: Dict[str, tuple] = {
-    # OpenAI (USD)
-    "gpt-4o": (2.50, 10.00, 1.25, "USD"),
-    "gpt-4o-mini": (0.15, 0.60, 0.075, "USD"),
-    "gpt-4.1": (2.00, 8.00, 0.50, "USD"),
-    "gpt-4.1-mini": (0.40, 1.60, 0.10, "USD"),
-    "gpt-4.1-nano": (0.10, 0.40, 0.025, "USD"),
-    "o3": (10.00, 40.00, 2.50, "USD"),
-    "o4-mini": (1.10, 4.40, 0.275, "USD"),
-    # DeepSeek (CNY)
-    "deepseek-chat": (1.00, 4.00, 0.25, "CNY"),
-    "deepseek-reasoner": (2.00, 8.00, 0.50, "CNY"),
-    # Qwen / DashScope (CNY)
-    "qwen-plus": (0.80, 2.00, 0.20, "CNY"),
-    "qwen-max": (2.00, 6.00, 0.50, "CNY"),
-    "qwen-turbo": (0.30, 0.60, 0.075, "CNY"),
-    "qwen3-coder": (0.20, 0.60, 0.05, "CNY"),
-    # GLM / Zhipu (CNY)
-    "glm-4": (1.00, 1.00, 0.25, "CNY"),
-    "glm-4-plus": (5.00, 5.00, 1.25, "CNY"),
-    "glm-5": (0.50, 0.50, 0.125, "CNY"),
-    # Llama (local/free)
-    "llama3": (0.00, 0.00, 0.00, "USD"),
-}
-
 
 @dataclass
 class RateLimitInfo:
@@ -98,7 +71,8 @@ class CostEstimate:
 class CostTracker:
     """Tracks API costs and rate limits per model."""
 
-    def __init__(self):
+    def __init__(self, pricing: Optional[Dict[str, tuple]] = None):
+        self.pricing = pricing or {}
         self.session_costs: Dict[str, float] = {}  # model → total cost
         self.last_cost: Optional[CostEstimate] = None
         self.last_model: Optional[str] = None
@@ -167,13 +141,11 @@ class CostTracker:
         return None
 
     def _find_pricing(self, model: str) -> Optional[tuple]:
-        """Find pricing for a model by prefix matching."""
+        """Find pricing for a model by exact or prefix matching."""
         model_lower = model.lower()
-        # Exact match first
-        if model_lower in _MODEL_PRICING:
-            return _MODEL_PRICING[model_lower]
-        # Prefix match
-        for pattern, pricing in _MODEL_PRICING.items():
+        if model_lower in self.pricing:
+            return self.pricing[model_lower]
+        for pattern, pricing in self.pricing.items():
             if model_lower.startswith(pattern):
                 return pricing
         return None

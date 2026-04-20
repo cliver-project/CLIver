@@ -1,7 +1,7 @@
 """Built-in memory tools for persistent knowledge across sessions.
 
 The LLM uses these tools to save and recall knowledge that persists
-beyond the current conversation. Memory is managed by AgentProfile
+beyond the current conversation. Memory is managed by CliverProfile
 and stored as markdown files on disk.
 """
 

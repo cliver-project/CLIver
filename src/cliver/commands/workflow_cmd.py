@@ -33,7 +33,8 @@ def list_workflows(cliver: Cliver):
         wf = store.load_workflow(name)
         desc = wf.description or "(no description)" if wf else "(error loading)"
         steps = len(wf.steps) if wf else 0
-        cliver.output(f"  [bold]{name}[/bold] — {desc} ({steps} steps)")
+        agents = len(wf.agents) if wf and wf.agents else 0
+        cliver.output(f"  [bold]{name}[/bold] — {desc} ({steps} steps, {agents} agents)")
 
 
 @workflow_cmd.command(name="show", help="Show a workflow definition")
@@ -74,55 +75,90 @@ def run_workflow(cliver: Cliver, name: str, inputs: tuple):
             key, value = inp.split("=", 1)
             parsed_inputs[key.strip()] = value.strip()
 
-    executor = WorkflowExecutor(cliver.task_executor, store)
+    db_path = cliver.config_dir / "workflow-checkpoints.db"
+    executor = WorkflowExecutor(
+        task_executor=cliver.task_executor,
+        store=store,
+        db_path=db_path,
+        app_config=cliver.config_manager.config,
+        skill_manager=getattr(cliver, "skill_manager", None),
+    )
 
     cliver.output(f"[bold]Running workflow: {name}[/bold]\n")
 
     try:
-        state = asyncio.run(executor.execute_workflow(name, inputs=parsed_inputs or None))
+        result = asyncio.run(executor.execute_workflow(name, inputs=parsed_inputs or None))
     except RuntimeError:
         loop = asyncio.get_event_loop()
-        state = loop.run_until_complete(executor.execute_workflow(name, inputs=parsed_inputs or None))
+        result = loop.run_until_complete(executor.execute_workflow(name, inputs=parsed_inputs or None))
 
-    if state:
-        cliver.output(f"\n[bold]Status:[/bold] {state.status}")
-        if state.error:
-            cliver.output(f"[red]Error: {state.error}[/red]")
-        if state.completed_steps:
-            cliver.output(f"[bold]Completed:[/bold] {', '.join(state.completed_steps)}")
-        if state.skipped_steps:
-            cliver.output(f"[dim]Skipped:[/dim] {', '.join(state.skipped_steps)}")
-        if state.execution_time:
-            cliver.output(f"[dim]Duration: {state.execution_time:.1f}s[/dim]")
+    if result:
+        if result.get("error"):
+            cliver.output(f"[red]Error: {result['error']}[/red]")
+
+        steps = result.get("steps", [])
+        if steps:
+            cliver.output("[bold]Execution steps:[/bold]")
+            for step_result in steps:
+                step_name = step_result.get("step", "unknown")
+                status = step_result.get("status", "unknown")
+                cliver.output(f"  - {step_name}: {status}")
+                if step_result.get("error"):
+                    cliver.output(f"    [red]Error: {step_result['error']}[/red]")
+
+        if result.get("outputs_dir"):
+            cliver.output(f"\n[dim]Outputs directory: {result['outputs_dir']}[/dim]")
 
 
 @workflow_cmd.command(name="resume", help="Resume a paused workflow")
 @click.argument("name")
+@click.option("--thread", "-t", type=str, required=True, help="Checkpoint thread ID")
+@click.option("--answer", "-a", type=str, default=None, help="Answer for human input step")
 @pass_cliver
-def resume_workflow(cliver: Cliver, name: str):
+def resume_workflow(cliver: Cliver, name: str, thread: str, answer: str | None):
     from cliver.workflow.persistence import WorkflowStore
     from cliver.workflow.workflow_executor import WorkflowExecutor
 
     store = WorkflowStore(cliver.agent_profile.workflows_dir)
-    executor = WorkflowExecutor(cliver.task_executor, store)
+    wf = store.load_workflow(name)
 
-    state = store.load_state(name)
-    if not state or state.status != "paused":
-        cliver.output(f"No paused workflow '{name}' to resume.")
+    if not wf:
+        cliver.output(f"Workflow '{name}' not found.")
         return
+
+    db_path = cliver.config_dir / "workflow-checkpoints.db"
+    executor = WorkflowExecutor(
+        task_executor=cliver.task_executor,
+        store=store,
+        db_path=db_path,
+        app_config=cliver.config_manager.config,
+        skill_manager=getattr(cliver, "skill_manager", None),
+    )
 
     cliver.output(f"[bold]Resuming workflow: {name}[/bold]\n")
 
     try:
-        result = asyncio.run(executor.resume_workflow(name))
+        result = asyncio.run(executor.resume_workflow(name, thread_id=thread, human_answer=answer))
     except RuntimeError:
         loop = asyncio.get_event_loop()
-        result = loop.run_until_complete(executor.resume_workflow(name))
+        result = loop.run_until_complete(executor.resume_workflow(name, thread_id=thread, human_answer=answer))
 
     if result:
-        cliver.output(f"\n[bold]Status:[/bold] {result.status}")
-        if result.error:
-            cliver.output(f"[red]Error: {result.error}[/red]")
+        if result.get("error"):
+            cliver.output(f"[red]Error: {result['error']}[/red]")
+
+        steps = result.get("steps", [])
+        if steps:
+            cliver.output("[bold]Execution steps:[/bold]")
+            for step_result in steps:
+                step_name = step_result.get("step", "unknown")
+                status = step_result.get("status", "unknown")
+                cliver.output(f"  - {step_name}: {status}")
+                if step_result.get("error"):
+                    cliver.output(f"    [red]Error: {step_result['error']}[/red]")
+
+        if result.get("outputs_dir"):
+            cliver.output(f"\n[dim]Outputs directory: {result['outputs_dir']}[/dim]")
 
 
 @workflow_cmd.command(name="delete", help="Delete a workflow")

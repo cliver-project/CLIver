@@ -4,10 +4,8 @@ import pytest
 
 from cliver.workflow.persistence import WorkflowStore
 from cliver.workflow.workflow_models import (
-    ExecutionContext,
     LLMStep,
     Workflow,
-    WorkflowExecutionState,
 )
 
 
@@ -57,39 +55,3 @@ class TestWorkflowCRUD:
 
     def test_delete_nonexistent(self, store):
         assert store.delete_workflow("nope") is False
-
-
-class TestExecutionState:
-    def test_save_and_load_state(self, store):
-        state = WorkflowExecutionState(
-            workflow_name="test-wf",
-            execution_id="exec1",
-            status="running",
-            context=ExecutionContext(workflow_name="test-wf", inputs={"x": 1}),
-        )
-        store.save_state(state)
-        loaded = store.load_state("test-wf")
-        assert loaded is not None
-        assert loaded.execution_id == "exec1"
-        assert loaded.context.inputs["x"] == 1
-
-    def test_load_state_nonexistent(self, store):
-        assert store.load_state("nope") is None
-
-    def test_state_overwritten_on_save(self, store):
-        state1 = WorkflowExecutionState(
-            workflow_name="wf",
-            execution_id="e1",
-            status="running",
-            context=ExecutionContext(workflow_name="wf"),
-        )
-        store.save_state(state1)
-        state2 = WorkflowExecutionState(
-            workflow_name="wf",
-            execution_id="e1",
-            status="completed",
-            context=ExecutionContext(workflow_name="wf"),
-        )
-        store.save_state(state2)
-        loaded = store.load_state("wf")
-        assert loaded.status == "completed"

@@ -25,7 +25,7 @@ from prompt_toolkit.patch_stdout import patch_stdout
 from rich.console import Console
 
 from cliver import __version__, commands
-from cliver.agent_profile import AgentProfile
+from cliver.agent_profile import CliverProfile
 from cliver.cli_tool_progress import ThinkingIndicator, create_tool_progress_handler
 from cliver.cli_ui import print_banner
 from cliver.config import ConfigManager
@@ -254,7 +254,7 @@ class Cliver:
         """
         from cliver.token_tracker import TokenTracker
 
-        self.agent_profile = AgentProfile(agent_name, self.config_dir)
+        self.agent_profile = CliverProfile(agent_name, self.config_dir)
         self.agent_profile.ensure_dirs()
 
         # Create a default identity file if it doesn't exist yet
@@ -286,6 +286,16 @@ class Cliver:
             enabled_toolsets=self.config_manager.config.enabled_toolsets,
         )
         self.task_executor.configure_rate_limits(self.config_manager.config.providers)
+
+        from cliver.cost_tracker import CostTracker
+
+        pricing = {}
+        for name, model_cfg in self.config_manager.list_llm_models().items():
+            resolved = model_cfg.get_resolved_pricing()
+            if resolved:
+                pricing[name] = resolved
+
+        self.cost_tracker = CostTracker(pricing=pricing)
 
     def switch_agent(self, agent_name: str) -> None:
         """Switch to a different agent, updating all scoped resources."""

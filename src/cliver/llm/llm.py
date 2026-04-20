@@ -143,7 +143,7 @@ class AgentCore:
         self.user_agent = user_agent
         self.agent_name = agent_name
         self.on_tool_event = on_tool_event
-        self.agent_profile = agent_profile  # AgentProfile for memory/identity
+        self.agent_profile = agent_profile  # CliverProfile for memory/identity
         self.token_tracker = token_tracker  # TokenTracker for usage auditing
         self.permission_manager = permission_manager
         self.on_permission_prompt = on_permission_prompt

@@ -16,7 +16,7 @@ Task YAML format:
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 import yaml
 from pydantic import BaseModel, Field
@@ -25,11 +25,16 @@ logger = logging.getLogger(__name__)
 
 
 class TaskDefinition(BaseModel):
-    """A task definition — a prompt with optional model override and schedule."""
+    """A task definition — a prompt with optional workflow and skill activation."""
 
     name: str = Field(..., description="Unique task name")
     description: Optional[str] = Field(None, description="What this task does")
     prompt: str = Field(..., description="The prompt to send to the LLM")
+    workflow: Optional[str] = Field(
+        None, description="Workflow name to execute (if set, runs workflow instead of chat)"
+    )
+    workflow_inputs: Optional[Dict[str, Any]] = Field(None, description="Extra inputs for workflow execution")
+    skills: Optional[List[str]] = Field(None, description="Skills to pre-activate in system prompt")
     model: Optional[str] = Field(None, description="Model override for this task")
     schedule: Optional[str] = Field(None, description="Cron expression for recurring execution")
     permissions: Optional[Any] = Field(None, description="Permission overrides for this task")

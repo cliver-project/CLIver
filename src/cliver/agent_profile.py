@@ -1,5 +1,5 @@
 """
-AgentProfile — manages instance-scoped resources for a CLIver agent.
+CliverProfile — manages instance-scoped resources for a CLIver agent.
 
 Each agent instance (identified by `agent_name`) has its own:
 - memory.md   — persistent knowledge, append-only
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 # Set by AgentCore at init, accessed by builtin tools (memory, etc.).
 # ---------------------------------------------------------------------------
 
-_current_profile: Optional["AgentProfile"] = None
+_current_profile: Optional["CliverProfile"] = None
 
 # Global AgentCore reference — set by AgentCore at init.
 # Tools like parallel_tasks need this to spawn concurrent LLM calls.
@@ -43,14 +43,14 @@ _output_fn = print  # default: standard print
 _cli_instance = None
 
 
-def set_current_profile(profile: Optional["AgentProfile"]) -> None:
-    """Set the active AgentProfile. Called by AgentCore at init."""
+def set_current_profile(profile: Optional["CliverProfile"]) -> None:
+    """Set the active CliverProfile. Called by AgentCore at init."""
     global _current_profile
     _current_profile = profile
 
 
-def get_current_profile() -> Optional["AgentProfile"]:
-    """Get the active AgentProfile. Used by builtin tools that need it."""
+def get_current_profile() -> Optional["CliverProfile"]:
+    """Get the active CliverProfile. Used by builtin tools that need it."""
     return _current_profile
 
 
@@ -98,12 +98,11 @@ def get_cli_instance():
     return _cli_instance
 
 
-# Maximum characters of memory to inject into the system prompt.
-# This prevents memory from consuming too much of the context window.
-MAX_MEMORY_CHARS = 4000
+MAX_MEMORY_CHARS = 3000
+MAX_IDENTITY_CHARS = 1500
 
 
-class AgentProfile:
+class CliverProfile:
     """Manages instance-scoped resources for a CLIver agent.
 
     Directory layout:
@@ -224,9 +223,13 @@ class AgentProfile:
         user profile (name, preferences, environment, etc.). Unlike memory
         (append-only), identity is rewritten as a whole when updated.
 
+        Truncated to MAX_IDENTITY_CHARS to avoid bloating the system prompt.
         Returns empty string if no identity file exists.
         """
-        return self._read_file(self.identity_file)
+        content = self._read_file(self.identity_file)
+        if content and len(content) > MAX_IDENTITY_CHARS:
+            content = content[:MAX_IDENTITY_CHARS] + "\n...(truncated)"
+        return content
 
     def save_identity(self, content: str) -> None:
         """Save identity markdown, replacing the entire document.
@@ -239,11 +242,11 @@ class AgentProfile:
 
     # -- Rename ----------------------------------------------------------------
 
-    def rename(self, new_name: str) -> "AgentProfile":
+    def rename(self, new_name: str) -> "CliverProfile":
         """Rename this agent, moving all instance-scoped resources.
 
         Moves the agent directory from {agents}/{old_name} to {agents}/{new_name}.
-        Returns a new AgentProfile pointing to the new location.
+        Returns a new CliverProfile pointing to the new location.
 
         Raises:
             FileNotFoundError: If the current agent directory doesn't exist.
@@ -261,12 +264,12 @@ class AgentProfile:
         if not self.agent_dir.exists():
             # No data to move — just return a fresh profile
             logger.info(f"No existing data for '{self.agent_name}', creating fresh profile for '{new_name}'")
-            return AgentProfile(new_name, self.config_dir)
+            return CliverProfile(new_name, self.config_dir)
 
         shutil.move(str(self.agent_dir), str(new_dir))
         logger.info(f"Renamed agent '{self.agent_name}' to '{new_name}' (moved {self.agent_dir} → {new_dir})")
 
-        return AgentProfile(new_name, self.config_dir)
+        return CliverProfile(new_name, self.config_dir)
 
     # -- Class Methods ---------------------------------------------------------
 
@@ -290,3 +293,7 @@ class AgentProfile:
         except Exception as e:
             logger.warning(f"Could not read {path}: {e}")
             return ""
+
+
+# Backward compatibility alias
+AgentProfile = CliverProfile

@@ -10,6 +10,12 @@ from cliver.cost_tracker import (
     format_cost,
 )
 
+_TEST_PRICING = {
+    "deepseek-chat": (1.0, 4.0, 0.25, "CNY"),
+    "deepseek-reasoner": (2.0, 8.0, 0.50, "CNY"),
+    "gpt-4o": (2.50, 10.00, 1.25, "USD"),
+}
+
 
 class TestCostEstimate:
     def test_total_cost(self):
@@ -23,39 +29,48 @@ class TestCostEstimate:
 
 class TestCostTracker:
     def test_estimate_known_model(self):
-        tracker = CostTracker()
+        tracker = CostTracker(pricing=_TEST_PRICING)
         est = tracker.estimate_cost("deepseek-chat", input_tokens=1000, output_tokens=500)
         assert est.total_cost > 0
 
     def test_estimate_unknown_model(self):
-        tracker = CostTracker()
+        tracker = CostTracker(pricing=_TEST_PRICING)
         est = tracker.estimate_cost("unknown-model", input_tokens=1000, output_tokens=500)
         assert est.total_cost == 0
 
-    def test_estimate_with_cache(self):
+    def test_estimate_no_pricing(self):
         tracker = CostTracker()
+        est = tracker.estimate_cost("any-model", input_tokens=1000, output_tokens=500)
+        assert est.total_cost == 0
+
+    def test_estimate_with_cache(self):
+        tracker = CostTracker(pricing=_TEST_PRICING)
         no_cache = tracker.estimate_cost("deepseek-chat", input_tokens=1000, output_tokens=500)
         with_cache = tracker.estimate_cost("deepseek-chat", input_tokens=1000, output_tokens=500, cached_tokens=800)
-        # Cached should cost less
         assert with_cache.total_cost < no_cache.total_cost
 
     def test_session_total_accumulates(self):
-        tracker = CostTracker()
+        tracker = CostTracker(pricing=_TEST_PRICING)
         tracker.estimate_cost("deepseek-chat", input_tokens=1000, output_tokens=500)
         tracker.estimate_cost("deepseek-chat", input_tokens=2000, output_tokens=1000)
         total = tracker.get_session_total()
         assert total > 0
 
     def test_prefix_matching(self):
-        tracker = CostTracker()
+        tracker = CostTracker(pricing=_TEST_PRICING)
         est = tracker.estimate_cost("deepseek-reasoner-v3", input_tokens=1000, output_tokens=500)
-        assert est.total_cost > 0  # matched via "deepseek-reasoner" prefix
+        assert est.total_cost > 0
 
     def test_last_cost_tracked(self):
-        tracker = CostTracker()
+        tracker = CostTracker(pricing=_TEST_PRICING)
         tracker.estimate_cost("deepseek-chat", input_tokens=1000, output_tokens=500)
         assert tracker.last_cost is not None
         assert tracker.last_model == "deepseek-chat"
+
+    def test_currency_from_pricing(self):
+        tracker = CostTracker(pricing=_TEST_PRICING)
+        est = tracker.estimate_cost("deepseek-chat", input_tokens=1000000, output_tokens=0)
+        assert est.currency == "CNY"
 
 
 class TestRateLimitInfo:

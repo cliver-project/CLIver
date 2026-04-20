@@ -28,6 +28,15 @@ class RateLimitConfig(BaseModel):
     margin: float = Field(default=0.1, description="Safety margin (0.1 = 10% slower than limit)")
 
 
+class PricingConfig(BaseModel):
+    """Pricing configuration per million tokens."""
+
+    currency: Optional[str] = Field(default=None, description="Currency code: USD, CNY, EUR, etc.")
+    input: Optional[float] = Field(default=None, description="Cost per million input tokens")
+    output: Optional[float] = Field(default=None, description="Cost per million output tokens")
+    cached_input: Optional[float] = Field(default=None, description="Cost per million cached input tokens")
+
+
 class ProviderConfig(BaseModel):
     """Configuration for an LLM provider (API endpoint + credentials + rate limit)."""
 
@@ -38,6 +47,7 @@ class ProviderConfig(BaseModel):
     rate_limit: Optional[RateLimitConfig] = Field(default=None, description="Rate limit for API calls")
     image_url: Optional[str] = Field(default=None, description="Full URL for image generation endpoint")
     audio_url: Optional[str] = Field(default=None, description="Full URL for audio generation endpoint")
+    pricing: Optional[PricingConfig] = Field(default=None, description="Token pricing for cost tracking")
 
     model_config = {"extra": "allow"}
 
@@ -77,6 +87,7 @@ class ModelConfig(BaseModel):
         default=None,
         description="Context window size in tokens. Used for conversation history compression.",
     )
+    pricing: Optional[PricingConfig] = Field(default=None, description="Token pricing (overrides provider)")
 
     model_config = {"extra": "allow"}
 
@@ -103,6 +114,47 @@ class ModelConfig(BaseModel):
         if self._provider_config is not None:
             return self._provider_config.api_url
         return None
+
+    def get_resolved_pricing(self) -> Optional[tuple]:
+        """Resolve pricing: model-level fields override provider-level fields.
+
+        Returns (input, output, cached_input, currency) per million tokens,
+        or None if pricing is not configured with at least input and output.
+        """
+        currency = None
+        input_price = None
+        output_price = None
+        cached_price = None
+
+        # Provider-level base
+        if self._provider_config is not None and self._provider_config.pricing is not None:
+            pp = self._provider_config.pricing
+            currency = pp.currency
+            input_price = pp.input
+            output_price = pp.output
+            cached_price = pp.cached_input
+
+        # Model-level overrides
+        if self.pricing is not None:
+            mp = self.pricing
+            if mp.currency is not None:
+                currency = mp.currency
+            if mp.input is not None:
+                input_price = mp.input
+            if mp.output is not None:
+                output_price = mp.output
+            if mp.cached_input is not None:
+                cached_price = mp.cached_input
+
+        if input_price is None or output_price is None:
+            return None
+
+        if cached_price is None:
+            cached_price = input_price
+        if currency is None:
+            currency = "USD"
+
+        return (input_price, output_price, cached_price, currency)
 
     def get_capabilities(self) -> Set[ModelCapability]:
         """

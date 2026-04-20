@@ -32,8 +32,10 @@ def list_tasks(cliver: Cliver):
     for t in tasks:
         schedule = f"  schedule: {t.schedule}" if t.schedule else ""
         model = f"  model: {t.model}" if t.model else ""
+        workflow = f"  workflow: {t.workflow}" if t.workflow else ""
+        skills = f"  skills: {', '.join(t.skills)}" if t.skills else ""
         desc = f"  — {t.description}" if t.description else ""
-        cliver.output(f"  {t.name}:{desc}{model}{schedule}")
+        cliver.output(f"  {t.name}:{desc}{model}{workflow}{skills}{schedule}")
 
     return 0
 
@@ -44,6 +46,9 @@ def list_tasks(cliver: Cliver):
 @click.option("--description", "-d", default=None, help="Task description")
 @click.option("--model", "-m", default=None, help="Model override for this task")
 @click.option("--schedule", "-s", default=None, help="Cron expression for recurring execution")
+@click.option("--workflow", "-w", default=None, help="Workflow name to execute (runs workflow instead of chat)")
+@click.option("--workflow-inputs", default=None, help="Workflow inputs as JSON string")
+@click.option("--skills", multiple=True, help="Skills to pre-activate (can be specified multiple times)")
 @pass_cliver
 def create_task(
     cliver: Cliver,
@@ -52,12 +57,29 @@ def create_task(
     description: Optional[str],
     model: Optional[str],
     schedule: Optional[str],
+    workflow: Optional[str],
+    workflow_inputs: Optional[str],
+    skills: tuple,
 ):
     """Create a new task definition."""
+    import json
+
+    # Parse workflow inputs if provided
+    parsed_inputs = None
+    if workflow_inputs:
+        try:
+            parsed_inputs = json.loads(workflow_inputs)
+        except json.JSONDecodeError as e:
+            cliver.output(f"Invalid JSON for --workflow-inputs: {e}")
+            return 1
+
     task_def = TaskDefinition(
         name=name,
         description=description,
         prompt=prompt,
+        workflow=workflow,
+        workflow_inputs=parsed_inputs,
+        skills=list(skills) if skills else None,
         model=model,
         schedule=schedule,
     )

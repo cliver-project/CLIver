@@ -7,7 +7,7 @@ Each agent has its own memory, identity, sessions, and tasks.
 
 import click
 
-from cliver.agent_profile import AgentProfile
+from cliver.agent_profile import CliverProfile
 from cliver.cli import Cliver, pass_cliver
 
 
@@ -48,7 +48,7 @@ def switch_agent(cliver: Cliver, name: str):
 @pass_cliver
 def create_agent(cliver: Cliver, name: str):
     """Create a new agent with an identity profile and switch to it."""
-    existing = AgentProfile.list_agents(cliver.config_dir)
+    existing = CliverProfile.list_agents(cliver.config_dir)
     if name in existing:
         cliver.output(f"Agent [yellow]{name}[/yellow] already exists. Use [bold]/agent switch {name}[/bold].")
         return
@@ -60,7 +60,7 @@ def create_agent(cliver: Cliver, name: str):
     identity = _ask_identity(name)
 
     # Create the agent and write its identity
-    profile = AgentProfile(name, cliver.config_dir)
+    profile = CliverProfile(name, cliver.config_dir)
     profile.ensure_dirs()
     profile.save_identity(identity)
 
@@ -121,7 +121,7 @@ def rename_agent(cliver: Cliver, new_name: str):
         cliver.output("New name is the same as the current name.")
         return
 
-    existing = AgentProfile.list_agents(cliver.config_dir)
+    existing = CliverProfile.list_agents(cliver.config_dir)
     if new_name in existing:
         cliver.output(f"[red]Agent '{new_name}' already exists. Choose a different name.[/red]")
         return
@@ -169,7 +169,7 @@ def delete_agent(cliver: Cliver, name: str):
 
 def _show_agents(cliver: Cliver):
     """Display all agents with the active one highlighted."""
-    agents = AgentProfile.list_agents(cliver.config_dir)
+    agents = CliverProfile.list_agents(cliver.config_dir)
     current = cliver.agent_name
 
     cliver.output("[bold]Agent Instances[/bold]")

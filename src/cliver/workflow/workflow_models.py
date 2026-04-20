@@ -15,6 +15,20 @@ from typing import Any, Dict, List, Optional, Union
 from pydantic import BaseModel, Field
 
 
+class AgentConfig(BaseModel):
+    """Agent profile configuration within a workflow.
+
+    Defines the configuration for a subagent — NOT the same as
+    CliverProfile (identity/memory system).
+    """
+
+    model: Optional[str] = Field(None, description="LLM model to use")
+    system_message: Optional[str] = Field(None, description="System prompt for this agent")
+    tools: Optional[List[str]] = Field(None, description="Builtin tools to enable")
+    skills: Optional[List[str]] = Field(None, description="Skills to pre-recommend")
+    permissions: Optional[Any] = Field(None, description="Permission overrides")
+
+
 class StepType(str, Enum):
     FUNCTION = "function"
     LLM = "llm"
@@ -54,6 +68,8 @@ class LLMStep(BaseStep):
     template: Optional[str] = Field(None, description="Template name")
     params: Optional[Dict[str, Any]] = Field(None, description="Template parameters")
     permissions: Optional[Any] = Field(None, description="Permission overrides")
+    agent: Optional[str] = Field(None, description="Agent profile name from workflow agents section")
+    output_format: str = Field("md", description="Output file format: md, json, txt, yaml, code")
 
 
 class FunctionStep(BaseStep):
@@ -95,6 +111,10 @@ Step = Union[LLMStep, FunctionStep, HumanStep, WorkflowStep, DecisionStep]
 class Workflow(BaseModel):
     name: str = Field(..., description="Unique name of the workflow")
     description: Optional[str] = Field(None, description="Description")
+    overview: Optional[str] = Field(None, description="High-level context shared with all subagents")
+    overview_file: Optional[str] = Field(None, description="Path to overview markdown file")
+    agents: Optional[Dict[str, AgentConfig]] = Field(None, description="Reusable agent profile configs")
+    outputs_dir: Optional[str] = Field(None, description="Directory for step output files")
     inputs: Optional[Dict[str, Any]] = Field(None, description="Input parameter defaults")
     steps: List[Step] = Field(default_factory=list, description="Steps in the workflow")
     permissions: Optional[Any] = Field(None, description="Permission overrides")

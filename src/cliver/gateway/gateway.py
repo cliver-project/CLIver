@@ -13,7 +13,7 @@ import uuid
 from pathlib import Path
 from typing import List, Optional
 
-from cliver.agent_profile import AgentProfile
+from cliver.agent_profile import CliverProfile
 from cliver.config import ConfigManager
 from cliver.gateway.adapters import BUILTIN_ADAPTERS
 from cliver.gateway.control import ControlServer
@@ -66,7 +66,7 @@ class Gateway:
         self._task_executor = self._create_task_executor()
 
         # Initialize cron scheduler
-        agent_profile = AgentProfile(self.agent_name, self.config_dir)
+        agent_profile = CliverProfile(self.agent_name, self.config_dir)
         agent_profile.ensure_dirs()
         task_manager = TaskManager(agent_profile.tasks_dir)
         cron_state_path = agent_profile.agent_dir / "cron-state.json"
@@ -160,11 +160,11 @@ class Gateway:
         logger.info("Gateway main loop exiting (shutdown requested)")
 
     async def _run_task(self, task: TaskDefinition) -> None:
-        """Execute a scheduled task by sending its prompt to AgentCore."""
+        """Execute a scheduled task — either as a workflow or a chat prompt."""
         execution_id = str(uuid.uuid4())[:8]
         logger.info(f"Running task '{task.name}' (execution: {execution_id})")
 
-        agent_profile = AgentProfile(self.agent_name, self.config_dir)
+        agent_profile = CliverProfile(self.agent_name, self.config_dir)
         task_manager = TaskManager(agent_profile.tasks_dir)
 
         run_record = TaskRun(
@@ -175,10 +175,22 @@ class Gateway:
         )
 
         try:
-            await self._task_executor.process_user_input(
-                user_input=task.prompt,
-                model=task.model,
-            )
+            if task.workflow:
+                # Run as workflow — prompt is injected as inputs.prompt
+                inputs = dict(task.workflow_inputs or {})
+                inputs["prompt"] = task.prompt
+                await self.run_workflow(task.workflow, inputs=inputs)
+            else:
+                # Run as chat prompt with optional skill pre-activation
+                system_appender = None
+                if task.skills:
+                    system_appender = self._build_skill_appender(task.skills)
+
+                await self._task_executor.process_user_input(
+                    user_input=task.prompt,
+                    model=task.model,
+                    system_message_appender=system_appender,
+                )
             run_record.status = "completed"
         except Exception as e:
             run_record.status = "failed"
@@ -188,10 +200,52 @@ class Gateway:
             run_record.finished_at = TaskManager.timestamp_now()
             task_manager.record_run(run_record)
 
+    def _build_skill_appender(self, skill_names: list) -> callable:
+        """Build a system_message_appender that injects pre-activated skills."""
+        from cliver.skill_manager import SkillManager
+
+        manager = SkillManager()
+        skill_contents = []
+        for name in skill_names:
+            skill = manager.get_skill(name)
+            if skill and skill.body:
+                skill_contents.append(f"# Skill: {skill.name}\n\n{skill.body}")
+            else:
+                logger.warning("Skill '%s' not found for pre-activation", name)
+
+        if not skill_contents:
+            return None
+
+        combined = "\n\n".join(skill_contents)
+        return lambda: combined
+
+    async def run_workflow(self, workflow_name: str, inputs: dict = None) -> Optional[dict]:
+        """Execute a workflow headlessly via the gateway."""
+        from cliver.workflow.persistence import WorkflowStore
+        from cliver.workflow.workflow_executor import WorkflowExecutor
+
+        if not self._task_executor:
+            logger.error("Gateway not started — cannot run workflow")
+            return None
+
+        agent_profile = CliverProfile(self.agent_name, self.config_dir)
+        store = WorkflowStore(agent_profile.workflows_dir)
+        db_path = agent_profile.agent_dir / "workflow-checkpoints.db"
+
+        config_manager = ConfigManager(self.config_dir)
+        executor = WorkflowExecutor(
+            task_executor=self._task_executor,
+            store=store,
+            db_path=db_path,
+            app_config=config_manager.config,
+        )
+
+        return await executor.execute_workflow(workflow_name, inputs=inputs)
+
     def _create_task_executor(self) -> AgentCore:
         """Create a AgentCore from config (same config the CLI uses)."""
         config_manager = ConfigManager(self.config_dir)
-        agent_profile = AgentProfile(self.agent_name, self.config_dir)
+        agent_profile = CliverProfile(self.agent_name, self.config_dir)
         agent_profile.ensure_dirs()
 
         gateway_config = config_manager.config.gateway
@@ -281,7 +335,7 @@ class Gateway:
 
         # Resolve session
         session_key = self._resolve_session_key(event)
-        agent_profile = AgentProfile(self.agent_name, self.config_dir)
+        agent_profile = CliverProfile(self.agent_name, self.config_dir)
         sm = SessionManager(agent_profile.sessions_dir)
 
         # Get or create session
