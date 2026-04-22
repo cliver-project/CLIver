@@ -8,7 +8,6 @@ import asyncio
 import fcntl
 import importlib
 import logging
-import logging.handlers
 import os
 import tempfile
 import time
@@ -49,9 +48,11 @@ class Gateway:
         self,
         config_dir: Path,
         agent_name: str = "CLIver",
+        resolved_config=None,
     ):
         self.config_dir = Path(config_dir)
         self.agent_name = agent_name
+        self._resolved_config = resolved_config
         self._pid_path = self.config_dir / "cliver-gateway.pid"
         self._pid_file = None
         self._task_executor: Optional[AgentCore] = None
@@ -61,6 +62,19 @@ class Gateway:
         self._cron_task: Optional[asyncio.Task] = None
         self._tasks_run = 0
         self._start_time = 0.0
+
+    def init(self) -> None:
+        """Initialize components that need to run before fork.
+
+        Creates AgentCore and resolves all secrets. Call this in the
+        parent process before fork — the child inherits the initialized
+        state and never touches the keychain.
+        """
+        self._task_executor = self._create_task_executor()
+
+    def _get_config_manager(self) -> "ConfigManager":
+        """Get config manager, using pre-resolved config if available."""
+        return ConfigManager(self.config_dir, config=self._resolved_config)
 
     def create_app(self):
         """Create and return the aiohttp web application."""
@@ -73,9 +87,14 @@ class Gateway:
 
     def run(self) -> None:
         """Start the gateway as an aiohttp web server."""
+        # Allow nested asyncio.run() calls from tools (e.g. browser_action,
+        # parallel_tasks) that assume they're in a sync context.
+        import nest_asyncio
+        nest_asyncio.apply()
+
         from aiohttp import web
 
-        config = ConfigManager(self.config_dir).config
+        config = self._get_config_manager().config
         gw_config = config.gateway
         host = gw_config.host if gw_config else "127.0.0.1"
         port = gw_config.port if gw_config else 8321
@@ -97,14 +116,17 @@ class Gateway:
         self._pid_file.write(str(os.getpid()))
         self._pid_file.flush()
 
-        # AgentCore
-        try:
-            self._task_executor = self._create_task_executor()
-        except Exception as e:
-            logger.error(f"Failed to create task executor: {e}")
+        # AgentCore (may already be set if pre-initialized before fork)
+        if self._task_executor:
+            logger.info("Using pre-initialized AgentCore")
+        else:
+            try:
+                self._task_executor = self._create_task_executor()
+            except Exception as e:
+                logger.error(f"Failed to create task executor: {e}")
 
         # Register API routes
-        config = ConfigManager(self.config_dir).config
+        config = self._get_config_manager().config
         gw_config = config.gateway
         api_key = gw_config.api_key if gw_config else None
         if self._task_executor:
@@ -141,6 +163,10 @@ class Gateway:
                 self._scheduler.validate_tasks()
         except Exception as e:
             logger.error(f"Failed to initialize scheduler: {e}")
+
+        # Global asyncio exception handler — catches unhandled exceptions in tasks
+        loop = asyncio.get_running_loop()
+        loop.set_exception_handler(self._asyncio_exception_handler)
 
         self._cron_task = asyncio.create_task(self._cron_loop())
 
@@ -185,7 +211,13 @@ class Gateway:
         """Return current gateway status for /health endpoint."""
         uptime = int(time.monotonic() - self._start_time) if self._start_time else 0
         platforms = self._adapter_manager.connected_platforms if self._adapter_manager else []
-        return {"uptime": uptime, "tasks_run": self._tasks_run, "platforms": platforms}
+        adapter_statuses = self._adapter_manager.platform_statuses if self._adapter_manager else []
+        return {
+            "uptime": uptime,
+            "tasks_run": self._tasks_run,
+            "platforms": platforms,
+            "adapters": adapter_statuses,
+        }
 
     async def _cron_loop(self) -> None:
         """Background task: tick the scheduler every 60 seconds."""
@@ -276,7 +308,7 @@ class Gateway:
         store = WorkflowStore(agent_profile.workflows_dir)
         db_path = agent_profile.agent_dir / "workflow-checkpoints.db"
 
-        config_manager = ConfigManager(self.config_dir)
+        config_manager = self._get_config_manager()
         executor = WorkflowExecutor(
             task_executor=self._task_executor,
             store=store,
@@ -288,12 +320,11 @@ class Gateway:
 
     def _create_task_executor(self) -> AgentCore:
         """Create a AgentCore from config (same config the CLI uses)."""
-        config_manager = ConfigManager(self.config_dir)
+        config_manager = self._get_config_manager()
         agent_profile = CliverProfile(self.agent_name, self.config_dir)
         agent_profile.ensure_dirs()
 
-        gateway_config = config_manager.config.gateway
-        tool_handler = _create_gateway_tool_handler(self.config_dir, gateway_config)
+        tool_handler = _create_gateway_tool_handler()
 
         executor = AgentCore(
             llm_models=config_manager.list_llm_models(),
@@ -345,7 +376,7 @@ class Gateway:
 
     def _load_adapters(self) -> List[PlatformAdapter]:
         """Load and instantiate adapters from config."""
-        config_manager = ConfigManager(self.config_dir)
+        config_manager = self._get_config_manager()
         gateway_config = config_manager.config.gateway
         if not gateway_config or not gateway_config.platforms:
             return []
@@ -367,10 +398,26 @@ class Gateway:
 
     # -- Message handling -----------------------------------------------------
 
+    def _asyncio_exception_handler(self, loop, context):
+        exception = context.get("exception")
+        message = context.get("message", "")
+        logger.error("Asyncio unhandled exception: %s (message: %s)", exception, message)
+        if exception:
+            import traceback
+            logger.error("".join(traceback.format_exception(type(exception), exception, exception.__traceback__)))
+
     async def _handle_message(self, event: MessageEvent) -> None:
         """Central message handler -- routes platform messages to AgentCore."""
+        try:
+            await self._handle_message_inner(event)
+        except Exception as e:
+            logger.exception("_handle_message crashed: %s", e)
+
+    async def _handle_message_inner(self, event: MessageEvent) -> None:
+        logger.info("_handle_message called: platform=%s, user=%s, text=%.100s",
+                     event.platform, event.user_id, event.text)
         if not self._task_executor:
-            logger.error("AgentCore not initialized")
+            logger.error("AgentCore not initialized — cannot process message")
             return
 
         # Find the adapter for this platform
@@ -442,6 +489,7 @@ class Gateway:
         sm.append_turn(session_id, "user", event.text)
 
         # Run AgentCore
+        logger.info("Calling AgentCore.process_user_input (model=%s)", self._task_executor.default_model)
         try:
             response = await self._task_executor.process_user_input(
                 user_input=event.text,
@@ -450,23 +498,43 @@ class Gateway:
                 conversation_history=conversation_history or None,
             )
 
-            response_text = str(response.content) if response and response.content else "No response."
+            from cliver.media_handler import MultimediaResponseHandler
+            handler = MultimediaResponseHandler()
+            multimedia = handler.process_response(response)
+            response_text = multimedia.text_content or "No response."
+            logger.info("AgentCore response: %.200s", response_text)
         except Exception as e:
-            logger.error(f"AgentCore error: {e}")
+            logger.exception("AgentCore error: %s", e)
             response_text = f"Error: {e}"
+            multimedia = None
 
         # Record assistant turn
         sm.append_turn(session_id, "assistant", response_text)
 
-        # Format and send response
+        # Send text response
         formatted = adapter.format_message(response_text)
         chunks = split_message(formatted, adapter.max_message_length())
+        logger.info("Sending %d chunk(s) to %s channel %s", len(chunks), event.platform, event.channel_id)
 
         for chunk in chunks:
             try:
                 await adapter.send_text(event.channel_id, chunk)
             except Exception as e:
                 logger.error(f"Failed to send message: {e}")
+
+        # Send media (images, files, audio)
+        if multimedia and multimedia.has_media():
+            for media in multimedia.media_content:
+                try:
+                    if media.data and media.type.value == "image":
+                        await adapter.send_image(event.channel_id, media.data, caption=media.filename or "")
+                    elif media.data and media.type.value == "audio":
+                        await adapter.send_voice(event.channel_id, media.data)
+                    elif media.data:
+                        await adapter.send_file(event.channel_id, media.data, filename=media.filename or "file")
+                    logger.info("Sent %s media to %s", media.type.value, event.channel_id)
+                except Exception as e:
+                    logger.error("Failed to send %s media: %s", media.type.value, e)
 
     def _get_adapter(self, platform_name: str) -> Optional[PlatformAdapter]:
         """Find the adapter for a given platform name."""
@@ -489,36 +557,11 @@ class Gateway:
         return sm.create_session(title=session_key)
 
 
-def _create_gateway_tool_handler(config_dir: Path, gateway_config=None):
-    """Create a tool event handler that logs to a rotating file.
-
-    Returns None if no gateway config is provided (tool events are silent).
-    """
+def _create_gateway_tool_handler():
+    """Create a tool event handler that logs via the standard logger."""
     from cliver.tool_events import ToolEvent, ToolEventType
 
-    # Resolve log file path
-    if gateway_config and gateway_config.log_file:
-        log_path = Path(gateway_config.log_file)
-    else:
-        log_path = Path(config_dir) / "gateway.log"
-
-    max_bytes = gateway_config.log_max_bytes if gateway_config else 10 * 1024 * 1024
-    backup_count = gateway_config.log_backup_count if gateway_config else 5
-
-    # Set up a dedicated rotating logger
-    log_path.parent.mkdir(parents=True, exist_ok=True)
     tool_logger = logging.getLogger("cliver.gateway.tools")
-    tool_logger.setLevel(logging.INFO)
-    # Avoid duplicate handlers on restart
-    if not tool_logger.handlers:
-        handler = logging.handlers.RotatingFileHandler(
-            str(log_path),
-            maxBytes=max_bytes,
-            backupCount=backup_count,
-            encoding="utf-8",
-        )
-        handler.setFormatter(logging.Formatter("%(asctime)s %(message)s", datefmt="%Y-%m-%d %H:%M:%S"))
-        tool_logger.addHandler(handler)
 
     def _handler(event: ToolEvent) -> None:
         if event.event_type == ToolEventType.TOOL_START:

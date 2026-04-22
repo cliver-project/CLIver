@@ -336,11 +336,65 @@ class AppConfig(BaseModel):
     gateway: Optional[GatewayConfig] = Field(default=None, description="Gateway daemon configuration")
     theme: Optional[str] = Field(default=None, description="UI theme: dark (default), light, dracula")
 
+    def resolve_secrets(self) -> None:
+        """Resolve all Jinja2 template strings in the config tree.
+
+        Walks every string field on this model and nested models/dicts,
+        replacing any value containing {{ }} with its rendered result.
+        Call this once before forking a daemon — macOS Keychain segfaults
+        in forked processes, so secrets must be resolved in the parent.
+        """
+        _resolve_obj(self)
+
     def model_dump(self, **kwargs):
         """Override to exclude null values."""
         data = super().model_dump(**kwargs)
         # Remove null values
         return {k: v for k, v in data.items() if v is not None}
+
+
+def _resolve_obj(obj) -> None:
+    """Recursively resolve template strings on a Pydantic model or dict."""
+    if isinstance(obj, BaseModel):
+        for field_name in obj.model_fields:
+            val = getattr(obj, field_name, None)
+            if val is None:
+                continue
+            if isinstance(val, str) and "{{" in val:
+                setattr(obj, field_name, render_template_if_needed(val))
+            elif isinstance(val, BaseModel):
+                _resolve_obj(val)
+            elif isinstance(val, dict):
+                _resolve_dict(val)
+            elif isinstance(val, list):
+                _resolve_list(val)
+        # Also resolve extra fields (model_config = {"extra": "allow"})
+        if hasattr(obj, "__pydantic_extra__") and obj.__pydantic_extra__:
+            _resolve_dict(obj.__pydantic_extra__)
+    elif isinstance(obj, dict):
+        _resolve_dict(obj)
+
+
+def _resolve_dict(d: dict) -> None:
+    for key, val in list(d.items()):
+        if isinstance(val, str) and "{{" in val:
+            d[key] = render_template_if_needed(val)
+        elif isinstance(val, BaseModel):
+            _resolve_obj(val)
+        elif isinstance(val, dict):
+            _resolve_dict(val)
+        elif isinstance(val, list):
+            _resolve_list(val)
+
+
+def _resolve_list(lst: list) -> None:
+    for i, val in enumerate(lst):
+        if isinstance(val, str) and "{{" in val:
+            lst[i] = render_template_if_needed(val)
+        elif isinstance(val, BaseModel):
+            _resolve_obj(val)
+        elif isinstance(val, dict):
+            _resolve_dict(val)
 
 
 # TODO: support the configuration from others like from a k8s ConfigMap
@@ -349,15 +403,16 @@ class AppConfig(BaseModel):
 class ConfigManager:
     """Configuration manager for Cliver client."""
 
-    def __init__(self, config_dir: Path):
+    def __init__(self, config_dir: Path, config: Optional[AppConfig] = None):
         """Initialize the configuration manager.
 
         Args:
             config_dir: Configuration directory
+            config: Pre-loaded config (skips reading from disk if provided)
         """
         self.config_dir = config_dir
         self.config_file = self.config_dir / "config.yaml"
-        self.config = self._load_config()
+        self.config = config if config is not None else self._load_config()
 
     def _load_config(self) -> AppConfig:
         """Load configuration from YAML file.

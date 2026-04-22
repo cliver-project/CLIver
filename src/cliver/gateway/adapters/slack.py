@@ -87,12 +87,31 @@ class SlackAdapter(PlatformAdapter):
         self._app = AsyncApp(token=self._bot_token)
         self._client = self._app.client
 
-        @self._app.message("")
-        async def handle_message(message, say, client):
-            await self._on_slack_message(message, say, client)
+        # Verify bot token before starting socket mode
+        try:
+            auth = await self._client.auth_test()
+            if not auth.get("ok"):
+                raise ConnectionError(f"Slack auth failed: {auth.get('error', 'unknown')}")
+            logger.info(f"Slack authenticated as {auth.get('bot_id', '?')}")
+        except Exception as e:
+            if "auth" in str(e).lower() or "invalid" in str(e).lower():
+                raise ConnectionError(f"Slack bot token invalid: {e}") from e
+            raise
+
+        @self._app.event("message")
+        async def handle_message_event(event, say):
+            logger.info("Slack event 'message' received: %s", event)
+            await self._on_slack_message(event, say, self._client)
+
+        @self._app.middleware
+        async def log_all_events(body, next):
+            logger.info("Slack middleware: type=%s, event_type=%s",
+                        body.get("type", "?"),
+                        body.get("event", {}).get("type", "?") if isinstance(body.get("event"), dict) else "?")
+            await next()
 
         self._handler = AsyncSocketModeHandler(self._app, self._app_token)
-        await self._handler.start_async()
+        await self._handler.connect_async()
         logger.info("Slack adapter started (Socket Mode)")
 
     async def stop(self) -> None:
@@ -183,10 +202,15 @@ class SlackAdapter(PlatformAdapter):
 
     async def _on_slack_message(self, message: dict, say, client) -> None:
         """Handle incoming Slack messages."""
+        logger.info("Slack message received: user=%s, channel=%s, text=%.100s",
+                     message.get("user", "?"), message.get("channel", "?"),
+                     message.get("text", ""))
         user_id = message.get("user", "")
         if not user_id:
+            logger.debug("Slack message ignored: no user_id")
             return
         if not self._is_allowed(user_id):
+            logger.info("Slack message ignored: user %s not in allowed list %s", user_id, self._allowed_users)
             return
 
         # Determine if it's a group (channel) or DM

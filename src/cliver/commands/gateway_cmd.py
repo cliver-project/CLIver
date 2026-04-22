@@ -4,7 +4,6 @@ import json
 import logging
 import os
 import signal
-import sys
 
 import click
 
@@ -43,6 +42,24 @@ def _start_gateway(cliver: Cliver):
     host = gw_cfg.host if gw_cfg else "127.0.0.1"
     port = gw_cfg.port if gw_cfg else 8321
 
+    # Pre-initialize AgentCore and resolve all secrets BEFORE forking.
+    # macOS Keychain segfaults when accessed from a forked daemon process
+    # (the Security framework loses its mach port after setsid).
+    config_dir = get_config_dir()
+    agent_name = cliver.agent_name
+
+    # Resolve all template secrets (keyring, env vars) before forking.
+    # macOS Keychain segfaults when accessed from forked daemon processes.
+    cfg.resolve_secrets()
+
+    cliver.output("[dim]Initializing gateway...[/dim]")
+    gw = Gateway(config_dir=config_dir, agent_name=agent_name, resolved_config=cfg)
+    try:
+        gw.init()
+        cliver.output(f"[dim]Ready (model: {gw._task_executor.default_model})[/dim]")
+    except Exception as e:
+        cliver.output(f"[yellow]Warning: LLM init failed: {e}[/yellow]")
+
     # Fork to background
     pid = os.fork()
     if pid > 0:
@@ -53,18 +70,16 @@ def _start_gateway(cliver: Cliver):
         return 0
 
     os.setsid()
-    log_path = get_config_dir() / "gateway.log"
-    sys.stdout = open(log_path, "a")
-    sys.stderr = sys.stdout
 
-    config_dir = get_config_dir()
-    agent_name = cliver.agent_name
-    gw = Gateway(config_dir=config_dir, agent_name=agent_name)
+    from cliver.gateway.logging_config import configure_gateway_logging
+    configure_gateway_logging(gw_cfg)
 
     try:
         gw.run()
-    except Exception as e:
-        logger.error(f"Gateway failed: {e}")
+    except SystemExit as e:
+        logger.info("Gateway exited with code %s", e.code)
+    except Exception:
+        logger.exception("Gateway failed")
     return 0
 
 
@@ -96,8 +111,28 @@ def _stop_gateway(cliver: Cliver):
     return 0
 
 
+def _restart_gateway(cliver: Cliver):
+    """Restart the gateway daemon."""
+    pid_path = _get_pid_path()
+    if pid_path.exists():
+        try:
+            pid = int(pid_path.read_text().strip())
+            os.kill(pid, 0)
+            cliver.output(f"Stopping gateway (PID {pid})...")
+            os.kill(pid, signal.SIGTERM)
+            import time
+            for _ in range(10):
+                time.sleep(0.5)
+                if not pid_path.exists():
+                    break
+        except (ProcessLookupError, ValueError):
+            pid_path.unlink(missing_ok=True)
+
+    _start_gateway(cliver)
+
+
 def _list_platforms(cliver: Cliver):
-    """List configured platform adapters."""
+    """List configured platform adapters with live connection status."""
     from rich import box
     from rich.table import Table
 
@@ -108,17 +143,50 @@ def _list_platforms(cliver: Cliver):
         cliver.output("[dim]Set one up with: /gateway platform setup[/dim]")
         return
 
+    # Fetch live status from running gateway if available
+    live_statuses = {}
+    gw_cfg = cfg.gateway
+    host = gw_cfg.host if gw_cfg else "127.0.0.1"
+    port = gw_cfg.port if gw_cfg else 8321
+    pid_path = _get_pid_path()
+    if pid_path.exists():
+        try:
+            import urllib.request
+            url = f"http://{host}:{port}/health"
+            with urllib.request.urlopen(url, timeout=2) as resp:
+                data = json.loads(resp.read())
+            for a in data.get("adapters", []):
+                live_statuses[a["name"]] = a
+        except Exception:
+            pass
+
     table = Table(title="Platform Adapters", box=box.SQUARE)
     table.add_column("Name", style="green")
     table.add_column("Type", style="cyan")
+    table.add_column("Status")
     table.add_column("Token", style="dim")
     table.add_column("Home Channel", style="yellow")
-    table.add_column("Allowed Users", style="dim")
 
     for name, p in gw.platforms.items():
         token_display = _mask_token(p.token) if p.token else "-"
-        users = ", ".join(p.allowed_users) if p.allowed_users else "-"
-        table.add_row(name, p.type, token_display, p.home_channel or "-", users)
+        live = live_statuses.get(name)
+        if live:
+            state = live.get("state", "")
+            err = live.get("error", "")
+            if state == "connected":
+                status_str = "[green]● connected[/green]"
+            elif state == "connecting":
+                status_str = "[yellow]◌ connecting[/yellow]"
+            elif state == "error":
+                short_err = (err[:30] + "...") if len(err) > 30 else err
+                status_str = f"[red]✗ {short_err}[/red]"
+            else:
+                status_str = f"[dim]{state}[/dim]"
+        elif pid_path.exists():
+            status_str = "[dim]not loaded[/dim]"
+        else:
+            status_str = "[dim]gateway stopped[/dim]"
+        table.add_row(name, p.type, status_str, token_display, p.home_channel or "-")
 
     cliver.output(table)
 
@@ -421,8 +489,24 @@ def _status_gateway(cliver: Cliver):
         cliver.output(f"  URL: http://{host}:{port}")
         cliver.output(f"  Uptime: {uptime_str}")
         cliver.output(f"  Tasks run: {data.get('tasks_run', 0)}")
-        platforms = data.get("platforms", [])
-        cliver.output(f"  Platforms: {', '.join(platforms) if platforms else 'none'}")
+
+        adapters = data.get("adapters", [])
+        if adapters:
+            cliver.output("  Adapters:")
+            for a in adapters:
+                state = a.get("state", "unknown")
+                name = a.get("name", "?")
+                if state == "connected":
+                    cliver.output(f"    [green]●[/green] {name} [dim](running)[/dim]")
+                elif state == "connecting":
+                    cliver.output(f"    [yellow]◌[/yellow] {name} [dim](connecting...)[/dim]")
+                elif state == "error":
+                    err = a.get("error", "")
+                    cliver.output(f"    [red]✗[/red] {name} [dim]({err})[/dim]")
+                else:
+                    cliver.output(f"    [dim]?[/dim] {name} [dim]({state})[/dim]")
+        else:
+            cliver.output("  Adapters: none")
     except Exception:
         cliver.output(f"  Status: process alive (PID {pid}) but not responding")
         cliver.output(f"  URL: http://{host}:{port} (unreachable)")
@@ -443,14 +527,17 @@ def dispatch(cliver: Cliver, args: str):
         _start_gateway(cliver)
     elif sub == "stop":
         _stop_gateway(cliver)
+    elif sub == "restart":
+        _restart_gateway(cliver)
     elif sub == "status":
         _status_gateway(cliver)
     elif sub == "platform":
         _dispatch_platform(cliver, rest)
     elif sub in ("--help", "help"):
-        cliver.output("Usage: /gateway [start|stop|status|platform] ...")
+        cliver.output("Usage: /gateway [start|stop|restart|status|platform] ...")
         cliver.output("  start                 — start the gateway daemon")
         cliver.output("  stop                  — stop running gateway")
+        cliver.output("  restart               — stop and start the gateway")
         cliver.output("  status                — show gateway status")
         cliver.output("  platform [list|setup|set|remove]   — manage platform adapters")
     else:
@@ -530,6 +617,13 @@ def start(cliver: Cliver):
 def stop(cliver: Cliver):
     """Stop the gateway process."""
     return _stop_gateway(cliver)
+
+
+@gateway_cmd.command(name="restart", help="Restart the gateway daemon")
+@pass_cliver
+def restart(cliver: Cliver):
+    """Restart the gateway daemon."""
+    return _restart_gateway(cliver)
 
 
 @gateway_cmd.command(name="status", help="Show gateway daemon status")
