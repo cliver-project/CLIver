@@ -105,7 +105,7 @@ def _remove_provider(cliver: Cliver, name: str):
 
 
 def dispatch(cliver: Cliver, args: str):
-    """Dispatch /provider commands from string args."""
+    """Manage LLM providers — list, add, set, remove."""
     parts = args.strip().split(None, 1) if args.strip() else []
     sub = parts[0] if parts else "list"
 

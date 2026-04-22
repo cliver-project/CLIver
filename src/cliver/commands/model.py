@@ -274,7 +274,7 @@ def _update_model(
 
 
 def dispatch(cliver: Cliver, args: str):
-    """Dispatch /model commands from string args."""
+    """Manage LLM models — list, add, set, remove, default."""
     parts = args.strip().split(None, 1) if args.strip() else []
     sub = parts[0] if parts else "list"
     rest = parts[1] if len(parts) > 1 else ""

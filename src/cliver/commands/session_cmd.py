@@ -553,7 +553,7 @@ def _dispatch_permission(cliver: Cliver, args: str):
 
 
 def dispatch(cliver: Cliver, args: str):
-    """Dispatch /session commands from string args."""
+    """Manage conversation sessions — list, search, load, compress, permissions."""
     parts = args.strip().split(None, 1) if args.strip() else []
     sub = parts[0] if parts else "list"
     rest = parts[1] if len(parts) > 1 else ""

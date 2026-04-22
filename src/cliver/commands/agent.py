@@ -163,7 +163,7 @@ def _delete_agent(cliver: Cliver, name: str):
 
 
 def dispatch(cliver: Cliver, args: str):
-    """Dispatch subcommand from TUI."""
+    """Manage agent instances — list, switch, create, delete."""
     parts = args.strip().split(None, 1) if args.strip() else []
     sub = parts[0] if parts else "list"  # default subcommand
     rest = parts[1] if len(parts) > 1 else ""

@@ -137,7 +137,7 @@ def _remove_rule(cliver: Cliver, index: int):
 
 
 def dispatch(cliver: Cliver, args: str):
-    """Dispatch subcommand from TUI."""
+    """Manage tool permission rules — rules, mode, add, remove."""
     parts = args.strip().split(None, 1) if args.strip() else []
     sub = parts[0] if parts else "rules"  # default subcommand
     rest = parts[1] if len(parts) > 1 else ""

@@ -164,7 +164,7 @@ def _delete_workflow(cliver: Cliver, name: str):
 
 
 def dispatch(cliver: Cliver, args: str):
-    """Parse subcommand and route to logic functions."""
+    """Manage workflows — list, show, run, resume, delete."""
     parts = args.strip().split(None, 1) if args.strip() else []
     sub = parts[0] if parts else "list"
     rest = parts[1] if len(parts) > 1 else ""

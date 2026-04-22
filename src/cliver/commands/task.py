@@ -187,7 +187,7 @@ def _remove_task(cliver: Cliver, name: str) -> int:
 
 
 def dispatch(cliver: Cliver, args: str):
-    """Dispatch subcommand from TUI."""
+    """Manage scheduled tasks — list, create, run, remove, history."""
     parts = args.strip().split(None, 1) if args.strip() else []
     sub = parts[0] if parts else "list"  # default subcommand
     rest = parts[1] if len(parts) > 1 else ""

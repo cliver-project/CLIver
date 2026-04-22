@@ -118,7 +118,7 @@ def _update_skill(cliver: Cliver, name: str, instructions: str):
 
 
 def dispatch(cliver: Cliver, args: str):
-    """Dispatch /skills commands from string args."""
+    """List and manage skills — list, show, search, create."""
     parts = args.strip().split(None, 1) if args.strip() else []
     sub = parts[0] if parts else "list"
     rest = parts[1] if len(parts) > 1 else ""

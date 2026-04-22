@@ -58,7 +58,7 @@ def _clear_identity(cliver: Cliver):
 
 
 def dispatch(cliver: Cliver, args: str):
-    """Dispatch /identity commands from string args."""
+    """Manage agent identity — show, edit, clear."""
     parts = args.strip().split(None, 1) if args.strip() else []
     sub = parts[0] if parts else "show"
 

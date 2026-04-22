@@ -100,6 +100,7 @@ class LLMInferenceEngine(ABC):
         User-provided system messages are appended separately by AgentCore.
         """
         sections = [self._section_identity(self.agent_name)]
+        sections.append(self._section_self_awareness())
         sections.append(self._section_tool_usage())
         sections.append(self._section_interaction_guidelines())
         sections.append(self._section_response_format())
@@ -130,6 +131,30 @@ class LLMInferenceEngine(ABC):
             "unless the user specifically asks for it.\n"
             "- When the user asks to create or save a file without specifying a path, "
             "save it in the current working directory."
+        )
+
+    @staticmethod
+    def _section_self_awareness() -> str:
+        from cliver.util import get_config_dir
+
+        config_dir = get_config_dir()
+        return (
+            "# Self-Awareness\n\n"
+            "You are powered by CLIver, a configurable AI agent platform. "
+            "You can inspect and modify your own configuration, identity, "
+            "skills, tasks, and workflows.\n\n"
+            "## Key files you can read and edit\n\n"
+            f"- Config: `{config_dir}/config.yaml` — models, providers, gateway, session settings\n"
+            f"- Identity: `{config_dir}/agents/*/identity.md` — your persona and behavior\n"
+            f"- Memory: `{config_dir}/agents/*/memory.md` — persistent knowledge\n"
+            f"- Skills: `.cliver/skills/` (project) or `{config_dir}/skills/` (global) — SKILL.md files\n"
+            f"- Tasks: `{config_dir}/agents/*/tasks/` — YAML task definitions with cron schedules\n\n"
+            "## Commands (use the CliverHelp tool for details)\n\n"
+            "Available slash commands: model, config, gateway, session, permissions, "
+            "mcp, skill, skills, identity, agent, cost, provider, task, workflow.\n\n"
+            "You can self-administer by reading/writing config files directly, "
+            "or by running `cliver <command>` via the Bash tool. "
+            "Use the CliverHelp tool to look up specific command syntax."
         )
 
     @staticmethod

@@ -536,7 +536,7 @@ def _status_gateway(cliver: Cliver):
 
 
 def dispatch(cliver: Cliver, args: str):
-    """Parse subcommand and route to logic functions."""
+    """Manage the gateway daemon — start, stop, restart, status, platforms."""
     parts = args.strip().split(None, 1) if args.strip() else []
     sub = parts[0] if parts else "status"
     rest = parts[1] if len(parts) > 1 else ""

@@ -26,7 +26,7 @@ def cost(ctx, cliver: Cliver):
 
 
 def dispatch(cliver: Cliver, args: str):
-    """Dispatch /cost commands from string args."""
+    """Show token usage and cost — session, total, per-model."""
     parts = args.strip().split() if args.strip() else []
     sub = parts[0] if parts else "session"
 

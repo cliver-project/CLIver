@@ -164,7 +164,7 @@ def _remove_mcp_server(cliver: Cliver, name: str):
 
 
 def dispatch(cliver: Cliver, args: str):
-    """Dispatch /mcp commands from string args."""
+    """Manage MCP server connections — list, add, set, remove."""
     parts = args.strip().split(None, 1) if args.strip() else []
     sub = parts[0] if parts else "list"
 

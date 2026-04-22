@@ -112,10 +112,7 @@ def _activate_skill(cliver: Cliver, name: str, message: str = ""):
 
 
 def dispatch(cliver: Cliver, args: str):
-    """Dispatch /skill command from string args.
-
-    Format: /skill <name> [optional message]
-    """
+    """Activate a skill by name."""
     parts = args.strip().split(None, 1) if args.strip() else []
     if not parts:
         cliver.output("[red]Missing skill name[/red]")

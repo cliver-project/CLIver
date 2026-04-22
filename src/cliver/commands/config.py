@@ -260,7 +260,7 @@ def _set_theme(cliver: Cliver, name: str | None):
 
 
 def dispatch(cliver: Cliver, args: str):
-    """Parse subcommand and route to logic functions."""
+    """Manage configuration — show, set, validate, theme."""
     parts = args.strip().split(None, 1) if args.strip() else []
     sub = parts[0] if parts else "show"
     rest = parts[1] if len(parts) > 1 else ""
