@@ -15,6 +15,14 @@ def sometimes_failing_function(should_fail=True):
     return "Success"
 
 
+def _patch_input(return_value):
+    """Patch both get_cli_instance (to None) and get_input_fn for retry tests."""
+    return [
+        patch("cliver.agent_profile.get_cli_instance", return_value=None),
+        patch("cliver.agent_profile.get_input_fn", return_value=lambda _: return_value),
+    ]
+
+
 def test_retry_with_confirmation_success():
     """Test that retry_with_confirmation works when function eventually succeeds."""
     call_count = 0
@@ -26,25 +34,42 @@ def test_retry_with_confirmation_success():
             raise Exception("First call fails")
         return "Success on second call"
 
-    # Mock input to automatically confirm retries
-    with patch("cliver.agent_profile.get_input_fn", return_value=lambda _: "y"):
+    patches = _patch_input("y")
+    for p in patches:
+        p.start()
+    try:
         result = retry_with_confirmation(fail_once, max_retries=3)
         assert result == "Success on second call"
         assert call_count == 2
+    finally:
+        for p in patches:
+            p.stop()
 
 
 def test_retry_with_confirmation_exhausted_retries():
     """Test that retry_with_confirmation raises exception when retries are exhausted."""
-    with patch("cliver.agent_profile.get_input_fn", return_value=lambda _: "y"):
+    patches = _patch_input("y")
+    for p in patches:
+        p.start()
+    try:
         with pytest.raises(Exception, match="Always fails"):
             retry_with_confirmation(failing_function, max_retries=2)
+    finally:
+        for p in patches:
+            p.stop()
 
 
 def test_retry_with_confirmation_user_declines():
     """Test that retry_with_confirmation stops when user declines to retry."""
-    with patch("cliver.agent_profile.get_input_fn", return_value=lambda _: "n"):
+    patches = _patch_input("n")
+    for p in patches:
+        p.start()
+    try:
         with pytest.raises(Exception, match="Failed as expected"):
             retry_with_confirmation(sometimes_failing_function, True, max_retries=3)
+    finally:
+        for p in patches:
+            p.stop()
 
 
 def test_retry_with_confirmation_no_confirmation():
