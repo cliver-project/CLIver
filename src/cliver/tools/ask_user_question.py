@@ -64,40 +64,52 @@ class AskUserQuestionTool(BaseTool):
     def _run(self, question: str, options: Optional[List[dict]] = None) -> str:
         try:
             from cliver.agent_profile import get_cli_instance
-            from cliver.cli_dialog import show_dialog
 
             cliver_inst = get_cli_instance()
-            console = cliver_inst.console if cliver_inst else None
 
-            # Fallback console for non-TUI mode
-            if console is None:
-                from rich.console import Console
-
-                console = Console()
-
-            # Build numbered options if provided
-            numbered_opts = None
+            # Build question text with numbered options
+            prompt = question
             if options:
-                numbered_opts = []
-                for opt in options:
+                prompt += "\n"
+                for i, opt in enumerate(options, 1):
                     label = opt.get("label", "") if isinstance(opt, dict) else opt.label
                     desc = opt.get("description", "") if isinstance(opt, dict) else opt.description
-                    numbered_opts.append((label, desc))
+                    prompt += f"\n  [{i}] {label}"
+                    if desc:
+                        prompt += f" - {desc}"
+                prompt += "\n  [0] Other (type custom response)"
 
-            result = show_dialog(
-                console=console,
-                cliver_inst=cliver_inst,
-                title="[bold cyan]❓ Question[/bold cyan]",
-                body_text=question,
-                numbered_options=numbered_opts,
-                border_style="cyan",
-                default_on_cancel="User cancelled the question.",
-            )
+            if cliver_inst:
+                cliver_inst.output(f"\n[bold cyan]Question[/bold cyan]: {prompt}")
+                result = cliver_inst.ui.ask_input("  > ")
+            else:
+                print(f"\nQuestion: {prompt}")
+                try:
+                    result = input("  > ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    return "User cancelled the question."
 
-            if numbered_opts and result.startswith("User "):
-                return result
-            if not result or result == "User cancelled the question.":
+            if not result:
                 return "User cancelled the question."
+
+            # Handle numbered options
+            if options and result:
+                try:
+                    choice = int(result)
+                    if 1 <= choice <= len(options):
+                        opt = options[choice - 1]
+                        label = opt.get("label", "") if isinstance(opt, dict) else opt.label
+                        return f"User selected: {label}"
+                    elif choice == 0:
+                        if cliver_inst:
+                            custom = cliver_inst.ui.ask_input("  Your response: ")
+                        else:
+                            custom = input("  Your response: ").strip()
+                        return f"User response: {custom}"
+                except ValueError:
+                    pass
+                return f"User response: {result}"
+
             return f"User response: {result}"
 
         except Exception as e:

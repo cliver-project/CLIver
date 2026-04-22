@@ -69,28 +69,28 @@ class TestReActLoopTimeout:
 
 
 class TestTimeoutFlag:
-    """--timeout flag on chat command."""
+    """--timeout flag on cliver -p."""
 
     def test_timeout_flag_accepted(self, load_cliver, init_config):
         """--timeout should be accepted without error."""
         result = CliRunner().invoke(
             load_cliver,
-            ["chat", "--timeout", "60", "hello"],
+            ["-p", "hello", "--timeout", "60"],
             catch_exceptions=False,
             standalone_mode=False,
         )
-        # Should reach chat command (may fail on no model, but not on flag parsing)
+        # Should reach query path (may fail on no model, but not on flag parsing)
         assert "no such option: --timeout" not in result.output
 
 
 class TestOutputFlag:
-    """--output json flag on chat command."""
+    """--output json flag on cliver -p."""
 
     def test_output_flag_accepted(self, load_cliver, init_config):
         """--output should be accepted without error."""
         result = CliRunner().invoke(
             load_cliver,
-            ["chat", "--output", "json", "hello"],
+            ["-p", "hello", "--output", "json"],
             catch_exceptions=False,
             standalone_mode=False,
         )
@@ -100,7 +100,7 @@ class TestOutputFlag:
         """--output json should produce valid JSON even on error."""
         result = CliRunner().invoke(
             load_cliver,
-            ["chat", "--output", "json", "hello"],
+            ["-p", "hello", "--output", "json"],
             catch_exceptions=False,
             standalone_mode=False,
         )
@@ -114,7 +114,7 @@ class TestOutputFlag:
         """Without --output, output should be plain text (not JSON)."""
         result = CliRunner().invoke(
             load_cliver,
-            ["chat", "hello"],
+            ["-p", "hello"],
             catch_exceptions=False,
             standalone_mode=False,
         )
@@ -122,7 +122,7 @@ class TestOutputFlag:
             json.loads(result.output.strip())
             raise AssertionError("Output should not be JSON by default")
         except json.JSONDecodeError:
-            pass  # Expected — plain text
+            pass  # Expected -- plain text
 
 
 class TestPermissionFlags:
@@ -132,7 +132,7 @@ class TestPermissionFlags:
         """--permission-mode should be accepted."""
         result = CliRunner().invoke(
             load_cliver,
-            ["chat", "--permission-mode", "yolo", "hello"],
+            ["-p", "hello", "--permission-mode", "yolo"],
             catch_exceptions=False,
         )
         assert "no such option: --permission-mode" not in result.output
@@ -141,7 +141,7 @@ class TestPermissionFlags:
         """--permission-mode with invalid value should error."""
         result = CliRunner().invoke(
             load_cliver,
-            ["chat", "--permission-mode", "invalid", "hello"],
+            ["-p", "hello", "--permission-mode", "invalid"],
         )
         assert result.exit_code != 0
 
@@ -149,7 +149,7 @@ class TestPermissionFlags:
         """--allow-tool should be accepted."""
         result = CliRunner().invoke(
             load_cliver,
-            ["chat", "--allow-tool", "Bash", "hello"],
+            ["-p", "hello", "--allow-tool", "Bash"],
             catch_exceptions=False,
         )
         assert "no such option: --allow-tool" not in result.output
@@ -159,12 +159,12 @@ class TestPermissionFlags:
         result = CliRunner().invoke(
             load_cliver,
             [
-                "chat",
+                "-p",
+                "hello",
                 "--allow-tool",
                 "Bash",
                 "--allow-tool",
                 "Read",
-                "hello",
             ],
             catch_exceptions=False,
         )
@@ -172,12 +172,7 @@ class TestPermissionFlags:
 
 
 class TestExitCodes:
-    """Exit codes must propagate from chat command to process."""
-
-    def test_chat_no_model_returns_exit_1(self, load_cliver, init_config):
-        """Chat with no model configured should exit with code 1."""
-        result = CliRunner().invoke(load_cliver, ["chat", "hello"], catch_exceptions=False, standalone_mode=False)
-        assert result.return_value == 1
+    """Exit codes must propagate correctly."""
 
     def test_known_command_returns_exit_0(self, load_cliver, init_config):
         """Known commands like 'model list' should exit with code 0."""
@@ -287,28 +282,6 @@ class TestCICDIntegration:
         data = json.loads(output)
         assert "success" in data
         assert "duration_s" in data
-
-    def test_full_ci_via_chat_subcommand(self, load_cliver, init_config):
-        """All CI flags together via chat subcommand."""
-        result = CliRunner().invoke(
-            load_cliver,
-            [
-                "chat",
-                "--output",
-                "json",
-                "--timeout",
-                "60",
-                "--permission-mode",
-                "yolo",
-                "--allow-tool",
-                "Read",
-                "hello",
-            ],
-            catch_exceptions=False,
-        )
-        output = result.output.strip()
-        data = json.loads(output)
-        assert "success" in data
 
     def test_exit_code_with_json_output(self, load_cliver, init_config):
         """JSON output should still set correct exit code."""

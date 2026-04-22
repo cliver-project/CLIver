@@ -1,8 +1,8 @@
-"""Tests for TaskManager — task CRUD and run history."""
+"""Tests for TaskManager — task CRUD."""
 
 import pytest
 
-from cliver.task_manager import TaskDefinition, TaskManager, TaskRun
+from cliver.task_manager import TaskDefinition, TaskManager
 
 
 @pytest.fixture
@@ -80,107 +80,10 @@ class TestCRUD:
     def test_remove_nonexistent(self, manager):
         assert manager.remove_task("nope") is False
 
-    def test_remove_also_removes_runs(self, manager):
+    def test_remove_cleans_up(self, manager):
         manager.save_task(TaskDefinition(name="t", prompt="p"))
-        manager.record_run(
-            TaskRun(
-                task_name="t",
-                execution_id="e1",
-                status="completed",
-                started_at="2026-01-01",
-            )
-        )
-        assert len(manager.get_runs("t")) == 1
-
-        manager.remove_task("t")
-        assert manager.get_runs("t") == []
-
-    def test_list_excludes_runs_files(self, manager):
-        """Runs files (.runs.yaml) should not appear as tasks."""
-        manager.save_task(TaskDefinition(name="t", prompt="p"))
-        manager.record_run(
-            TaskRun(
-                task_name="t",
-                execution_id="e1",
-                status="completed",
-                started_at="2026-01-01",
-            )
-        )
-
-        tasks = manager.list_tasks()
-        assert len(tasks) == 1
-        assert tasks[0].name == "t"
-
-
-# ---------------------------------------------------------------------------
-# Run history
-# ---------------------------------------------------------------------------
-
-
-class TestRunHistory:
-    def test_record_and_get(self, manager):
-        run = TaskRun(
-            task_name="t",
-            execution_id="e1",
-            status="completed",
-            started_at="2026-01-01 09:00 UTC",
-            finished_at="2026-01-01 09:05 UTC",
-        )
-        manager.record_run(run)
-
-        runs = manager.get_runs("t")
-        assert len(runs) == 1
-        assert runs[0].execution_id == "e1"
-        assert runs[0].status == "completed"
-
-    def test_multiple_runs_ordered_recent_first(self, manager):
-        for i in range(5):
-            manager.record_run(
-                TaskRun(
-                    task_name="t",
-                    execution_id=f"e{i}",
-                    status="completed",
-                    started_at=f"2026-01-0{i + 1}",
-                )
-            )
-
-        runs = manager.get_runs("t")
-        assert len(runs) == 5
-        # Most recent first
-        assert runs[0].execution_id == "e4"
-        assert runs[-1].execution_id == "e0"
-
-    def test_limit(self, manager):
-        for i in range(20):
-            manager.record_run(
-                TaskRun(
-                    task_name="t",
-                    execution_id=f"e{i}",
-                    status="completed",
-                    started_at=f"run-{i}",
-                )
-            )
-
-        runs = manager.get_runs("t", limit=3)
-        assert len(runs) == 3
-
-    def test_empty_history(self, manager):
-        assert manager.get_runs("nonexistent") == []
-
-    def test_failed_run_recorded(self, manager):
-        manager.record_run(
-            TaskRun(
-                task_name="t",
-                execution_id="e1",
-                status="failed",
-                started_at="2026-01-01",
-                error="connection timeout",
-            )
-        )
-
-        runs = manager.get_runs("t")
-        assert runs[0].status == "failed"
-        assert runs[0].error == "connection timeout"
+        assert manager.remove_task("t") is True
+        assert manager.get_task("t") is None
 
 
 # ---------------------------------------------------------------------------

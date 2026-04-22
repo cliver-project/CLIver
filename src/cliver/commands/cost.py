@@ -20,20 +20,74 @@ def cost(ctx, cliver: Cliver):
         _show_session_summary(cliver)
 
 
-@cost.command(name="session", help="Show token usage for the current session")
-@pass_cliver
-def cost_session(cliver: Cliver):
-    """Show in-memory session totals by model."""
-    _show_session_summary(cliver)
+# ---------------------------------------------------------------------------
+# Dispatch function
+# ---------------------------------------------------------------------------
 
 
-@cost.command(name="total", help="Show total token usage from audit logs")
-@click.option("--model", "-m", default=None, help="Filter by model name")
-@click.option("--agent", "-a", default=None, help="Filter by agent name")
-@click.option("--from", "date_from", default=None, help="Start date (YYYY-MM-DD)")
-@click.option("--to", "date_to", default=None, help="End date (YYYY-MM-DD)")
-@pass_cliver
-def cost_total(
+def dispatch(cliver: Cliver, args: str):
+    """Dispatch /cost commands from string args."""
+    parts = args.strip().split() if args.strip() else []
+    sub = parts[0] if parts else "session"
+
+    if sub == "session":
+        _show_session_summary(cliver)
+    elif sub == "total":
+        # Parse remaining args for filters
+        model_name = None
+        agent_name = None
+        date_from = None
+        date_to = None
+
+        i = 1
+        while i < len(parts):
+            if parts[i] in ("-m", "--model"):
+                if i + 1 < len(parts):
+                    model_name = parts[i + 1]
+                    i += 2
+                else:
+                    cliver.output("[red]--model requires a value[/red]")
+                    return
+            elif parts[i] in ("-a", "--agent"):
+                if i + 1 < len(parts):
+                    agent_name = parts[i + 1]
+                    i += 2
+                else:
+                    cliver.output("[red]--agent requires a value[/red]")
+                    return
+            elif parts[i] == "--from":
+                if i + 1 < len(parts):
+                    date_from = parts[i + 1]
+                    i += 2
+                else:
+                    cliver.output("[red]--from requires a value[/red]")
+                    return
+            elif parts[i] == "--to":
+                if i + 1 < len(parts):
+                    date_to = parts[i + 1]
+                    i += 2
+                else:
+                    cliver.output("[red]--to requires a value[/red]")
+                    return
+            else:
+                cliver.output(f"[yellow]Unknown option: {parts[i]}[/yellow]")
+                return
+
+        _show_total_cost(cliver, model_name, agent_name, date_from, date_to)
+    elif sub in ("--help", "help"):
+        cliver.output("Usage: /cost [session|total]")
+        cliver.output("  session                  - Show current session token usage")
+        cliver.output("  total [--model M] [...]  - Show total usage from audit logs")
+        cliver.output("    --model, -m   Filter by model name")
+        cliver.output("    --agent, -a   Filter by agent name")
+        cliver.output("    --from DATE   Start date (YYYY-MM-DD)")
+        cliver.output("    --to DATE     End date (YYYY-MM-DD)")
+    else:
+        cliver.output(f"[yellow]Unknown subcommand: /cost {sub}[/yellow]")
+        cliver.output("Run '/cost help' for usage.")
+
+
+def _show_total_cost(
     cliver: Cliver,
     model: Optional[str],
     agent: Optional[str],
@@ -74,6 +128,35 @@ def cost_total(
     else:
         # Show per-model summary
         _show_per_model(cliver, results)
+
+
+# ---------------------------------------------------------------------------
+# Click commands (thin wrappers)
+# ---------------------------------------------------------------------------
+
+
+@cost.command(name="session", help="Show token usage for the current session")
+@pass_cliver
+def cost_session(cliver: Cliver):
+    """Show in-memory session totals by model."""
+    _show_session_summary(cliver)
+
+
+@cost.command(name="total", help="Show total token usage from audit logs")
+@click.option("--model", "-m", default=None, help="Filter by model name")
+@click.option("--agent", "-a", default=None, help="Filter by agent name")
+@click.option("--from", "date_from", default=None, help="Start date (YYYY-MM-DD)")
+@click.option("--to", "date_to", default=None, help="End date (YYYY-MM-DD)")
+@pass_cliver
+def cost_total(
+    cliver: Cliver,
+    model: Optional[str],
+    agent: Optional[str],
+    date_from: Optional[str],
+    date_to: Optional[str],
+):
+    """Show aggregated token usage from audit logs with optional filters."""
+    _show_total_cost(cliver, model, agent, date_from, date_to)
 
 
 # ---------------------------------------------------------------------------

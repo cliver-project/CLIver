@@ -52,13 +52,14 @@ class TaskRun(BaseModel):
 
 
 class TaskManager:
-    """Manages tasks for a specific agent.
+    """Manages task definitions for a specific agent.
 
     Directory layout:
         {tasks_dir}/
         ├── daily-research.yaml        # task definition
-        ├── daily-research.runs.yaml   # execution history
         └── code-review.yaml
+
+    Run history is stored in gateway.db via TaskRunStore.
     """
 
     def __init__(self, tasks_dir: Path):
@@ -75,8 +76,6 @@ class TaskManager:
         if not self.tasks_dir.is_dir():
             return tasks
         for path in sorted(self.tasks_dir.glob("*.yaml")):
-            if path.name.endswith(".runs.yaml"):
-                continue
             try:
                 task = self._load_task_file(path)
                 if task:
@@ -102,36 +101,12 @@ class TaskManager:
         return path
 
     def remove_task(self, name: str) -> bool:
-        """Remove a task definition and its run history."""
+        """Remove a task definition."""
         path = self.tasks_dir / f"{name}.yaml"
-        runs_path = self.tasks_dir / f"{name}.runs.yaml"
-        removed = False
-        if path.exists():
-            path.unlink()
-            removed = True
-        if runs_path.exists():
-            runs_path.unlink()
-        return removed
-
-    # -- Run history --------------------------------------------------------
-
-    def record_run(self, run: TaskRun) -> None:
-        """Append a run record to the task's execution history."""
-        self._ensure_dir()
-        runs_path = self.tasks_dir / f"{run.task_name}.runs.yaml"
-        runs = self._load_runs(runs_path)
-        runs.append(run.model_dump())
-        runs_path.write_text(
-            yaml.dump(runs, default_flow_style=False, allow_unicode=True),
-            encoding="utf-8",
-        )
-
-    def get_runs(self, task_name: str, limit: int = 10) -> List[TaskRun]:
-        """Get recent run history for a task."""
-        runs_path = self.tasks_dir / f"{task_name}.runs.yaml"
-        raw_runs = self._load_runs(runs_path)
-        # Most recent first, limited
-        return [TaskRun(**r) for r in reversed(raw_runs[-limit:])]
+        if not path.exists():
+            return False
+        path.unlink()
+        return True
 
     # -- Helpers ------------------------------------------------------------
 
@@ -142,14 +117,6 @@ class TaskManager:
         if not data or not isinstance(data, dict):
             return None
         return TaskDefinition(**data)
-
-    @staticmethod
-    def _load_runs(path: Path) -> list:
-        if not path.exists():
-            return []
-        content = path.read_text(encoding="utf-8")
-        data = yaml.safe_load(content)
-        return data if isinstance(data, list) else []
 
     @staticmethod
     def timestamp_now() -> str:

@@ -1,11 +1,11 @@
-"""Tests for the Gateway orchestrator."""
+"""Tests for the Gateway aiohttp application."""
 
 import asyncio
-import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
+from aiohttp import web
 
 from cliver.gateway.gateway import Gateway
 
@@ -17,51 +17,47 @@ def config_dir(tmp_path):
     return d
 
 
-@pytest.fixture
-def short_socket_dir():
-    """Short temp dir for Unix socket (macOS path length limit)."""
-    with tempfile.TemporaryDirectory(prefix="gw") as d:
-        yield Path(d)
-
-
 class TestGateway:
     @pytest.mark.asyncio
-    async def test_start_and_stop(self, config_dir, short_socket_dir):
-        """Gateway can start and stop cleanly."""
-        gw = Gateway(config_dir=config_dir, agent_name="test-agent")
-        # Override socket/pid paths to use short dir
-        gw._control_server.socket_path = short_socket_dir / "gw.sock"
-        gw._control_server.pid_path = config_dir / "gw.pid"
-
-        with patch.object(gw, "_create_task_executor", return_value=MagicMock()):
-            await gw.start()
-
-            assert gw.is_running
-            assert (config_dir / "gw.pid").exists()
-
-            await gw.stop()
-
-            assert not gw.is_running
-            assert not (config_dir / "gw.pid").exists()
+    async def test_create_app_returns_application(self, config_dir):
+        gw = Gateway(config_dir=config_dir, agent_name="test")
+        app = gw.create_app()
+        assert isinstance(app, web.Application)
 
     @pytest.mark.asyncio
-    async def test_run_with_shutdown(self, config_dir, short_socket_dir):
-        """Gateway.run() exits when shutdown is requested via control server."""
-        gw = Gateway(config_dir=config_dir, agent_name="test-agent")
-        gw._control_server.socket_path = short_socket_dir / "gw.sock"
-        gw._control_server.pid_path = config_dir / "gw.pid"
-
+    async def test_startup_acquires_flock(self, config_dir):
+        gw = Gateway(config_dir=config_dir, agent_name="test")
+        app = web.Application()
         with patch.object(gw, "_create_task_executor", return_value=MagicMock()):
-            await gw.start()
+            with patch.object(gw, "_load_adapters", return_value=[]):
+                await gw._on_startup(app)
+                assert gw._pid_path.exists()
+                pid = int(gw._pid_path.read_text().strip())
+                assert pid > 0
+                await gw._on_cleanup(app)
+                assert not gw._pid_path.exists()
 
-            # Request shutdown after a short delay
-            async def shutdown_after_delay():
-                await asyncio.sleep(0.2)
-                gw._control_server.shutdown_requested = True
+    @pytest.mark.asyncio
+    async def test_get_status(self, config_dir):
+        gw = Gateway(config_dir=config_dir, agent_name="test")
+        gw._start_time = 100.0
+        gw._tasks_run = 5
+        gw._adapter_manager = MagicMock()
+        gw._adapter_manager.connected_platforms = ["slack"]
+        with patch("time.monotonic", return_value=160.0):
+            status = gw._get_status()
+        assert status["uptime"] == 60
+        assert status["tasks_run"] == 5
+        assert status["platforms"] == ["slack"]
 
-            shutdown_task = asyncio.create_task(shutdown_after_delay())
-            await gw.run(tick_interval=0.1)
-            await shutdown_task
-            await gw.stop()
-
-            assert not gw.is_running
+    @pytest.mark.asyncio
+    async def test_cleanup_releases_flock(self, config_dir):
+        gw = Gateway(config_dir=config_dir, agent_name="test")
+        app = web.Application()
+        with patch.object(gw, "_create_task_executor", return_value=MagicMock()):
+            with patch.object(gw, "_load_adapters", return_value=[]):
+                await gw._on_startup(app)
+                assert gw._pid_file is not None
+                await gw._on_cleanup(app)
+                assert gw._pid_file is None
+                assert not gw._pid_path.exists()

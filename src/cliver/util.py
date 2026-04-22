@@ -215,12 +215,20 @@ async def retry_with_confirmation_async(
 
 def _confirm_tool_execution(prompt="Are you sure? (y/n): ") -> bool:
     """Helper function to get user confirmation."""
-    while True:
-        response = input(prompt).strip().lower()
-        if response in ["y", "yes"]:
-            return True
-        elif response in ["n", "no"]:
-            return False
+    from cliver.agent_profile import get_cli_instance, get_input_fn
+
+    cliver_inst = get_cli_instance()
+    if cliver_inst:
+        response = cliver_inst.ui.ask_input(prompt, choices=["y", "yes", "n", "no"])
+        return response.lower() in ("y", "yes")
+
+    # Fallback via get_input_fn (supports test mocking)
+    _input = get_input_fn()
+    try:
+        response = _input(prompt).strip()
+    except (EOFError, KeyboardInterrupt):
+        return False
+    return response.lower() in ("y", "yes")
 
 
 # Primary context file; falls back to CLAUDE.md if Cliver.md is absent.

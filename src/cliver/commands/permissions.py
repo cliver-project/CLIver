@@ -12,20 +12,10 @@ from rich.table import Table
 from cliver.cli import Cliver, pass_cliver
 from cliver.permissions import PermissionAction, PermissionMode, PermissionRule
 
-
-@click.group(name="permissions", help="Manage persistent permission rules", invoke_without_command=True)
-@pass_cliver
-@click.pass_context
-def permissions(ctx, cliver: Cliver):
-    """View or manage persistent permission rules."""
-    if ctx.invoked_subcommand is None:
-        # Default: show rules
-        ctx.invoke(show_rules)
+# Business logic (plain functions — no Click, no async)
 
 
-@permissions.command(name="rules", help="Show all loaded permission rules")
-@pass_cliver
-def show_rules(cliver: Cliver):
+def _show_rules(cliver: Cliver):
     """Display all permission rules with their source file."""
     pm = cliver.permission_manager
     if not pm.rules:
@@ -57,10 +47,7 @@ def show_rules(cliver: Cliver):
     _show_mode_info(cliver)
 
 
-@permissions.command(name="mode", help="Show or set permission mode")
-@click.argument("new_mode", required=False, type=click.Choice(["default", "auto-edit", "yolo"]))
-@pass_cliver
-def set_mode(cliver: Cliver, new_mode: str):
+def _set_mode(cliver: Cliver, new_mode: str = None):
     """Show current mode or set a new one (saves to file)."""
     pm = cliver.permission_manager
     if new_mode is None:
@@ -75,9 +62,7 @@ def set_mode(cliver: Cliver, new_mode: str):
     cliver.output(f"[green]Permission mode set to '{new_mode}' ({target})[/green]")
 
 
-@permissions.command(name="add", help="Add a permission rule interactively")
-@pass_cliver
-def add_rule(cliver: Cliver):
+def _add_rule(cliver: Cliver):
     """Interactive permission builder."""
     pm = cliver.permission_manager
     console = cliver.console
@@ -88,11 +73,7 @@ def add_rule(cliver: Cliver):
     # 1. Tool pattern
     console.print("\n[bold]1. Tool pattern[/bold]")
     console.print("   [dim]Examples: Read, github#.*, Bash, .*[/dim]")
-    try:
-        tool = input("   > ").strip()
-    except (EOFError, KeyboardInterrupt):
-        console.print("[yellow]Cancelled.[/yellow]")
-        return
+    tool = cliver.ui.ask_input("   > ")
     if not tool:
         console.print("[yellow]Cancelled.[/yellow]")
         return
@@ -100,26 +81,18 @@ def add_rule(cliver: Cliver):
     # 2. Resource constraint
     console.print("\n[bold]2. Resource constraint[/bold] [dim](optional, leave empty for all)[/dim]")
     console.print("   [dim]Examples: /data/**, git *, https://api.github.com/**[/dim]")
-    try:
-        resource = input("   > ").strip() or None
-    except (EOFError, KeyboardInterrupt):
-        console.print("[yellow]Cancelled.[/yellow]")
-        return
+    resource = cliver.ui.ask_input("   > ") or None
 
     # 3. Action
     console.print("\n[bold]3. Action[/bold]")
-    try:
-        action_input = input("   [a]llow or [d]eny? > ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
+    action_input = cliver.ui.ask_input("   [a]llow or [d]eny? > ", choices=["a", "allow", "d", "deny"])
+    if not action_input:
         console.print("[yellow]Cancelled.[/yellow]")
         return
-    if action_input in ("a", "allow"):
+    if action_input.lower() in ("a", "allow"):
         action = PermissionAction.ALLOW
-    elif action_input in ("d", "deny"):
-        action = PermissionAction.DENY
     else:
-        console.print("[yellow]Invalid action. Cancelled.[/yellow]")
-        return
+        action = PermissionAction.DENY
 
     # 4. Save target
     target = _prompt_save_target(cliver)
@@ -138,10 +111,7 @@ def add_rule(cliver: Cliver):
     console.print(f"  Saved to {target} settings.")
 
 
-@permissions.command(name="remove", help="Remove a permission rule by index")
-@click.argument("index", type=int)
-@pass_cliver
-def remove_rule(cliver: Cliver, index: int):
+def _remove_rule(cliver: Cliver, index: int):
     """Remove a rule by its index (shown in /permissions rules)."""
     pm = cliver.permission_manager
     if index < 0 or index >= len(pm.rules):
@@ -154,17 +124,50 @@ def remove_rule(cliver: Cliver, index: int):
     cliver.output(f"Removing rule #{index}: {rule.action.value} {rule.tool}{resource_str}")
     cliver.output(f"  Source: {source}")
 
-    try:
-        confirm = input("  Confirm? [y/n] > ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        cliver.output("[yellow]Cancelled.[/yellow]")
-        return
-    if confirm not in ("y", "yes"):
+    response = cliver.ui.ask_input("  Confirm? [y/n] > ", choices=["y", "yes", "n", "no"])
+    if response.lower() not in ("y", "yes"):
         cliver.output("[yellow]Cancelled.[/yellow]")
         return
 
     pm.remove_rule(index)
     cliver.output("[green]Rule removed.[/green]")
+
+
+# TUI dispatch entry point
+
+
+def dispatch(cliver: Cliver, args: str):
+    """Dispatch subcommand from TUI."""
+    parts = args.strip().split(None, 1) if args.strip() else []
+    sub = parts[0] if parts else "rules"  # default subcommand
+    rest = parts[1] if len(parts) > 1 else ""
+
+    if sub == "rules":
+        _show_rules(cliver)
+    elif sub == "mode":
+        if rest and rest.strip() in ("default", "auto-edit", "yolo"):
+            _set_mode(cliver, rest.strip())
+        else:
+            _set_mode(cliver)
+    elif sub == "add":
+        _add_rule(cliver)
+    elif sub == "remove":
+        if not rest:
+            cliver.output("[yellow]Usage: /permissions remove <index>[/yellow]")
+            return
+        try:
+            index = int(rest.strip())
+            _remove_rule(cliver, index)
+        except ValueError:
+            cliver.output("[red]Index must be a number[/red]")
+    elif sub in ("--help", "help"):
+        cliver.output("Usage: /permissions [rules|mode|add|remove] ...")
+        cliver.output("  rules              — show all permission rules")
+        cliver.output("  mode [mode]        — show or set mode (default|auto-edit|yolo)")
+        cliver.output("  add                — add a permission rule interactively")
+        cliver.output("  remove <index>     — remove a rule by index")
+    else:
+        cliver.output(f"[yellow]Unknown: /permissions {sub}[/yellow]")
 
 
 # --- Helpers ---
@@ -188,19 +191,15 @@ def _prompt_save_target(cliver: Cliver) -> str | None:
     console.print(f"  [g]lobal ({global_path})")
     console.print(f"  [l]ocal  ({local_path})")
 
-    try:
-        choice = input("  > ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
+    choice = cliver.ui.ask_input("  > ", choices=["g", "global", "l", "local"])
+    if not choice:
         console.print("[yellow]Cancelled.[/yellow]")
         return None
 
-    if choice in ("g", "global"):
+    if choice.lower() in ("g", "global"):
         return "global"
-    elif choice in ("l", "local"):
-        return "local"
     else:
-        console.print("[yellow]Invalid choice. Cancelled.[/yellow]")
-        return None
+        return "local"
 
 
 def _shorten_path(path: str) -> str:
@@ -210,3 +209,42 @@ def _shorten_path(path: str) -> str:
     elif "/.cliver/" in path:
         return "local"
     return path
+
+
+# Click wrappers (thin — just call logic functions)
+
+
+@click.group(name="permissions", help="Manage persistent permission rules", invoke_without_command=True)
+@pass_cliver
+@click.pass_context
+def permissions(ctx, cliver: Cliver):
+    """View or manage persistent permission rules."""
+    if ctx.invoked_subcommand is None:
+        # Default: show rules
+        _show_rules(cliver)
+
+
+@permissions.command(name="rules", help="Show all loaded permission rules")
+@pass_cliver
+def show_rules(cliver: Cliver):
+    _show_rules(cliver)
+
+
+@permissions.command(name="mode", help="Show or set permission mode")
+@click.argument("new_mode", required=False, type=click.Choice(["default", "auto-edit", "yolo"]))
+@pass_cliver
+def set_mode(cliver: Cliver, new_mode: str):
+    _set_mode(cliver, new_mode)
+
+
+@permissions.command(name="add", help="Add a permission rule interactively")
+@pass_cliver
+def add_rule(cliver: Cliver):
+    _add_rule(cliver)
+
+
+@permissions.command(name="remove", help="Remove a permission rule by index")
+@click.argument("index", type=int)
+@pass_cliver
+def remove_rule(cliver: Cliver, index: int):
+    _remove_rule(cliver, index)

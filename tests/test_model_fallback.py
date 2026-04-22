@@ -422,44 +422,24 @@ class TestReActLoopFallback:
         assert engine_a.infer.call_count == 3
 
 
-class TestNoFallbackFlag:
-    """--no-fallback CLI flag."""
-
-    def test_no_fallback_flag_accepted(self, load_cliver, init_config):
-        result = CliRunner().invoke(
-            load_cliver,
-            ["chat", "--no-fallback", "hello"],
-            catch_exceptions=False,
-        )
-        assert "no such option: --no-fallback" not in result.output
-
-    def test_no_fallback_on_top_level(self, load_cliver, init_config):
-        result = CliRunner().invoke(
-            load_cliver,
-            ["-p", "hello", "--no-fallback"],
-            catch_exceptions=False,
-        )
-        assert "no such option: --no-fallback" not in result.output
-
-
 class TestModelFallbackIntegration:
     """Integration tests combining fallback with CLI flags."""
 
-    def test_no_fallback_with_json_output(self, load_cliver, init_config):
-        """--no-fallback + --output json should work together."""
+    def test_prompt_with_json_output(self, load_cliver, init_config):
+        """--output json should work with -p."""
         import json
 
         result = CliRunner().invoke(
             load_cliver,
-            ["-p", "hello", "--output", "json", "--no-fallback"],
+            ["-p", "hello", "--output", "json"],
             catch_exceptions=False,
         )
         output = result.output.strip()
         data = json.loads(output)
         assert "success" in data
 
-    def test_full_ci_with_no_fallback(self, load_cliver, init_config):
-        """All CI flags + --no-fallback should work together."""
+    def test_full_ci_flags(self, load_cliver, init_config):
+        """All CI flags should work together."""
         import json
 
         result = CliRunner().invoke(
@@ -473,7 +453,6 @@ class TestModelFallbackIntegration:
                 "60",
                 "--permission-mode",
                 "yolo",
-                "--no-fallback",
             ],
             catch_exceptions=False,
         )

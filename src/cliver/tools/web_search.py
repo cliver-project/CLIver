@@ -13,6 +13,9 @@ logger = logging.getLogger(__name__)
 DEFAULT_MAX_RESULTS = 5
 
 
+SUPPORTED_ENGINES = ["duckduckgo", "bing", "sogou", "google", "baidu"]
+
+
 class WebSearchInput(BaseModel):
     """Input schema for the web_search tool."""
 
@@ -20,6 +23,11 @@ class WebSearchInput(BaseModel):
     max_results: Optional[int] = Field(
         default=None,
         description=f"Maximum number of results to return. Defaults to {DEFAULT_MAX_RESULTS}.",
+    )
+    engine: Optional[str] = Field(
+        default=None,
+        description="Search engine to use: duckduckgo (default), bing, sogou, google, baidu. "
+        "If a previous search told you which engine worked, use that one.",
     )
 
 
@@ -38,20 +46,35 @@ class WebSearchTool(BaseTool):
     args_schema: Type[BaseModel] = WebSearchInput
     tags: list = ["search", "web", "fetch"]
 
-    def _run(self, query: str, max_results: Optional[int] = None) -> str:
+    def _run(self, query: str, max_results: Optional[int] = None, engine: Optional[str] = None) -> str:
         num_results = max_results or DEFAULT_MAX_RESULTS
 
-        # Try DuckDuckGo HTML search (no API key required)
-        try:
-            return self._duckduckgo_search(query, num_results)
-        except Exception as e:
-            logger.warning(f"DuckDuckGo search failed: {e}")
+        engines = {
+            "duckduckgo": self._duckduckgo_search,
+            "bing": self._bing_search,
+            "sogou": self._sogou_search,
+            "google": self._google_search,
+            "baidu": self._baidu_search,
+        }
 
-        return (
-            "Error: Web search is currently unavailable. "
-            "Could not reach any search provider. "
-            "Please check your network connection."
-        )
+        # If a specific engine is requested, try it first
+        if engine and engine.lower() in engines:
+            order = [engine.lower()] + [e for e in engines if e != engine.lower()]
+        else:
+            order = list(engines.keys())
+
+        errors = []
+        for eng_name in order:
+            try:
+                result = engines[eng_name](query, num_results)
+                if result and "No search results found" not in result:
+                    prefix = f"[Search engine: {eng_name}]\n\n"
+                    return prefix + result
+            except Exception as e:
+                logger.warning("%s search failed: %s", eng_name, e)
+                errors.append(f"{eng_name}: {e}")
+
+        return f"Error: Web search is currently unavailable. Tried: {', '.join(order)}. Errors: {'; '.join(errors)}"
 
     def _duckduckgo_search(self, query: str, num_results: int) -> str:
         """Search using DuckDuckGo Lite HTML (no API key needed)."""
@@ -117,6 +140,182 @@ class WebSearchTool(BaseTool):
         if not results:
             return f"No search results found for: {query}"
 
+        return f"Search results for: {query}\n\n" + "\n\n".join(results)
+
+    def _bing_search(self, query: str, num_results: int) -> str:
+        """Search using Bing HTML (no API key needed)."""
+        url = f"https://www.bing.com/search?q={urllib.parse.quote(query)}&count={num_results}"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (compatible; CLIver/1.0)"})
+
+        with urllib.request.urlopen(req, timeout=15) as response:
+            html = response.read().decode("utf-8", errors="replace")
+
+        return self._parse_bing(html, query, num_results)
+
+    def _parse_bing(self, html: str, query: str, num_results: int) -> str:
+        """Parse Bing search results from HTML."""
+        import re
+
+        results = []
+        # Bing results: <li class="b_algo"><h2><a href="...">title</a></h2><p>snippet</p></li>
+        block_pattern = re.compile(r'<li class="b_algo">(.*?)</li>', re.DOTALL)
+        link_pattern = re.compile(r'<a[^>]*href="(https?://[^"]+)"[^>]*>(.*?)</a>', re.DOTALL)
+        snippet_pattern = re.compile(r"<p[^>]*>(.*?)</p>", re.DOTALL)
+
+        for i, block in enumerate(block_pattern.findall(html)[:num_results]):
+            link_match = link_pattern.search(block)
+            snippet_match = snippet_pattern.search(block)
+            if link_match:
+                url = link_match.group(1)
+                title = re.sub(r"<[^>]+>", "", link_match.group(2)).strip()
+                snippet = re.sub(r"<[^>]+>", "", snippet_match.group(1)).strip() if snippet_match else ""
+                result = f"[{i + 1}] {title}\n    URL: {url}"
+                if snippet:
+                    result += f"\n    {snippet}"
+                results.append(result)
+
+        if not results:
+            return f"No search results found for: {query}"
+        return f"Search results for: {query}\n\n" + "\n\n".join(results)
+
+    def _google_search(self, query: str, num_results: int) -> str:
+        """Search using Google HTML (no API key needed)."""
+        url = f"https://www.google.com/search?q={urllib.parse.quote(query)}&num={num_results}"
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            },
+        )
+
+        with urllib.request.urlopen(req, timeout=15) as response:
+            html = response.read().decode("utf-8", errors="replace")
+
+        return self._parse_google(html, query, num_results)
+
+    def _parse_google(self, html: str, query: str, num_results: int) -> str:
+        """Parse Google search results from HTML."""
+        import re
+
+        results = []
+        # Google wraps results in <div class="g"> blocks
+        link_pattern = re.compile(r'<a[^>]*href="(https?://(?!www\.google\.)[^"]+)"[^>]*>(.*?)</a>', re.DOTALL)
+        snippet_pattern = re.compile(r'<span class="(?:aCOpRe|hgKElc)"[^>]*>(.*?)</span>', re.DOTALL)
+
+        links = link_pattern.findall(html)
+        snippets = snippet_pattern.findall(html)
+
+        seen_urls = set()
+        for url, title in links:
+            if url in seen_urls or "google.com" in url:
+                continue
+            seen_urls.add(url)
+            clean_title = re.sub(r"<[^>]+>", "", title).strip()
+            if not clean_title:
+                continue
+
+            idx = len(results)
+            snippet = ""
+            if idx < len(snippets):
+                snippet = re.sub(r"<[^>]+>", "", snippets[idx]).strip()
+
+            result = f"[{idx + 1}] {clean_title}\n    URL: {url}"
+            if snippet:
+                result += f"\n    {snippet}"
+            results.append(result)
+            if len(results) >= num_results:
+                break
+
+        if not results:
+            return f"No search results found for: {query}"
+        return f"Search results for: {query}\n\n" + "\n\n".join(results)
+
+    def _sogou_search(self, query: str, num_results: int) -> str:
+        """Search using Sogou (Chinese search engine, no API key needed)."""
+        url = f"https://www.sogou.com/web?query={urllib.parse.quote(query)}"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (compatible; CLIver/1.0)"})
+
+        with urllib.request.urlopen(req, timeout=15) as response:
+            html = response.read().decode("utf-8", errors="replace")
+
+        return self._parse_sogou(html, query, num_results)
+
+    def _parse_sogou(self, html: str, query: str, num_results: int) -> str:
+        """Parse Sogou search results from HTML."""
+        import re
+
+        results = []
+        link_pattern = re.compile(r'<a[^>]*href="(https?://[^"]+)"[^>]*>(.*?)</a>', re.DOTALL)
+
+        seen_urls = set()
+        for url, title in link_pattern.findall(html):
+            if url in seen_urls or "sogou.com" in url:
+                continue
+            seen_urls.add(url)
+            clean_title = re.sub(r"<[^>]+>", "", title).strip()
+            if not clean_title or len(clean_title) < 5:
+                continue
+
+            idx = len(results)
+            result = f"[{idx + 1}] {clean_title}\n    URL: {url}"
+            results.append(result)
+            if len(results) >= num_results:
+                break
+
+        if not results:
+            return f"No search results found for: {query}"
+        return f"Search results for: {query}\n\n" + "\n\n".join(results)
+
+    def _baidu_search(self, query: str, num_results: int) -> str:
+        """Search using Baidu (Chinese search engine, no API key needed)."""
+        url = f"https://www.baidu.com/s?wd={urllib.parse.quote(query)}&rn={num_results}"
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            },
+        )
+
+        with urllib.request.urlopen(req, timeout=15) as response:
+            html = response.read().decode("utf-8", errors="replace")
+
+        return self._parse_baidu(html, query, num_results)
+
+    def _parse_baidu(self, html: str, query: str, num_results: int) -> str:
+        """Parse Baidu search results from HTML."""
+        import re
+
+        results = []
+        # Baidu wraps results in <div class="result"> or <div class="c-container">
+        block_pattern = re.compile(r'<div class="[^"]*c-container[^"]*"[^>]*>(.*?)</div>\s*</div>', re.DOTALL)
+        link_pattern = re.compile(r'<a[^>]*href="(https?://[^"]+)"[^>]*>(.*?)</a>', re.DOTALL)
+
+        for block in block_pattern.findall(html)[:num_results]:
+            link_match = link_pattern.search(block)
+            if link_match:
+                url = link_match.group(1)
+                title = re.sub(r"<[^>]+>", "", link_match.group(2)).strip()
+                if title and "baidu.com" not in url:
+                    idx = len(results)
+                    result = f"[{idx + 1}] {title}\n    URL: {url}"
+                    results.append(result)
+
+        # Fallback: extract links directly
+        if not results:
+            for url, title in link_pattern.findall(html):
+                if "baidu.com" in url or not title.strip():
+                    continue
+                clean_title = re.sub(r"<[^>]+>", "", title).strip()
+                if clean_title and len(clean_title) > 5:
+                    idx = len(results)
+                    results.append(f"[{idx + 1}] {clean_title}\n    URL: {url}")
+                    if len(results) >= num_results:
+                        break
+
+        if not results:
+            return f"No search results found for: {query}"
         return f"Search results for: {query}\n\n" + "\n\n".join(results)
 
 

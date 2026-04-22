@@ -27,7 +27,7 @@ def test_retry_with_confirmation_success():
         return "Success on second call"
 
     # Mock input to automatically confirm retries
-    with patch("builtins.input", return_value="y"):
+    with patch("cliver.agent_profile.get_input_fn", return_value=lambda _: "y"):
         result = retry_with_confirmation(fail_once, max_retries=3)
         assert result == "Success on second call"
         assert call_count == 2
@@ -35,14 +35,14 @@ def test_retry_with_confirmation_success():
 
 def test_retry_with_confirmation_exhausted_retries():
     """Test that retry_with_confirmation raises exception when retries are exhausted."""
-    with patch("builtins.input", return_value="y"):
+    with patch("cliver.agent_profile.get_input_fn", return_value=lambda _: "y"):
         with pytest.raises(Exception, match="Always fails"):
             retry_with_confirmation(failing_function, max_retries=2)
 
 
 def test_retry_with_confirmation_user_declines():
     """Test that retry_with_confirmation stops when user declines to retry."""
-    with patch("builtins.input", return_value="n"):
+    with patch("cliver.agent_profile.get_input_fn", return_value=lambda _: "n"):
         with pytest.raises(Exception, match="Failed as expected"):
             retry_with_confirmation(sometimes_failing_function, True, max_retries=3)
 

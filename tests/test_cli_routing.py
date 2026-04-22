@@ -1,7 +1,9 @@
-"""Tests for CliverGroup command routing.
+"""Tests for CLI command routing.
 
-Verifies that unrecognized CLI args are routed to the chat command,
-while known commands, flags, and interactive mode still work correctly.
+Verifies that known commands resolve normally, flags work, and
+interactive mode doesn't crash. CliverGroup has been removed;
+unrecognized text routing to chat is now handled by the TUI
+CommandRouter, not at the Click group level.
 """
 
 from click.testing import CliRunner
@@ -59,36 +61,21 @@ class TestFlagsStillWork:
         assert "cliver" in result.output
 
 
-class TestUnrecognizedTextRoutesToChat:
-    """Unrecognized first args should be routed to 'chat' command."""
+class TestUnrecognizedTextBehavior:
+    """Without CliverGroup, unrecognized args produce Click errors.
 
-    def test_quoted_sentence(self, load_cliver, init_config):
-        """cliver "tell me a joke" → cliver chat "tell me a joke" """
+    The TUI CommandRouter handles text-to-chat routing interactively.
+    """
+
+    def test_unrecognized_text_shows_error(self, load_cliver, init_config):
+        """Unrecognized first arg should produce a Click error."""
         result = CliRunner().invoke(load_cliver, ["tell me a joke"])
-        # Should NOT show "No such command"
-        assert "No such command" not in result.output
-        # Should have been routed to chat — will fail because no model
-        # is configured, which proves it reached the chat command
-        assert "Error" in result.output or result.exit_code != 0
+        assert result.exit_code != 0
 
-    def test_multiple_words(self, load_cliver, init_config):
-        """cliver what time is it → cliver chat what time is it"""
-        result = CliRunner().invoke(load_cliver, ["what", "time", "is", "it"])
-        assert "No such command" not in result.output
-
-    def test_single_word_not_a_command(self, load_cliver, init_config):
-        """cliver hello → cliver chat hello"""
-        result = CliRunner().invoke(load_cliver, ["hello"])
-        assert "No such command" not in result.output
-
-    def test_sentence_with_punctuation(self, load_cliver, init_config):
-        """cliver "who are you?" → chat"""
-        result = CliRunner().invoke(load_cliver, ["who are you?"])
-        assert "No such command" not in result.output
-
-    def test_explicit_chat_still_works(self, load_cliver, init_config):
-        """cliver chat "hello" should still work as before."""
-        result = CliRunner().invoke(load_cliver, ["chat", "hello"])
+    def test_prompt_flag_routes_to_query(self, load_cliver, init_config):
+        """cliver -p "hello" routes to LLM query via --prompt flag."""
+        result = CliRunner().invoke(load_cliver, ["-p", "hello"])
+        # Should reach the LLM query path (may error because no model configured)
         assert "No such command" not in result.output
 
 
@@ -108,10 +95,10 @@ class TestUnrecognizedDoesNotHijackCommands:
         assert result.exit_code == 0
         assert "Configuration file path:" in result.output
 
-    def test_chat_with_options_still_works(self, load_cliver, init_config):
-        """cliver chat --model qwen "hello" should parse correctly."""
-        result = CliRunner().invoke(load_cliver, ["chat", "--model", "qwen", "hello"])
-        # Should reach chat, may error on model not found but not "No such command"
+    def test_prompt_with_model_option(self, load_cliver, init_config):
+        """cliver -m qwen -p "hello" should parse correctly."""
+        result = CliRunner().invoke(load_cliver, ["-m", "qwen", "-p", "hello"])
+        # Should reach query, may error on model not found but not "No such command"
         assert "No such command" not in result.output
 
 

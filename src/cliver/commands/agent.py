@@ -10,31 +10,33 @@ import click
 from cliver.agent_profile import CliverProfile
 from cliver.cli import Cliver, pass_cliver
 
-
-@click.group(
-    name="agent",
-    help="Manage agent instances",
-    invoke_without_command=True,
-)
-@pass_cliver
-@click.pass_context
-def agent(ctx, cliver: Cliver):
-    """View or manage agent instances."""
-    if ctx.invoked_subcommand is None:
-        _show_agents(cliver)
+# Business logic (plain functions — no Click, no async)
 
 
-@agent.command(name="list", help="List all agent instances")
-@pass_cliver
-def list_agents(cliver: Cliver):
-    """List all agent instances."""
-    _show_agents(cliver)
+def _show_agents(cliver: Cliver):
+    """Display all agents with the active one highlighted."""
+    agents = CliverProfile.list_agents(cliver.config_dir)
+    current = cliver.agent_name
+
+    cliver.output("[bold]Agent Instances[/bold]")
+    if not agents:
+        cliver.output(f"  [green]* {current}[/green] (active, no data yet)")
+    else:
+        for name in agents:
+            if name == current:
+                cliver.output(f"  [green]* {name}[/green] (active)")
+            else:
+                cliver.output(f"    {name}")
+        if current not in agents:
+            cliver.output(f"  [green]* {current}[/green] (active, no data yet)")
+    cliver.output()
+    cliver.output("[dim]  /agent create <name>  — create new agent[/dim]")
+    cliver.output("[dim]  /agent switch <name>  — switch to agent[/dim]")
+    cliver.output("[dim]  /agent rename <name>  — rename current agent[/dim]")
+    cliver.output("[dim]  /agent delete <name>  — delete an agent[/dim]")
 
 
-@agent.command(name="switch", help="Switch to a different agent")
-@click.argument("name")
-@pass_cliver
-def switch_agent(cliver: Cliver, name: str):
+def _switch_agent(cliver: Cliver, name: str):
     """Switch to an agent instance. Creates it if it doesn't exist."""
     if name == cliver.agent_name:
         cliver.output(f"Already using agent [green]{name}[/green].")
@@ -43,10 +45,7 @@ def switch_agent(cliver: Cliver, name: str):
     cliver.output(f"Switched to agent [bold green]{name}[/bold green].")
 
 
-@agent.command(name="create", help="Create a new agent instance")
-@click.argument("name")
-@pass_cliver
-def create_agent(cliver: Cliver, name: str):
+def _create_agent(cliver: Cliver, name: str):
     """Create a new agent with an identity profile and switch to it."""
     existing = CliverProfile.list_agents(cliver.config_dir)
     if name in existing:
@@ -57,7 +56,7 @@ def create_agent(cliver: Cliver, name: str):
     cliver.output("[dim]Press Enter to skip any question.[/dim]\n")
 
     # Gather identity info interactively
-    identity = _ask_identity(name)
+    identity = _ask_identity(name, cliver=cliver)
 
     # Create the agent and write its identity
     profile = CliverProfile(name, cliver.config_dir)
@@ -69,15 +68,18 @@ def create_agent(cliver: Cliver, name: str):
     cliver.output("[dim]Update identity anytime with /identity chat[/dim]")
 
 
-def _ask_identity(agent_name: str) -> str:
+def _ask_identity(agent_name: str, cliver=None) -> str:
     """Interactively build an identity.md for a new agent."""
 
     def _ask(prompt: str, default: str = "") -> str:
-        try:
-            value = input(f"  {prompt}: ").strip()
-            return value if value else default
-        except (EOFError, KeyboardInterrupt):
-            return default
+        if cliver:
+            value = cliver.ui.ask_input(f"  {prompt}: ")
+        else:
+            try:
+                value = input(f"  {prompt}: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                value = ""
+        return value if value else default
 
     # Agent persona
     persona_style = _ask("Agent style (e.g., professional, casual, technical)", "Helpful and professional")
@@ -111,10 +113,7 @@ def _ask_identity(agent_name: str) -> str:
     return "\n".join(lines)
 
 
-@agent.command(name="rename", help="Rename the current agent")
-@click.argument("new_name")
-@pass_cliver
-def rename_agent(cliver: Cliver, new_name: str):
+def _rename_agent(cliver: Cliver, new_name: str):
     """Rename the current agent, moving all its resources."""
     old_name = cliver.agent_name
     if old_name == new_name:
@@ -134,10 +133,7 @@ def rename_agent(cliver: Cliver, new_name: str):
         cliver.output(f"[red]Failed to rename: {e}[/red]")
 
 
-@agent.command(name="delete", help="Delete an agent instance")
-@click.argument("name")
-@pass_cliver
-def delete_agent(cliver: Cliver, name: str):
+def _delete_agent(cliver: Cliver, name: str):
     """Delete an agent instance after confirmation."""
     import shutil
 
@@ -153,13 +149,9 @@ def delete_agent(cliver: Cliver, name: str):
     # Confirm deletion
     cliver.output(f"[bold yellow]Delete agent '{name}' and all its data?[/bold yellow]")
     cliver.output(f"  Directory: {agent_dir}")
-    try:
-        response = input("  Type 'yes' to confirm: ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        cliver.output("Cancelled.")
-        return
 
-    if response != "yes":
+    response = cliver.ui.ask_input("  Type 'yes' to confirm: ")
+    if response.lower() not in ("y", "yes"):
         cliver.output("Cancelled.")
         return
 
@@ -167,24 +159,94 @@ def delete_agent(cliver: Cliver, name: str):
     cliver.output(f"Deleted agent [red]{name}[/red].")
 
 
-def _show_agents(cliver: Cliver):
-    """Display all agents with the active one highlighted."""
-    agents = CliverProfile.list_agents(cliver.config_dir)
-    current = cliver.agent_name
+# TUI dispatch entry point
 
-    cliver.output("[bold]Agent Instances[/bold]")
-    if not agents:
-        cliver.output(f"  [green]* {current}[/green] (active, no data yet)")
+
+def dispatch(cliver: Cliver, args: str):
+    """Dispatch subcommand from TUI."""
+    parts = args.strip().split(None, 1) if args.strip() else []
+    sub = parts[0] if parts else "list"  # default subcommand
+    rest = parts[1] if len(parts) > 1 else ""
+
+    if sub == "list":
+        _show_agents(cliver)
+    elif sub == "switch":
+        if not rest:
+            cliver.output("[yellow]Usage: /agent switch <name>[/yellow]")
+            return
+        _switch_agent(cliver, rest.strip())
+    elif sub == "create":
+        if not rest:
+            cliver.output("[yellow]Usage: /agent create <name>[/yellow]")
+            return
+        _create_agent(cliver, rest.strip())
+    elif sub == "rename":
+        if not rest:
+            cliver.output("[yellow]Usage: /agent rename <new_name>[/yellow]")
+            return
+        _rename_agent(cliver, rest.strip())
+    elif sub == "delete":
+        if not rest:
+            cliver.output("[yellow]Usage: /agent delete <name>[/yellow]")
+            return
+        _delete_agent(cliver, rest.strip())
+    elif sub in ("--help", "help"):
+        cliver.output("Usage: /agent [list|switch|create|rename|delete] ...")
+        cliver.output("  list              — list all agents")
+        cliver.output("  switch <name>     — switch to agent")
+        cliver.output("  create <name>     — create new agent")
+        cliver.output("  rename <new_name> — rename current agent")
+        cliver.output("  delete <name>     — delete an agent")
     else:
-        for name in agents:
-            if name == current:
-                cliver.output(f"  [green]* {name}[/green] (active)")
-            else:
-                cliver.output(f"    {name}")
-        if current not in agents:
-            cliver.output(f"  [green]* {current}[/green] (active, no data yet)")
-    cliver.output()
-    cliver.output("[dim]  /agent create <name>  — create new agent[/dim]")
-    cliver.output("[dim]  /agent switch <name>  — switch to agent[/dim]")
-    cliver.output("[dim]  /agent rename <name>  — rename current agent[/dim]")
-    cliver.output("[dim]  /agent delete <name>  — delete an agent[/dim]")
+        cliver.output(f"[yellow]Unknown: /agent {sub}[/yellow]")
+
+
+# Click wrappers (thin — just call logic functions)
+
+
+@click.group(
+    name="agent",
+    help="Manage agent instances",
+    invoke_without_command=True,
+)
+@pass_cliver
+@click.pass_context
+def agent(ctx, cliver: Cliver):
+    """View or manage agent instances."""
+    if ctx.invoked_subcommand is None:
+        _show_agents(cliver)
+
+
+@agent.command(name="list", help="List all agent instances")
+@pass_cliver
+def list_agents(cliver: Cliver):
+    """List all agent instances."""
+    _show_agents(cliver)
+
+
+@agent.command(name="switch", help="Switch to a different agent")
+@click.argument("name")
+@pass_cliver
+def switch_agent(cliver: Cliver, name: str):
+    _switch_agent(cliver, name)
+
+
+@agent.command(name="create", help="Create a new agent instance")
+@click.argument("name")
+@pass_cliver
+def create_agent(cliver: Cliver, name: str):
+    _create_agent(cliver, name)
+
+
+@agent.command(name="rename", help="Rename the current agent")
+@click.argument("new_name")
+@pass_cliver
+def rename_agent(cliver: Cliver, new_name: str):
+    _rename_agent(cliver, new_name)
+
+
+@agent.command(name="delete", help="Delete an agent instance")
+@click.argument("name")
+@pass_cliver
+def delete_agent(cliver: Cliver, name: str):
+    _delete_agent(cliver, name)

@@ -26,6 +26,18 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _response_color_start() -> str:
+    from cliver.themes import get_theme
+
+    return get_theme().response_ansi_start
+
+
+def _response_color_reset() -> str:
+    from cliver.themes import get_theme
+
+    return get_theme().response_ansi_reset
+
+
 @dataclass
 class LLMCallResult:
     """Result of an LLM call."""
@@ -134,6 +146,7 @@ def _stream_call(
         if not first_token_emitted:
             first_token_emitted = True
             console.print("[dim]─" * 50 + "[/dim]")
+            print(_response_color_start(), end="")
 
     try:
         accumulated_chunk = None
@@ -166,8 +179,8 @@ def _stream_call(
                     on_first_token()
                     print(str(chunk.content), end="")
 
-            # Final flush
-            print(flush=True)
+            # Reset color and flush
+            print(_response_color_reset(), flush=True)
 
         asyncio.run(_run())
 
@@ -249,7 +262,7 @@ def _sync_call(
 
         if multimedia_response.has_text():
             text = multimedia_response.text_content
-            console.print(text)
+            console.print(f"{_response_color_start()}{text}{_response_color_reset()}")
 
         if multimedia_response.has_media():
             media_count = len(multimedia_response.media_content)
@@ -263,111 +276,6 @@ def _sync_call(
                 console.print(info)
 
     return LLMCallResult(success=True, text=text, response=response)
-
-
-async def async_stream_call(
-    task_executor: "AgentCore",
-    opts: LLMCallOptions,
-    thinking,
-    console,
-) -> LLMCallResult:
-    """Execute a streaming LLM call (async version).
-
-    This is the async version of _stream_call. It uses async for directly
-    instead of wrapping in asyncio.run().
-    """
-    from cliver.media_handler import MultimediaResponseHandler
-
-    response_handler = MultimediaResponseHandler(opts.media_dir)
-
-    first_token_emitted = False
-
-    def on_first_token():
-        nonlocal first_token_emitted
-        if thinking:
-            thinking.stop()
-        if not first_token_emitted:
-            first_token_emitted = True
-            console.print("[dim]─" * 50 + "[/dim]")
-
-    try:
-        accumulated_chunk = None
-
-        async for chunk in task_executor.stream_user_input(
-            user_input=opts.user_input,
-            images=opts.images or None,
-            audio_files=opts.audio_files or None,
-            video_files=opts.video_files or None,
-            files=opts.files or None,
-            model=opts.model,
-            template=opts.template,
-            params=opts.params,
-            options=opts.options,
-            filter_tools=opts.tools_filter,
-            system_message_appender=opts.system_message_appender,
-            conversation_history=opts.conversation_history,
-            timeout_s=opts.timeout_s,
-            auto_fallback=opts.auto_fallback,
-            on_pending_input=opts.on_pending_input,
-        ):
-            if accumulated_chunk is None:
-                accumulated_chunk = chunk
-            else:
-                accumulated_chunk = accumulated_chunk + chunk
-
-            if hasattr(chunk, "content") and chunk.content:
-                on_first_token()
-                print(str(chunk.content), end="")
-
-        # Final flush
-        print(flush=True)
-
-        text = ""
-        if accumulated_chunk:
-            llm_engine = task_executor.get_llm_engine(opts.model)
-            multimedia_response = response_handler.process_response(
-                accumulated_chunk, llm_engine=llm_engine, auto_save_media=opts.save_media
-            )
-
-            if multimedia_response.has_media():
-                console.print()
-                media_count = len(multimedia_response.media_content)
-                console.print(f"\n\\[Media Content: {media_count} items]")
-                for i, media in enumerate(multimedia_response.media_content):
-                    info = f"  {i + 1}. {media.type.value}"
-                    if media.filename:
-                        info += f" ({media.filename})"
-                    if media.mime_type:
-                        info += f" \\[{media.mime_type}]"
-                    console.print(info)
-
-            if hasattr(accumulated_chunk, "content") and accumulated_chunk.content:
-                text = str(accumulated_chunk.content)
-
-        console.print()  # trailing newline
-        return LLMCallResult(success=True, text=text, response=accumulated_chunk)
-
-    except ValueError as e:
-        if "File upload is not supported" in str(e):
-            console.print(f"[red]Error: {e}[/red]")
-            console.print("Will use content embedding as fallback.")
-        else:
-            raise
-        return LLMCallResult(success=False, error=str(e))
-
-
-async def async_llm_call(cliver: "Cliver", opts: LLMCallOptions) -> LLMCallResult:
-    """Execute an LLM call from the async TUI event loop.
-
-    Runs the synchronous llm_call in an executor thread so that blocking
-    operations (permission prompts, user input dialogs) don't deadlock
-    the TUI event loop.
-    """
-    import asyncio
-
-    loop = asyncio.get_event_loop()
-    result = await loop.run_in_executor(None, lambda: llm_call(cliver, opts))
-    return result
 
 
 def _show_token_usage(cliver: "Cliver") -> None:

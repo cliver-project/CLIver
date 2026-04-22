@@ -24,27 +24,32 @@ from cliver.util import parse_key_value_options
 def session_cmd(ctx, cliver: Cliver):
     """View or manage conversation sessions."""
     if ctx.invoked_subcommand is None:
-        # Default: show current session info
-        if not hasattr(cliver, "current_session_id") or not cliver.current_session_id:
-            cliver.output("No active session.")
-            return
-        sm = cliver.get_session_manager()
-        info = sm.get_session_info(cliver.current_session_id)
-        if info:
-            cliver.output(f"Current session: {info['id']}")
-            cliver.output(f"  Title: {info.get('title', '(untitled)')}")
-            cliver.output(f"  Turns: {info.get('turn_count', 0)}")
-            cliver.output(f"  Created: {info.get('created_at', '?')}")
-            cliver.output(f"  Updated: {info.get('updated_at', '?')}")
-        else:
-            cliver.output(f"Session '{cliver.current_session_id}' not found in index.")
+        _show_current_session(cliver)
 
 
-@session_cmd.command(name="search", help="Search past sessions by content")
-@click.argument("query")
-@click.option("--limit", "-n", type=int, default=10, help="Max results to show")
-@pass_cliver
-def search_sessions(cliver: Cliver, query: str, limit: int):
+# ---------------------------------------------------------------------------
+# Business logic functions
+# ---------------------------------------------------------------------------
+
+
+def _show_current_session(cliver: Cliver):
+    """Show current session info."""
+    if not hasattr(cliver, "current_session_id") or not cliver.current_session_id:
+        cliver.output("No active session.")
+        return
+    sm = cliver.get_session_manager()
+    info = sm.get_session_info(cliver.current_session_id)
+    if info:
+        cliver.output(f"Current session: {info['id']}")
+        cliver.output(f"  Title: {info.get('title', '(untitled)')}")
+        cliver.output(f"  Turns: {info.get('turn_count', 0)}")
+        cliver.output(f"  Created: {info.get('created_at', '?')}")
+        cliver.output(f"  Updated: {info.get('updated_at', '?')}")
+    else:
+        cliver.output(f"Session '{cliver.current_session_id}' not found in index.")
+
+
+def _search_sessions(cliver: Cliver, query: str, limit: int = 10):
     """Full-text search across all past conversation sessions."""
     sm = cliver.get_session_manager()
     try:
@@ -77,9 +82,7 @@ def search_sessions(cliver: Cliver, query: str, limit: int):
         cliver.output("")
 
 
-@session_cmd.command(name="list", help="List all saved sessions")
-@pass_cliver
-def list_sessions(cliver: Cliver):
+def _list_sessions(cliver: Cliver):
     """List all sessions, most recent first."""
     sm = cliver.get_session_manager()
     sessions = sm.list_sessions()
@@ -99,10 +102,7 @@ def list_sessions(cliver: Cliver):
         cliver.output(f"  {s['id']}{active}  [{turns} turns]  {title}  ({updated})")
 
 
-@session_cmd.command(name="load", help="Load a previous session to continue the conversation")
-@click.argument("session_id")
-@pass_cliver
-def load_session(cliver: Cliver, session_id: str):
+def _load_session(cliver: Cliver, session_id: str):
     """Load a session's conversation history so the chat can continue."""
     sm = cliver.get_session_manager()
     info = sm.get_session_info(session_id)
@@ -135,9 +135,7 @@ def load_session(cliver: Cliver, session_id: str):
     cliver.output("Continue chatting — the conversation history is active.")
 
 
-@session_cmd.command(name="new", help="Start a new session")
-@pass_cliver
-def new_session(cliver: Cliver):
+def _new_session(cliver: Cliver):
     """Create a new empty session and set it as current."""
     sm = cliver.get_session_manager()
     session_id = sm.create_session()
@@ -147,10 +145,7 @@ def new_session(cliver: Cliver):
     cliver.output(f"New session started: {session_id}")
 
 
-@session_cmd.command(name="delete", help="Delete a saved session")
-@click.argument("session_id")
-@pass_cliver
-def delete_session(cliver: Cliver, session_id: str):
+def _delete_session(cliver: Cliver, session_id: str):
     """Delete a session and its conversation history."""
     sm = cliver.get_session_manager()
     if sm.delete_session(session_id):
@@ -164,9 +159,7 @@ def delete_session(cliver: Cliver, session_id: str):
         cliver.output(f"Session '{session_id}' not found.")
 
 
-@session_cmd.command(name="compress", help="Compress current conversation history")
-@pass_cliver
-def compress_session(cliver: Cliver):
+def _compress_session(cliver: Cliver):
     """Force-compress the current conversation history to save tokens."""
     from cliver.conversation_compressor import ConversationCompressor, estimate_tokens, get_context_window
 
@@ -466,6 +459,146 @@ def _persist_session_options(cliver: Cliver) -> None:
     sm.save_options(cliver.current_session_id, cliver.session_options)
 
 
+def _dispatch_option(cliver: Cliver, args: str):
+    """Dispatch /session option subcommands."""
+    parts = args.strip().split(None, 1) if args.strip() else []
+    sub = parts[0] if parts else "show"
+    rest = parts[1] if len(parts) > 1 else ""
+
+    if sub in ("show", ""):
+        _display_options(cliver)
+    elif sub == "set":
+        # Parse key=value pairs
+        if not rest:
+            cliver.output("[yellow]Usage: /session option set <key>=<value> ...[/yellow]")
+            return
+        from cliver.util import parse_key_value_options
+
+        opts = parse_key_value_options(rest.split())
+        for key, value in opts.items():
+            cliver.session_options.setdefault("options", {})[key] = value
+        cliver.output(f"[green]Set: {opts}[/green]")
+    elif sub == "reset":
+        cliver.session_options.pop("options", None)
+        cliver.output("[green]Session options reset to defaults.[/green]")
+    elif sub == "exclude":
+        if rest:
+            cliver.task_executor.excluded_models.add(rest.strip())
+            cliver.output(f"Excluded model: {rest.strip()}")
+        else:
+            cliver.output("[yellow]Usage: /session option exclude <model>[/yellow]")
+    elif sub == "include":
+        if rest:
+            cliver.task_executor.excluded_models.discard(rest.strip())
+            cliver.output(f"Re-included model: {rest.strip()}")
+        else:
+            cliver.output("[yellow]Usage: /session option include <model>[/yellow]")
+    elif sub in ("--help", "help"):
+        cliver.output("Usage: /session option [show|set|reset|exclude|include]")
+    else:
+        cliver.output(f"[yellow]Unknown: /session option {sub}[/yellow]")
+
+
+def _dispatch_permission(cliver: Cliver, args: str):
+    """Dispatch /session permission subcommands."""
+    from cliver.permissions import PermissionAction, PermissionMode
+
+    parts = args.strip().split(None, 1) if args.strip() else []
+    sub = parts[0] if parts else "show"
+    rest = parts[1] if len(parts) > 1 else ""
+
+    pm = cliver.permission_manager
+
+    if sub in ("show", ""):
+        effective = pm._effective_mode()
+        cliver.output(f"Permission mode: {pm.mode.value} (effective: {effective.value})")
+        grants = pm._session_grants
+        if not grants:
+            cliver.output("No session grants active.")
+        else:
+            cliver.output(f"\nSession grants ({len(grants)}):")
+            for tool, action in grants.items():
+                marker = "✔" if action == PermissionAction.ALLOW else "✘"
+                cliver.output(f"  {marker} {tool}: {action.value}")
+    elif sub == "mode":
+        if not rest or rest.strip() not in ("default", "auto-edit", "yolo"):
+            cliver.output("[yellow]Usage: /session permission mode <default|auto-edit|yolo>[/yellow]")
+            return
+        pm.set_mode(PermissionMode(rest.strip()))
+        cliver.output(f"Session permission mode set to '{rest.strip()}'.")
+    elif sub == "grant":
+        if not rest:
+            cliver.output("[yellow]Usage: /session permission grant <tool>[/yellow]")
+            return
+        pm.grant_session(rest.strip(), PermissionAction.ALLOW)
+        cliver.output(f"Granted: {rest.strip()} allowed for this session.")
+    elif sub == "deny":
+        if not rest:
+            cliver.output("[yellow]Usage: /session permission deny <tool>[/yellow]")
+            return
+        pm.grant_session(rest.strip(), PermissionAction.DENY)
+        cliver.output(f"Denied: {rest.strip()} blocked for this session.")
+    elif sub == "clear":
+        pm.clear_session_grants()
+        cliver.output("All session permission grants cleared.")
+    elif sub in ("--help", "help"):
+        cliver.output("Usage: /session permission [show|mode|grant|deny|clear]")
+    else:
+        cliver.output(f"[yellow]Unknown: /session permission {sub}[/yellow]")
+
+
+# ---------------------------------------------------------------------------
+# Dispatch function
+# ---------------------------------------------------------------------------
+
+
+def dispatch(cliver: Cliver, args: str):
+    """Dispatch /session commands from string args."""
+    parts = args.strip().split(None, 1) if args.strip() else []
+    sub = parts[0] if parts else "list"
+    rest = parts[1] if len(parts) > 1 else ""
+
+    if sub == "list" or sub == "":
+        _show_current_session(cliver)
+    elif sub == "search":
+        if not rest:
+            cliver.output("[red]Missing search query[/red]")
+            return
+        _search_sessions(cliver, rest.strip())
+    elif sub == "load":
+        if not rest:
+            cliver.output("[red]Missing session ID[/red]")
+            return
+        _load_session(cliver, rest.strip())
+    elif sub == "new":
+        _new_session(cliver)
+    elif sub == "delete":
+        if not rest:
+            cliver.output("[red]Missing session ID[/red]")
+            return
+        _delete_session(cliver, rest.strip())
+    elif sub == "compress":
+        _compress_session(cliver)
+    elif sub == "option":
+        _dispatch_option(cliver, rest)
+    elif sub == "permission":
+        _dispatch_permission(cliver, rest)
+    elif sub in ("--help", "help"):
+        cliver.output("Usage: /session [list|search|load|new|delete|compress|option|permission]")
+        cliver.output("  (default)               - Show current session info")
+        cliver.output("  list                    - List all sessions")
+        cliver.output("  search <query>          - Search sessions by content")
+        cliver.output("  load <id>               - Load a session")
+        cliver.output("  new                     - Start a new session")
+        cliver.output("  delete <id>             - Delete a session")
+        cliver.output("  compress                - Compress current conversation")
+        cliver.output("  option [set|reset]      - Manage session options")
+        cliver.output("  permission [mode|grant] - Manage session permissions")
+    else:
+        cliver.output(f"[yellow]Unknown subcommand: /session {sub}[/yellow]")
+        cliver.output("Run '/session help' for usage.")
+
+
 # ---------------------------------------------------------------------------
 # /session permission — session-scoped permission grants
 # ---------------------------------------------------------------------------
@@ -532,3 +665,54 @@ def session_clear(cliver: Cliver):
     """Clear all session grants, reverting to persistent rules."""
     cliver.permission_manager.clear_session_grants()
     cliver.output("All session permission grants cleared.")
+
+
+# ---------------------------------------------------------------------------
+# Click command wrappers
+# ---------------------------------------------------------------------------
+
+
+@session_cmd.command(name="search", help="Search past sessions by content")
+@click.argument("query")
+@click.option("--limit", "-n", type=int, default=10, help="Max results to show")
+@pass_cliver
+def search_sessions(cliver: Cliver, query: str, limit: int):
+    """Full-text search across all past conversation sessions."""
+    _search_sessions(cliver, query, limit)
+
+
+@session_cmd.command(name="list", help="List all saved sessions")
+@pass_cliver
+def list_sessions(cliver: Cliver):
+    """List all sessions, most recent first."""
+    _list_sessions(cliver)
+
+
+@session_cmd.command(name="load", help="Load a previous session to continue the conversation")
+@click.argument("session_id")
+@pass_cliver
+def load_session(cliver: Cliver, session_id: str):
+    """Load a session's conversation history so the chat can continue."""
+    _load_session(cliver, session_id)
+
+
+@session_cmd.command(name="new", help="Start a new session")
+@pass_cliver
+def new_session(cliver: Cliver):
+    """Create a new empty session and set it as current."""
+    _new_session(cliver)
+
+
+@session_cmd.command(name="delete", help="Delete a saved session")
+@click.argument("session_id")
+@pass_cliver
+def delete_session(cliver: Cliver, session_id: str):
+    """Delete a session and its conversation history."""
+    _delete_session(cliver, session_id)
+
+
+@session_cmd.command(name="compress", help="Compress current conversation history")
+@pass_cliver
+def compress_session(cliver: Cliver):
+    """Force-compress the current conversation history to save tokens."""
+    _compress_session(cliver)

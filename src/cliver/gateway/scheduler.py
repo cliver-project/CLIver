@@ -1,43 +1,40 @@
 """Cron scheduler for the gateway daemon.
 
 Ticks every 60 seconds, checks all tasks with a schedule field,
-and runs any that are due via the provided run_task_fn callback.
+and runs any that are due. "Last run" is derived from the task_runs
+table in gateway.db — no separate state file needed.
 """
 
-import json
 import logging
-import time
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Callable, Coroutine, List
 
 from croniter import croniter
 
+from cliver.gateway.task_run_store import TaskRunStore
 from cliver.task_manager import TaskDefinition, TaskManager
 
 logger = logging.getLogger(__name__)
 
-# Type for the task execution callback
 RunTaskFn = Callable[[TaskDefinition], Coroutine[Any, Any, None]]
 
 
 class CronScheduler:
     """Evaluates cron schedules and dispatches due tasks.
 
-    State is persisted to a JSON file to prevent double-execution
-    after gateway restarts.
+    Uses TaskRunStore to determine when each task last ran —
+    no separate state file is needed.
     """
 
     def __init__(
         self,
         task_manager: TaskManager,
-        cron_state_path: Path,
+        run_store: TaskRunStore,
         run_task_fn: RunTaskFn,
     ):
         self.task_manager = task_manager
-        self.cron_state_path = Path(cron_state_path)
+        self.run_store = run_store
         self.run_task_fn = run_task_fn
-        self._state: dict[str, float] = self._load_state()
 
     def find_due_tasks(self) -> List[TaskDefinition]:
         """Return tasks whose cron schedule is due since their last run."""
@@ -48,7 +45,7 @@ class CronScheduler:
             if not task.schedule:
                 continue
 
-            last_run = self._state.get(task.name, 0.0)
+            last_run = self.run_store.get_last_run_time(task.name) or 0.0
             try:
                 cron = croniter(task.schedule, datetime.fromtimestamp(last_run, tz=timezone.utc))
                 next_run = cron.get_next(datetime)
@@ -58,11 +55,6 @@ class CronScheduler:
                 logger.warning(f"Invalid cron expression for task '{task.name}': {e}")
 
         return due
-
-    def mark_task_run(self, task_name: str) -> None:
-        """Record that a task has run at the current time."""
-        self._state[task_name] = time.time()
-        self._save_state()
 
     async def tick(self) -> int:
         """Run one scheduler tick: find due tasks and execute them.
@@ -81,24 +73,52 @@ class CronScheduler:
             except Exception as e:
                 logger.error(f"Cron: task '{task.name}' failed: {e}")
             finally:
-                # Mark as run even on failure to avoid retry storms
-                self.mark_task_run(task.name)
                 executed += 1
 
         return executed
 
-    def _load_state(self) -> dict[str, float]:
-        """Load last-run timestamps from disk."""
-        if not self.cron_state_path.exists():
-            return {}
-        try:
-            data = json.loads(self.cron_state_path.read_text(encoding="utf-8"))
-            return {k: float(v) for k, v in data.items()}
-        except Exception as e:
-            logger.warning(f"Could not load cron state: {e}")
-            return {}
+    def validate_tasks(self) -> None:
+        """Log warnings for tasks with invalid configurations.
 
-    def _save_state(self) -> None:
-        """Persist last-run timestamps to disk."""
-        self.cron_state_path.parent.mkdir(parents=True, exist_ok=True)
-        self.cron_state_path.write_text(json.dumps(self._state), encoding="utf-8")
+        Checks:
+        - Invalid cron expressions
+        - Empty prompts
+        - Tasks with schedule but no prompt
+        """
+        for task in self.task_manager.list_tasks():
+            if not task.prompt or not task.prompt.strip():
+                logger.warning(
+                    "Task '%s' has an empty prompt — it will not produce useful results",
+                    task.name,
+                )
+
+            if task.schedule:
+                try:
+                    croniter(task.schedule)
+                except (ValueError, KeyError):
+                    logger.warning(
+                        "Task '%s' has invalid cron expression '%s' — it will never be scheduled",
+                        task.name,
+                        task.schedule,
+                    )
+
+    def cleanup_orphan_runs(self) -> int:
+        """Delete run records for tasks whose YAML definition no longer exists.
+
+        Returns the number of orphan records deleted.
+        """
+        defined_names = {t.name for t in self.task_manager.list_tasks()}
+        recorded_names = set(self.run_store.get_all_task_names())
+        orphans = recorded_names - defined_names
+
+        total_deleted = 0
+        for name in orphans:
+            deleted = self.run_store.delete_runs(name)
+            total_deleted += deleted
+            logger.info(
+                "Cleaned up %d orphan run record(s) for deleted task '%s'",
+                deleted,
+                name,
+            )
+
+        return total_deleted

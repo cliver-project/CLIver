@@ -1,22 +1,26 @@
 """Gateway — the long-running daemon process for CLIver.
 
-Hosts a cron scheduler for background tasks, a control endpoint
-for status/stop, and platform adapters for messaging integrations.
+Hosts a cron scheduler for background tasks, an aiohttp web application
+for the API, and platform adapters for messaging integrations.
 """
 
 import asyncio
+import fcntl
 import importlib
 import logging
 import logging.handlers
+import os
 import tempfile
+import time
 import uuid
 from pathlib import Path
 from typing import List, Optional
 
 from cliver.agent_profile import CliverProfile
 from cliver.config import ConfigManager
+from cliver.gateway.adapter_manager import AdapterManager
 from cliver.gateway.adapters import BUILTIN_ADAPTERS
-from cliver.gateway.control import ControlServer
+from cliver.gateway.api_server import register_routes
 from cliver.gateway.platform_adapter import (
     MediaAttachment,
     MessageEvent,
@@ -24,6 +28,7 @@ from cliver.gateway.platform_adapter import (
     split_message,
 )
 from cliver.gateway.scheduler import CronScheduler
+from cliver.gateway.task_run_store import TaskRunStore
 from cliver.llm import AgentCore
 from cliver.session_manager import SessionManager
 from cliver.task_manager import TaskDefinition, TaskManager, TaskRun
@@ -35,9 +40,9 @@ class Gateway:
     """Top-level orchestrator for the gateway daemon.
 
     Manages the lifecycle of:
-    - ControlServer (Unix socket for status/stop)
+    - aiohttp web application (API server)
     - CronScheduler (tick-based task execution)
-    - PlatformAdapters (future messaging integrations)
+    - AdapterManager (platform adapter connections)
     """
 
     def __init__(
@@ -47,125 +52,165 @@ class Gateway:
     ):
         self.config_dir = Path(config_dir)
         self.agent_name = agent_name
-        self.is_running = False
-
-        self._control_server = ControlServer(
-            socket_path=self.config_dir / "cliver-gateway.sock",
-            pid_path=self.config_dir / "cliver-gateway.pid",
-        )
-        self._scheduler: Optional[CronScheduler] = None
-        self._adapters: List[PlatformAdapter] = []
+        self._pid_path = self.config_dir / "cliver-gateway.pid"
+        self._pid_file = None
         self._task_executor: Optional[AgentCore] = None
-        self._api_server = None
+        self._scheduler: Optional[CronScheduler] = None
+        self._run_store: Optional[TaskRunStore] = None
+        self._adapter_manager: Optional[AdapterManager] = None
+        self._cron_task: Optional[asyncio.Task] = None
+        self._tasks_run = 0
+        self._start_time = 0.0
 
-    async def start(self) -> None:
-        """Initialize components and start the control server."""
+    def create_app(self):
+        """Create and return the aiohttp web application."""
+        from aiohttp import web
+
+        app = web.Application()
+        app.on_startup.append(self._on_startup)
+        app.on_cleanup.append(self._on_cleanup)
+        return app
+
+    def run(self) -> None:
+        """Start the gateway as an aiohttp web server."""
+        from aiohttp import web
+
+        config = ConfigManager(self.config_dir).config
+        gw_config = config.gateway
+        host = gw_config.host if gw_config else "127.0.0.1"
+        port = gw_config.port if gw_config else 8321
+        web.run_app(self.create_app(), host=host, port=port, print=logger.info)
+
+    async def _on_startup(self, app) -> None:
+        """Lifecycle hook: acquire flock, init components, register routes."""
         logger.info(f"Gateway starting (agent: {self.agent_name})")
+        self._start_time = time.monotonic()
 
-        # Initialize AgentCore
-        self._task_executor = self._create_task_executor()
+        # Singleton flock
+        self._pid_file = open(self._pid_path, "w")
+        try:
+            fcntl.flock(self._pid_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            self._pid_file.close()
+            self._pid_file = None
+            raise RuntimeError("Another gateway is already running") from None
+        self._pid_file.write(str(os.getpid()))
+        self._pid_file.flush()
 
-        # Initialize cron scheduler
-        agent_profile = CliverProfile(self.agent_name, self.config_dir)
-        agent_profile.ensure_dirs()
-        task_manager = TaskManager(agent_profile.tasks_dir)
-        cron_state_path = agent_profile.agent_dir / "cron-state.json"
+        # AgentCore
+        try:
+            self._task_executor = self._create_task_executor()
+        except Exception as e:
+            logger.error(f"Failed to create task executor: {e}")
 
-        self._scheduler = CronScheduler(
-            task_manager=task_manager,
-            cron_state_path=cron_state_path,
-            run_task_fn=self._run_task,
+        # Register API routes
+        config = ConfigManager(self.config_dir).config
+        gw_config = config.gateway
+        api_key = gw_config.api_key if gw_config else None
+        if self._task_executor:
+            register_routes(app, self._task_executor, self._get_status, api_key=api_key)
+
+        # Always register /health even without executor
+        from aiohttp import web
+
+        existing_health = any(
+            r.resource.canonical == "/health"
+            for r in app.router.routes()
+            if hasattr(r.resource, "canonical")
         )
+        if not existing_health:
 
-        # Load and start platform adapters
-        self._adapters = self._load_adapters()
-        for adapter in self._adapters:
-            try:
-                await adapter.start(on_message=self._handle_message)
-                logger.info(f"Started adapter: {adapter.name}")
-            except Exception as e:
-                logger.error(f"Failed to start adapter {adapter.name}: {e}")
+            async def health_fallback(request):
+                return web.json_response({"status": "degraded", **self._get_status()})
 
-        # Start API server if configured
-        config_manager = ConfigManager(self.config_dir)
-        gateway_config = config_manager.config.gateway
-        if gateway_config and gateway_config.api_server and gateway_config.api_server.enabled:
-            try:
-                from cliver.gateway.api_server import APIServer
+            app.router.add_get("/health", health_fallback)
 
-                self._api_server = APIServer(
-                    task_executor=self._task_executor,
-                    config=gateway_config.api_server,
-                )
-                await self._api_server.start()
-            except ImportError:
-                logger.error("aiohttp not installed. Install with: pip install cliver[api]")
-            except Exception as e:
-                logger.error(f"Failed to start API server: {e}")
+        # Cron scheduler
+        try:
+            agent_profile = CliverProfile(self.agent_name, self.config_dir)
+            agent_profile.ensure_dirs()
+            task_manager = TaskManager(agent_profile.tasks_dir)
+            self._run_store = TaskRunStore(agent_profile.agent_dir / "gateway.db")
 
-        # Start control server
-        await self._control_server.start()
-        self.is_running = True
+            self._scheduler = CronScheduler(
+                task_manager=task_manager,
+                run_store=self._run_store,
+                run_task_fn=self._run_task,
+            )
+            if self._scheduler:
+                self._scheduler.validate_tasks()
+        except Exception as e:
+            logger.error(f"Failed to initialize scheduler: {e}")
+
+        self._cron_task = asyncio.create_task(self._cron_loop())
+
+        # Adapters
+        try:
+            adapters = self._load_adapters()
+            self._adapter_manager = AdapterManager(adapters, on_message=self._handle_message)
+            await self._adapter_manager.run()
+        except Exception as e:
+            logger.error(f"Failed to start adapters: {e}")
+
         logger.info("Gateway started")
 
-    async def stop(self) -> None:
-        """Stop all components and clean up."""
+    async def _on_cleanup(self, app) -> None:
+        """Lifecycle hook: stop adapters, close DB, release flock."""
         logger.info("Gateway stopping")
 
-        # Stop API server
-        if self._api_server:
-            try:
-                await self._api_server.stop()
-            except Exception as e:
-                logger.error(f"Error stopping API server: {e}")
+        if self._cron_task and not self._cron_task.done():
+            self._cron_task.cancel()
 
-        # Stop adapters
-        for adapter in self._adapters:
+        if self._adapter_manager:
             try:
-                await adapter.stop()
+                await self._adapter_manager.stop()
             except Exception as e:
-                logger.error(f"Error stopping adapter {adapter.name}: {e}")
+                logger.error(f"Error stopping adapters: {e}")
 
-        # Stop control server
-        await self._control_server.stop()
-        self.is_running = False
+        if self._run_store:
+            try:
+                self._run_store.close()
+            except Exception as e:
+                logger.error(f"Error closing run store: {e}")
+
+        if self._pid_file:
+            self._pid_file.close()
+            self._pid_file = None
+        if self._pid_path.exists():
+            self._pid_path.unlink(missing_ok=True)
+
         logger.info("Gateway stopped")
 
-    async def run(self, tick_interval: float = 60.0) -> None:
-        """Run the main loop until shutdown is requested.
+    def _get_status(self) -> dict:
+        """Return current gateway status for /health endpoint."""
+        uptime = int(time.monotonic() - self._start_time) if self._start_time else 0
+        platforms = self._adapter_manager.connected_platforms if self._adapter_manager else []
+        return {"uptime": uptime, "tasks_run": self._tasks_run, "platforms": platforms}
 
-        Args:
-            tick_interval: Seconds between scheduler ticks (default 60).
-        """
-        logger.info(f"Gateway main loop started (tick every {tick_interval}s)")
-
-        while not self._control_server.shutdown_requested:
-            # Run a scheduler tick
+    async def _cron_loop(self) -> None:
+        """Background task: tick the scheduler every 60 seconds."""
+        while True:
             try:
-                executed = await self._scheduler.tick()
-                if executed > 0:
-                    self._control_server.tasks_run += executed
-                    logger.info(f"Scheduler tick: executed {executed} task(s)")
+                if self._scheduler:
+                    executed = await self._scheduler.tick()
+                    if executed > 0:
+                        self._tasks_run += executed
+                        logger.info(f"Scheduler: executed {executed} task(s)")
+            except asyncio.CancelledError:
+                return
             except Exception as e:
                 logger.error(f"Scheduler tick error: {e}")
+            try:
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                return
 
-            # Sleep in small increments so we can respond to shutdown quickly
-            elapsed = 0.0
-            while elapsed < tick_interval:
-                if self._control_server.shutdown_requested:
-                    break
-                await asyncio.sleep(min(0.5, tick_interval - elapsed))
-                elapsed += 0.5
-
-        logger.info("Gateway main loop exiting (shutdown requested)")
+    # -- Task execution ----------------------------------------------------------
 
     async def _run_task(self, task: TaskDefinition) -> None:
         """Execute a scheduled task — either as a workflow or a chat prompt."""
         execution_id = str(uuid.uuid4())[:8]
         logger.info(f"Running task '{task.name}' (execution: {execution_id})")
-
-        agent_profile = CliverProfile(self.agent_name, self.config_dir)
-        task_manager = TaskManager(agent_profile.tasks_dir)
 
         run_record = TaskRun(
             task_name=task.name,
@@ -176,12 +221,10 @@ class Gateway:
 
         try:
             if task.workflow:
-                # Run as workflow — prompt is injected as inputs.prompt
                 inputs = dict(task.workflow_inputs or {})
                 inputs["prompt"] = task.prompt
                 await self.run_workflow(task.workflow, inputs=inputs)
             else:
-                # Run as chat prompt with optional skill pre-activation
                 system_appender = None
                 if task.skills:
                     system_appender = self._build_skill_appender(task.skills)
@@ -198,7 +241,8 @@ class Gateway:
             logger.error(f"Task '{task.name}' failed: {e}")
         finally:
             run_record.finished_at = TaskManager.timestamp_now()
-            task_manager.record_run(run_record)
+            if self._run_store:
+                self._run_store.record_run(run_record)
 
     def _build_skill_appender(self, skill_names: list) -> callable:
         """Build a system_message_appender that injects pre-activated skills."""
@@ -307,15 +351,17 @@ class Gateway:
             return []
 
         adapters = []
-        for platform_config in gateway_config.platforms:
+        for name, platform_config in gateway_config.platforms.items():
             try:
+                if not platform_config.name:
+                    platform_config.name = name
                 class_path = self._resolve_adapter_class(platform_config.type)
                 adapter_cls = self._import_adapter_class(class_path)
                 adapter = adapter_cls(platform_config)
                 adapters.append(adapter)
                 logger.info(f"Loaded adapter: {adapter.name}")
             except Exception as e:
-                logger.error(f"Failed to load adapter '{platform_config.type}': {e}")
+                logger.error(f"Failed to load adapter '{name}': {e}")
 
         return adapters
 
@@ -424,7 +470,9 @@ class Gateway:
 
     def _get_adapter(self, platform_name: str) -> Optional[PlatformAdapter]:
         """Find the adapter for a given platform name."""
-        for adapter in self._adapters:
+        if not self._adapter_manager:
+            return None
+        for adapter in self._adapter_manager._adapters:
             if adapter.name == platform_name:
                 return adapter
         return None

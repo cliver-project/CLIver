@@ -7,27 +7,10 @@ from rich.text import Text
 
 from cliver.cli import Cliver, pass_cliver
 
-
-@click.group(name="config", help="Manage configuration settings.")
-@click.pass_context
-def config(ctx: click.Context):
-    """
-    Configuration command group.
-    This group contains commands to manage configuration settings.
-    """
-    if ctx.invoked_subcommand is None:
-        click.echo(ctx.get_help())
-        ctx.exit()
+# ── Logic Functions ──
 
 
-def post_group():
-    pass
-
-
-# noinspection PyUnresolvedReferences
-@config.command(name="validate", help="Validate configuration")
-@pass_cliver
-def validate_config(cliver: Cliver):
+def _validate_config(cliver: Cliver):
     """Validate the current configuration."""
     try:
         # Check if config is valid by attempting to load it
@@ -40,11 +23,7 @@ def validate_config(cliver: Cliver):
         cliver.output(f"[red]✗ Configuration validation error: {e}[/red]")
 
 
-# noinspection PyUnresolvedReferences
-@config.command(name="set", help="Update general configuration settings")
-@click.option("--user-agent", "-u", type=str, help="Set the User-Agent header for LLM provider requests")
-@pass_cliver
-def set_config(cliver: Cliver, user_agent: str):
+def _set_config(cliver: Cliver, user_agent: str):
     """Update general configuration settings."""
     if not user_agent:
         cliver.output("[dim]Usage: config set --user-agent VALUE[/dim]")
@@ -56,10 +35,7 @@ def set_config(cliver: Cliver, user_agent: str):
         cliver.output(f"User-Agent set to: [green]{user_agent}[/green]")
 
 
-# noinspection PyUnresolvedReferences
-@config.command(name="show", help="Show current configuration")
-@pass_cliver
-def show_config(cliver: Cliver):
+def _show_config(cliver: Cliver):
     """Show the current configuration with sensitive values masked."""
     try:
         cfg = cliver.config_manager.config
@@ -210,6 +186,165 @@ def show_config(cliver: Cliver):
         cliver.output(f"[red]Error showing configuration: {e}[/red]")
 
 
+def _config_rate_limit(cliver: Cliver, provider_name: str, limit: str | None):
+    """Set or show rate limit for a provider."""
+    from cliver.commands.provider import _parse_rate_limit
+
+    providers = cliver.config_manager.list_providers()
+    if provider_name not in providers:
+        cliver.output(f"Provider '{provider_name}' not found.")
+        available = ", ".join(providers.keys()) if providers else "(none)"
+        cliver.output(f"Available providers: {available}")
+        return
+
+    if limit is None:
+        prov = providers[provider_name]
+        if prov.rate_limit:
+            cliver.output(
+                f"Rate limit for '{provider_name}': "
+                f"{prov.rate_limit.requests}/{prov.rate_limit.period} "
+                f"(margin: {prov.rate_limit.margin:.0%})"
+            )
+        else:
+            cliver.output(f"No rate limit set for '{provider_name}'.")
+        return
+
+    rl = _parse_rate_limit(limit)
+    if cliver.config_manager.set_provider_rate_limit(provider_name, rl):
+        cliver.output(f"Rate limit for '{provider_name}' set to {rl.requests}/{rl.period}.")
+    else:
+        cliver.output(f"Failed to update rate limit for '{provider_name}'.")
+
+
+def _show_config_path(cliver: Cliver):
+    """Show the path to the configuration file."""
+    config_path = cliver.config_manager.config_file
+    cliver.output(f"Configuration file path: {config_path}")
+
+
+def _set_theme(cliver: Cliver, name: str | None):
+    """Show or set the UI theme. Available: dark, light, dracula."""
+    from cliver.themes import get_theme, list_themes, load_theme, set_theme
+
+    if not name:
+        current = get_theme()
+        available = list_themes()
+        cliver.output(f"Current theme: [bold]{current.name}[/bold]")
+        cliver.output(f"Available: {', '.join(available)}")
+        return
+
+    available = list_themes()
+    if name not in available:
+        cliver.output(f"[red]Unknown theme '{name}'. Available: {', '.join(available)}[/red]")
+        return
+
+    theme = load_theme(name)
+    set_theme(theme)
+    cliver.theme = theme
+
+    # Update prompt_toolkit app style if running in TUI
+    if hasattr(cliver, "_app") and cliver._app is not None:
+        from prompt_toolkit.styles import Style
+
+        cliver._app.style = Style.from_dict(theme.prompt_toolkit_styles())
+        cliver._app.invalidate()
+
+    # Persist to config
+    cliver.config_manager.config.theme = name
+    cliver.config_manager._save_config()
+
+    cliver.output(f"Theme set to [bold]{name}[/bold].")
+
+
+# ── Dispatch ──
+
+
+def dispatch(cliver: Cliver, args: str):
+    """Parse subcommand and route to logic functions."""
+    parts = args.strip().split(None, 1) if args.strip() else []
+    sub = parts[0] if parts else "show"
+    rest = parts[1] if len(parts) > 1 else ""
+
+    if sub == "show":
+        _show_config(cliver)
+    elif sub == "validate":
+        _validate_config(cliver)
+    elif sub == "set":
+        # Parse --user-agent flag
+        if "--user-agent" in rest or "-u" in rest:
+            parts = rest.split()
+            user_agent = None
+            for i, p in enumerate(parts):
+                if p in ("--user-agent", "-u") and i + 1 < len(parts):
+                    user_agent = parts[i + 1]
+                    break
+            _set_config(cliver, user_agent or "")
+        else:
+            cliver.output("[dim]Usage: config set --user-agent VALUE[/dim]")
+    elif sub == "rate-limit":
+        # Parse provider and optional limit
+        rate_parts = rest.split(None, 1)
+        if rate_parts:
+            provider_name = rate_parts[0]
+            limit = rate_parts[1] if len(rate_parts) > 1 else None
+            _config_rate_limit(cliver, provider_name, limit)
+        else:
+            cliver.output("[dim]Usage: config rate-limit PROVIDER [LIMIT][/dim]")
+    elif sub == "path":
+        _show_config_path(cliver)
+    elif sub == "theme":
+        theme_name = rest.strip() if rest.strip() else None
+        _set_theme(cliver, theme_name)
+    elif sub in ("--help", "help"):
+        cliver.output("Usage: /config [show|validate|set|rate-limit|path|theme] ...")
+    else:
+        cliver.output(f"[yellow]Unknown: /config {sub}[/yellow]")
+
+
+# ── Click Group ──
+
+
+@click.group(name="config", help="Manage configuration settings.")
+@click.pass_context
+def config(ctx: click.Context):
+    """
+    Configuration command group.
+    This group contains commands to manage configuration settings.
+    """
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+        ctx.exit()
+
+
+def post_group():
+    pass
+
+
+# noinspection PyUnresolvedReferences
+@config.command(name="validate", help="Validate configuration")
+@pass_cliver
+def validate_config(cliver: Cliver):
+    """Validate the current configuration."""
+    _validate_config(cliver)
+
+
+# noinspection PyUnresolvedReferences
+@config.command(name="set", help="Update general configuration settings")
+@click.option("--user-agent", "-u", type=str, help="Set the User-Agent header for LLM provider requests")
+@pass_cliver
+def set_config(cliver: Cliver, user_agent: str):
+    """Update general configuration settings."""
+    _set_config(cliver, user_agent or "")
+
+
+# noinspection PyUnresolvedReferences
+@config.command(name="show", help="Show current configuration")
+@pass_cliver
+def show_config(cliver: Cliver):
+    """Show the current configuration with sensitive values masked."""
+    _show_config(cliver)
+
+
 def _mask_value(value: str) -> str:
     """Mask a single secret value for display."""
     if value.startswith("keyring:"):
@@ -256,32 +391,7 @@ def config_rate_limit(cliver: Cliver, provider_name: str, limit: str):
       cliver config rate-limit minimax 5000/5h   # set limit
       cliver config rate-limit minimax            # show current limit
     """
-    from cliver.commands.provider import _parse_rate_limit
-
-    providers = cliver.config_manager.list_providers()
-    if provider_name not in providers:
-        cliver.output(f"Provider '{provider_name}' not found.")
-        available = ", ".join(providers.keys()) if providers else "(none)"
-        cliver.output(f"Available providers: {available}")
-        return
-
-    if limit is None:
-        prov = providers[provider_name]
-        if prov.rate_limit:
-            cliver.output(
-                f"Rate limit for '{provider_name}': "
-                f"{prov.rate_limit.requests}/{prov.rate_limit.period} "
-                f"(margin: {prov.rate_limit.margin:.0%})"
-            )
-        else:
-            cliver.output(f"No rate limit set for '{provider_name}'.")
-        return
-
-    rl = _parse_rate_limit(limit)
-    if cliver.config_manager.set_provider_rate_limit(provider_name, rl):
-        cliver.output(f"Rate limit for '{provider_name}' set to {rl.requests}/{rl.period}.")
-    else:
-        cliver.output(f"Failed to update rate limit for '{provider_name}'.")
+    _config_rate_limit(cliver, provider_name, limit)
 
 
 # noinspection PyUnresolvedReferences
@@ -289,5 +399,12 @@ def config_rate_limit(cliver: Cliver, provider_name: str, limit: str):
 @pass_cliver
 def show_config_path(cliver: Cliver):
     """Show the path to the configuration file."""
-    config_path = cliver.config_manager.config_file
-    cliver.output(f"Configuration file path: {config_path}")
+    _show_config_path(cliver)
+
+
+@config.command(name="theme", help="Show or set the UI theme")
+@click.argument("name", required=False)
+@pass_cliver
+def set_theme_cmd(cliver: Cliver, name: str = None):
+    """Show or set the UI theme. Available: dark, light, dracula."""
+    _set_theme(cliver, name)

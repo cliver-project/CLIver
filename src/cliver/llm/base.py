@@ -217,7 +217,13 @@ class LLMInferenceEngine(ABC):
             "## Error handling\n\n"
             "If a tool call fails, analyse the error and try an alternative approach "
             "rather than repeating the same call. "
-            "If you are unable to resolve the issue, explain what went wrong to the user."
+            "If you are unable to resolve the issue, explain what went wrong to the user.\n\n"
+            "## Security\n\n"
+            "Never read, display, or log credentials, API keys, private keys, "
+            "or other secrets. The `Read` tool will block access to known sensitive "
+            "files (`.env`, `credentials.json`, `*.pem`, `*.key`, etc.). "
+            "If you need to reference a secret, use a placeholder like `<API_KEY>` "
+            "instead of the actual value."
         )
 
     @staticmethod

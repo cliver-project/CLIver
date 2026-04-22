@@ -218,8 +218,11 @@ def create_tool_progress_handler(
     state = {"in_block": False}
 
     def handler(event: ToolEvent) -> None:
+        from cliver.themes import get_theme
+
+        theme = get_theme()
         icon = _STATUS_ICONS.get(event.event_type, "")
-        tool = f"[cyan]{event.tool_name}[/cyan]"
+        tool = f"[{theme.tool_name}]{event.tool_name}[/{theme.tool_name}]"
 
         if event.event_type == ToolEventType.TOOL_START:
             # Stop thinking spinner when tool execution begins (no blank line — spinner restarts after)
@@ -232,7 +235,7 @@ def create_tool_progress_handler(
 
             # Human-readable activity description
             desc = _describe_tool(event.tool_name, event.args)
-            console.print(f"  {icon} [dim]{desc}[/dim]")
+            console.print(f"  {icon} [{theme.tool_desc}]{desc}[/{theme.tool_desc}]")
 
         elif event.event_type == ToolEventType.TOOL_END:
             duration = f"[dim]{event.duration_ms:.0f}ms[/dim]" if event.duration_ms else ""

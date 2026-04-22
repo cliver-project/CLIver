@@ -9,18 +9,17 @@ from typing import Optional
 import click
 
 from cliver.cli import Cliver, pass_cliver
+from cliver.gateway.task_run_store import TaskRunStore
 from cliver.task_manager import TaskDefinition, TaskManager, TaskRun
 
-
-@click.group(name="task", help="Manage and run agent tasks")
-def task():
-    """Task management commands."""
-    pass
+# Business logic (plain functions — no Click, no async)
 
 
-@task.command(name="list", help="List all tasks for the current agent")
-@pass_cliver
-def list_tasks(cliver: Cliver):
+def _get_run_store(cliver: Cliver) -> TaskRunStore:
+    return TaskRunStore(cliver.agent_profile.agent_dir / "gateway.db")
+
+
+def _list_tasks(cliver: Cliver) -> int:
     """List all tasks."""
     manager = TaskManager(cliver.agent_profile.tasks_dir)
     tasks = manager.list_tasks()
@@ -40,27 +39,17 @@ def list_tasks(cliver: Cliver):
     return 0
 
 
-@task.command(name="create", help="Create a new task")
-@click.argument("name")
-@click.option("--prompt", "-p", required=True, help="Prompt to send to the LLM")
-@click.option("--description", "-d", default=None, help="Task description")
-@click.option("--model", "-m", default=None, help="Model override for this task")
-@click.option("--schedule", "-s", default=None, help="Cron expression for recurring execution")
-@click.option("--workflow", "-w", default=None, help="Workflow name to execute (runs workflow instead of chat)")
-@click.option("--workflow-inputs", default=None, help="Workflow inputs as JSON string")
-@click.option("--skills", multiple=True, help="Skills to pre-activate (can be specified multiple times)")
-@pass_cliver
-def create_task(
+def _create_task(
     cliver: Cliver,
     name: str,
     prompt: str,
-    description: Optional[str],
-    model: Optional[str],
-    schedule: Optional[str],
-    workflow: Optional[str],
-    workflow_inputs: Optional[str],
-    skills: tuple,
-):
+    description: Optional[str] = None,
+    model: Optional[str] = None,
+    schedule: Optional[str] = None,
+    workflow: Optional[str] = None,
+    workflow_inputs: Optional[str] = None,
+    skills: Optional[list] = None,
+) -> int:
     """Create a new task definition."""
     import json
 
@@ -79,7 +68,7 @@ def create_task(
         prompt=prompt,
         workflow=workflow,
         workflow_inputs=parsed_inputs,
-        skills=list(skills) if skills else None,
+        skills=skills,
         model=model,
         schedule=schedule,
     )
@@ -90,11 +79,7 @@ def create_task(
     return 0
 
 
-@task.command(name="run", help="Run a task")
-@click.argument("name")
-@click.option("--model", "-m", default=None, help="Override the task's model")
-@pass_cliver
-def run_task(cliver: Cliver, name: str, model: Optional[str]):
+def _run_task(cliver: Cliver, name: str, model: Optional[str] = None) -> int:
     """Run a task by sending its prompt to the LLM."""
     manager = TaskManager(cliver.agent_profile.tasks_dir)
     task_def = manager.get_task(name)
@@ -105,6 +90,7 @@ def run_task(cliver: Cliver, name: str, model: Optional[str]):
     execution_id = str(uuid.uuid4())[:8]
     started_at = TaskManager.timestamp_now()
     use_model = model or task_def.model
+    run_store = _get_run_store(cliver)
 
     cliver.output(f"Running task '{name}'...")
 
@@ -140,7 +126,7 @@ def run_task(cliver: Cliver, name: str, model: Optional[str]):
             finished_at=TaskManager.timestamp_now(),
             error=error,
         )
-        manager.record_run(run)
+        run_store.record_run(run)
 
         if status == "completed":
             cliver.output(f"Task '{name}' completed.")
@@ -158,7 +144,7 @@ def run_task(cliver: Cliver, name: str, model: Optional[str]):
             finished_at=TaskManager.timestamp_now(),
             error=str(e),
         )
-        manager.record_run(run)
+        run_store.record_run(run)
         cliver.output(f"Task '{name}' failed: {e}")
         return 1
 
@@ -167,14 +153,10 @@ def run_task(cliver: Cliver, name: str, model: Optional[str]):
             cliver.permission_manager.pop_task_scope()
 
 
-@task.command(name="history", help="Show run history for a task")
-@click.argument("name")
-@click.option("--limit", "-n", default=10, help="Number of recent runs to show")
-@pass_cliver
-def task_history(cliver: Cliver, name: str, limit: int):
+def _task_history(cliver: Cliver, name: str, limit: int = 10) -> int:
     """Show execution history for a task."""
-    manager = TaskManager(cliver.agent_profile.tasks_dir)
-    runs = manager.get_runs(name, limit=limit)
+    run_store = _get_run_store(cliver)
+    runs = run_store.get_runs(name, limit=limit)
 
     if not runs:
         cliver.output(f"No run history for task '{name}'.")
@@ -189,14 +171,184 @@ def task_history(cliver: Cliver, name: str, limit: int):
     return 0
 
 
+def _remove_task(cliver: Cliver, name: str) -> int:
+    """Remove a task and its run history."""
+    manager = TaskManager(cliver.agent_profile.tasks_dir)
+    if manager.remove_task(name):
+        run_store = _get_run_store(cliver)
+        deleted = run_store.delete_runs(name)
+        cliver.output(f"Task '{name}' removed ({deleted} run records cleaned up).")
+    else:
+        cliver.output(f"Task '{name}' not found.")
+    return 0
+
+
+# TUI dispatch entry point
+
+
+def dispatch(cliver: Cliver, args: str):
+    """Dispatch subcommand from TUI."""
+    parts = args.strip().split(None, 1) if args.strip() else []
+    sub = parts[0] if parts else "list"  # default subcommand
+    rest = parts[1] if len(parts) > 1 else ""
+
+    if sub == "list":
+        _list_tasks(cliver)
+    elif sub == "run":
+        if not rest:
+            cliver.output("[yellow]Usage: /task run <name> [--model <model>][/yellow]")
+            return
+        # Parse name and optional --model
+        task_name = rest.split()[0]
+        model = None
+        if "--model" in rest or "-m" in rest:
+            parts_split = rest.split()
+            for i, part in enumerate(parts_split):
+                if part in ("--model", "-m") and i + 1 < len(parts_split):
+                    model = parts_split[i + 1]
+                    break
+        _run_task(cliver, task_name, model)
+    elif sub == "history":
+        if not rest:
+            cliver.output("[yellow]Usage: /task history <name> [--limit <n>][/yellow]")
+            return
+        # Parse name and optional --limit
+        task_name = rest.split()[0]
+        limit = 10
+        if "--limit" in rest or "-n" in rest:
+            parts_split = rest.split()
+            for i, part in enumerate(parts_split):
+                if part in ("--limit", "-n") and i + 1 < len(parts_split):
+                    try:
+                        limit = int(parts_split[i + 1])
+                    except ValueError:
+                        pass
+                    break
+        _task_history(cliver, task_name, limit)
+    elif sub == "remove":
+        if not rest:
+            cliver.output("[yellow]Usage: /task remove <name>[/yellow]")
+            return
+        task_name = rest.strip()
+        _remove_task(cliver, task_name)
+    elif sub == "create":
+        # /task create <name> <prompt> [--prompt P] [--model M] [--schedule S] [--workflow W] [--skills s1,s2]
+        if not rest:
+            cliver.output('[yellow]Usage: /task create <name> "<prompt>" [--schedule CRON][/yellow]')
+            return
+        from shlex import split as shlex_split
+
+        try:
+            parts_split = shlex_split(rest)
+        except ValueError:
+            parts_split = rest.split()
+        task_name = parts_split[0]
+        prompt_parts = []
+        prompt_flag = None
+        model = None
+        schedule = None
+        workflow = None
+        skills = None
+        i = 1
+        while i < len(parts_split):
+            if parts_split[i] == "--prompt" and i + 1 < len(parts_split):
+                prompt_flag = parts_split[i + 1]
+                i += 2
+            elif parts_split[i] == "--model" and i + 1 < len(parts_split):
+                model = parts_split[i + 1]
+                i += 2
+            elif parts_split[i] == "--schedule" and i + 1 < len(parts_split):
+                schedule = parts_split[i + 1]
+                i += 2
+            elif parts_split[i] == "--workflow" and i + 1 < len(parts_split):
+                workflow = parts_split[i + 1]
+                i += 2
+            elif parts_split[i] == "--skills" and i + 1 < len(parts_split):
+                skills = [s.strip() for s in parts_split[i + 1].split(",")]
+                i += 2
+            else:
+                prompt_parts.append(parts_split[i])
+                i += 1
+        prompt = prompt_flag or (" ".join(prompt_parts) if prompt_parts else task_name)
+        _create_task(cliver, task_name, prompt, model=model, schedule=schedule, workflow=workflow, skills=skills)
+    elif sub in ("--help", "help"):
+        cliver.output("Usage: /task [list|create|run|history|remove] ...")
+        cliver.output("  list                — list all tasks")
+        cliver.output("  create <name> <prompt> [--model M] [--schedule S] [--workflow W] [--skills s1,s2]")
+        cliver.output("  run <name>          — run a task")
+        cliver.output("  history <name>      — show run history")
+        cliver.output("  remove <name>       — remove a task")
+    else:
+        cliver.output(f"[yellow]Unknown: /task {sub}[/yellow]")
+
+
+# Click wrappers (thin — just call logic functions)
+
+
+@click.group(name="task", help="Manage and run agent tasks")
+def task():
+    """Task management commands."""
+    pass
+
+
+@task.command(name="list", help="List all tasks for the current agent")
+@pass_cliver
+def list_tasks(cliver: Cliver):
+    _list_tasks(cliver)
+
+
+@task.command(name="create", help="Create a new task")
+@click.argument("name")
+@click.option("--prompt", "-p", required=True, help="Prompt to send to the LLM")
+@click.option("--description", "-d", default=None, help="Task description")
+@click.option("--model", "-m", default=None, help="Model override for this task")
+@click.option("--schedule", "-s", default=None, help="Cron expression for recurring execution")
+@click.option("--workflow", "-w", default=None, help="Workflow name to execute (runs workflow instead of chat)")
+@click.option("--workflow-inputs", default=None, help="Workflow inputs as JSON string")
+@click.option("--skills", multiple=True, help="Skills to pre-activate (can be specified multiple times)")
+@pass_cliver
+def create_task(
+    cliver: Cliver,
+    name: str,
+    prompt: str,
+    description: Optional[str],
+    model: Optional[str],
+    schedule: Optional[str],
+    workflow: Optional[str],
+    workflow_inputs: Optional[str],
+    skills: tuple,
+):
+    _create_task(
+        cliver,
+        name,
+        prompt,
+        description,
+        model,
+        schedule,
+        workflow,
+        workflow_inputs,
+        list(skills) if skills else None,
+    )
+
+
+@task.command(name="run", help="Run a task")
+@click.argument("name")
+@click.option("--model", "-m", default=None, help="Override the task's model")
+@pass_cliver
+def run_task(cliver: Cliver, name: str, model: Optional[str]):
+    _run_task(cliver, name, model)
+
+
+@task.command(name="history", help="Show run history for a task")
+@click.argument("name")
+@click.option("--limit", "-n", default=10, help="Number of recent runs to show")
+@pass_cliver
+def task_history(cliver: Cliver, name: str, limit: int):
+    _task_history(cliver, name, limit)
+
+
 @task.command(name="remove", help="Remove a task")
 @click.argument("name")
 @pass_cliver
 def remove_task(cliver: Cliver, name: str):
-    """Remove a task and its run history."""
-    manager = TaskManager(cliver.agent_profile.tasks_dir)
-    if manager.remove_task(name):
-        cliver.output(f"Task '{name}' removed.")
-    else:
-        cliver.output(f"Task '{name}' not found.")
-    return 0
+    _remove_task(cliver, name)

@@ -19,6 +19,15 @@ class WriteFileInput(BaseModel):
     )
     content: str = Field(description="The content to write to the file.")
 
+    @classmethod
+    def model_validate(cls, obj, *args, **kwargs):
+        if isinstance(obj, dict) and "content" in obj and not isinstance(obj["content"], str):
+            import json
+
+            obj = dict(obj)
+            obj["content"] = json.dumps(obj["content"], ensure_ascii=False, indent=2)
+        return super().model_validate(obj, *args, **kwargs)
+
 
 class WriteFileTool(BaseTool):
     """Writes content to a specified file in the local filesystem."""
@@ -27,7 +36,9 @@ class WriteFileTool(BaseTool):
     description: str = (
         "Writes content to a specified file in the local filesystem. "
         "Creates the file and any parent directories if they don't exist. "
-        "If the file already exists, it will be overwritten."
+        "If the file already exists, it will be overwritten. "
+        "There is no length limit on the content. For very large files, "
+        "write the complete content in a single call — do not truncate."
     )
     args_schema: Type[BaseModel] = WriteFileInput
     tags: list = ["write", "file", "edit"]

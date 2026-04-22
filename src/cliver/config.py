@@ -65,7 +65,7 @@ class ProviderConfig(BaseModel):
 class ModelOptions(BaseModel):
     temperature: float = Field(default=0.7, description="Sampling temperature")
     top_p: float = Field(default=0.3, description="Top-p sampling cutoff")
-    max_tokens: int = Field(default=4096, description="Maximum number of tokens")
+    max_tokens: int = Field(default=16384, description="Maximum number of tokens")
     frequency_penalty: float = Field(default=0.1, description="Model’s tendency to repeat tokens")
     # special class-level variable to allow extra fields
     model_config = {"extra": "allow"}
@@ -278,8 +278,10 @@ class WebSocketMCPServerConfig(MCPServerConfig):
 class PlatformConfig(BaseModel):
     """Configuration for a single messaging platform adapter."""
 
+    name: str = Field(default="", description="Platform name (set from config key)")
     type: str = Field(description="Adapter type: builtin name or module path")
-    token: Optional[str] = Field(default=None, description="Bot/API token")
+    token: Optional[str] = Field(default=None, description="Bot/API token (supports Jinja2 templates)")
+    app_token: Optional[str] = Field(default=None, description="App-level token (e.g., Slack Socket Mode)")
     home_channel: Optional[str] = Field(default=None, description="Default channel for cron delivery")
     allowed_users: Optional[List[str]] = Field(default=None, description="Whitelist of user IDs")
 
@@ -289,21 +291,29 @@ class PlatformConfig(BaseModel):
     def is_builtin(self) -> bool:
         return "." not in self.type
 
+    def get_token(self) -> Optional[str]:
+        if self.token is None:
+            return None
+        return render_template_if_needed(self.token)
 
-class APIServerConfig(BaseModel):
-    """Configuration for the OpenAI-compatible API server."""
+    def get_app_token(self) -> Optional[str]:
+        if self.app_token is None:
+            return None
+        return render_template_if_needed(self.app_token)
 
-    enabled: bool = Field(default=False, description="Enable the API server")
-    host: str = Field(default="0.0.0.0", description="Host to bind to")
-    port: int = Field(default=8000, description="Port to listen on")
-    api_key: Optional[str] = Field(default=None, description="API key for authentication (optional)")
+    def model_dump(self, **kwargs):
+        data = super().model_dump(**kwargs)
+        data.pop("name", None)
+        return {k: v for k, v in data.items() if v is not None}
 
 
 class GatewayConfig(BaseModel):
     """Configuration for the gateway daemon process."""
 
-    platforms: List[PlatformConfig] = Field(default_factory=list, description="Platform adapter configurations")
-    api_server: Optional[APIServerConfig] = Field(default=None, description="OpenAI-compatible API server")
+    host: str = Field(default="127.0.0.1", description="Host to bind the gateway HTTP server")
+    port: int = Field(default=8321, description="Port for the gateway HTTP server")
+    api_key: Optional[str] = Field(default=None, description="API key for authentication (optional)")
+    platforms: Dict[str, PlatformConfig] = Field(default_factory=dict, description="Platform adapter configurations")
     log_file: Optional[str] = Field(
         default=None,
         description="Path to the gateway rotating log file. Default: {config_dir}/gateway.log",
@@ -324,6 +334,7 @@ class AppConfig(BaseModel):
         description="Override which tool groups are enabled. Default: auto-detect from environment.",
     )
     gateway: Optional[GatewayConfig] = Field(default=None, description="Gateway daemon configuration")
+    theme: Optional[str] = Field(default=None, description="UI theme: dark (default), light, dracula")
 
     def model_dump(self, **kwargs):
         """Override to exclude null values."""
