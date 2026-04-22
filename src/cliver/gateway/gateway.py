@@ -59,6 +59,7 @@ class Gateway:
         self._scheduler: Optional[CronScheduler] = None
         self._run_store: Optional[TaskRunStore] = None
         self._adapter_manager: Optional[AdapterManager] = None
+        self._session_manager: Optional[SessionManager] = None
         self._cron_task: Optional[asyncio.Task] = None
         self._tasks_run = 0
         self._start_time = 0.0
@@ -177,16 +178,16 @@ class Gateway:
         except Exception as e:
             logger.error(f"Failed to start adapters: {e}")
 
-        # Clean up old sessions on startup
+        # Initialize session manager (single instance for the gateway lifetime)
         try:
             agent_profile = CliverProfile(self.agent_name, self.config_dir)
             gw_sessions_dir = agent_profile.agent_dir / "gateway-sessions"
-            sm = SessionManager(gw_sessions_dir)
+            self._session_manager = SessionManager(gw_sessions_dir)
             sc = self._get_config_manager().config.session
-            deleted = sm.delete_stale_sessions(max_age_days=sc.max_age_days)
+            deleted = self._session_manager.delete_stale_sessions(max_age_days=sc.max_age_days)
             if deleted:
                 logger.info("Cleaned up %d stale sessions (>%d days)", deleted, sc.max_age_days)
-            deleted = sm.delete_oldest_sessions(keep=sc.max_sessions)
+            deleted = self._session_manager.delete_oldest_sessions(keep=sc.max_sessions)
             if deleted:
                 logger.info("Cleaned up %d oldest sessions (kept %d)", deleted, sc.max_sessions)
         except Exception as e:
@@ -459,11 +460,9 @@ class Gateway:
             logger.error(f"No adapter found for platform '{event.platform}'")
             return
 
-        # Resolve session — gateway uses its own sessions DB, separate from CLI
+        # Resolve session — uses the shared SessionManager instance
         session_key = self._resolve_session_key(event)
-        agent_profile = CliverProfile(self.agent_name, self.config_dir)
-        gateway_sessions_dir = agent_profile.agent_dir / "gateway-sessions"
-        sm = SessionManager(gateway_sessions_dir)
+        sm = self._session_manager
 
         # Get or create session
         session_id = self._get_or_create_session(sm, session_key)
