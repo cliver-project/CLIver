@@ -37,10 +37,12 @@ def configure_gateway_logging(gateway_config=None) -> None:
         backupCount=backup_count,
         encoding="utf-8",
     )
-    handler.setFormatter(logging.Formatter(
-        "%(asctime)s %(name)s %(levelname)s %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
-    ))
+    handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s %(name)s %(levelname)s %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+    )
 
     # Configure root logger
     root = logging.getLogger()
@@ -65,6 +67,7 @@ def configure_gateway_logging(gateway_config=None) -> None:
 
 def _resolve_log_path(gateway_config=None):
     from pathlib import Path
+
     if gateway_config and getattr(gateway_config, "log_file", None):
         return Path(gateway_config.log_file)
     return get_config_dir() / "gateway.log"

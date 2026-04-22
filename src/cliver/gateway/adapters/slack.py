@@ -105,9 +105,11 @@ class SlackAdapter(PlatformAdapter):
 
         @self._app.middleware
         async def log_all_events(body, next):
-            logger.info("Slack middleware: type=%s, event_type=%s",
-                        body.get("type", "?"),
-                        body.get("event", {}).get("type", "?") if isinstance(body.get("event"), dict) else "?")
+            logger.info(
+                "Slack middleware: type=%s, event_type=%s",
+                body.get("type", "?"),
+                body.get("event", {}).get("type", "?") if isinstance(body.get("event"), dict) else "?",
+            )
             await next()
 
         self._handler = AsyncSocketModeHandler(self._app, self._app_token)
@@ -202,9 +204,12 @@ class SlackAdapter(PlatformAdapter):
 
     async def _on_slack_message(self, message: dict, say, client) -> None:
         """Handle incoming Slack messages."""
-        logger.info("Slack message received: user=%s, channel=%s, text=%.100s",
-                     message.get("user", "?"), message.get("channel", "?"),
-                     message.get("text", ""))
+        logger.info(
+            "Slack message received: user=%s, channel=%s, text=%.100s",
+            message.get("user", "?"),
+            message.get("channel", "?"),
+            message.get("text", ""),
+        )
         user_id = message.get("user", "")
         if not user_id:
             logger.debug("Slack message ignored: no user_id")

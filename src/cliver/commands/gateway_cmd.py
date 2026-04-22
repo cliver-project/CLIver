@@ -72,6 +72,7 @@ def _start_gateway(cliver: Cliver):
     os.setsid()
 
     from cliver.gateway.logging_config import configure_gateway_logging
+
     configure_gateway_logging(gw_cfg)
 
     try:
@@ -101,6 +102,7 @@ def _stop_gateway(cliver: Cliver):
     os.kill(pid, signal.SIGTERM)
 
     import time
+
     for _ in range(10):
         time.sleep(0.5)
         if not pid_path.exists():
@@ -121,6 +123,7 @@ def _restart_gateway(cliver: Cliver):
             cliver.output(f"Stopping gateway (PID {pid})...")
             os.kill(pid, signal.SIGTERM)
             import time
+
             for _ in range(10):
                 time.sleep(0.5)
                 if not pid_path.exists():
@@ -152,6 +155,7 @@ def _list_platforms(cliver: Cliver):
     if pid_path.exists():
         try:
             import urllib.request
+
             url = f"http://{host}:{port}/health"
             with urllib.request.urlopen(url, timeout=2) as resp:
                 data = json.loads(resp.read())
@@ -475,6 +479,7 @@ def _status_gateway(cliver: Cliver):
     port = gw_cfg.port if gw_cfg else 8321
 
     import urllib.request
+
     try:
         url = f"http://{host}:{port}/health"
         with urllib.request.urlopen(url, timeout=3) as resp:

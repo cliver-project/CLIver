@@ -1,7 +1,5 @@
 """Tests for WorkflowCompiler — YAML Workflow -> LangGraph StateGraph."""
 
-import pytest
-
 from cliver.workflow.compiler import WorkflowCompiler, merge_steps
 from cliver.workflow.workflow_models import (
     AgentConfig,

@@ -1,12 +1,10 @@
 """Tests for extended workflow models: AgentConfig, overview, output_format."""
 
-import pytest
 import yaml
 
 from cliver.workflow.workflow_models import (
     AgentConfig,
     LLMStep,
-    StepType,
     Workflow,
 )
 

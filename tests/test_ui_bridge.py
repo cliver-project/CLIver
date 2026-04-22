@@ -1,4 +1,5 @@
 """Tests for UIBridge protocol, FieldSpec, and CLIBridge."""
+
 import threading
 from unittest.mock import patch
 

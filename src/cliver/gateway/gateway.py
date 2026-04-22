@@ -90,6 +90,7 @@ class Gateway:
         # Allow nested asyncio.run() calls from tools (e.g. browser_action,
         # parallel_tasks) that assume they're in a sync context.
         import nest_asyncio
+
         nest_asyncio.apply()
 
         from aiohttp import web
@@ -136,9 +137,7 @@ class Gateway:
         from aiohttp import web
 
         existing_health = any(
-            r.resource.canonical == "/health"
-            for r in app.router.routes()
-            if hasattr(r.resource, "canonical")
+            r.resource.canonical == "/health" for r in app.router.routes() if hasattr(r.resource, "canonical")
         )
         if not existing_health:
 
@@ -404,6 +403,7 @@ class Gateway:
         logger.error("Asyncio unhandled exception: %s (message: %s)", exception, message)
         if exception:
             import traceback
+
             logger.error("".join(traceback.format_exception(type(exception), exception, exception.__traceback__)))
 
     async def _handle_message(self, event: MessageEvent) -> None:
@@ -414,8 +414,9 @@ class Gateway:
             logger.exception("_handle_message crashed: %s", e)
 
     async def _handle_message_inner(self, event: MessageEvent) -> None:
-        logger.info("_handle_message called: platform=%s, user=%s, text=%.100s",
-                     event.platform, event.user_id, event.text)
+        logger.info(
+            "_handle_message called: platform=%s, user=%s, text=%.100s", event.platform, event.user_id, event.text
+        )
         if not self._task_executor:
             logger.error("AgentCore not initialized — cannot process message")
             return
@@ -499,6 +500,7 @@ class Gateway:
             )
 
             from cliver.media_handler import MultimediaResponseHandler
+
             handler = MultimediaResponseHandler()
             multimedia = handler.process_response(response)
             response_text = multimedia.text_content or "No response."

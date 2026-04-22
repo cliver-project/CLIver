@@ -41,9 +41,7 @@ class AdapterManager:
         self._stop_timeout = stop_timeout
         self._tasks: List[asyncio.Task] = []
         self._connected: set[str] = set()
-        self._statuses: dict[str, AdapterStatus] = {
-            a.name: AdapterStatus(name=a.name) for a in adapters
-        }
+        self._statuses: dict[str, AdapterStatus] = {a.name: AdapterStatus(name=a.name) for a in adapters}
 
     @property
     def connected_platforms(self) -> list[str]:
@@ -52,10 +50,7 @@ class AdapterManager:
     @property
     def platform_statuses(self) -> list[dict]:
         """Per-adapter status for /health endpoint."""
-        return [
-            {"name": s.name, "state": s.state, "error": s.error}
-            for s in self._statuses.values()
-        ]
+        return [{"name": s.name, "state": s.state, "error": s.error} for s in self._statuses.values()]
 
     async def run(self) -> None:
         for adapter in self._adapters:
@@ -72,9 +67,7 @@ class AdapterManager:
             try:
                 await asyncio.wait_for(adapter.stop(), timeout=self._stop_timeout)
             except asyncio.TimeoutError:
-                logger.error(
-                    f"Adapter {adapter.name} stop timed out ({self._stop_timeout}s)"
-                )
+                logger.error(f"Adapter {adapter.name} stop timed out ({self._stop_timeout}s)")
             except Exception as e:
                 logger.error(f"Error stopping adapter {adapter.name}: {e}")
 

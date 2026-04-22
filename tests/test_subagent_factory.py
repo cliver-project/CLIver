@@ -1,7 +1,8 @@
 """Tests for SubAgentFactory — creates isolated AgentCore per step."""
 
-import pytest
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from cliver.workflow.subagent_factory import SubAgentFactory
 from cliver.workflow.workflow_models import AgentConfig

@@ -117,8 +117,11 @@ class TestAgentCoreGenerateImage:
         from cliver.config import ProviderConfig
 
         return ProviderConfig(
-            name="mm", type="openai", api_url="http://x",
-            api_key="sk-test", image_url=image_url,
+            name="mm",
+            type="openai",
+            api_url="http://x",
+            api_key="sk-test",
+            image_url=image_url,
         )
 
     def _make_image_model(self, provider_name="mm"):
@@ -210,7 +213,9 @@ class TestCapabilityRouting:
         from cliver.model_capabilities import ModelCapability
 
         prov = ProviderConfig(
-            name="mm", type="openai", api_url="http://x",
+            name="mm",
+            type="openai",
+            api_url="http://x",
             api_key="sk-test",
             image_url="https://api.minimaxi.com/v1/image_generation",
         )
@@ -241,11 +246,16 @@ class TestCapabilityRouting:
         from cliver.model_capabilities import ModelCapability
 
         prov = ProviderConfig(
-            name="mm", type="openai", api_url="http://x", api_key="sk-test",
+            name="mm",
+            type="openai",
+            api_url="http://x",
+            api_key="sk-test",
         )
         multi_model = ModelConfig(name="multi", provider="mm", name_in_provider="mm-2.7")
         multi_model.capabilities = {
-            ModelCapability.TEXT_TO_TEXT, ModelCapability.TEXT_TO_IMAGE, ModelCapability.TOOL_CALLING,
+            ModelCapability.TEXT_TO_TEXT,
+            ModelCapability.TEXT_TO_IMAGE,
+            ModelCapability.TOOL_CALLING,
         }
         multi_model._provider_config = prov
 

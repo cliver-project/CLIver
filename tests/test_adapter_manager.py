@@ -41,9 +41,7 @@ class TestAdapterManager:
     @pytest.mark.asyncio
     async def test_reconnect_on_failure(self):
         adapter = FakeAdapter("flaky", fail_count=2)
-        mgr = AdapterManager(
-            [adapter], on_message=AsyncMock(), initial_backoff=0.01, max_backoff=0.05
-        )
+        mgr = AdapterManager([adapter], on_message=AsyncMock(), initial_backoff=0.01, max_backoff=0.05)
         await mgr.run()
         await asyncio.sleep(0.2)
         assert adapter.started
