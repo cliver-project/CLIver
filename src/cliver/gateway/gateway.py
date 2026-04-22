@@ -177,6 +177,21 @@ class Gateway:
         except Exception as e:
             logger.error(f"Failed to start adapters: {e}")
 
+        # Clean up old sessions on startup
+        try:
+            agent_profile = CliverProfile(self.agent_name, self.config_dir)
+            gw_sessions_dir = agent_profile.agent_dir / "gateway-sessions"
+            sm = SessionManager(gw_sessions_dir)
+            sc = self._get_config_manager().config.session
+            deleted = sm.delete_stale_sessions(max_age_days=sc.max_age_days)
+            if deleted:
+                logger.info("Cleaned up %d stale sessions (>%d days)", deleted, sc.max_age_days)
+            deleted = sm.delete_oldest_sessions(keep=sc.max_sessions)
+            if deleted:
+                logger.info("Cleaned up %d oldest sessions (kept %d)", deleted, sc.max_sessions)
+        except Exception as e:
+            logger.warning("Session cleanup failed: %s", e)
+
         logger.info("Gateway started")
 
     async def _on_cleanup(self, app) -> None:
@@ -344,12 +359,14 @@ class Gateway:
     def _resolve_session_key(event: MessageEvent) -> str:
         """Build a session key from a message event.
 
-        Groups: keyed by platform:channel_id (shared context).
-        DMs: keyed by platform:user_id (private context).
+        Each thread gets its own session. For top-level messages (no thread),
+        the message's own ID becomes the thread root — the bot's reply will
+        create a new thread, giving each conversation its own context.
+
+        Key format: platform:channel_id:thread_id
         """
-        if event.is_group:
-            return f"{event.platform}:{event.channel_id}"
-        return f"{event.platform}:{event.user_id}"
+        thread = event.thread_id or event.message_id or ""
+        return f"{event.platform}:{event.channel_id}:{thread}"
 
     @staticmethod
     def _resolve_adapter_class(adapter_type: str) -> str:
@@ -397,6 +414,21 @@ class Gateway:
 
     # -- Message handling -----------------------------------------------------
 
+    async def _compress_history(self, history, new_input: str):
+        """Compress conversation history if it exceeds the model's context window."""
+        from cliver.conversation_compressor import ConversationCompressor
+
+        llm_engine = self._task_executor.get_llm_engine()
+        model_config = self._task_executor._get_llm_model()
+        context_window = getattr(model_config, "context_window", None) or 32768
+
+        compressor = ConversationCompressor(context_window=context_window)
+        if compressor.needs_compression([], history, new_input):
+            logger.info("Compressing conversation history (%d turns)", len(history))
+            history = await compressor.compress(history, llm_engine)
+            logger.info("Compressed to %d turns", len(history))
+        return history
+
     def _asyncio_exception_handler(self, loop, context):
         exception = context.get("exception")
         message = context.get("message", "")
@@ -427,10 +459,11 @@ class Gateway:
             logger.error(f"No adapter found for platform '{event.platform}'")
             return
 
-        # Resolve session
+        # Resolve session — gateway uses its own sessions DB, separate from CLI
         session_key = self._resolve_session_key(event)
         agent_profile = CliverProfile(self.agent_name, self.config_dir)
-        sm = SessionManager(agent_profile.sessions_dir)
+        gateway_sessions_dir = agent_profile.agent_dir / "gateway-sessions"
+        sm = SessionManager(gateway_sessions_dir)
 
         # Get or create session
         session_id = self._get_or_create_session(sm, session_key)
@@ -486,11 +519,22 @@ class Gateway:
             elif turn["role"] == "assistant":
                 conversation_history.append(AIMessage(content=turn["content"]))
 
+        # Compress history if it exceeds the model's context window
+        if conversation_history and self._task_executor:
+            try:
+                conversation_history = await self._compress_history(conversation_history, event.text)
+            except Exception as e:
+                logger.warning("History compression failed, using full history: %s", e)
+
         # Record user turn
         sm.append_turn(session_id, "user", event.text)
 
         # Run AgentCore
-        logger.info("Calling AgentCore.process_user_input (model=%s)", self._task_executor.default_model)
+        logger.info(
+            "Calling AgentCore.process_user_input (model=%s, history=%d turns)",
+            self._task_executor.default_model,
+            len(conversation_history),
+        )
         try:
             response = await self._task_executor.process_user_input(
                 user_input=event.text,
@@ -510,17 +554,26 @@ class Gateway:
             response_text = f"Error: {e}"
             multimedia = None
 
-        # Record assistant turn
+        # Record assistant turn and trim if session is getting large
         sm.append_turn(session_id, "assistant", response_text)
+        sc = self._get_config_manager().config.session
+        trimmed = sm.trim_turns(session_id, keep_last=sc.max_turns_per_session)
+        if trimmed:
+            logger.info("Trimmed %d old turns from session %s", trimmed, session_id)
+
+        # Reply in-thread: use existing thread_id, or message_id to create a new thread
+        reply_to = event.thread_id or event.message_id
 
         # Send text response
         formatted = adapter.format_message(response_text)
         chunks = split_message(formatted, adapter.max_message_length())
-        logger.info("Sending %d chunk(s) to %s channel %s", len(chunks), event.platform, event.channel_id)
+        logger.info(
+            "Sending %d chunk(s) to %s channel %s (thread: %s)", len(chunks), event.platform, event.channel_id, reply_to
+        )
 
         for chunk in chunks:
             try:
-                await adapter.send_text(event.channel_id, chunk)
+                await adapter.send_text(event.channel_id, chunk, reply_to=reply_to)
             except Exception as e:
                 logger.error(f"Failed to send message: {e}")
 

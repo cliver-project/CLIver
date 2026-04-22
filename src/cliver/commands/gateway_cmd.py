@@ -26,7 +26,7 @@ def _start_gateway(cliver: Cliver):
 
     pid_path = _get_pid_path()
 
-    # Check if already running
+    # Check if already running via PID file
     if pid_path.exists():
         try:
             pid = int(pid_path.read_text().strip())
@@ -41,6 +41,15 @@ def _start_gateway(cliver: Cliver):
     gw_cfg = cfg.gateway
     host = gw_cfg.host if gw_cfg else "127.0.0.1"
     port = gw_cfg.port if gw_cfg else 8321
+
+    # Check if port is already in use (catches orphan processes without PID file)
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        if s.connect_ex((host, port)) == 0:
+            cliver.output(f"[red]Port {port} is already in use. An orphan gateway may be running.[/red]")
+            cliver.output(f"[dim]Find it with: lsof -i :{port}[/dim]")
+            return 1
 
     # Pre-initialize AgentCore and resolve all secrets BEFORE forking.
     # macOS Keychain segfaults when accessed from a forked daemon process
@@ -69,7 +78,11 @@ def _start_gateway(cliver: Cliver):
         cliver.output(f"  Log: {log_path}")
         return 0
 
-    os.setsid()
+    # Note: we intentionally do NOT call os.setsid() here.
+    # On macOS, setsid() invalidates mach port connections to system
+    # daemons (DNS resolver, Keychain), causing segfaults in getaddrinfo()
+    # and Security framework calls. The fork alone is sufficient to
+    # detach from the parent — aiohttp handles SIGTERM/SIGINT gracefully.
 
     from cliver.gateway.logging_config import configure_gateway_logging
 

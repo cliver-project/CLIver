@@ -322,6 +322,17 @@ class GatewayConfig(BaseModel):
     log_backup_count: int = Field(default=5, description="Number of rotated log files to keep (default 5)")
 
 
+class SessionConfig(BaseModel):
+    """Session storage limits — shared by CLI and gateway."""
+
+    max_sessions: int = Field(
+        default=300,
+        description="Max sessions to keep; oldest deleted when exceeded",
+    )
+    max_turns_per_session: int = Field(default=100, description="Max turns per session")
+    max_age_days: int = Field(default=365, description="Delete sessions idle for this many days")
+
+
 class AppConfig(BaseModel):
     default_agent_name: str = Field(default="CLIver", description="The default agent instance name")
     providers: Dict[str, ProviderConfig] = Field(default_factory=dict)
@@ -334,6 +345,7 @@ class AppConfig(BaseModel):
         description="Override which tool groups are enabled. Default: auto-detect from environment.",
     )
     gateway: Optional[GatewayConfig] = Field(default=None, description="Gateway daemon configuration")
+    session: SessionConfig = Field(default_factory=SessionConfig, description="Session storage limits")
     theme: Optional[str] = Field(default=None, description="UI theme: dark (default), light, dracula")
 
     def resolve_secrets(self) -> None:

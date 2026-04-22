@@ -203,7 +203,18 @@ class Cliver:
         return set()
 
     def cleanup(self):
-        """Clean up resources."""
+        """Clean up resources and enforce session storage limits."""
+        # Trim current session and clean up old sessions
+        try:
+            sm = self.get_session_manager()
+            sc = self.config_manager.config.session
+            if self.current_session_id:
+                sm.trim_turns(self.current_session_id, keep_last=sc.max_turns_per_session)
+            sm.delete_stale_sessions(max_age_days=sc.max_age_days)
+            sm.delete_oldest_sessions(keep=sc.max_sessions)
+        except Exception:
+            pass
+
         self.session_options = {}
         self.session = None
         self._app = None

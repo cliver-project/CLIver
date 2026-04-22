@@ -137,6 +137,62 @@ class SessionManager:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def trim_turns(self, session_id: str, keep_last: int = 50) -> int:
+        """Delete older turns, keeping only the most recent ones.
+
+        Returns the number of turns deleted.
+        """
+        db = self._get_db()
+        cursor = db.execute(
+            """DELETE FROM turns WHERE session_id = ? AND id NOT IN (
+                SELECT id FROM turns WHERE session_id = ? ORDER BY id DESC LIMIT ?
+            )""",
+            (session_id, session_id, keep_last),
+        )
+        deleted = cursor.rowcount
+        if deleted > 0:
+            db.execute(
+                "UPDATE sessions SET turn_count = (SELECT COUNT(*) FROM turns WHERE session_id = ?) WHERE id = ?",
+                (session_id, session_id),
+            )
+            db.commit()
+        return deleted
+
+    def delete_oldest_sessions(self, keep: int = 300) -> int:
+        """Delete oldest sessions when total count exceeds keep limit.
+
+        Returns the number of sessions deleted.
+        """
+        db = self._get_db()
+        total = db.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
+        if total <= keep:
+            return 0
+        cursor = db.execute(
+            """DELETE FROM sessions WHERE id IN (
+                SELECT id FROM sessions ORDER BY updated_at ASC LIMIT ?
+            )""",
+            (total - keep,),
+        )
+        deleted = cursor.rowcount
+        if deleted > 0:
+            db.commit()
+        return deleted
+
+    def delete_stale_sessions(self, max_age_days: int = 90) -> int:
+        """Delete sessions not updated within max_age_days.
+
+        Returns the number of sessions deleted.
+        """
+        from datetime import datetime, timedelta, timezone
+
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=max_age_days)).isoformat()
+        db = self._get_db()
+        cursor = db.execute("DELETE FROM sessions WHERE updated_at < ?", (cutoff,))
+        deleted = cursor.rowcount
+        if deleted > 0:
+            db.commit()
+        return deleted
+
     def get_session_info(self, session_id: str) -> Optional[Dict[str, Any]]:
         """Get metadata for a session."""
         db = self._get_db()

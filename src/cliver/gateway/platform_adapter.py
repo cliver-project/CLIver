@@ -31,6 +31,8 @@ class MessageEvent:
     text: str
     media: List[MediaAttachment] = field(default_factory=list)
     reply_to_message_id: Optional[str] = None
+    thread_id: Optional[str] = None
+    message_id: Optional[str] = None
     is_group: bool = False
 
 

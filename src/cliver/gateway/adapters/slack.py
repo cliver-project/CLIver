@@ -265,13 +265,18 @@ class SlackAdapter(PlatformAdapter):
                 )
             )
 
+        msg_ts = message.get("ts", "")
+        thread_ts = message.get("thread_ts")
+
         event = MessageEvent(
             platform="slack",
             channel_id=message.get("channel", ""),
             user_id=user_id,
             text=text,
             media=media,
-            reply_to_message_id=message.get("thread_ts"),
+            reply_to_message_id=thread_ts,
+            thread_id=thread_ts or None,
+            message_id=msg_ts,
             is_group=is_group,
         )
         if self._on_message:
