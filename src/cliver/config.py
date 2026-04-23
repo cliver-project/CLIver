@@ -320,6 +320,8 @@ class GatewayConfig(BaseModel):
     )
     log_max_bytes: int = Field(default=10 * 1024 * 1024, description="Max size per log file in bytes (default 10MB)")
     log_backup_count: int = Field(default=5, description="Number of rotated log files to keep (default 5)")
+    admin_username: Optional[str] = Field(default=None, description="Admin portal username")
+    admin_password: Optional[str] = Field(default=None, description="Admin portal password (supports Jinja2 templates)")
 
 
 class SessionConfig(BaseModel):
