@@ -35,6 +35,27 @@ from cliver.task_manager import TaskDefinition, TaskManager, TaskRun
 logger = logging.getLogger(__name__)
 
 
+class ThreadQueue:
+    """Per-thread asyncio locks for sequential message processing."""
+
+    def __init__(self):
+        self._locks: dict[str, asyncio.Lock] = {}
+        self._last_used: dict[str, float] = {}
+
+    def get_lock(self, session_key: str) -> asyncio.Lock:
+        if session_key not in self._locks:
+            self._locks[session_key] = asyncio.Lock()
+        self._last_used[session_key] = time.monotonic()
+        return self._locks[session_key]
+
+    def cleanup(self, max_idle_seconds: float = 3600):
+        now = time.monotonic()
+        stale = [k for k, t in self._last_used.items() if now - t > max_idle_seconds]
+        for key in stale:
+            self._locks.pop(key, None)
+            self._last_used.pop(key, None)
+
+
 class Gateway:
     """Top-level orchestrator for the gateway daemon.
 
@@ -63,6 +84,7 @@ class Gateway:
         self._cron_task: Optional[asyncio.Task] = None
         self._tasks_run = 0
         self._start_time = 0.0
+        self._thread_queue = ThreadQueue()
 
     def init(self) -> None:
         """Initialize components that need to run before fork.
@@ -213,6 +235,8 @@ class Gateway:
                 self._run_store.close()
             except Exception as e:
                 logger.error(f"Error closing run store: {e}")
+
+        self._thread_queue.cleanup(max_idle_seconds=0)
 
         if self._pid_file:
             self._pid_file.close()
@@ -462,133 +486,138 @@ class Gateway:
 
         # Resolve session — uses the shared SessionManager instance
         session_key = self._resolve_session_key(event)
-        sm = self._session_manager
+        async with self._thread_queue.get_lock(session_key):
+            sm = self._session_manager
 
-        # Get or create session
-        session_id = self._get_or_create_session(sm, session_key)
+            # Get or create session
+            session_id = self._get_or_create_session(sm, session_key)
 
-        # Show typing indicator
-        try:
-            await adapter.send_typing(event.channel_id)
-        except Exception as e:
-            logger.debug(f"Typing indicator failed: {e}")
-
-        # Prepare media as temp files for AgentCore
-        images, audio_files = [], []
-        transcribed_texts = []
-        for media in event.media:
-            if media.data:
-                suffix = _media_suffix(media)
-                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-                tmp.write(media.data)
-                tmp.close()
-                if media.type == "image":
-                    images.append(tmp.name)
-                elif media.type == "voice":
-                    # Auto-transcribe voice messages to text
-                    try:
-                        from cliver.tools.transcribe_audio import transcribe_voice_message
-
-                        transcript = await transcribe_voice_message(tmp.name)
-                        if transcript:
-                            transcribed_texts.append(transcript)
-                            logger.info("Voice message transcribed: %.100s", transcript)
-                        else:
-                            audio_files.append(tmp.name)
-                    except Exception as e:
-                        logger.debug(f"Voice transcription failed, passing raw audio: {e}")
-                        audio_files.append(tmp.name)
-
-        # Prepend transcribed voice text to user input
-        if transcribed_texts:
-            voice_text = " ".join(transcribed_texts)
-            if event.text:
-                event.text = f"{event.text}\n\n[Voice message]: {voice_text}"
-            else:
-                event.text = voice_text
-
-        # Load conversation history
-        turns = sm.load_turns(session_id)
-        from langchain_core.messages import AIMessage, HumanMessage
-
-        conversation_history = []
-        for turn in turns:
-            if turn["role"] == "user":
-                conversation_history.append(HumanMessage(content=turn["content"]))
-            elif turn["role"] == "assistant":
-                conversation_history.append(AIMessage(content=turn["content"]))
-
-        # Compress history if it exceeds the model's context window
-        if conversation_history and self._task_executor:
+            # Show typing indicator
             try:
-                conversation_history = await self._compress_history(conversation_history, event.text)
+                await adapter.send_typing(event.channel_id)
             except Exception as e:
-                logger.warning("History compression failed, using full history: %s", e)
+                logger.debug(f"Typing indicator failed: {e}")
 
-        # Record user turn
-        sm.append_turn(session_id, "user", event.text)
+            # Prepare media as temp files for AgentCore
+            images, audio_files = [], []
+            transcribed_texts = []
+            for media in event.media:
+                if media.data:
+                    suffix = _media_suffix(media)
+                    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
+                    tmp.write(media.data)
+                    tmp.close()
+                    if media.type == "image":
+                        images.append(tmp.name)
+                    elif media.type == "voice":
+                        # Auto-transcribe voice messages to text
+                        try:
+                            from cliver.tools.transcribe_audio import transcribe_voice_message
 
-        # Run AgentCore
-        logger.info(
-            "Calling AgentCore.process_user_input (model=%s, history=%d turns)",
-            self._task_executor.default_model,
-            len(conversation_history),
-        )
-        try:
-            response = await self._task_executor.process_user_input(
-                user_input=event.text,
-                images=images or None,
-                audio_files=audio_files or None,
-                conversation_history=conversation_history or None,
+                            transcript = await transcribe_voice_message(tmp.name)
+                            if transcript:
+                                transcribed_texts.append(transcript)
+                                logger.info("Voice message transcribed: %.100s", transcript)
+                            else:
+                                audio_files.append(tmp.name)
+                        except Exception as e:
+                            logger.debug(f"Voice transcription failed, passing raw audio: {e}")
+                            audio_files.append(tmp.name)
+
+            # Prepend transcribed voice text to user input
+            if transcribed_texts:
+                voice_text = " ".join(transcribed_texts)
+                if event.text:
+                    event.text = f"{event.text}\n\n[Voice message]: {voice_text}"
+                else:
+                    event.text = voice_text
+
+            # Load conversation history
+            turns = sm.load_turns(session_id)
+            from langchain_core.messages import AIMessage, HumanMessage
+
+            conversation_history = []
+            for turn in turns:
+                if turn["role"] == "user":
+                    conversation_history.append(HumanMessage(content=turn["content"]))
+                elif turn["role"] == "assistant":
+                    conversation_history.append(AIMessage(content=turn["content"]))
+
+            # Compress history if it exceeds the model's context window
+            if conversation_history and self._task_executor:
+                try:
+                    conversation_history = await self._compress_history(conversation_history, event.text)
+                except Exception as e:
+                    logger.warning("History compression failed, using full history: %s", e)
+
+            # Record user turn
+            sm.append_turn(session_id, "user", event.text)
+
+            # Run AgentCore
+            logger.info(
+                "Calling AgentCore.process_user_input (model=%s, history=%d turns)",
+                self._task_executor.default_model,
+                len(conversation_history),
+            )
+            try:
+                response = await self._task_executor.process_user_input(
+                    user_input=event.text,
+                    images=images or None,
+                    audio_files=audio_files or None,
+                    conversation_history=conversation_history or None,
+                )
+
+                from cliver.media_handler import MultimediaResponseHandler
+
+                handler = MultimediaResponseHandler()
+                multimedia = handler.process_response(response)
+                response_text = multimedia.text_content or "No response."
+                logger.info("AgentCore response: %.200s", response_text)
+            except Exception as e:
+                logger.exception("AgentCore error: %s", e)
+                response_text = f"Error: {e}"
+                multimedia = None
+
+            # Record assistant turn and trim if session is getting large
+            sm.append_turn(session_id, "assistant", response_text)
+            sc = self._get_config_manager().config.session
+            trimmed = sm.trim_turns(session_id, keep_last=sc.max_turns_per_session)
+            if trimmed:
+                logger.info("Trimmed %d old turns from session %s", trimmed, session_id)
+
+            # Reply in-thread: use existing thread_id, or message_id to create a new thread
+            reply_to = event.thread_id or event.message_id
+
+            # Send text response
+            formatted = adapter.format_message(response_text)
+            chunks = split_message(formatted, adapter.max_message_length())
+            logger.info(
+                "Sending %d chunk(s) to %s channel %s (thread: %s)",
+                len(chunks),
+                event.platform,
+                event.channel_id,
+                reply_to,
             )
 
-            from cliver.media_handler import MultimediaResponseHandler
-
-            handler = MultimediaResponseHandler()
-            multimedia = handler.process_response(response)
-            response_text = multimedia.text_content or "No response."
-            logger.info("AgentCore response: %.200s", response_text)
-        except Exception as e:
-            logger.exception("AgentCore error: %s", e)
-            response_text = f"Error: {e}"
-            multimedia = None
-
-        # Record assistant turn and trim if session is getting large
-        sm.append_turn(session_id, "assistant", response_text)
-        sc = self._get_config_manager().config.session
-        trimmed = sm.trim_turns(session_id, keep_last=sc.max_turns_per_session)
-        if trimmed:
-            logger.info("Trimmed %d old turns from session %s", trimmed, session_id)
-
-        # Reply in-thread: use existing thread_id, or message_id to create a new thread
-        reply_to = event.thread_id or event.message_id
-
-        # Send text response
-        formatted = adapter.format_message(response_text)
-        chunks = split_message(formatted, adapter.max_message_length())
-        logger.info(
-            "Sending %d chunk(s) to %s channel %s (thread: %s)", len(chunks), event.platform, event.channel_id, reply_to
-        )
-
-        for chunk in chunks:
-            try:
-                await adapter.send_text(event.channel_id, chunk, reply_to=reply_to)
-            except Exception as e:
-                logger.error(f"Failed to send message: {e}")
-
-        # Send media (images, files, audio)
-        if multimedia and multimedia.has_media():
-            for media in multimedia.media_content:
+            for chunk in chunks:
                 try:
-                    if media.data and media.type.value == "image":
-                        await adapter.send_image(event.channel_id, media.data, caption=media.filename or "")
-                    elif media.data and media.type.value == "audio":
-                        await adapter.send_voice(event.channel_id, media.data)
-                    elif media.data:
-                        await adapter.send_file(event.channel_id, media.data, filename=media.filename or "file")
-                    logger.info("Sent %s media to %s", media.type.value, event.channel_id)
+                    await adapter.send_text(event.channel_id, chunk, reply_to=reply_to)
                 except Exception as e:
-                    logger.error("Failed to send %s media: %s", media.type.value, e)
+                    logger.error(f"Failed to send message: {e}")
+
+            # Send media (images, files, audio)
+            if multimedia and multimedia.has_media():
+                for media in multimedia.media_content:
+                    try:
+                        if media.data and media.type.value == "image":
+                            await adapter.send_image(event.channel_id, media.data, caption=media.filename or "")
+                        elif media.data and media.type.value == "audio":
+                            await adapter.send_voice(event.channel_id, media.data)
+                        elif media.data:
+                            await adapter.send_file(event.channel_id, media.data, filename=media.filename or "file")
+                        logger.info("Sent %s media to %s", media.type.value, event.channel_id)
+                    except Exception as e:
+                        logger.error("Failed to send %s media: %s", media.type.value, e)
 
     def _get_adapter(self, platform_name: str) -> Optional[PlatformAdapter]:
         """Find the adapter for a given platform name."""

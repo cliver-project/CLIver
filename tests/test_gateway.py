@@ -1,11 +1,13 @@
 """Tests for the Gateway aiohttp application."""
 
+import asyncio
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
 from aiohttp import web
 
-from cliver.gateway.gateway import Gateway
+from cliver.gateway.gateway import Gateway, ThreadQueue
 
 
 @pytest.fixture
@@ -59,3 +61,59 @@ class TestGateway:
                 await gw._on_cleanup(app)
                 assert gw._pid_file is None
                 assert not gw._pid_path.exists()
+
+
+class TestThreadQueue:
+    @pytest.mark.asyncio
+    async def test_same_key_serializes(self):
+        queue = ThreadQueue()
+        order = []
+
+        async def work(key, label, delay):
+            async with queue.get_lock(key):
+                order.append(f"{label}-start")
+                await asyncio.sleep(delay)
+                order.append(f"{label}-end")
+
+        await asyncio.gather(
+            work("thread-1", "A", 0.05),
+            work("thread-1", "B", 0.01),
+        )
+        assert order == ["A-start", "A-end", "B-start", "B-end"]
+
+    @pytest.mark.asyncio
+    async def test_different_keys_parallel(self):
+        queue = ThreadQueue()
+        order = []
+
+        async def work(key, label, delay):
+            async with queue.get_lock(key):
+                order.append(f"{label}-start")
+                await asyncio.sleep(delay)
+                order.append(f"{label}-end")
+
+        await asyncio.gather(
+            work("thread-1", "A", 0.05),
+            work("thread-2", "B", 0.01),
+        )
+        assert "B-end" in order
+        b_end_idx = order.index("B-end")
+        a_end_idx = order.index("A-end")
+        assert b_end_idx < a_end_idx
+
+    @pytest.mark.asyncio
+    async def test_cleanup_removes_stale_locks(self):
+        queue = ThreadQueue()
+        async with queue.get_lock("old-thread"):
+            pass
+        queue._last_used["old-thread"] = time.monotonic() - 7200
+        queue.cleanup(max_idle_seconds=3600)
+        assert "old-thread" not in queue._locks
+
+    @pytest.mark.asyncio
+    async def test_cleanup_keeps_recent_locks(self):
+        queue = ThreadQueue()
+        async with queue.get_lock("recent"):
+            pass
+        queue.cleanup(max_idle_seconds=3600)
+        assert "recent" in queue._locks
