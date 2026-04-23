@@ -2,12 +2,13 @@
 
 import asyncio
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from aiohttp import web
 
 from cliver.gateway.gateway import Gateway, ThreadQueue
+from cliver.task_manager import TaskDefinition, TaskOrigin
 
 
 @pytest.fixture
@@ -117,3 +118,83 @@ class TestThreadQueue:
             pass
         queue.cleanup(max_idle_seconds=3600)
         assert "recent" in queue._locks
+
+
+class TestOriginAwareExecution:
+    @pytest.mark.asyncio
+    async def test_run_task_without_origin(self, config_dir):
+        """CLI-originated task runs statelessly, no reply-back."""
+        gw = Gateway(config_dir=config_dir, agent_name="test")
+        gw._task_executor = MagicMock()
+        gw._task_executor.process_user_input = AsyncMock(return_value=MagicMock(content="done"))
+        gw._run_store = MagicMock()
+        gw._run_store.set_task_state = MagicMock()
+
+        task = TaskDefinition(name="cli-task", prompt="do x")
+        await gw._run_task(task)
+
+        gw._task_executor.process_user_input.assert_awaited_once()
+        gw._run_store.record_run.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_run_task_with_im_origin_adapter_connected(self, config_dir):
+        """IM-originated task delivers result back to thread."""
+        gw = Gateway(config_dir=config_dir, agent_name="test")
+        gw._task_executor = MagicMock()
+        gw._task_executor.process_user_input = AsyncMock(return_value=MagicMock(content="AI trends summary"))
+        gw._run_store = MagicMock()
+        gw._run_store.set_task_state = MagicMock()
+
+        mock_adapter = AsyncMock()
+        mock_adapter.name = "slack"
+        mock_adapter.format_message = MagicMock(return_value="AI trends summary")
+        mock_adapter.max_message_length = MagicMock(return_value=4000)
+        gw._adapter_manager = MagicMock()
+        gw._adapter_manager.connected_platforms = ["slack"]
+        gw._adapter_manager._adapters = [mock_adapter]
+
+        gw._session_manager = MagicMock()
+        gw._session_manager.load_turns = MagicMock(return_value=[])
+        gw._session_manager.list_sessions = MagicMock(return_value=[])
+        gw._session_manager.append_turn = MagicMock()
+        gw._session_manager.create_session = MagicMock(return_value="sess-123")
+
+        origin = TaskOrigin(
+            source="slack",
+            platform="slack",
+            channel_id="C123",
+            thread_id="ts456",
+            user_id="U789",
+            session_key="slack:C123:ts456",
+        )
+        task = TaskDefinition(name="im-task", prompt="research AI", origin=origin)
+        await gw._run_task(task)
+
+        mock_adapter.send_text.assert_awaited()
+        call_args = mock_adapter.send_text.call_args
+        assert call_args[0][0] == "C123"
+
+    @pytest.mark.asyncio
+    async def test_run_task_suspended_when_adapter_disconnected(self, config_dir):
+        """IM-originated task gets suspended if adapter is not connected."""
+        gw = Gateway(config_dir=config_dir, agent_name="test")
+        gw._task_executor = MagicMock()
+        gw._task_executor.process_user_input = AsyncMock()
+        gw._run_store = MagicMock()
+        gw._run_store.set_task_state = MagicMock()
+        gw._adapter_manager = MagicMock()
+        gw._adapter_manager.connected_platforms = []
+
+        origin = TaskOrigin(
+            source="slack",
+            platform="slack",
+            channel_id="C123",
+            thread_id="ts456",
+        )
+        task = TaskDefinition(name="suspended-task", prompt="do x", origin=origin)
+        await gw._run_task(task)
+
+        gw._run_store.set_task_state.assert_called_with(
+            "suspended-task", "suspended", reason="Adapter 'slack' not connected"
+        )
+        gw._task_executor.process_user_input.assert_not_awaited()

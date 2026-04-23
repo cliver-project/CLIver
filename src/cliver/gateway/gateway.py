@@ -198,7 +198,11 @@ class Gateway:
         # Adapters
         try:
             adapters = self._load_adapters()
-            self._adapter_manager = AdapterManager(adapters, on_message=self._handle_message)
+            self._adapter_manager = AdapterManager(
+                adapters,
+                on_message=self._handle_message,
+                on_reconnect=self._on_adapter_reconnect,
+            )
             await self._adapter_manager.run()
         except Exception as e:
             logger.error(f"Failed to start adapters: {e}")
@@ -282,9 +286,29 @@ class Gateway:
     # -- Task execution ----------------------------------------------------------
 
     async def _run_task(self, task: TaskDefinition) -> None:
-        """Execute a scheduled task — either as a workflow or a chat prompt."""
+        """Execute a task — origin-aware with reply-back for IM tasks."""
         execution_id = str(uuid.uuid4())[:8]
         logger.info(f"Running task '{task.name}' (execution: {execution_id})")
+
+        if self._run_store:
+            self._run_store.set_task_state(task.name, "running")
+
+        # Check adapter availability for IM-origin tasks
+        if task.origin and task.origin.platform:
+            connected = self._adapter_manager.connected_platforms if self._adapter_manager else []
+            if task.origin.platform not in connected:
+                logger.warning(
+                    "Task '%s' suspended: adapter '%s' not connected",
+                    task.name,
+                    task.origin.platform,
+                )
+                if self._run_store:
+                    self._run_store.set_task_state(
+                        task.name,
+                        "suspended",
+                        reason=f"Adapter '{task.origin.platform}' not connected",
+                    )
+                return
 
         run_record = TaskRun(
             task_name=task.name,
@@ -294,29 +318,111 @@ class Gateway:
         )
 
         try:
+            # Load conversation history for IM-origin tasks
+            conversation_history = None
+            if task.origin and task.origin.session_key and self._session_manager:
+                conversation_history = self._load_origin_history(task.origin.session_key)
+
             if task.workflow:
                 inputs = dict(task.workflow_inputs or {})
                 inputs["prompt"] = task.prompt
                 await self.run_workflow(task.workflow, inputs=inputs)
+                response_text = "Workflow completed."
             else:
                 system_appender = None
                 if task.skills:
                     system_appender = self._build_skill_appender(task.skills)
 
-                await self._task_executor.process_user_input(
+                response = await self._task_executor.process_user_input(
                     user_input=task.prompt,
                     model=task.model,
                     system_message_appender=system_appender,
+                    conversation_history=conversation_history,
                 )
+                response_text = str(response.content) if response and response.content else "No response."
+
             run_record.status = "completed"
+
+            # Deliver result to IM origin
+            if task.origin and task.origin.platform and task.origin.channel_id:
+                await self._deliver_to_origin(task, response_text)
+
         except Exception as e:
             run_record.status = "failed"
             run_record.error = str(e)
+            response_text = f"Task '{task.name}' failed: {e}"
             logger.error(f"Task '{task.name}' failed: {e}")
+
+            if task.origin and task.origin.platform and task.origin.channel_id:
+                try:
+                    await self._deliver_to_origin(task, response_text)
+                except Exception:
+                    logger.error("Failed to deliver error to origin")
+
         finally:
             run_record.finished_at = TaskManager.timestamp_now()
             if self._run_store:
                 self._run_store.record_run(run_record)
+                self._run_store.set_task_state(task.name, run_record.status)
+
+    def _load_origin_history(self, session_key: str):
+        """Load conversation history from an IM session for task context."""
+        from langchain_core.messages import AIMessage, HumanMessage
+
+        sessions = self._session_manager.list_sessions()
+        session_id = None
+        for s in sessions:
+            if s.get("title") == session_key:
+                session_id = s["id"]
+                break
+
+        if not session_id:
+            return None
+
+        turns = self._session_manager.load_turns(session_id)
+        if not turns:
+            return None
+
+        history = []
+        for turn in turns:
+            if turn["role"] == "user":
+                history.append(HumanMessage(content=turn["content"]))
+            elif turn["role"] == "assistant":
+                history.append(AIMessage(content=turn["content"]))
+        return history or None
+
+    async def _deliver_to_origin(self, task: TaskDefinition, response_text: str) -> None:
+        """Deliver task result to the originating IM thread and append synthetic turns."""
+        adapter = self._get_adapter(task.origin.platform)
+        if not adapter:
+            logger.error(f"No adapter for platform '{task.origin.platform}'")
+            return
+
+        formatted = adapter.format_message(response_text)
+        chunks = split_message(formatted, adapter.max_message_length())
+        for chunk in chunks:
+            await adapter.send_text(
+                task.origin.channel_id,
+                chunk,
+                reply_to=task.origin.thread_id,
+            )
+
+        # Append synthetic turns to the origin session
+        if self._session_manager and task.origin.session_key:
+            session_id = self._get_or_create_session(
+                self._session_manager,
+                task.origin.session_key,
+            )
+            self._session_manager.append_turn(
+                session_id,
+                "user",
+                f"[Task '{task.name}' executed]",
+            )
+            self._session_manager.append_turn(
+                session_id,
+                "assistant",
+                response_text,
+            )
 
     def _build_skill_appender(self, skill_names: list) -> callable:
         """Build a system_message_appender that injects pre-activated skills."""
@@ -653,6 +759,25 @@ class Gateway:
             if s.get("title") == session_key:
                 return s["id"]
         return sm.create_session(title=session_key)
+
+    async def _on_adapter_reconnect(self, platform_name: str) -> None:
+        """Resume suspended tasks when an adapter reconnects."""
+        if not self._run_store:
+            return
+
+        agent_profile = CliverProfile(self.agent_name, self.config_dir)
+        task_manager = TaskManager(agent_profile.tasks_dir)
+
+        suspended = self._run_store.get_tasks_by_status("suspended")
+        for state in suspended:
+            task = task_manager.get_task(state["task_name"])
+            if task and task.origin and task.origin.platform == platform_name:
+                self._run_store.set_task_state(task.name, "pending")
+                logger.info(
+                    "Resumed suspended task '%s' (adapter '%s' reconnected)",
+                    task.name,
+                    platform_name,
+                )
 
 
 def _create_gateway_tool_handler():
