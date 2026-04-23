@@ -1,9 +1,716 @@
 <!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><title>CLIver Admin</title></head>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CLIver Admin — {{AGENT_NAME}}</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0d0d1a; color: #e0e0e0; display: flex; min-height: 100vh;
+  }
+  a { color: #00d4aa; text-decoration: none; }
+
+  /* Sidebar */
+  .sidebar {
+    width: 200px; min-height: 100vh; background: #12122a;
+    border-right: 1px solid #2a2a4a; display: flex; flex-direction: column;
+    position: fixed; top: 0; left: 0; z-index: 10;
+  }
+  .sidebar-header { padding: 20px 16px; border-bottom: 1px solid #2a2a4a; }
+  .sidebar-header h2 { font-size: 16px; color: #00d4aa; margin-bottom: 8px; }
+  .status-badge { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: #00d4aa;
+    display: inline-block;
+  }
+  .status-dot.error { background: #ff4757; }
+  .sidebar nav { flex: 1; padding: 8px 0; }
+  .sidebar nav a {
+    display: block; padding: 10px 16px; color: #e0e0e0; font-size: 14px;
+    border-left: 3px solid transparent; transition: background 0.15s;
+  }
+  .sidebar nav a:hover { background: #1a1a2e; }
+  .sidebar nav a.active { border-left-color: #00d4aa; background: #1a1a2e; color: #00d4aa; }
+
+  /* Main */
+  .main { margin-left: 200px; flex: 1; padding: 24px; min-width: 0; }
+  .section { display: none; }
+  .section.active { display: block; }
+  .section h1 { font-size: 22px; margin-bottom: 16px; color: #e0e0e0; }
+
+  /* Stat cards */
+  .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
+  .stat-card {
+    background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 8px; padding: 20px;
+  }
+  .stat-card .label { font-size: 12px; text-transform: uppercase; color: #888; margin-bottom: 4px; }
+  .stat-card .value { font-size: 28px; font-weight: 600; color: #00d4aa; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; background: #1a1a2e; border-radius: 8px; overflow: hidden; }
+  th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid #2a2a4a; }
+  th { background: #12122a; font-size: 12px; text-transform: uppercase; color: #888; font-weight: 600; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #22223a; }
+
+  /* Pills */
+  .pill {
+    display: inline-block; padding: 3px 10px; border-radius: 12px;
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    background: #2a2a4a; color: #888;
+  }
+  .pill.ok, .pill.completed, .pill.connected { background: #0a3d2e; color: #00d4aa; }
+  .pill.err, .pill.failed { background: #3d0a15; color: #ff4757; }
+  .pill.warn, .pill.suspended, .pill.running { background: #3d2a0a; color: #ffa502; }
+  .pill.pending, .pill.connecting { background: #0a2a3d; color: #3498db; }
+
+  /* Buttons */
+  .btn {
+    padding: 6px 14px; border: 1px solid #2a2a4a; border-radius: 6px;
+    background: #1a1a2e; color: #e0e0e0; cursor: pointer; font-size: 13px;
+    transition: background 0.15s;
+  }
+  .btn:hover { background: #2a2a4a; }
+  .btn.danger { border-color: #ff4757; color: #ff4757; }
+  .btn.danger:hover { background: #3d0a15; }
+
+  /* Detail panel */
+  .detail-panel {
+    margin-top: 16px; background: #1a1a2e; border: 1px solid #2a2a4a;
+    border-radius: 8px; padding: 16px; display: none;
+  }
+  .detail-panel.open { display: block; }
+  .detail-panel pre {
+    background: #12122a; padding: 12px; border-radius: 6px;
+    overflow-x: auto; font-size: 13px; line-height: 1.5; white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  /* Item grid (skills, workflows) */
+  .item-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; }
+  .item-card {
+    background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 8px; padding: 16px;
+  }
+  .item-card h3 { font-size: 15px; color: #00d4aa; margin-bottom: 6px; }
+  .item-card p { font-size: 13px; color: #aaa; margin-bottom: 8px; }
+  .item-card .tag {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 11px; background: #2a2a4a; color: #888;
+  }
+
+  /* Markdown / preformatted content */
+  .md-content {
+    background: #12122a; border: 1px solid #2a2a4a; border-radius: 8px;
+    padding: 16px; margin-bottom: 16px; white-space: pre-wrap;
+    font-family: 'SF Mono', 'Fira Code', monospace; font-size: 13px;
+    line-height: 1.6; max-height: 400px; overflow-y: auto;
+  }
+
+  /* Config sections */
+  .config-section { margin-bottom: 24px; }
+  .config-section h2 { font-size: 16px; margin-bottom: 12px; color: #00d4aa; }
+
+  /* Loading */
+  .loading { color: #888; font-style: italic; padding: 20px 0; }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .sidebar {
+      width: 100%; min-height: auto; position: static;
+      flex-direction: row; flex-wrap: wrap; border-right: none;
+      border-bottom: 1px solid #2a2a4a;
+    }
+    .sidebar-header { border-bottom: none; padding: 12px 16px; }
+    .sidebar nav { display: flex; flex-wrap: wrap; padding: 0 8px 8px; }
+    .sidebar nav a { padding: 8px 12px; border-left: none; border-bottom: 2px solid transparent; }
+    .sidebar nav a.active { border-left-color: transparent; border-bottom-color: #00d4aa; }
+    .main { margin-left: 0; padding: 16px; }
+    .stat-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+</style>
+</head>
 <body>
-<h1>CLIver Admin — {{AGENT_NAME}}</h1>
-<p>Admin portal loading...</p>
-<script>const BASE_URL = "{{BASE_URL}}";</script>
+
+<div class="sidebar">
+  <div class="sidebar-header">
+    <h2>{{AGENT_NAME}}</h2>
+    <div class="status-badge">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">Connecting...</span>
+    </div>
+  </div>
+  <nav>
+    <a href="#" class="active" onclick="showSection('gateway'); return false;">Gateway</a>
+    <a href="#" onclick="showSection('tasks'); return false;">Tasks</a>
+    <a href="#" onclick="showSection('sessions'); return false;">Sessions</a>
+    <a href="#" onclick="showSection('workflows'); return false;">Workflows</a>
+    <a href="#" onclick="showSection('skills'); return false;">Skills</a>
+    <a href="#" onclick="showSection('adapters'); return false;">Adapters</a>
+    <a href="#" onclick="showSection('agent'); return false;">Agent</a>
+    <a href="#" onclick="showSection('config'); return false;">Config</a>
+  </nav>
+</div>
+
+<div class="main">
+
+  <!-- Gateway -->
+  <div class="section active" id="sec-gateway">
+    <h1>Gateway</h1>
+    <div class="stat-grid">
+      <div class="stat-card"><div class="label">Uptime</div><div class="value" id="gw-uptime">--</div></div>
+      <div class="stat-card"><div class="label">Tasks Run</div><div class="value" id="gw-tasks-run">--</div></div>
+      <div class="stat-card"><div class="label">Adapters</div><div class="value" id="gw-adapters">--</div></div>
+    </div>
+    <div id="gw-adapter-table"></div>
+  </div>
+
+  <!-- Tasks -->
+  <div class="section" id="sec-tasks">
+    <h1>Tasks</h1>
+    <div id="tasks-content"><p class="loading">Loading tasks...</p></div>
+  </div>
+
+  <!-- Sessions -->
+  <div class="section" id="sec-sessions">
+    <h1>Sessions</h1>
+    <div id="sessions-content"><p class="loading">Loading sessions...</p></div>
+    <div class="detail-panel" id="session-detail">
+      <h3 id="session-detail-title">Session Detail</h3>
+      <pre id="session-detail-body"></pre>
+    </div>
+  </div>
+
+  <!-- Workflows -->
+  <div class="section" id="sec-workflows">
+    <h1>Workflows</h1>
+    <div id="workflows-content"><p class="loading">Loading workflows...</p></div>
+  </div>
+
+  <!-- Skills -->
+  <div class="section" id="sec-skills">
+    <h1>Skills</h1>
+    <div id="skills-content"><p class="loading">Loading skills...</p></div>
+  </div>
+
+  <!-- Adapters -->
+  <div class="section" id="sec-adapters">
+    <h1>Adapters</h1>
+    <div id="adapters-content"><p class="loading">Loading adapters...</p></div>
+  </div>
+
+  <!-- Agent -->
+  <div class="section" id="sec-agent">
+    <h1>Agent</h1>
+    <div id="agent-content"><p class="loading">Loading agent info...</p></div>
+  </div>
+
+  <!-- Config -->
+  <div class="section" id="sec-config">
+    <h1>Config</h1>
+    <div id="config-content"><p class="loading">Loading config...</p></div>
+  </div>
+
+</div>
+
+<script>
+const BASE_URL = "{{BASE_URL}}";
+
+/* ---- helpers ---- */
+
+function escHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function pill(status) {
+  var cls = '';
+  var s = String(status || '').toLowerCase();
+  if (s === 'ok' || s === 'completed' || s === 'connected') cls = s;
+  else if (s === 'err' || s === 'error' || s === 'failed') cls = s === 'error' ? 'err' : s;
+  else if (s === 'warn' || s === 'warning' || s === 'suspended' || s === 'running') cls = (s === 'warning') ? 'warn' : s;
+  else if (s === 'pending' || s === 'connecting') cls = s;
+  return '<span class="pill ' + cls + '">' + escHtml(status) + '</span>';
+}
+
+function fmtUptime(secs) {
+  if (secs === null || secs === undefined) return '--';
+  secs = Math.floor(secs);
+  var h = Math.floor(secs / 3600);
+  var m = Math.floor((secs % 3600) / 60);
+  var s = secs % 60;
+  return h + 'h ' + m + 'm ' + s + 's';
+}
+
+async function api(path) {
+  try {
+    var resp = await fetch(BASE_URL + '/api' + path);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    return await resp.json();
+  } catch(e) {
+    console.error('API error', path, e);
+    return null;
+  }
+}
+
+async function apiPost(path) {
+  try {
+    var resp = await fetch(BASE_URL + '/api' + path, { method: 'POST' });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    return await resp.json();
+  } catch(e) {
+    console.error('API POST error', path, e);
+    return null;
+  }
+}
+
+async function apiDelete(path) {
+  try {
+    var resp = await fetch(BASE_URL + '/api' + path, { method: 'DELETE' });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    return await resp.json();
+  } catch(e) {
+    console.error('API DELETE error', path, e);
+    return null;
+  }
+}
+
+/* ---- navigation ---- */
+
+var loaders = {
+  gateway: loadGateway, tasks: loadTasks, sessions: loadSessions,
+  workflows: loadWorkflows, skills: loadSkills, adapters: loadAdapters,
+  agent: loadAgent, config: loadConfig
+};
+
+function showSection(name) {
+  document.querySelectorAll('.section').forEach(function(el) { el.classList.remove('active'); });
+  document.querySelectorAll('.sidebar nav a').forEach(function(el) { el.classList.remove('active'); });
+  var sec = document.getElementById('sec-' + name);
+  if (sec) sec.classList.add('active');
+  var links = document.querySelectorAll('.sidebar nav a');
+  for (var i = 0; i < links.length; i++) {
+    if (links[i].textContent.toLowerCase() === name) { links[i].classList.add('active'); break; }
+  }
+  if (loaders[name]) loaders[name]();
+}
+
+/* ---- section loaders ---- */
+
+async function loadGateway() {
+  var data = await api('/status');
+  if (!data) {
+    document.getElementById('statusDot').className = 'status-dot error';
+    document.getElementById('statusText').textContent = 'Error';
+    return;
+  }
+  document.getElementById('statusDot').className = 'status-dot';
+  document.getElementById('statusText').textContent = 'Running';
+  document.getElementById('gw-uptime').textContent = fmtUptime(data.uptime);
+  document.getElementById('gw-tasks-run').textContent = data.tasks_run !== undefined ? data.tasks_run : '--';
+  var adapterCount = (data.adapters && data.adapters.length) || (data.platforms && data.platforms.length) || 0;
+  document.getElementById('gw-adapters').textContent = adapterCount;
+
+  var adapters = data.adapters || [];
+  var container = document.getElementById('gw-adapter-table');
+  if (adapters.length > 0) {
+    var tbl = document.createElement('table');
+    var thead = '<thead><tr><th>Name</th><th>Status</th></tr></thead>';
+    var tbody = document.createElement('tbody');
+    for (var i = 0; i < adapters.length; i++) {
+      var a = adapters[i];
+      var row = document.createElement('tr');
+      var c1 = document.createElement('td');
+      c1.textContent = a.name || '';
+      var c2 = document.createElement('td');
+      c2.textContent = a.status || 'ok';
+      row.appendChild(c1);
+      row.appendChild(c2);
+      tbody.appendChild(row);
+    }
+    container.textContent = '';
+    tbl.insertAdjacentHTML('afterbegin', thead);
+    tbl.appendChild(tbody);
+    container.appendChild(tbl);
+  } else {
+    container.textContent = '';
+  }
+}
+
+async function loadTasks() {
+  var data = await api('/tasks');
+  var el = document.getElementById('tasks-content');
+  if (!data || data.length === 0) { el.textContent = ''; var p = document.createElement('p'); p.className = 'loading'; p.textContent = 'No tasks configured.'; el.appendChild(p); return; }
+  var tbl = document.createElement('table');
+  tbl.insertAdjacentHTML('afterbegin', '<thead><tr><th>Name</th><th>Schedule</th><th>Origin</th><th>Status</th><th>Last Run</th><th>Action</th></tr></thead>');
+  var tbody = document.createElement('tbody');
+  for (var i = 0; i < data.length; i++) {
+    var t = data[i];
+    var status = t.live_status || 'pending';
+    var lastRun = (t.last_run && t.last_run.started_at) ? t.last_run.started_at : '--';
+    var origin = t.origin || '';
+    var row = document.createElement('tr');
+    var cells = [t.name, t.schedule || '--', origin];
+    for (var c = 0; c < cells.length; c++) {
+      var td = document.createElement('td');
+      td.textContent = cells[c];
+      row.appendChild(td);
+    }
+    var tdStatus = document.createElement('td');
+    tdStatus.insertAdjacentHTML('afterbegin', pill(status));
+    row.appendChild(tdStatus);
+    var tdLast = document.createElement('td');
+    tdLast.textContent = lastRun;
+    row.appendChild(tdLast);
+    var tdAction = document.createElement('td');
+    var btn = document.createElement('button');
+    btn.className = 'btn';
+    btn.textContent = 'Run';
+    btn.setAttribute('data-task', t.name);
+    btn.onclick = function() { runTask(this.getAttribute('data-task')); };
+    tdAction.appendChild(btn);
+    row.appendChild(tdAction);
+    tbody.appendChild(row);
+  }
+  tbl.appendChild(tbody);
+  el.textContent = '';
+  el.appendChild(tbl);
+}
+
+async function loadSessions() {
+  var data = await api('/sessions');
+  var el = document.getElementById('sessions-content');
+  document.getElementById('session-detail').classList.remove('open');
+  if (!data || data.length === 0) { el.textContent = ''; var p = document.createElement('p'); p.className = 'loading'; p.textContent = 'No sessions found.'; el.appendChild(p); return; }
+  var tbl = document.createElement('table');
+  tbl.insertAdjacentHTML('afterbegin', '<thead><tr><th>Title</th><th>Turns</th><th>Created</th><th>Updated</th><th>Actions</th></tr></thead>');
+  var tbody = document.createElement('tbody');
+  for (var i = 0; i < data.length; i++) {
+    var s = data[i];
+    var title = s.title || s.session_id || s.id || '--';
+    var turns = s.turn_count !== undefined ? s.turn_count : (s.turns !== undefined ? s.turns : '--');
+    var sid = s.session_id || s.id || '';
+    var row = document.createElement('tr');
+    var cellVals = [title, turns, s.created_at || '--', s.updated_at || '--'];
+    for (var c = 0; c < cellVals.length; c++) {
+      var td = document.createElement('td');
+      td.textContent = cellVals[c];
+      row.appendChild(td);
+    }
+    var tdActions = document.createElement('td');
+    var btnView = document.createElement('button');
+    btnView.className = 'btn';
+    btnView.textContent = 'View';
+    btnView.setAttribute('data-sid', sid);
+    btnView.onclick = function() { viewSession(this.getAttribute('data-sid')); };
+    var btnDel = document.createElement('button');
+    btnDel.className = 'btn danger';
+    btnDel.textContent = 'Delete';
+    btnDel.setAttribute('data-sid', sid);
+    btnDel.onclick = function() { deleteSession(this.getAttribute('data-sid')); };
+    tdActions.appendChild(btnView);
+    tdActions.appendChild(document.createTextNode(' '));
+    tdActions.appendChild(btnDel);
+    row.appendChild(tdActions);
+    tbody.appendChild(row);
+  }
+  tbl.appendChild(tbody);
+  el.textContent = '';
+  el.appendChild(tbl);
+}
+
+async function loadWorkflows() {
+  var data = await api('/workflows');
+  var el = document.getElementById('workflows-content');
+  if (!data || data.length === 0) { el.textContent = ''; var p = document.createElement('p'); p.className = 'loading'; p.textContent = 'No workflows found.'; el.appendChild(p); return; }
+  var grid = document.createElement('div');
+  grid.className = 'item-grid';
+  for (var i = 0; i < data.length; i++) {
+    var w = data[i];
+    var card = document.createElement('div');
+    card.className = 'item-card';
+    var h3 = document.createElement('h3');
+    h3.textContent = w.name;
+    card.appendChild(h3);
+    var desc = document.createElement('p');
+    desc.textContent = w.description || 'No description';
+    card.appendChild(desc);
+    if (w.steps !== undefined) {
+      var tag = document.createElement('span');
+      tag.className = 'tag';
+      tag.textContent = w.steps + ' steps';
+      card.appendChild(tag);
+    }
+    grid.appendChild(card);
+  }
+  el.textContent = '';
+  el.appendChild(grid);
+}
+
+async function loadSkills() {
+  var data = await api('/skills');
+  var el = document.getElementById('skills-content');
+  if (!data || data.length === 0) { el.textContent = ''; var p = document.createElement('p'); p.className = 'loading'; p.textContent = 'No skills found.'; el.appendChild(p); return; }
+  var grid = document.createElement('div');
+  grid.className = 'item-grid';
+  for (var i = 0; i < data.length; i++) {
+    var s = data[i];
+    var card = document.createElement('div');
+    card.className = 'item-card';
+    var h3 = document.createElement('h3');
+    h3.textContent = s.name;
+    card.appendChild(h3);
+    var desc = document.createElement('p');
+    desc.textContent = s.description || 'No description';
+    card.appendChild(desc);
+    var tag = document.createElement('span');
+    tag.className = 'tag';
+    tag.textContent = s.source || 'unknown';
+    card.appendChild(tag);
+    grid.appendChild(card);
+  }
+  el.textContent = '';
+  el.appendChild(grid);
+}
+
+async function loadAdapters() {
+  var data = await api('/adapters');
+  var el = document.getElementById('adapters-content');
+  if (!data || data.length === 0) { el.textContent = ''; var p = document.createElement('p'); p.className = 'loading'; p.textContent = 'No adapters configured.'; el.appendChild(p); return; }
+  var tbl = document.createElement('table');
+  tbl.insertAdjacentHTML('afterbegin', '<thead><tr><th>Name</th><th>Status</th><th>Error</th></tr></thead>');
+  var tbody = document.createElement('tbody');
+  for (var i = 0; i < data.length; i++) {
+    var a = data[i];
+    var row = document.createElement('tr');
+    var tdName = document.createElement('td');
+    tdName.textContent = a.name || '';
+    row.appendChild(tdName);
+    var tdStatus = document.createElement('td');
+    tdStatus.insertAdjacentHTML('afterbegin', pill(a.status || 'unknown'));
+    row.appendChild(tdStatus);
+    var tdErr = document.createElement('td');
+    tdErr.textContent = a.error || '--';
+    row.appendChild(tdErr);
+    tbody.appendChild(row);
+  }
+  tbl.appendChild(tbody);
+  el.textContent = '';
+  el.appendChild(tbl);
+}
+
+async function loadAgent() {
+  var data = await api('/agent');
+  var el = document.getElementById('agent-content');
+  if (!data) { el.textContent = ''; var p = document.createElement('p'); p.className = 'loading'; p.textContent = 'Failed to load agent info.'; el.appendChild(p); return; }
+  el.textContent = '';
+  var h2 = document.createElement('h2');
+  h2.style.marginBottom = '16px';
+  h2.textContent = data.name;
+  el.appendChild(h2);
+
+  var lbl1 = document.createElement('h3');
+  lbl1.style.cssText = 'margin-bottom:8px; color:#888; font-size:13px; text-transform:uppercase;';
+  lbl1.textContent = 'Identity';
+  el.appendChild(lbl1);
+  var md1 = document.createElement('div');
+  md1.className = 'md-content';
+  md1.textContent = data.identity || 'No identity configured.';
+  el.appendChild(md1);
+
+  var lbl2 = document.createElement('h3');
+  lbl2.style.cssText = 'margin-bottom:8px; color:#888; font-size:13px; text-transform:uppercase;';
+  lbl2.textContent = 'Memory';
+  el.appendChild(lbl2);
+  var md2 = document.createElement('div');
+  md2.className = 'md-content';
+  md2.textContent = data.memory || 'No memory stored.';
+  el.appendChild(md2);
+}
+
+async function loadConfig() {
+  var data = await api('/config');
+  var el = document.getElementById('config-content');
+  if (!data) { el.textContent = ''; var p = document.createElement('p'); p.className = 'loading'; p.textContent = 'Failed to load config.'; el.appendChild(p); return; }
+  el.textContent = '';
+
+  var modelNames = Object.keys(data.models || {});
+  var provNames = Object.keys(data.providers || {});
+  var mcpNames = Object.keys(data.mcp_servers || {});
+
+  /* Default model */
+  var sec1 = document.createElement('div');
+  sec1.className = 'config-section';
+  var h1 = document.createElement('h2');
+  h1.textContent = 'Default Model';
+  sec1.appendChild(h1);
+  if (modelNames.length > 0) {
+    var p1 = document.createElement('p');
+    p1.style.cssText = 'margin-bottom:16px; color:#aaa;';
+    p1.textContent = 'First configured model: ';
+    var strong = document.createElement('strong');
+    strong.style.color = '#00d4aa';
+    strong.textContent = modelNames[0];
+    p1.appendChild(strong);
+    sec1.appendChild(p1);
+  }
+  el.appendChild(sec1);
+
+  /* Models table */
+  var sec2 = document.createElement('div');
+  sec2.className = 'config-section';
+  var h2 = document.createElement('h2');
+  h2.textContent = 'Models';
+  sec2.appendChild(h2);
+  if (modelNames.length === 0) {
+    var pn = document.createElement('p');
+    pn.className = 'loading';
+    pn.textContent = 'No models configured.';
+    sec2.appendChild(pn);
+  } else {
+    var tbl = document.createElement('table');
+    tbl.insertAdjacentHTML('afterbegin', '<thead><tr><th>Name</th><th>Provider</th><th>API URL</th><th>Model ID</th></tr></thead>');
+    var tbody = document.createElement('tbody');
+    for (var i = 0; i < modelNames.length; i++) {
+      var mn = modelNames[i];
+      var mc = data.models[mn];
+      var row = document.createElement('tr');
+      var vals = [mn, mc.provider || '--', mc.api_url || '--', mc.model_id || '--'];
+      for (var c = 0; c < vals.length; c++) {
+        var td = document.createElement('td');
+        td.textContent = vals[c];
+        row.appendChild(td);
+      }
+      tbody.appendChild(row);
+    }
+    tbl.appendChild(tbody);
+    sec2.appendChild(tbl);
+  }
+  el.appendChild(sec2);
+
+  /* Providers table */
+  var sec3 = document.createElement('div');
+  sec3.className = 'config-section';
+  var h3 = document.createElement('h2');
+  h3.textContent = 'Providers';
+  sec3.appendChild(h3);
+  if (provNames.length === 0) {
+    var pp = document.createElement('p');
+    pp.className = 'loading';
+    pp.textContent = 'No providers configured.';
+    sec3.appendChild(pp);
+  } else {
+    var tbl2 = document.createElement('table');
+    tbl2.insertAdjacentHTML('afterbegin', '<thead><tr><th>Name</th><th>Type</th><th>API URL</th><th>API Key</th></tr></thead>');
+    var tbody2 = document.createElement('tbody');
+    for (var j = 0; j < provNames.length; j++) {
+      var pname = provNames[j];
+      var pc = data.providers[pname];
+      var row2 = document.createElement('tr');
+      var vals2 = [pname, pc.type || '--', pc.api_url || '--', pc.api_key || '--'];
+      for (var c2 = 0; c2 < vals2.length; c2++) {
+        var td2 = document.createElement('td');
+        td2.textContent = vals2[c2];
+        row2.appendChild(td2);
+      }
+      tbody2.appendChild(row2);
+    }
+    tbl2.appendChild(tbody2);
+    sec3.appendChild(tbl2);
+  }
+  el.appendChild(sec3);
+
+  /* MCP Servers table */
+  var sec4 = document.createElement('div');
+  sec4.className = 'config-section';
+  var h4 = document.createElement('h2');
+  h4.textContent = 'MCP Servers';
+  sec4.appendChild(h4);
+  if (mcpNames.length === 0) {
+    var pm = document.createElement('p');
+    pm.className = 'loading';
+    pm.textContent = 'No MCP servers configured.';
+    sec4.appendChild(pm);
+  } else {
+    var tbl3 = document.createElement('table');
+    tbl3.insertAdjacentHTML('afterbegin', '<thead><tr><th>Name</th><th>Transport</th><th>Command / URL</th></tr></thead>');
+    var tbody3 = document.createElement('tbody');
+    for (var k = 0; k < mcpNames.length; k++) {
+      var sn = mcpNames[k];
+      var sc = data.mcp_servers[sn];
+      var endpoint = sc.command || sc.url || '--';
+      var row3 = document.createElement('tr');
+      var vals3 = [sn, sc.transport || '--', endpoint];
+      for (var c3 = 0; c3 < vals3.length; c3++) {
+        var td3 = document.createElement('td');
+        td3.textContent = vals3[c3];
+        row3.appendChild(td3);
+      }
+      tbody3.appendChild(row3);
+    }
+    tbl3.appendChild(tbody3);
+    sec4.appendChild(tbl3);
+  }
+  el.appendChild(sec4);
+}
+
+/* ---- actions ---- */
+
+async function runTask(name) {
+  if (!confirm('Run task "' + name + '"?')) return;
+  var result = await apiPost('/tasks/' + encodeURIComponent(name) + '/run');
+  if (result && result.status === 'started') {
+    alert('Task "' + name + '" started.');
+  } else {
+    alert('Failed to start task: ' + (result ? result.message || 'unknown error' : 'API error'));
+  }
+  loadTasks();
+}
+
+async function viewSession(id) {
+  var panel = document.getElementById('session-detail');
+  var body = document.getElementById('session-detail-body');
+  var title = document.getElementById('session-detail-title');
+
+  if (panel.classList.contains('open') && panel.dataset.sid === id) {
+    panel.classList.remove('open');
+    return;
+  }
+
+  panel.dataset.sid = id;
+  title.textContent = 'Session: ' + id;
+  body.textContent = 'Loading...';
+  panel.classList.add('open');
+
+  var turns = await api('/sessions/' + encodeURIComponent(id));
+  if (!turns || turns.length === 0) {
+    body.textContent = 'No turns found.';
+    return;
+  }
+  var text = '';
+  for (var i = 0; i < turns.length; i++) {
+    var t = turns[i];
+    var role = t.role || t.type || 'unknown';
+    var content = t.content || t.text || JSON.stringify(t);
+    text += '[' + role.toUpperCase() + ']\n' + content + '\n\n';
+  }
+  body.textContent = text;
+}
+
+async function deleteSession(id) {
+  if (!confirm('Delete session "' + id + '"?')) return;
+  var result = await apiDelete('/sessions/' + encodeURIComponent(id));
+  if (result && result.status === 'deleted') {
+    loadSessions();
+  } else {
+    alert('Failed to delete session.');
+  }
+}
+
+/* ---- init ---- */
+loadGateway();
+setInterval(loadGateway, 30000);
+</script>
 </body>
 </html>
