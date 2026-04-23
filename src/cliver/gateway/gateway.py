@@ -172,6 +172,26 @@ class Gateway:
 
             app.router.add_get("/health", health_fallback)
 
+        # Admin portal
+        try:
+            from cliver.gateway.admin import register_admin_routes
+
+            admin_user = gw_config.admin_username if gw_config else None
+            admin_pass = gw_config.admin_password if gw_config else None
+            admin_ctx = {
+                "get_status": self._get_status_async,
+                "agent_name": self.agent_name,
+                "config_dir": self.config_dir,
+                "gateway": self,
+            }
+            register_admin_routes(app, username=admin_user, password=admin_pass, context=admin_ctx)
+            if admin_user and admin_pass:
+                logger.info("Admin portal enabled at /admin")
+            else:
+                logger.info("Admin portal disabled (no credentials configured)")
+        except Exception as e:
+            logger.error(f"Failed to register admin routes: {e}")
+
         # Cron scheduler
         try:
             agent_profile = CliverProfile(self.agent_name, self.config_dir)
@@ -264,6 +284,10 @@ class Gateway:
             "platforms": platforms,
             "adapters": adapter_statuses,
         }
+
+    async def _get_status_async(self) -> dict:
+        """Async wrapper for _get_status (used by admin API)."""
+        return self._get_status()
 
     async def _cron_loop(self) -> None:
         """Background task: tick the scheduler every 60 seconds."""
