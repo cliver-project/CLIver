@@ -164,3 +164,41 @@ class TestGetAllTaskNames:
             )
         names = sorted(store.get_all_task_names())
         assert names == ["a", "b", "c"]
+
+
+class TestTaskState:
+    def test_set_and_get_state(self, store):
+        store.set_task_state("my-task", "pending")
+        state = store.get_task_state("my-task")
+        assert state["task_name"] == "my-task"
+        assert state["status"] == "pending"
+        assert state["suspend_reason"] is None
+
+    def test_update_state(self, store):
+        store.set_task_state("t", "pending")
+        store.set_task_state("t", "running")
+        state = store.get_task_state("t")
+        assert state["status"] == "running"
+
+    def test_suspend_with_reason(self, store):
+        store.set_task_state("t", "suspended", reason="Adapter 'slack' not connected")
+        state = store.get_task_state("t")
+        assert state["status"] == "suspended"
+        assert state["suspend_reason"] == "Adapter 'slack' not connected"
+
+    def test_get_nonexistent_state(self, store):
+        assert store.get_task_state("nope") is None
+
+    def test_get_tasks_by_status(self, store):
+        store.set_task_state("a", "suspended", reason="slack down")
+        store.set_task_state("b", "running")
+        store.set_task_state("c", "suspended", reason="telegram down")
+
+        suspended = store.get_tasks_by_status("suspended")
+        names = [s["task_name"] for s in suspended]
+        assert sorted(names) == ["a", "c"]
+
+    def test_delete_task_state(self, store):
+        store.set_task_state("t", "pending")
+        store.delete_task_state("t")
+        assert store.get_task_state("t") is None
