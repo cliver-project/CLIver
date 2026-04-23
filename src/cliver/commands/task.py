@@ -34,7 +34,12 @@ def _list_tasks(cliver: Cliver) -> int:
         workflow = f"  workflow: {t.workflow}" if t.workflow else ""
         skills = f"  skills: {', '.join(t.skills)}" if t.skills else ""
         desc = f"  — {t.description}" if t.description else ""
-        cliver.output(f"  {t.name}:{desc}{model}{workflow}{skills}{schedule}")
+        origin = ""
+        if t.origin:
+            origin = f"  origin: {t.origin.source}"
+            if t.origin.channel_id:
+                origin += f" ({t.origin.channel_id})"
+        cliver.output(f"  {t.name}:{desc}{model}{workflow}{skills}{schedule}{origin}")
 
     return 0
 
@@ -155,6 +160,8 @@ def _run_task(cliver: Cliver, name: str, model: Optional[str] = None) -> int:
 
 def _task_history(cliver: Cliver, name: str, limit: int = 10) -> int:
     """Show execution history for a task."""
+    manager = TaskManager(cliver.agent_profile.tasks_dir)
+    task_def = manager.get_task(name)
     run_store = _get_run_store(cliver)
     runs = run_store.get_runs(name, limit=limit)
 
@@ -163,6 +170,10 @@ def _task_history(cliver: Cliver, name: str, limit: int = 10) -> int:
         return 0
 
     cliver.output(f"Run history for '{name}' (most recent first):")
+    if task_def and task_def.origin:
+        cliver.output(f"  Origin: {task_def.origin.source}")
+        if task_def.origin.channel_id:
+            cliver.output(f"  Reply-to: {task_def.origin.channel_id} / {task_def.origin.thread_id}")
     for run in runs:
         status_icon = "+" if run.status == "completed" else "x"
         error_info = f" — {run.error}" if run.error else ""
