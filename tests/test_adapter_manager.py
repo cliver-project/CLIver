@@ -97,3 +97,50 @@ class TestAdapterManager:
         await mgr.run()
         await asyncio.sleep(0.05)
         await mgr.stop()
+
+
+class TestReconnectCallback:
+    @pytest.mark.asyncio
+    async def test_on_reconnect_called_after_start(self):
+        adapter = FakeAdapter("slack")
+        reconnected = []
+
+        async def on_reconnect(name):
+            reconnected.append(name)
+
+        mgr = AdapterManager([adapter], on_message=AsyncMock(), on_reconnect=on_reconnect)
+        await mgr.run()
+        await asyncio.sleep(0.05)
+        assert adapter.started
+        assert reconnected == ["slack"]
+        await mgr.stop()
+
+    @pytest.mark.asyncio
+    async def test_on_reconnect_called_after_retry(self):
+        adapter = FakeAdapter("flaky", fail_count=2)
+        reconnected = []
+
+        async def on_reconnect(name):
+            reconnected.append(name)
+
+        mgr = AdapterManager(
+            [adapter],
+            on_message=AsyncMock(),
+            on_reconnect=on_reconnect,
+            initial_backoff=0.01,
+            max_backoff=0.05,
+        )
+        await mgr.run()
+        await asyncio.sleep(0.3)
+        assert adapter.started
+        assert reconnected == ["flaky"]
+        await mgr.stop()
+
+    @pytest.mark.asyncio
+    async def test_no_reconnect_callback_is_fine(self):
+        adapter = FakeAdapter("test")
+        mgr = AdapterManager([adapter], on_message=AsyncMock())
+        await mgr.run()
+        await asyncio.sleep(0.05)
+        assert adapter.started
+        await mgr.stop()

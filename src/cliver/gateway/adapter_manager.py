@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import Any, Callable, Coroutine, List
+from typing import Any, Callable, Coroutine, List, Optional
 
 from cliver.gateway.platform_adapter import PlatformAdapter
 
@@ -28,6 +28,7 @@ class AdapterManager:
         self,
         adapters: List[PlatformAdapter],
         on_message: MessageCallback,
+        on_reconnect: Optional[Callable[[str], Coroutine[Any, Any, None]]] = None,
         initial_backoff: float = 5.0,
         max_backoff: float = 300.0,
         start_timeout: float = 30.0,
@@ -35,6 +36,7 @@ class AdapterManager:
     ):
         self._adapters = adapters
         self._on_message = on_message
+        self._on_reconnect = on_reconnect
         self._initial_backoff = initial_backoff
         self._max_backoff = max_backoff
         self._start_timeout = start_timeout
@@ -87,6 +89,11 @@ class AdapterManager:
                 status.error = ""
                 logger.info(f"Adapter {adapter.name} connected")
                 backoff = self._initial_backoff
+                if self._on_reconnect:
+                    try:
+                        await self._on_reconnect(adapter.name)
+                    except Exception as e:
+                        logger.error(f"Reconnect callback failed for {adapter.name}: {e}")
                 return
             except asyncio.CancelledError:
                 return
