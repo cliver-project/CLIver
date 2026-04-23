@@ -24,6 +24,17 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 
 
+class TaskOrigin(BaseModel):
+    """Where a task was created and where results should be delivered."""
+
+    source: str = Field(..., description="Origin source: cli, api, slack, telegram, discord, feishu")
+    platform: Optional[str] = Field(None, description="Adapter name for IM sources")
+    channel_id: Optional[str] = Field(None, description="IM channel to reply to")
+    thread_id: Optional[str] = Field(None, description="IM thread to reply in")
+    user_id: Optional[str] = Field(None, description="Who created the task")
+    session_key: Optional[str] = Field(None, description="Session key for history lookup")
+
+
 class TaskDefinition(BaseModel):
     """A task definition — a prompt with optional workflow and skill activation."""
 
@@ -38,6 +49,7 @@ class TaskDefinition(BaseModel):
     model: Optional[str] = Field(None, description="Model override for this task")
     schedule: Optional[str] = Field(None, description="Cron expression for recurring execution")
     permissions: Optional[Any] = Field(None, description="Permission overrides for this task")
+    origin: Optional[TaskOrigin] = Field(None, description="Where the task was created from")
 
 
 class TaskRun(BaseModel):

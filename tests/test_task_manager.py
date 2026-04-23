@@ -2,7 +2,7 @@
 
 import pytest
 
-from cliver.task_manager import TaskDefinition, TaskManager
+from cliver.task_manager import TaskDefinition, TaskManager, TaskOrigin
 
 
 @pytest.fixture
@@ -109,3 +109,62 @@ class TestSchedule:
 
         loaded = manager.get_task("once")
         assert loaded.schedule is None
+
+
+# ---------------------------------------------------------------------------
+# TaskOrigin
+# ---------------------------------------------------------------------------
+
+
+class TestTaskOrigin:
+    def test_task_without_origin(self):
+        t = TaskDefinition(name="t", prompt="do something")
+        assert t.origin is None
+
+    def test_task_with_origin(self):
+        origin = TaskOrigin(
+            source="slack",
+            platform="slack",
+            channel_id="C12345",
+            thread_id="1234567890.123456",
+            user_id="U67890",
+            session_key="slack:C12345:1234567890.123456",
+        )
+        t = TaskDefinition(name="t", prompt="research AI", origin=origin)
+        assert t.origin.source == "slack"
+        assert t.origin.channel_id == "C12345"
+        assert t.origin.session_key == "slack:C12345:1234567890.123456"
+
+    def test_origin_cli(self):
+        origin = TaskOrigin(source="cli")
+        t = TaskDefinition(name="t", prompt="do x", origin=origin)
+        assert t.origin.source == "cli"
+        assert t.origin.platform is None
+        assert t.origin.channel_id is None
+
+    def test_origin_round_trip_yaml(self, manager):
+        origin = TaskOrigin(
+            source="telegram",
+            platform="telegram",
+            channel_id="chat_123",
+            thread_id="msg_456",
+            user_id="user_789",
+            session_key="telegram:chat_123:msg_456",
+        )
+        task = TaskDefinition(name="origin-task", prompt="do x", origin=origin)
+        manager.save_task(task)
+
+        loaded = manager.get_task("origin-task")
+        assert loaded.origin is not None
+        assert loaded.origin.source == "telegram"
+        assert loaded.origin.platform == "telegram"
+        assert loaded.origin.channel_id == "chat_123"
+        assert loaded.origin.thread_id == "msg_456"
+        assert loaded.origin.session_key == "telegram:chat_123:msg_456"
+
+    def test_origin_omitted_in_yaml_when_none(self, manager):
+        task = TaskDefinition(name="no-origin", prompt="do x")
+        manager.save_task(task)
+
+        loaded = manager.get_task("no-origin")
+        assert loaded.origin is None
