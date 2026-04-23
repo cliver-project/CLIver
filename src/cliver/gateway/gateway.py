@@ -12,6 +12,7 @@ import os
 import tempfile
 import time
 import uuid
+from contextvars import ContextVar
 from pathlib import Path
 from typing import List, Optional
 
@@ -33,6 +34,8 @@ from cliver.session_manager import SessionManager
 from cliver.task_manager import TaskDefinition, TaskManager, TaskRun
 
 logger = logging.getLogger(__name__)
+
+im_context: ContextVar[Optional[dict]] = ContextVar("im_context", default=None)
 
 
 class ThreadQueue:
@@ -559,6 +562,16 @@ class Gateway:
                 self._task_executor.default_model,
                 len(conversation_history),
             )
+            # Set IM context for tools (e.g., create_task) to read
+            im_context.set(
+                {
+                    "platform": event.platform,
+                    "channel_id": event.channel_id,
+                    "thread_id": event.thread_id or event.message_id,
+                    "user_id": event.user_id,
+                    "session_key": session_key,
+                }
+            )
             try:
                 response = await self._task_executor.process_user_input(
                     user_input=event.text,
@@ -577,6 +590,8 @@ class Gateway:
                 logger.exception("AgentCore error: %s", e)
                 response_text = f"Error: {e}"
                 multimedia = None
+            finally:
+                im_context.set(None)
 
             # Record assistant turn and trim if session is getting large
             sm.append_turn(session_id, "assistant", response_text)

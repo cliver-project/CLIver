@@ -6,6 +6,7 @@ from cliver.tools.ask_user_question import ask_user_question  # noqa: F401
 from cliver.tools.browse_web import browse_web  # noqa: F401
 from cliver.tools.browser_action import browser_action  # noqa: F401
 from cliver.tools.cliver_help import cliver_help  # noqa: F401
+from cliver.tools.create_task import create_task  # noqa: F401
 from cliver.tools.docker_run import docker_run  # noqa: F401
 from cliver.tools.execute_code import execute_code  # noqa: F401
 from cliver.tools.grep_search import grep_search  # noqa: F401
