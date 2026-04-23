@@ -4,6 +4,9 @@ import json
 import logging
 import os
 import signal
+import subprocess
+import sys
+import time
 
 import click
 
@@ -21,9 +24,12 @@ def _get_pid_path():
 
 
 def _start_gateway(cliver: Cliver):
-    """Start the gateway daemon in the background."""
-    from cliver.gateway import Gateway
+    """Start the gateway daemon as a subprocess.
 
+    Spawns a fresh Python process (no os.fork) to avoid macOS segfaults
+    in socket.getaddrinfo and Security framework caused by forking a
+    process with active threads or mach port connections.
+    """
     pid_path = _get_pid_path()
 
     # Check if already running via PID file
@@ -51,50 +57,50 @@ def _start_gateway(cliver: Cliver):
             cliver.output(f"[dim]Find it with: lsof -i :{port}[/dim]")
             return 1
 
-    # Pre-initialize AgentCore and resolve all secrets BEFORE forking.
-    # macOS Keychain segfaults when accessed from a forked daemon process
-    # (the Security framework loses its mach port after setsid).
-    config_dir = get_config_dir()
-    agent_name = cliver.agent_name
+    cliver.output("[dim]Starting gateway...[/dim]")
 
-    # Resolve all template secrets (keyring, env vars) before forking.
-    # macOS Keychain segfaults when accessed from forked daemon processes.
-    cfg.resolve_secrets()
+    # Spawn gateway as a fresh subprocess — avoids all fork-related issues
+    # (macOS mach port invalidation, DNS resolver segfaults, thread state).
+    # The child process handles its own secret resolution and AgentCore init.
+    log_path = get_config_dir() / "gateway.log"
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "cliver.gateway.main", "--agent", cliver.agent_name],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
 
-    cliver.output("[dim]Initializing gateway...[/dim]")
-    gw = Gateway(config_dir=config_dir, agent_name=agent_name, resolved_config=cfg)
-    try:
-        gw.init()
-        cliver.output(f"[dim]Ready (model: {gw._task_executor.default_model})[/dim]")
-    except Exception as e:
-        cliver.output(f"[yellow]Warning: LLM init failed: {e}[/yellow]")
+    # Wait for the gateway to become healthy (PID file + HTTP /health)
+    for _ in range(20):
+        time.sleep(0.5)
+        # Check if process died
+        if proc.poll() is not None:
+            cliver.output(f"[red]Gateway process exited with code {proc.returncode}[/red]")
+            cliver.output(f"[dim]Check log: {log_path}[/dim]")
+            return 1
+        # Check for health endpoint
+        if pid_path.exists():
+            try:
+                import urllib.request
 
-    # Fork to background
-    pid = os.fork()
-    if pid > 0:
-        cliver.output(f"Gateway started in background (PID {pid})")
-        cliver.output(f"  http://{host}:{port}")
-        log_path = get_config_dir() / "gateway.log"
-        cliver.output(f"  Log: {log_path}")
-        return 0
+                url = f"http://{host}:{port}/health"
+                with urllib.request.urlopen(url, timeout=2) as resp:
+                    if resp.status == 200:
+                        cliver.output(f"Gateway started (PID {proc.pid})")
+                        cliver.output(f"  http://{host}:{port}")
+                        cliver.output(f"  Log: {log_path}")
+                        return 0
+            except Exception:
+                pass
 
-    # Note: we intentionally do NOT call os.setsid() here.
-    # On macOS, setsid() invalidates mach port connections to system
-    # daemons (DNS resolver, Keychain), causing segfaults in getaddrinfo()
-    # and Security framework calls. The fork alone is sufficient to
-    # detach from the parent — aiohttp handles SIGTERM/SIGINT gracefully.
-
-    from cliver.gateway.logging_config import configure_gateway_logging
-
-    configure_gateway_logging(gw_cfg)
-
-    try:
-        gw.run()
-    except SystemExit as e:
-        logger.info("Gateway exited with code %s", e.code)
-    except Exception:
-        logger.exception("Gateway failed")
-    return 0
+    # Timed out waiting for health
+    if proc.poll() is None:
+        cliver.output(f"Gateway process alive (PID {proc.pid}) but not yet healthy")
+        cliver.output(f"  Check log: {log_path}")
+    else:
+        cliver.output(f"[red]Gateway process exited with code {proc.returncode}[/red]")
+        cliver.output(f"[dim]Check log: {log_path}[/dim]")
+    return 1
 
 
 def _stop_gateway(cliver: Cliver):
@@ -113,8 +119,6 @@ def _stop_gateway(cliver: Cliver):
         return 1
 
     os.kill(pid, signal.SIGTERM)
-
-    import time
 
     for _ in range(10):
         time.sleep(0.5)
@@ -135,8 +139,6 @@ def _restart_gateway(cliver: Cliver):
             os.kill(pid, 0)
             cliver.output(f"Stopping gateway (PID {pid})...")
             os.kill(pid, signal.SIGTERM)
-            import time
-
             for _ in range(10):
                 time.sleep(0.5)
                 if not pid_path.exists():
