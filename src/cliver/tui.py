@@ -474,7 +474,9 @@ def run_tui(cliver: "Cliver") -> None:
 
     def _get_prompt():
         if bridge._pending is not None:
-            return [("class:permission-prompt", "⚠ y/n/a/d ❯ ")]
+            if bridge._valid_choices:
+                return [("class:permission-prompt", "⚠ y/n/a/d ❯ ")]
+            return [("class:permission-prompt", "? ❯ ")]
         if cliver._permission_pending is not None:
             return [("class:permission-prompt", "⚠ y/n/a/d ❯ ")]
         if cliver._user_input_pending is not None:
