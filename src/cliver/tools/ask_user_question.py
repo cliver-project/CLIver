@@ -80,7 +80,17 @@ class AskUserQuestionTool(BaseTool):
                 prompt += "\n  [0] Other (type custom response)"
 
             if cliver_inst:
-                cliver_inst.output(f"\n[bold cyan]Question[/bold cyan]: {prompt}")
+                from rich.panel import Panel
+
+                cliver_inst.console.print()
+                cliver_inst.console.print(
+                    Panel(
+                        prompt,
+                        title="[bold cyan]Question[/bold cyan]",
+                        border_style="cyan",
+                        padding=(0, 1),
+                    )
+                )
                 result = cliver_inst.ui.ask_input("  > ")
             else:
                 print(f"\nQuestion: {prompt}")

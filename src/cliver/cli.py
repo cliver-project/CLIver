@@ -416,6 +416,9 @@ def _create_permission_prompt(console: Console, cliver_inst: "Cliver" = None):
     }
 
     def prompt(tool_name: str, args: dict) -> str:
+        from rich.panel import Panel
+        from rich.text import Text
+
         bare = tool_name.split("#")[-1] if "#" in tool_name else tool_name
         meta = get_tool_meta(bare)
         resource = str(args.get(meta.resource_param, "")) if meta.resource_param else ""
@@ -423,15 +426,27 @@ def _create_permission_prompt(console: Console, cliver_inst: "Cliver" = None):
 
         args_summary = _format_args_summary(args, meta.resource_param)
 
-        # Build info string for display
-        info_parts = [f"Tool: {tool_name}", f"Action: {label}"]
+        body = Text()
+        body.append("Tool:     ", style="dim")
+        body.append(f"{tool_name}\n", style="bold")
+        body.append("Action:   ", style="dim")
+        body.append(f"{label}\n", style=f"bold {color}")
         if resource:
-            info_parts.append(f"Resource: {resource}")
+            body.append("Resource: ", style="dim")
+            body.append(f"{resource}\n")
         if args_summary:
-            info_parts.append(f"Args: {args_summary}")
-        console.print("\n[bold yellow]Permission Required[/bold yellow]")
-        for part in info_parts:
-            console.print(f"  {part}")
+            body.append("Args:     ", style="dim")
+            body.append(f"{args_summary}\n")
+
+        console.print()
+        console.print(
+            Panel(
+                body,
+                title="[bold yellow]Permission Required[/bold yellow]",
+                border_style="yellow",
+                padding=(0, 1),
+            )
+        )
 
         return cliver_inst.ui.ask_permission(
             tool_name,
