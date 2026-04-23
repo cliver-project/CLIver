@@ -15,6 +15,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from cliver.db import SQLiteStore
+
 logger = logging.getLogger(__name__)
 
 _SCHEMA = """
@@ -62,20 +64,15 @@ class SessionManager:
 
     def __init__(self, sessions_dir: Path):
         self.sessions_dir = sessions_dir
-        self._db: Optional[sqlite3.Connection] = None
+        self._store: Optional[SQLiteStore] = None
 
-    def _get_db(self) -> sqlite3.Connection:
-        """Lazy-init the SQLite connection."""
-        if self._db is not None:
-            return self._db
-        self.sessions_dir.mkdir(parents=True, exist_ok=True)
-        db_path = self.sessions_dir / "sessions.db"
-        self._db = sqlite3.connect(str(db_path))
-        self._db.execute("PRAGMA journal_mode=WAL")
-        self._db.execute("PRAGMA foreign_keys=ON")
-        self._db.row_factory = sqlite3.Row
-        self._db.executescript(_SCHEMA)
-        return self._db
+    def _get_store(self) -> SQLiteStore:
+        if self._store is None:
+            self.sessions_dir.mkdir(parents=True, exist_ok=True)
+            db_path = self.sessions_dir / "sessions.db"
+            self._store = SQLiteStore(db_path)
+            self._store.execute_schema(_SCHEMA)
+        return self._store
 
     # -- Session lifecycle -----------------------------------------------------
 
@@ -83,27 +80,25 @@ class SessionManager:
         """Create a new session. Returns session_id."""
         session_id = str(uuid.uuid4())[:8]
         now = _timestamp()
-        db = self._get_db()
-        db.execute(
-            "INSERT INTO sessions (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
-            (session_id, title or None, now, now),
-        )
-        db.commit()
+        with self._get_store().write() as db:
+            db.execute(
+                "INSERT INTO sessions (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
+                (session_id, title or None, now, now),
+            )
         return session_id
 
     def list_sessions(self) -> List[Dict[str, Any]]:
         """List all sessions with metadata, most recent first."""
-        db = self._get_db()
-        rows = db.execute(
-            "SELECT id, title, created_at, updated_at, turn_count, options FROM sessions ORDER BY updated_at DESC"
-        ).fetchall()
+        with self._get_store().read() as db:
+            rows = db.execute(
+                "SELECT id, title, created_at, updated_at, turn_count, options FROM sessions ORDER BY updated_at DESC"
+            ).fetchall()
         return [_row_to_dict(r) for r in rows]
 
     def delete_session(self, session_id: str) -> bool:
         """Delete a session and its turns (CASCADE)."""
-        db = self._get_db()
-        cursor = db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
-        db.commit()
+        with self._get_store().write() as db:
+            cursor = db.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
         return cursor.rowcount > 0
 
     # -- Conversation recording ------------------------------------------------
@@ -111,30 +106,29 @@ class SessionManager:
     def append_turn(self, session_id: str, role: str, content: str) -> None:
         """Append a conversation turn to a session."""
         now = _timestamp()
-        db = self._get_db()
-        db.execute(
-            "INSERT INTO turns (session_id, role, content, timestamp) VALUES (?, ?, ?, ?)",
-            (session_id, role, content, now),
-        )
-        db.execute(
-            "UPDATE sessions SET updated_at = ?, turn_count = turn_count + 1 WHERE id = ?",
-            (now, session_id),
-        )
-        # Auto-set title from first user message
-        if role == "user":
+        with self._get_store().write() as db:
             db.execute(
-                "UPDATE sessions SET title = ? WHERE id = ? AND (title IS NULL OR title = '')",
-                (content[:80], session_id),
+                "INSERT INTO turns (session_id, role, content, timestamp) VALUES (?, ?, ?, ?)",
+                (session_id, role, content, now),
             )
-        db.commit()
+            db.execute(
+                "UPDATE sessions SET updated_at = ?, turn_count = turn_count + 1 WHERE id = ?",
+                (now, session_id),
+            )
+            # Auto-set title from first user message
+            if role == "user":
+                db.execute(
+                    "UPDATE sessions SET title = ? WHERE id = ? AND (title IS NULL OR title = '')",
+                    (content[:80], session_id),
+                )
 
     def load_turns(self, session_id: str) -> List[Dict[str, str]]:
         """Load all conversation turns from a session."""
-        db = self._get_db()
-        rows = db.execute(
-            "SELECT role, content, timestamp FROM turns WHERE session_id = ? ORDER BY id",
-            (session_id,),
-        ).fetchall()
+        with self._get_store().read() as db:
+            rows = db.execute(
+                "SELECT role, content, timestamp FROM turns WHERE session_id = ? ORDER BY id",
+                (session_id,),
+            ).fetchall()
         return [dict(r) for r in rows]
 
     def trim_turns(self, session_id: str, keep_last: int = 50) -> int:
@@ -142,20 +136,19 @@ class SessionManager:
 
         Returns the number of turns deleted.
         """
-        db = self._get_db()
-        cursor = db.execute(
-            """DELETE FROM turns WHERE session_id = ? AND id NOT IN (
-                SELECT id FROM turns WHERE session_id = ? ORDER BY id DESC LIMIT ?
-            )""",
-            (session_id, session_id, keep_last),
-        )
-        deleted = cursor.rowcount
-        if deleted > 0:
-            db.execute(
-                "UPDATE sessions SET turn_count = (SELECT COUNT(*) FROM turns WHERE session_id = ?) WHERE id = ?",
-                (session_id, session_id),
+        with self._get_store().write() as db:
+            cursor = db.execute(
+                """DELETE FROM turns WHERE session_id = ? AND id NOT IN (
+                    SELECT id FROM turns WHERE session_id = ? ORDER BY id DESC LIMIT ?
+                )""",
+                (session_id, session_id, keep_last),
             )
-            db.commit()
+            deleted = cursor.rowcount
+            if deleted > 0:
+                db.execute(
+                    "UPDATE sessions SET turn_count = (SELECT COUNT(*) FROM turns WHERE session_id = ?) WHERE id = ?",
+                    (session_id, session_id),
+                )
         return deleted
 
     def delete_oldest_sessions(self, keep: int = 300) -> int:
@@ -163,19 +156,17 @@ class SessionManager:
 
         Returns the number of sessions deleted.
         """
-        db = self._get_db()
-        total = db.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
-        if total <= keep:
-            return 0
-        cursor = db.execute(
-            """DELETE FROM sessions WHERE id IN (
-                SELECT id FROM sessions ORDER BY updated_at ASC LIMIT ?
-            )""",
-            (total - keep,),
-        )
-        deleted = cursor.rowcount
-        if deleted > 0:
-            db.commit()
+        with self._get_store().write() as db:
+            total = db.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
+            if total <= keep:
+                return 0
+            cursor = db.execute(
+                """DELETE FROM sessions WHERE id IN (
+                    SELECT id FROM sessions ORDER BY updated_at ASC LIMIT ?
+                )""",
+                (total - keep,),
+            )
+            deleted = cursor.rowcount
         return deleted
 
     def delete_stale_sessions(self, max_age_days: int = 90) -> int:
@@ -186,20 +177,18 @@ class SessionManager:
         from datetime import datetime, timedelta, timezone
 
         cutoff = (datetime.now(timezone.utc) - timedelta(days=max_age_days)).isoformat()
-        db = self._get_db()
-        cursor = db.execute("DELETE FROM sessions WHERE updated_at < ?", (cutoff,))
-        deleted = cursor.rowcount
-        if deleted > 0:
-            db.commit()
+        with self._get_store().write() as db:
+            cursor = db.execute("DELETE FROM sessions WHERE updated_at < ?", (cutoff,))
+            deleted = cursor.rowcount
         return deleted
 
     def get_session_info(self, session_id: str) -> Optional[Dict[str, Any]]:
         """Get metadata for a session."""
-        db = self._get_db()
-        row = db.execute(
-            "SELECT id, title, created_at, updated_at, turn_count, options FROM sessions WHERE id = ?",
-            (session_id,),
-        ).fetchone()
+        with self._get_store().read() as db:
+            row = db.execute(
+                "SELECT id, title, created_at, updated_at, turn_count, options FROM sessions WHERE id = ?",
+                (session_id,),
+            ).fetchone()
         if row is None:
             return None
         return _row_to_dict(row)
@@ -209,17 +198,16 @@ class SessionManager:
     def save_options(self, session_id: str, options: Dict[str, Any]) -> None:
         """Persist session options as JSON."""
         clean = {k: v for k, v in options.items() if v is not None and k != "statusbar"}
-        db = self._get_db()
-        db.execute(
-            "UPDATE sessions SET options = ? WHERE id = ?",
-            (json.dumps(clean, ensure_ascii=False), session_id),
-        )
-        db.commit()
+        with self._get_store().write() as db:
+            db.execute(
+                "UPDATE sessions SET options = ? WHERE id = ?",
+                (json.dumps(clean, ensure_ascii=False), session_id),
+            )
 
     def load_options(self, session_id: str) -> Dict[str, Any]:
         """Load persisted session options."""
-        db = self._get_db()
-        row = db.execute("SELECT options FROM sessions WHERE id = ?", (session_id,)).fetchone()
+        with self._get_store().read() as db:
+            row = db.execute("SELECT options FROM sessions WHERE id = ?", (session_id,)).fetchone()
         if row is None or row["options"] is None:
             return {}
         try:
@@ -231,9 +219,8 @@ class SessionManager:
 
     def update_title(self, session_id: str, title: str) -> None:
         """Update the title of a session."""
-        db = self._get_db()
-        db.execute("UPDATE sessions SET title = ? WHERE id = ?", (title, session_id))
-        db.commit()
+        with self._get_store().write() as db:
+            db.execute("UPDATE sessions SET title = ? WHERE id = ?", (title, session_id))
 
     # -- Search ----------------------------------------------------------------
 
@@ -243,26 +230,26 @@ class SessionManager:
         Returns list of dicts with session metadata and matching snippets,
         grouped by session, ordered by relevance.
         """
-        db = self._get_db()
-        # Use FTS5 match to find matching turns with snippets
-        rows = db.execute(
-            """
-            SELECT
-                t.session_id,
-                t.role,
-                snippet(turns_fts, 0, '**', '**', '...', 32) AS snippet,
-                s.title,
-                s.created_at,
-                s.turn_count
-            FROM turns_fts
-            JOIN turns t ON t.id = turns_fts.rowid
-            JOIN sessions s ON s.id = t.session_id
-            WHERE turns_fts MATCH ?
-            ORDER BY rank
-            LIMIT ?
-            """,
-            (query, limit * 5),  # fetch more rows, then group by session
-        ).fetchall()
+        with self._get_store().read() as db:
+            # Use FTS5 match to find matching turns with snippets
+            rows = db.execute(
+                """
+                SELECT
+                    t.session_id,
+                    t.role,
+                    snippet(turns_fts, 0, '**', '**', '...', 32) AS snippet,
+                    s.title,
+                    s.created_at,
+                    s.turn_count
+                FROM turns_fts
+                JOIN turns t ON t.id = turns_fts.rowid
+                JOIN sessions s ON s.id = t.session_id
+                WHERE turns_fts MATCH ?
+                ORDER BY rank
+                LIMIT ?
+                """,
+                (query, limit * 5),  # fetch more rows, then group by session
+            ).fetchall()
 
         # Group by session
         sessions: Dict[str, Dict[str, Any]] = {}
@@ -288,9 +275,9 @@ class SessionManager:
 
     def close(self) -> None:
         """Close the database connection."""
-        if self._db:
-            self._db.close()
-            self._db = None
+        if self._store:
+            self._store.close()
+            self._store = None
 
 
 def _row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
