@@ -1,0 +1,274 @@
+<style>
+/* Vertical step flow overrides for workflow detail */
+.step-flow.vertical {
+  flex-direction: column;
+  align-items: center;
+  overflow-x: visible;
+}
+
+.step-flow.vertical .step-connector {
+  width: 2px;
+  height: 24px;
+  background: var(--border);
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.step-flow.vertical .step-box {
+  width: 100%;
+  max-width: 480px;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+}
+
+.step-flow.vertical .step-box .step-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.step-flow.vertical .step-box .step-desc {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+
+.step-flow.vertical .step-box .step-details {
+  display: none;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 12px 0 0 0;
+}
+
+.step-flow.vertical .step-box.expanded .step-details {
+  display: block;
+}
+
+.step-flow.vertical .step-box .step-details table {
+  margin-bottom: 0;
+}
+
+.step-flow.vertical .step-box .step-details td {
+  padding: 4px 8px;
+  font-size: 12px;
+  border-bottom: none;
+}
+
+.step-flow.vertical .step-box .step-details td:first-child {
+  font-weight: 600;
+  color: var(--text-dim);
+  white-space: nowrap;
+  width: 100px;
+}
+</style>
+
+<h2 id="wf-title">Workflow Detail</h2>
+<div id="workflow-detail-content" class="loading">Loading...</div>
+
+<script>
+var workflowName = "{{ITEM_NAME}}";
+(async function() {
+  var wf = await api('/workflows/' + encodeURIComponent(workflowName));
+  var titleEl = document.getElementById('wf-title');
+  var el = document.getElementById('workflow-detail-content');
+
+  if (!wf) {
+    el.textContent = 'Workflow not found';
+    el.className = '';
+    return;
+  }
+
+  el.className = '';
+  el.innerHTML = '';
+
+  // --- Header ---
+  titleEl.textContent = wf.name;
+  if (wf.description) {
+    var descP = document.createElement('p');
+    descP.textContent = wf.description;
+    descP.style.cssText = 'color:var(--text-dim);margin-bottom:20px;margin-top:-12px';
+    el.appendChild(descP);
+  }
+
+  // --- Overview ---
+  if (wf.overview) {
+    var overviewHeading = document.createElement('h3');
+    overviewHeading.textContent = 'Overview';
+    overviewHeading.style.cssText = 'font-size:14px;font-weight:600;margin-bottom:10px';
+    el.appendChild(overviewHeading);
+
+    var overviewDiv = document.createElement('div');
+    overviewDiv.className = 'md-content';
+    overviewDiv.textContent = wf.overview;
+    el.appendChild(overviewDiv);
+  }
+
+  // --- Step Diagram ---
+  var diagramHeading = document.createElement('h3');
+  diagramHeading.textContent = 'Step Diagram';
+  diagramHeading.style.cssText = 'font-size:14px;font-weight:600;margin-bottom:10px;margin-top:20px';
+  el.appendChild(diagramHeading);
+
+  var steps = wf.steps || [];
+  if (steps.length === 0) {
+    var noSteps = document.createElement('p');
+    noSteps.textContent = 'No steps defined.';
+    noSteps.style.cssText = 'color:var(--text-dim);font-style:italic';
+    el.appendChild(noSteps);
+  } else {
+    var flow = document.createElement('div');
+    flow.className = 'step-flow vertical';
+
+    function typePillClass(type) {
+      var t = String(type || '').toLowerCase();
+      if (t === 'llm') return 'ok';
+      if (t === 'function') return 'pending';
+      if (t === 'workflow') return 'pending';
+      if (t === 'human') return 'warn';
+      if (t === 'decision') return 'warn';
+      return '';
+    }
+
+    for (var i = 0; i < steps.length; i++) {
+      var step = steps[i];
+
+      // Add connector between steps (not before first)
+      if (i > 0) {
+        var connector = document.createElement('div');
+        connector.className = 'step-connector';
+        flow.appendChild(connector);
+      }
+
+      // Step box
+      var box = document.createElement('div');
+      box.className = 'step-box';
+      box.onclick = (function(b) {
+        return function() { b.classList.toggle('expanded'); };
+      })(box);
+
+      // Header row: name + type pill
+      var header = document.createElement('div');
+      header.className = 'step-header';
+
+      var nameEl = document.createElement('h4');
+      nameEl.textContent = step.name || step.id || ('Step ' + (i + 1));
+
+      var typePill = document.createElement('span');
+      typePill.className = 'pill ' + typePillClass(step.type);
+      typePill.textContent = step.type || 'unknown';
+
+      header.appendChild(nameEl);
+      header.appendChild(typePill);
+      box.appendChild(header);
+
+      // Description
+      if (step.description) {
+        var stepDesc = document.createElement('div');
+        stepDesc.className = 'step-desc';
+        stepDesc.textContent = step.description;
+        box.appendChild(stepDesc);
+      }
+
+      // Expandable details
+      var details = document.createElement('div');
+      details.className = 'step-details';
+
+      var detailTable = document.createElement('table');
+      var detailBody = document.createElement('tbody');
+
+      function addDetailRow(tbody, label, value) {
+        if (value == null || value === '' || (Array.isArray(value) && value.length === 0)) return;
+        var tr = document.createElement('tr');
+        var tdL = document.createElement('td');
+        tdL.textContent = label;
+        var tdV = document.createElement('td');
+        if (Array.isArray(value)) {
+          tdV.textContent = value.join(', ');
+        } else if (typeof value === 'object') {
+          tdV.textContent = JSON.stringify(value, null, 2);
+          tdV.style.fontFamily = 'monospace';
+          tdV.style.fontSize = '11px';
+          tdV.style.whiteSpace = 'pre-wrap';
+        } else {
+          tdV.textContent = String(value);
+        }
+        tr.appendChild(tdL);
+        tr.appendChild(tdV);
+        tbody.appendChild(tr);
+      }
+
+      addDetailRow(detailBody, 'ID', step.id);
+      addDetailRow(detailBody, 'Type', step.type);
+      addDetailRow(detailBody, 'Inputs', step.inputs);
+      addDetailRow(detailBody, 'Outputs', step.outputs);
+      addDetailRow(detailBody, 'Depends On', step.depends_on);
+      addDetailRow(detailBody, 'Condition', step.condition);
+
+      // Retry
+      if (step.retry) {
+        var retryVal = (typeof step.retry === 'object')
+          ? JSON.stringify(step.retry)
+          : String(step.retry);
+        addDetailRow(detailBody, 'Retry', retryVal);
+      }
+
+      // Decision branches
+      if (step.type === 'decision' && step.branches) {
+        var branchHeading = document.createElement('tr');
+        var branchTd = document.createElement('td');
+        branchTd.colSpan = 2;
+        branchTd.style.cssText = 'font-weight:600;color:var(--text);padding-top:8px';
+        branchTd.textContent = 'Branches:';
+        branchHeading.appendChild(branchTd);
+        detailBody.appendChild(branchHeading);
+
+        if (Array.isArray(step.branches)) {
+          for (var b = 0; b < step.branches.length; b++) {
+            var branch = step.branches[b];
+            var condText = branch.condition || branch.name || ('Branch ' + (b + 1));
+            var nextText = branch.next_step || branch.target || '';
+            addDetailRow(detailBody, condText, nextText);
+          }
+        } else if (typeof step.branches === 'object') {
+          var branchKeys = Object.keys(step.branches);
+          for (var bk = 0; bk < branchKeys.length; bk++) {
+            addDetailRow(detailBody, branchKeys[bk], step.branches[branchKeys[bk]]);
+          }
+        }
+      }
+
+      detailTable.appendChild(detailBody);
+      details.appendChild(detailTable);
+      box.appendChild(details);
+
+      flow.appendChild(box);
+    }
+
+    el.appendChild(flow);
+  }
+
+  // --- Actions ---
+  var actionsHeading = document.createElement('h3');
+  actionsHeading.textContent = 'Actions';
+  actionsHeading.style.cssText = 'font-size:14px;font-weight:600;margin-bottom:10px;margin-top:20px';
+  el.appendChild(actionsHeading);
+
+  var actionsDiv = document.createElement('div');
+  actionsDiv.className = 'actions';
+
+  var editBtn = document.createElement('button');
+  editBtn.className = 'btn';
+  editBtn.disabled = true;
+  editBtn.style.cssText = 'opacity:0.4;cursor:not-allowed';
+  editBtn.textContent = 'Edit';
+  actionsDiv.appendChild(editBtn);
+
+  el.appendChild(actionsDiv);
+})();
+</script>

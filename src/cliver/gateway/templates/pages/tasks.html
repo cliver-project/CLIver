@@ -1,0 +1,142 @@
+<h2>Tasks</h2>
+<div id="tasks-content" class="loading">Loading...</div>
+
+<script>
+(async function() {
+  var data = await api('/tasks');
+  var el = document.getElementById('tasks-content');
+  if (!data) { el.textContent = 'Failed to load data'; el.className = ''; return; }
+
+  el.className = '';
+  el.innerHTML = '';
+
+  if (data.length === 0) {
+    el.textContent = 'No tasks defined.';
+    el.style.color = 'var(--text-dim)';
+    el.style.fontStyle = 'italic';
+    return;
+  }
+
+  var table = document.createElement('table');
+  var thead = document.createElement('thead');
+  var headRow = document.createElement('tr');
+  var cols = ['Name', 'Description', 'Schedule', 'Origin', 'Status', 'Last Run', 'Actions'];
+  for (var c = 0; c < cols.length; c++) {
+    var th = document.createElement('th');
+    th.textContent = cols[c];
+    headRow.appendChild(th);
+  }
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  var tbody = document.createElement('tbody');
+  for (var i = 0; i < data.length; i++) {
+    var task = data[i];
+    var row = document.createElement('tr');
+
+    // Name — clickable link
+    var tdName = document.createElement('td');
+    var link = document.createElement('a');
+    link.href = '/admin/tasks/' + encodeURIComponent(task.name);
+    link.textContent = task.name;
+    tdName.appendChild(link);
+    row.appendChild(tdName);
+
+    // Description — truncated to 60 chars, fallback to prompt
+    var tdDesc = document.createElement('td');
+    var descText = task.description || (task.prompt || '');
+    if (descText.length > 60) descText = descText.substring(0, 60) + '...';
+    tdDesc.textContent = descText;
+    tdDesc.style.color = 'var(--text-dim)';
+    row.appendChild(tdDesc);
+
+    // Schedule
+    var tdSched = document.createElement('td');
+    tdSched.textContent = task.schedule || 'one-shot';
+    row.appendChild(tdSched);
+
+    // Origin
+    var tdOrigin = document.createElement('td');
+    if (task.origin && task.origin.platform) {
+      var originText = task.origin.platform;
+      if (task.origin.channel_id) originText += ' (' + task.origin.channel_id + ')';
+      tdOrigin.textContent = originText;
+    } else if (task.origin && task.origin.source === 'cli') {
+      tdOrigin.textContent = 'CLI';
+    } else {
+      tdOrigin.textContent = '—';
+      tdOrigin.style.color = 'var(--text-dim)';
+    }
+    row.appendChild(tdOrigin);
+
+    // Status pill
+    var tdStatus = document.createElement('td');
+    if (task.live_status && task.live_status.status) {
+      var statusPill = document.createElement('span');
+      var statusCls = String(task.live_status.status).toLowerCase().replace(/[^a-z0-9]/g, '');
+      statusPill.className = 'pill ' + statusCls;
+      statusPill.textContent = task.live_status.status;
+      tdStatus.appendChild(statusPill);
+    } else {
+      tdStatus.textContent = '—';
+      tdStatus.style.color = 'var(--text-dim)';
+    }
+    row.appendChild(tdStatus);
+
+    // Last Run
+    var tdLastRun = document.createElement('td');
+    if (task.last_run) {
+      var lastRunPill = document.createElement('span');
+      var lastRunCls = String(task.last_run.status || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      lastRunPill.className = 'pill ' + lastRunCls;
+      lastRunPill.textContent = task.last_run.status || '';
+      tdLastRun.appendChild(lastRunPill);
+      if (task.last_run.started_at) {
+        var timeSpan = document.createElement('span');
+        timeSpan.style.cssText = 'font-size:11px;color:var(--text-dim);margin-left:6px';
+        timeSpan.textContent = task.last_run.started_at;
+        tdLastRun.appendChild(timeSpan);
+      }
+    } else {
+      tdLastRun.textContent = '—';
+      tdLastRun.style.color = 'var(--text-dim)';
+    }
+    row.appendChild(tdLastRun);
+
+    // Actions — Run button
+    var tdActions = document.createElement('td');
+    var runBtn = document.createElement('button');
+    runBtn.className = 'btn';
+    runBtn.textContent = 'Run';
+    runBtn.setAttribute('data-task', task.name);
+    runBtn.onclick = (function(taskName, btn) {
+      return function() {
+        if (!confirm('Run task "' + taskName + '" now?')) return;
+        btn.disabled = true;
+        btn.textContent = 'Starting...';
+        apiPost('/tasks/' + encodeURIComponent(taskName) + '/run').then(function(result) {
+          if (result && result.status === 'started') {
+            btn.textContent = 'Started';
+            btn.style.color = 'var(--accent)';
+          } else {
+            btn.textContent = 'Error';
+            btn.style.color = 'var(--red)';
+            alert('Failed: ' + (result ? result.message || 'unknown error' : 'no response'));
+          }
+          setTimeout(function() {
+            btn.disabled = false;
+            btn.textContent = 'Run';
+            btn.style.color = '';
+          }, 3000);
+        });
+      };
+    })(task.name, runBtn);
+    tdActions.appendChild(runBtn);
+    row.appendChild(tdActions);
+
+    tbody.appendChild(row);
+  }
+  table.appendChild(tbody);
+  el.appendChild(table);
+})();
+</script>

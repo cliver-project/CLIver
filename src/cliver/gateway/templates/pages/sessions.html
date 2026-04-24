@@ -1,0 +1,237 @@
+<h2>Sessions</h2>
+<div class="tabs">
+  <button class="tab active" onclick="switchTab('cli')">CLI/TUI Sessions</button>
+  <button class="tab" onclick="switchTab('gateway')">Gateway Sessions</button>
+</div>
+<div id="tab-cli" class="tab-content active">
+  <div id="cli-sessions" class="loading">Loading...</div>
+</div>
+<div id="tab-gateway" class="tab-content">
+  <div id="gateway-sessions" class="loading">Loading...</div>
+</div>
+<div id="session-detail"></div>
+
+<script>
+var currentTab = 'cli';
+
+function switchTab(tab) {
+  currentTab = tab;
+  // Update tab buttons
+  var tabs = document.querySelectorAll('.tabs .tab');
+  for (var i = 0; i < tabs.length; i++) {
+    tabs[i].classList.remove('active');
+  }
+  if (tab === 'cli') {
+    tabs[0].classList.add('active');
+  } else {
+    tabs[1].classList.add('active');
+  }
+  // Update tab content
+  document.getElementById('tab-cli').classList.toggle('active', tab === 'cli');
+  document.getElementById('tab-gateway').classList.toggle('active', tab === 'gateway');
+  // Clear detail panel on tab switch
+  document.getElementById('session-detail').textContent = '';
+}
+
+function renderSessionTable(data, source, containerEl) {
+  containerEl.className = '';
+  containerEl.textContent = '';
+
+  if (!data || data.length === 0) {
+    containerEl.textContent = 'No sessions found.';
+    containerEl.style.color = 'var(--text-dim)';
+    containerEl.style.fontStyle = 'italic';
+    return;
+  }
+
+  var table = document.createElement('table');
+  var thead = document.createElement('thead');
+  var headRow = document.createElement('tr');
+  var cols = ['Title', 'Turns', 'Created', 'Updated', 'Actions'];
+  for (var c = 0; c < cols.length; c++) {
+    var th = document.createElement('th');
+    th.textContent = cols[c];
+    headRow.appendChild(th);
+  }
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  var tbody = document.createElement('tbody');
+  for (var i = 0; i < data.length; i++) {
+    var session = data[i];
+    var row = document.createElement('tr');
+
+    // Title (clickable — same as View action)
+    var tdTitle = document.createElement('td');
+    var titleLink = document.createElement('a');
+    titleLink.href = '#';
+    titleLink.style.cssText = 'color:var(--accent);cursor:pointer;text-decoration:none';
+    titleLink.onclick = (function(sid, src) {
+      return function(e) { e.preventDefault(); viewSession(src, sid); };
+    })(session.id, source);
+    if (session.title) {
+      titleLink.textContent = session.title.length > 60 ? session.title.substring(0, 60) + '...' : session.title;
+    } else {
+      titleLink.textContent = 'untitled';
+      titleLink.style.color = 'var(--dim)';
+      titleLink.style.fontStyle = 'italic';
+    }
+    tdTitle.appendChild(titleLink);
+    row.appendChild(tdTitle);
+
+    // Turns
+    var tdTurns = document.createElement('td');
+    tdTurns.textContent = session.turn_count != null ? session.turn_count : '—';
+    row.appendChild(tdTurns);
+
+    // Created
+    var tdCreated = document.createElement('td');
+    tdCreated.textContent = session.created_at || '—';
+    tdCreated.style.fontSize = '12px';
+    tdCreated.style.color = 'var(--text-dim)';
+    row.appendChild(tdCreated);
+
+    // Updated
+    var tdUpdated = document.createElement('td');
+    tdUpdated.textContent = session.updated_at || '—';
+    tdUpdated.style.fontSize = '12px';
+    tdUpdated.style.color = 'var(--text-dim)';
+    row.appendChild(tdUpdated);
+
+    // Actions
+    var tdActions = document.createElement('td');
+    var actions = document.createElement('div');
+    actions.className = 'actions';
+
+    // View button
+    var viewBtn = document.createElement('button');
+    viewBtn.className = 'btn';
+    viewBtn.textContent = 'View';
+    viewBtn.onclick = (function(sid, src) {
+      return function() { viewSession(src, sid); };
+    })(session.id, source);
+    actions.appendChild(viewBtn);
+
+    // Delete button
+    var delBtn = document.createElement('button');
+    delBtn.className = 'btn danger';
+    delBtn.textContent = 'Delete';
+    delBtn.onclick = (function(sid, src) {
+      return function() { deleteSession(src, sid); };
+    })(session.id, source);
+    actions.appendChild(delBtn);
+
+    tdActions.appendChild(actions);
+    row.appendChild(tdActions);
+
+    tbody.appendChild(row);
+  }
+  table.appendChild(tbody);
+  containerEl.appendChild(table);
+}
+
+async function loadSessions(source) {
+  var containerId = source + '-sessions';
+  var el = document.getElementById(containerId);
+  el.className = 'loading';
+  el.textContent = 'Loading...';
+
+  var data = await api('/sessions/' + source);
+  if (!data) {
+    el.className = '';
+    el.textContent = 'Failed to load data.';
+    el.style.color = 'var(--text-dim)';
+    return;
+  }
+  renderSessionTable(data, source, el);
+}
+
+var _openSessionId = null;
+
+async function viewSession(source, sessionId) {
+  var detailEl = document.getElementById('session-detail');
+
+  // Toggle: clicking the same session collapses it
+  if (_openSessionId === source + ':' + sessionId) {
+    detailEl.textContent = '';
+    _openSessionId = null;
+    return;
+  }
+
+  _openSessionId = source + ':' + sessionId;
+  detailEl.textContent = '';
+  var loadingDiv = document.createElement('div');
+  loadingDiv.className = 'loading';
+  loadingDiv.textContent = 'Loading turns...';
+  detailEl.appendChild(loadingDiv);
+
+  var turns = await api('/sessions/' + source + '/' + encodeURIComponent(sessionId));
+  detailEl.textContent = '';
+
+  var panel = document.createElement('div');
+  panel.className = 'detail-panel';
+
+  // Header with title and collapse button
+  var header = document.createElement('div');
+  header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:8px';
+  var headerTitle = document.createElement('span');
+  headerTitle.style.cssText = 'font-weight:600;font-size:13px';
+  headerTitle.textContent = 'Session Turns';
+  header.appendChild(headerTitle);
+  var collapseBtn = document.createElement('button');
+  collapseBtn.className = 'btn';
+  collapseBtn.textContent = 'Collapse';
+  collapseBtn.onclick = function() { detailEl.textContent = ''; _openSessionId = null; };
+  header.appendChild(collapseBtn);
+  panel.appendChild(header);
+
+  var pre = document.createElement('pre');
+
+  if (!turns) {
+    pre.textContent = 'Failed to load session turns.';
+    panel.appendChild(pre);
+    detailEl.appendChild(panel);
+    return;
+  }
+
+  if (turns.length === 0) {
+    pre.textContent = 'No turns in this session.';
+    panel.appendChild(pre);
+    detailEl.appendChild(panel);
+    return;
+  }
+
+  var lines = [];
+  for (var i = 0; i < turns.length; i++) {
+    var turn = turns[i];
+    var role = turn.role || 'unknown';
+    var icon = role === 'user' ? '👤' : '🤖';
+    var label = role === 'user' ? 'User' : 'Assistant';
+    var ts = turn.timestamp ? ' (' + turn.timestamp + ')' : '';
+    var content = turn.content || '';
+    lines.push(icon + ' ' + label + ts + ':\n' + content);
+  }
+
+  pre.textContent = lines.join('\n\n');
+  panel.appendChild(pre);
+  detailEl.appendChild(panel);
+}
+
+async function deleteSession(source, sessionId) {
+  if (!confirm('Delete this session? This cannot be undone.')) return;
+
+  var result = await apiDelete('/sessions/' + source + '/' + encodeURIComponent(sessionId));
+  if (result && result.status === 'deleted') {
+    // Reload the current tab's sessions
+    loadSessions(source);
+    // Clear detail panel if showing this session
+    document.getElementById('session-detail').textContent = '';
+  } else {
+    alert('Failed to delete session: ' + (result ? result.error || 'unknown error' : 'no response'));
+  }
+}
+
+// Initial load for both tabs
+loadSessions('cli');
+loadSessions('gateway');
+</script>

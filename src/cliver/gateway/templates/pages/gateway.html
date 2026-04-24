@@ -1,0 +1,128 @@
+<h2>Gateway</h2>
+<div id="gw-stats" class="stat-grid loading">Loading...</div>
+<h3 style="margin-bottom:12px;font-size:14px;font-weight:600;">Adapters</h3>
+<div id="gw-adapters" class="loading">Loading...</div>
+
+<script>
+(async function() {
+  async function render() {
+    var data = await api('/status');
+    var statsEl = document.getElementById('gw-stats');
+    var adaptersEl = document.getElementById('gw-adapters');
+
+    if (!data) {
+      statsEl.textContent = 'Failed to load data';
+      statsEl.className = '';
+      adaptersEl.textContent = '';
+      return;
+    }
+
+    // --- Stat cards ---
+    statsEl.className = 'stat-grid';
+    statsEl.innerHTML = '';
+
+    var cards = [
+      { label: 'Uptime', value: fmtUptime(data.uptime) },
+      { label: 'Tasks Run', value: String(data.tasks_run != null ? data.tasks_run : 0) },
+      { label: 'Adapters', value: String(data.adapters ? data.adapters.length : 0) }
+    ];
+
+    for (var i = 0; i < cards.length; i++) {
+      var card = document.createElement('div');
+      card.className = 'stat-card';
+      var lbl = document.createElement('div');
+      lbl.className = 'label';
+      lbl.textContent = cards[i].label;
+      var val = document.createElement('div');
+      val.className = 'value';
+      val.textContent = cards[i].value;
+      card.appendChild(lbl);
+      card.appendChild(val);
+      statsEl.appendChild(card);
+    }
+
+    // --- Adapter table (fetch full config from /adapters endpoint) ---
+    var adapters = await api('/adapters');
+    adaptersEl.className = '';
+    adaptersEl.textContent = '';
+
+    if (!adapters || adapters.length === 0) {
+      adaptersEl.textContent = 'No adapters configured';
+      return;
+    }
+
+    var table = document.createElement('table');
+    var thead = document.createElement('thead');
+    var headRow = document.createElement('tr');
+    var cols = ['Name', 'Type', 'Status', 'Home Channel'];
+    for (var c = 0; c < cols.length; c++) {
+      var th = document.createElement('th');
+      th.textContent = cols[c];
+      headRow.appendChild(th);
+    }
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    var tbody = document.createElement('tbody');
+    for (var j = 0; j < adapters.length; j++) {
+      var row = document.createElement('tr');
+
+      // Name (clickable for detail modal)
+      var tdName = document.createElement('td');
+      var nameLink = document.createElement('a');
+      nameLink.href = '#';
+      nameLink.textContent = adapters[j].name || '';
+      nameLink.style.cssText = 'color:var(--accent);cursor:pointer;text-decoration:none';
+      (function(a) {
+        nameLink.onclick = function(e) {
+          e.preventDefault();
+          var fields = [
+            { label: 'Name', value: a.name },
+            { label: 'Type', value: a.type || '—' },
+            { label: 'Status', value: a.state || '—' },
+            { label: 'Error', value: a.error || 'None' },
+            { label: 'Token', value: a.token || '—' },
+          ];
+          if (a.app_token) fields.push({ label: 'App Token', value: a.app_token });
+          fields.push({ label: 'Home Channel', value: a.home_channel || '—' });
+          if (a.allowed_users && a.allowed_users.length) {
+            fields.push({ label: 'Allowed Users', value: a.allowed_users.join(', ') });
+          }
+          if (a.extra) {
+            for (var key in a.extra) {
+              fields.push({ label: key, value: String(a.extra[key]) });
+            }
+          }
+          modalViewFields('Adapter: ' + (a.name || ''), fields);
+        };
+      })(adapters[j]);
+      tdName.appendChild(nameLink);
+      row.appendChild(tdName);
+
+      // Type
+      var tdType = document.createElement('td');
+      tdType.textContent = adapters[j].type || '—';
+      row.appendChild(tdType);
+
+      // Status
+      var tdStatus = document.createElement('td');
+      tdStatus.insertAdjacentHTML('beforeend', pill(adapters[j].state || 'unknown'));
+      row.appendChild(tdStatus);
+
+      // Home Channel
+      var tdChannel = document.createElement('td');
+      tdChannel.textContent = adapters[j].home_channel || '—';
+      tdChannel.style.fontSize = '12px';
+      tdChannel.style.color = 'var(--dim)';
+      row.appendChild(tdChannel);
+
+      tbody.appendChild(row);
+    }
+    table.appendChild(tbody);
+    adaptersEl.appendChild(table);
+  }
+
+  await render();
+  setInterval(render, 30000);
+})();
+</script>

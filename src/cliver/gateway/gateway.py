@@ -175,14 +175,25 @@ class Gateway:
         # Admin portal
         try:
             from cliver.gateway.admin import register_admin_routes
+            from cliver.session_manager import SessionManager as SM
 
             admin_user = gw_config.admin_username if gw_config else None
             admin_pass = gw_config.admin_password if gw_config else None
+
+            cli_sm = None
+            try:
+                cli_sessions_dir = CliverProfile(self.agent_name, self.config_dir).sessions_dir
+                if cli_sessions_dir.exists():
+                    cli_sm = SM(cli_sessions_dir)
+            except Exception as e:
+                logger.debug("CLI sessions not available: %s", e)
+
             admin_ctx = {
                 "get_status": self._get_status_async,
                 "agent_name": self.agent_name,
                 "config_dir": self.config_dir,
                 "gateway": self,
+                "cli_session_manager": cli_sm,
             }
             register_admin_routes(app, username=admin_user, password=admin_pass, context=admin_ctx)
             if admin_user and admin_pass:

@@ -1,0 +1,106 @@
+<h2>Skills</h2>
+<div id="skills-content" class="loading">Loading...</div>
+
+<script>
+(async function() {
+  var data = await api('/skills');
+  var el = document.getElementById('skills-content');
+  if (!data) { el.textContent = 'Failed to load data'; el.className = ''; return; }
+
+  el.className = '';
+  el.textContent = '';
+
+  if (data.length === 0) {
+    el.textContent = 'No skills found.';
+    el.style.color = 'var(--dim)';
+    el.style.fontStyle = 'italic';
+    return;
+  }
+
+  // Group skills by category
+  var groups = {};
+  for (var i = 0; i < data.length; i++) {
+    var source = data[i].source || 'unknown';
+    var category;
+    if (source === 'builtin') {
+      category = 'Builtin';
+    } else {
+      category = 'User';
+    }
+    if (!groups[category]) groups[category] = [];
+    groups[category].push(data[i]);
+  }
+
+  // Render order
+  var order = ['Builtin', 'User'];
+  for (var g = 0; g < order.length; g++) {
+    var groupName = order[g];
+    var skills = groups[groupName];
+    if (!skills || skills.length === 0) continue;
+
+    var section = document.createElement('div');
+    section.style.marginBottom = '24px';
+
+    var heading = document.createElement('h3');
+    heading.textContent = groupName + ' Skills (' + skills.length + ')';
+    heading.style.cssText = 'font-size:14px;font-weight:600;margin-bottom:12px;color:var(--dim)';
+    section.appendChild(heading);
+
+    var grid = document.createElement('div');
+    grid.className = 'item-grid';
+
+    for (var j = 0; j < skills.length; j++) {
+      var card = document.createElement('div');
+      card.className = 'item-card';
+      card.style.cursor = 'pointer';
+
+      var h3 = document.createElement('h3');
+      h3.textContent = skills[j].name || '';
+      h3.style.color = 'var(--accent)';
+      card.appendChild(h3);
+
+      var desc = document.createElement('p');
+      var descText = skills[j].description || '';
+      desc.textContent = descText.length > 120 ? descText.substring(0, 120) + '...' : descText;
+      card.appendChild(desc);
+
+      var tag = document.createElement('span');
+      tag.className = 'tag';
+      tag.textContent = skills[j].source || 'unknown';
+      card.appendChild(tag);
+
+      // Click to show detail modal
+      (function(skill) {
+        card.onclick = function() {
+          var fields = [
+            { label: 'Name', value: skill.name },
+            { label: 'Description', value: skill.description },
+            { label: 'Source', value: skill.source },
+          ];
+          if (skill.path) fields.push({ label: 'Path', value: skill.path });
+          if (skill.license) fields.push({ label: 'License', value: skill.license });
+          if (skill.compatibility) fields.push({ label: 'Compatibility', value: skill.compatibility });
+          if (skill.allowed_tools && skill.allowed_tools.length) {
+            fields.push({ label: 'Allowed Tools', value: skill.allowed_tools.join(', ') });
+          }
+          if (skill.body_preview) {
+            var bodyLabel = 'Content Preview';
+            if (skill.body_length > 500) bodyLabel += ' (first 500 of ' + skill.body_length + ' chars)';
+            fields.push({ label: bodyLabel, value: skill.body_preview, pre: true });
+          }
+          modalViewFields('Skill: ' + skill.name, fields);
+        };
+      })(skills[j]);
+
+      // Hover effect
+      card.onmouseenter = function() { this.style.borderColor = 'var(--accent)'; };
+      card.onmouseleave = function() { this.style.borderColor = ''; };
+
+      grid.appendChild(card);
+    }
+
+    section.appendChild(grid);
+    el.appendChild(section);
+  }
+})();
+</script>

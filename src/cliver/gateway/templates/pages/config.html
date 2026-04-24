@@ -1,0 +1,107 @@
+<h2>Config</h2>
+<div id="config-content" class="loading">Loading...</div>
+
+<script>
+(async function() {
+  var data = await api('/config');
+  var el = document.getElementById('config-content');
+  if (!data) { el.textContent = 'Failed to load data'; el.className = ''; return; }
+
+  el.className = '';
+  el.innerHTML = '';
+
+  // Helper: create a config section with heading
+  function makeSection(title) {
+    var section = document.createElement('div');
+    section.className = 'config-section';
+    var h3 = document.createElement('h3');
+    h3.textContent = title;
+    section.appendChild(h3);
+    return section;
+  }
+
+  // Helper: build a table from rows of data
+  function makeTable(headers, rows) {
+    var table = document.createElement('table');
+    var thead = document.createElement('thead');
+    var headRow = document.createElement('tr');
+    for (var c = 0; c < headers.length; c++) {
+      var th = document.createElement('th');
+      th.textContent = headers[c];
+      headRow.appendChild(th);
+    }
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    var tbody = document.createElement('tbody');
+    for (var r = 0; r < rows.length; r++) {
+      var tr = document.createElement('tr');
+      for (var d = 0; d < rows[r].length; d++) {
+        var td = document.createElement('td');
+        td.textContent = rows[r][d];
+        tr.appendChild(td);
+      }
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    return table;
+  }
+
+  function emptyMsg(text) {
+    var p = document.createElement('p');
+    p.textContent = text;
+    p.style.color = 'var(--text-dim)';
+    p.style.fontStyle = 'italic';
+    return p;
+  }
+
+  // --- Models section ---
+  var modelsSection = makeSection('Models');
+  var modelKeys = Object.keys(data.models || {});
+  if (modelKeys.length === 0) {
+    modelsSection.appendChild(emptyMsg('None configured'));
+  } else {
+    var modelRows = [];
+    for (var i = 0; i < modelKeys.length; i++) {
+      var mk = modelKeys[i];
+      var m = data.models[mk];
+      modelRows.push([mk, m.provider || '', m.model_id || '', m.api_url || '']);
+    }
+    modelsSection.appendChild(makeTable(['Name', 'Provider', 'Model ID', 'API URL'], modelRows));
+  }
+  el.appendChild(modelsSection);
+
+  // --- Providers section ---
+  var providersSection = makeSection('Providers');
+  var providerKeys = Object.keys(data.providers || {});
+  if (providerKeys.length === 0) {
+    providersSection.appendChild(emptyMsg('None configured'));
+  } else {
+    var providerRows = [];
+    for (var j = 0; j < providerKeys.length; j++) {
+      var pk = providerKeys[j];
+      var p = data.providers[pk];
+      providerRows.push([pk, p.type || '', p.api_url || '', p.api_key || '']);
+    }
+    providersSection.appendChild(makeTable(['Name', 'Type', 'API URL', 'API Key'], providerRows));
+  }
+  el.appendChild(providersSection);
+
+  // --- MCP Servers section ---
+  var mcpSection = makeSection('MCP Servers');
+  var mcpKeys = Object.keys(data.mcp_servers || {});
+  if (mcpKeys.length === 0) {
+    mcpSection.appendChild(emptyMsg('None configured'));
+  } else {
+    var mcpRows = [];
+    for (var k = 0; k < mcpKeys.length; k++) {
+      var sk = mcpKeys[k];
+      var s = data.mcp_servers[sk];
+      var cmdUrl = s.command || s.url || '';
+      mcpRows.push([sk, s.transport || '', cmdUrl]);
+    }
+    mcpSection.appendChild(makeTable(['Name', 'Transport', 'Command/URL'], mcpRows));
+  }
+  el.appendChild(mcpSection);
+})();
+</script>

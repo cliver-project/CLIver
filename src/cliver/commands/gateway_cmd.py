@@ -501,9 +501,18 @@ def _status_gateway(cliver: Cliver):
             data = json.loads(resp.read())
 
         uptime = data.get("uptime", 0)
-        hours, remainder = divmod(uptime, 3600)
+        days, remainder = divmod(uptime, 86400)
+        hours, remainder = divmod(remainder, 3600)
         minutes, seconds = divmod(remainder, 60)
-        uptime_str = f"{hours}h {minutes}m {seconds}s" if hours else f"{minutes}m {seconds}s"
+        parts = []
+        if days:
+            parts.append(f"{days}d")
+        if hours or days:
+            parts.append(f"{hours}h")
+        if minutes or hours or days:
+            parts.append(f"{minutes}m")
+        parts.append(f"{seconds}s")
+        uptime_str = " ".join(parts)
 
         cliver.output(f"  Status: running (PID {pid})")
         cliver.output(f"  URL: http://{host}:{port}")

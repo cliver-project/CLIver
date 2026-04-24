@@ -1,0 +1,281 @@
+<h2 id="task-title">Task Detail</h2>
+<div id="task-detail-content" class="loading">Loading...</div>
+
+<script>
+var taskName = "{{ITEM_NAME}}";
+(async function() {
+  var task = await api('/tasks/' + encodeURIComponent(taskName));
+  var titleEl = document.getElementById('task-title');
+  var el = document.getElementById('task-detail-content');
+
+  if (!task) {
+    el.textContent = 'Task not found';
+    el.className = '';
+    return;
+  }
+
+  el.className = '';
+  el.innerHTML = '';
+
+  // --- Header ---
+  titleEl.textContent = task.name;
+  if (task.description) {
+    var descP = document.createElement('p');
+    descP.textContent = task.description;
+    descP.style.cssText = 'color:var(--text-dim);margin-bottom:20px;margin-top:-12px';
+    el.appendChild(descP);
+  }
+
+  // --- Metadata section ---
+  var metaHeading = document.createElement('h3');
+  metaHeading.textContent = 'Metadata';
+  metaHeading.style.cssText = 'font-size:14px;font-weight:600;margin-bottom:10px';
+  el.appendChild(metaHeading);
+
+  var metaPanel = document.createElement('div');
+  metaPanel.className = 'detail-panel';
+
+  var metaTable = document.createElement('table');
+  var metaBody = document.createElement('tbody');
+
+  function addMetaRow(label, value) {
+    var tr = document.createElement('tr');
+    var tdLabel = document.createElement('td');
+    tdLabel.textContent = label;
+    tdLabel.style.cssText = 'font-weight:600;width:120px;color:var(--text-dim);padding:6px 12px';
+    var tdValue = document.createElement('td');
+    tdValue.style.cssText = 'padding:6px 12px';
+    if (typeof value === 'string') {
+      tdValue.textContent = value;
+    } else {
+      tdValue.appendChild(value);
+    }
+    tr.appendChild(tdLabel);
+    tr.appendChild(tdValue);
+    metaBody.appendChild(tr);
+  }
+
+  addMetaRow('Model', task.model || 'default');
+  addMetaRow('Schedule', task.schedule || 'one-shot');
+
+  metaTable.appendChild(metaBody);
+  metaPanel.appendChild(metaTable);
+  el.appendChild(metaPanel);
+
+  // --- Prompt ---
+  var promptHeading = document.createElement('h3');
+  promptHeading.textContent = 'Prompt';
+  promptHeading.style.cssText = 'font-size:14px;font-weight:600;margin-bottom:10px;margin-top:20px';
+  el.appendChild(promptHeading);
+
+  var promptDiv = document.createElement('div');
+  promptDiv.className = 'md-content';
+  promptDiv.textContent = task.prompt || '';
+  el.appendChild(promptDiv);
+
+  // --- Origin section ---
+  var originHeading = document.createElement('h3');
+  originHeading.textContent = 'Origin';
+  originHeading.style.cssText = 'font-size:14px;font-weight:600;margin-bottom:10px;margin-top:20px';
+  el.appendChild(originHeading);
+
+  var originPanel = document.createElement('div');
+  originPanel.className = 'detail-panel';
+
+  if (task.origin) {
+    var originTable = document.createElement('table');
+    var originBody = document.createElement('tbody');
+
+    function addOriginRow(label, value) {
+      if (!value) return;
+      var tr = document.createElement('tr');
+      var tdL = document.createElement('td');
+      tdL.textContent = label;
+      tdL.style.cssText = 'font-weight:600;width:120px;color:var(--text-dim);padding:6px 12px';
+      var tdV = document.createElement('td');
+      tdV.textContent = value;
+      tdV.style.cssText = 'padding:6px 12px';
+      tr.appendChild(tdL);
+      tr.appendChild(tdV);
+      originBody.appendChild(tr);
+    }
+
+    addOriginRow('Source', task.origin.source);
+    addOriginRow('Platform', task.origin.platform);
+    addOriginRow('Channel ID', task.origin.channel_id);
+    addOriginRow('Thread ID', task.origin.thread_id);
+    addOriginRow('User ID', task.origin.user_id);
+    addOriginRow('Session Key', task.origin.session_key);
+
+    originTable.appendChild(originBody);
+    originPanel.appendChild(originTable);
+  } else {
+    var noOrigin = document.createElement('p');
+    noOrigin.textContent = 'No origin information';
+    noOrigin.style.cssText = 'color:var(--text-dim);font-style:italic;padding:4px 0';
+    originPanel.appendChild(noOrigin);
+  }
+  el.appendChild(originPanel);
+
+  // --- Live Status ---
+  if (task.live_status && task.live_status.status) {
+    var statusHeading = document.createElement('h3');
+    statusHeading.textContent = 'Live Status';
+    statusHeading.style.cssText = 'font-size:14px;font-weight:600;margin-bottom:10px;margin-top:20px';
+    el.appendChild(statusHeading);
+
+    var statusDiv = document.createElement('div');
+    statusDiv.className = 'detail-panel';
+    var statusPill = document.createElement('span');
+    var pillCls = String(task.live_status.status || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    statusPill.className = 'pill ' + pillCls;
+    statusPill.textContent = task.live_status.status;
+    statusDiv.appendChild(statusPill);
+    el.appendChild(statusDiv);
+  }
+
+  // --- Referenced Skills ---
+  if (task.skills && task.skills.length > 0) {
+    var skillsHeading = document.createElement('h3');
+    skillsHeading.textContent = 'Referenced Skills';
+    skillsHeading.style.cssText = 'font-size:14px;font-weight:600;margin-bottom:10px;margin-top:20px';
+    el.appendChild(skillsHeading);
+
+    var skillsDiv = document.createElement('div');
+    skillsDiv.className = 'detail-panel';
+    for (var s = 0; s < task.skills.length; s++) {
+      var skillTag = document.createElement('a');
+      skillTag.href = '/admin/skills';
+      skillTag.className = 'tag';
+      skillTag.textContent = task.skills[s];
+      skillTag.style.marginRight = '6px';
+      skillsDiv.appendChild(skillTag);
+    }
+    el.appendChild(skillsDiv);
+  }
+
+  // --- Referenced Workflow ---
+  if (task.workflow) {
+    var wfHeading = document.createElement('h3');
+    wfHeading.textContent = 'Referenced Workflow';
+    wfHeading.style.cssText = 'font-size:14px;font-weight:600;margin-bottom:10px;margin-top:20px';
+    el.appendChild(wfHeading);
+
+    var wfDiv = document.createElement('div');
+    wfDiv.className = 'detail-panel';
+    var wfLink = document.createElement('a');
+    wfLink.href = '/admin/workflows/' + encodeURIComponent(task.workflow);
+    wfLink.textContent = task.workflow;
+    wfDiv.appendChild(wfLink);
+    el.appendChild(wfDiv);
+  }
+
+  // --- Run History ---
+  var runsHeading = document.createElement('h3');
+  runsHeading.textContent = 'Run History';
+  runsHeading.style.cssText = 'font-size:14px;font-weight:600;margin-bottom:10px;margin-top:20px';
+  el.appendChild(runsHeading);
+
+  var runs = task.runs || [];
+  if (runs.length === 0) {
+    var noRuns = document.createElement('p');
+    noRuns.textContent = 'No runs recorded';
+    noRuns.style.cssText = 'color:var(--text-dim);font-style:italic';
+    el.appendChild(noRuns);
+  } else {
+    var runsTable = document.createElement('table');
+    var runsThead = document.createElement('thead');
+    var runsHeadRow = document.createElement('tr');
+    var runCols = ['Execution ID', 'Status', 'Started', 'Finished', 'Error'];
+    for (var rc = 0; rc < runCols.length; rc++) {
+      var rth = document.createElement('th');
+      rth.textContent = runCols[rc];
+      runsHeadRow.appendChild(rth);
+    }
+    runsThead.appendChild(runsHeadRow);
+    runsTable.appendChild(runsThead);
+
+    var runsTbody = document.createElement('tbody');
+    for (var r = 0; r < runs.length; r++) {
+      var run = runs[r];
+      var runRow = document.createElement('tr');
+
+      var tdExecId = document.createElement('td');
+      tdExecId.textContent = run.execution_id || '';
+      tdExecId.style.fontFamily = 'monospace';
+      tdExecId.style.fontSize = '11px';
+      runRow.appendChild(tdExecId);
+
+      var tdRunStatus = document.createElement('td');
+      var runPill = document.createElement('span');
+      var runPillCls = String(run.status || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      runPill.className = 'pill ' + runPillCls;
+      runPill.textContent = run.status || '';
+      tdRunStatus.appendChild(runPill);
+      runRow.appendChild(tdRunStatus);
+
+      var tdStarted = document.createElement('td');
+      tdStarted.textContent = run.started_at || '—';
+      runRow.appendChild(tdStarted);
+
+      var tdFinished = document.createElement('td');
+      tdFinished.textContent = run.finished_at || '—';
+      runRow.appendChild(tdFinished);
+
+      var tdError = document.createElement('td');
+      tdError.textContent = run.error || '';
+      tdError.style.color = run.error ? 'var(--red)' : '';
+      runRow.appendChild(tdError);
+
+      runsTbody.appendChild(runRow);
+    }
+    runsTable.appendChild(runsTbody);
+    el.appendChild(runsTable);
+  }
+
+  // --- Actions ---
+  var actionsHeading = document.createElement('h3');
+  actionsHeading.textContent = 'Actions';
+  actionsHeading.style.cssText = 'font-size:14px;font-weight:600;margin-bottom:10px;margin-top:20px';
+  el.appendChild(actionsHeading);
+
+  var actionsDiv = document.createElement('div');
+  actionsDiv.className = 'actions';
+
+  // Run Now button
+  var runNowBtn = document.createElement('button');
+  runNowBtn.className = 'btn';
+  runNowBtn.textContent = 'Run Now';
+  runNowBtn.onclick = function() {
+    if (!confirm('Run task "' + task.name + '" now?')) return;
+    runNowBtn.disabled = true;
+    runNowBtn.textContent = 'Starting...';
+    apiPost('/tasks/' + encodeURIComponent(task.name) + '/run').then(function(result) {
+      if (result && result.status === 'started') {
+        runNowBtn.textContent = 'Started';
+        runNowBtn.style.color = 'var(--accent)';
+      } else {
+        runNowBtn.textContent = 'Error';
+        runNowBtn.style.color = 'var(--red)';
+        alert('Failed: ' + (result ? result.message || 'unknown error' : 'no response'));
+      }
+      setTimeout(function() {
+        runNowBtn.disabled = false;
+        runNowBtn.textContent = 'Run Now';
+        runNowBtn.style.color = '';
+      }, 3000);
+    });
+  };
+  actionsDiv.appendChild(runNowBtn);
+
+  // Edit button (disabled placeholder)
+  var editBtn = document.createElement('button');
+  editBtn.className = 'btn';
+  editBtn.disabled = true;
+  editBtn.style.cssText = 'opacity:0.4;cursor:not-allowed';
+  editBtn.textContent = 'Edit';
+  actionsDiv.appendChild(editBtn);
+
+  el.appendChild(actionsDiv);
+})();
+</script>

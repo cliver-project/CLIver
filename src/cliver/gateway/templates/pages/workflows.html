@@ -1,0 +1,53 @@
+<h2>Workflows</h2>
+<div id="workflows-content" class="loading">Loading...</div>
+
+<script>
+(async function() {
+  var data = await api('/workflows');
+  var el = document.getElementById('workflows-content');
+  if (!data) { el.textContent = 'Failed to load data'; el.className = ''; return; }
+
+  el.className = '';
+  el.innerHTML = '';
+
+  if (data.length === 0) {
+    el.textContent = 'No workflows defined.';
+    el.style.color = 'var(--text-dim)';
+    el.style.fontStyle = 'italic';
+    return;
+  }
+
+  var grid = document.createElement('div');
+  grid.className = 'item-grid';
+
+  for (var i = 0; i < data.length; i++) {
+    var wf = data[i];
+    var card = document.createElement('div');
+    card.className = 'item-card';
+
+    var h3 = document.createElement('h3');
+    var link = document.createElement('a');
+    link.href = '/admin/workflows/' + encodeURIComponent(wf.name);
+    link.textContent = wf.name;
+    link.style.color = 'var(--accent)';
+    h3.appendChild(link);
+    card.appendChild(h3);
+
+    if (wf.description) {
+      var desc = document.createElement('p');
+      desc.textContent = wf.description;
+      card.appendChild(desc);
+    }
+
+    var stepCount = wf.steps || 0;
+    var tag = document.createElement('span');
+    tag.className = 'tag';
+    tag.textContent = stepCount + (stepCount === 1 ? ' step' : ' steps');
+    card.appendChild(tag);
+
+    grid.appendChild(card);
+  }
+
+  el.appendChild(grid);
+})();
+</script>

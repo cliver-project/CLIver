@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{AGENT_NAME}} — Admin Portal</title>
+<style>
+/* ---------------------------------------------------------------
+   Reset & Base
+   --------------------------------------------------------------- */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #0d0d1a;
+  --sidebar:   #12122a;
+  --card:      #1a1a2e;
+  --border:    #2a2a4a;
+  --text:      #e0e0e0;
+  --text-dim:  #888;
+  --accent:    #00d4aa;
+  --red:       #ff4757;
+  --yellow:    #ffa502;
+  --blue:      #3498db;
+  --sidebar-w: 200px;
+  --font:      -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+               Oxygen, Ubuntu, Cantarell, "Fira Sans", "Droid Sans",
+               "Helvetica Neue", Arial, sans-serif;
+}
+
+html, body {
+  height: 100%;
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--bg);
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ---------------------------------------------------------------
+   Layout — sidebar + main
+   --------------------------------------------------------------- */
+.layout {
+  display: flex;
+  min-height: 100vh;
+}
+
+/* ---------------------------------------------------------------
+   Sidebar
+   --------------------------------------------------------------- */
+.sidebar {
+  width: var(--sidebar-w);
+  background: var(--sidebar);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 100;
+  overflow-y: auto;
+}
+
+.sidebar-header {
+  padding: 20px 16px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-header .agent-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.02em;
+}
+
+.sidebar-header .subtitle {
+  font-size: 11px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-top: 2px;
+}
+
+/* Status badge */
+.status-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.status-dot.ok   { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+.status-dot.err  { background: var(--red);    box-shadow: 0 0 6px var(--red); }
+
+/* Navigation */
+.sidebar nav {
+  flex: 1;
+  padding: 8px 0;
+}
+
+.sidebar nav a {
+  display: block;
+  padding: 8px 16px;
+  font-size: 13px;
+  color: var(--text-dim);
+  transition: color 0.15s, background 0.15s, border-left 0.15s;
+  border-left: 3px solid transparent;
+}
+
+.sidebar nav a:hover {
+  color: var(--text);
+  background: rgba(255,255,255,0.03);
+  text-decoration: none;
+}
+
+.sidebar nav a.active {
+  color: var(--accent);
+  border-left-color: var(--accent);
+  background: rgba(0,212,170,0.06);
+}
+
+/* ---------------------------------------------------------------
+   Main content
+   --------------------------------------------------------------- */
+main {
+  flex: 1;
+  margin-left: var(--sidebar-w);
+  padding: 28px 32px;
+  min-width: 0;
+}
+
+main h2 {
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 20px;
+  color: var(--text);
+}
+
+/* ---------------------------------------------------------------
+   Stat grid / cards
+   --------------------------------------------------------------- */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+.stat-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+
+.stat-card:hover {
+  border-color: rgba(0,212,170,0.3);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+}
+
+.stat-card .label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+
+.stat-card .value {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+/* ---------------------------------------------------------------
+   Tables
+   --------------------------------------------------------------- */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 24px;
+}
+
+thead th {
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--card);
+}
+
+tbody td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  vertical-align: top;
+}
+
+tbody tr {
+  transition: background 0.12s;
+}
+
+tbody tr:hover {
+  background: rgba(255,255,255,0.02);
+}
+
+/* ---------------------------------------------------------------
+   Pills / status badges
+   --------------------------------------------------------------- */
+.pill {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--border);
+  color: var(--text-dim);
+}
+
+.pill.ok, .pill.completed, .pill.connected {
+  background: rgba(0,212,170,0.15);
+  color: var(--accent);
+}
+
+.pill.err, .pill.failed {
+  background: rgba(255,71,87,0.15);
+  color: var(--red);
+}
+
+.pill.warn, .pill.suspended, .pill.running {
+  background: rgba(255,165,2,0.15);
+  color: var(--yellow);
+}
+
+.pill.pending, .pill.connecting {
+  background: rgba(52,152,219,0.15);
+  color: var(--blue);
+}
+
+/* ---------------------------------------------------------------
+   Buttons
+   --------------------------------------------------------------- */
+.btn {
+  display: inline-block;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+
+.btn:hover {
+  background: rgba(255,255,255,0.06);
+  border-color: var(--accent);
+  box-shadow: 0 1px 6px rgba(0,0,0,0.2);
+}
+
+.btn.danger {
+  border-color: var(--red);
+  color: var(--red);
+}
+
+.btn.danger:hover {
+  background: rgba(255,71,87,0.12);
+  box-shadow: 0 1px 6px rgba(255,71,87,0.2);
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ---------------------------------------------------------------
+   Detail panel
+   --------------------------------------------------------------- */
+.detail-panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.detail-panel pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  overflow-x: auto;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ---------------------------------------------------------------
+   Item grid / cards (skills, workflows)
+   --------------------------------------------------------------- */
+.item-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
+}
+
+.item-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+
+.item-card:hover {
+  border-color: rgba(0,212,170,0.3);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+}
+
+.item-card h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+
+.item-card p {
+  font-size: 12px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.tag {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 10px;
+  border-radius: 4px;
+  background: rgba(52,152,219,0.15);
+  color: var(--blue);
+  margin-right: 4px;
+  margin-top: 8px;
+}
+
+/* ---------------------------------------------------------------
+   Markdown / preformatted content
+   --------------------------------------------------------------- */
+.md-content {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-bottom: 16px;
+}
+
+/* ---------------------------------------------------------------
+   Config sections
+   --------------------------------------------------------------- */
+.config-section {
+  margin-bottom: 24px;
+}
+
+.config-section h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* ---------------------------------------------------------------
+   Loading placeholder
+   --------------------------------------------------------------- */
+.loading {
+  color: var(--text-dim);
+  font-size: 13px;
+  font-style: italic;
+  padding: 20px 0;
+}
+
+/* ---------------------------------------------------------------
+   Tabs
+   --------------------------------------------------------------- */
+.tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+
+.tab {
+  padding: 8px 18px;
+  font-size: 13px;
+  color: var(--text-dim);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+  user-select: none;
+}
+
+.tab:hover {
+  color: var(--text);
+}
+
+.tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.tab-content {
+  display: none;
+}
+
+.tab-content.active {
+  display: block;
+}
+
+/* ---------------------------------------------------------------
+   Step flow (workflow diagrams)
+   --------------------------------------------------------------- */
+.step-flow {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  overflow-x: auto;
+  padding: 16px 0;
+  margin-bottom: 24px;
+}
+
+.step-connector {
+  display: flex;
+  align-items: center;
+  padding-top: 14px;
+  color: var(--text-dim);
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.step-box {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  min-width: 140px;
+  text-align: center;
+  flex-shrink: 0;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.step-box:hover {
+  border-color: rgba(0,212,170,0.3);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+}
+
+.step-box h4 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.step-box .step-meta {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.step-details {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 16px;
+}
+
+/* ---------------------------------------------------------------
+   Responsive — collapse sidebar to top bar
+   --------------------------------------------------------------- */
+@media (max-width: 768px) {
+  .layout {
+    flex-direction: column;
+  }
+
+  .sidebar {
+    width: 100%;
+    position: relative;
+    flex-direction: column;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sidebar-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+  }
+
+  .sidebar-header .subtitle { margin-top: 0; }
+
+  .sidebar nav {
+    display: flex;
+    flex-wrap: wrap;
+    padding: 4px 8px 8px;
+    gap: 0;
+  }
+
+  .sidebar nav a {
+    border-left: none;
+    border-bottom: 2px solid transparent;
+    padding: 6px 12px;
+  }
+
+  .sidebar nav a.active {
+    border-left-color: transparent;
+    border-bottom-color: var(--accent);
+  }
+
+  main {
+    margin-left: 0;
+    padding: 20px 16px;
+  }
+
+  .stat-grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  }
+
+  .step-flow {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .step-connector {
+    justify-content: center;
+    padding-top: 0;
+    padding: 4px 0;
+  }
+}
+
+/* Modal dialog */
+.modal-overlay {
+  display: none;
+  position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(0,0,0,0.6); z-index: 1000;
+  align-items: center; justify-content: center;
+}
+.modal-overlay.active { display: flex; }
+.modal {
+  background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+  min-width: 400px; max-width: 700px; width: 90%; max-height: 80vh;
+  display: flex; flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+}
+.modal-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 16px 20px; border-bottom: 1px solid var(--border);
+}
+.modal-header h3 { font-size: 16px; font-weight: 600; }
+.modal-close {
+  background: none; border: none; color: var(--dim); font-size: 20px;
+  cursor: pointer; padding: 4px 8px; border-radius: 4px;
+}
+.modal-close:hover { color: var(--text); background: var(--border); }
+.modal-body {
+  padding: 20px; overflow-y: auto; flex: 1;
+}
+.modal-footer {
+  padding: 12px 20px; border-top: 1px solid var(--border);
+  display: flex; justify-content: flex-end; gap: 8px;
+}
+.modal-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; }
+.modal-field { margin-bottom: 10px; display: flex; align-items: baseline; gap: 8px; }
+.modal-field.wide { grid-column: 1 / -1; flex-direction: column; gap: 2px; }
+.modal-field label {
+  font-size: 11px; color: var(--dim); text-transform: uppercase;
+  letter-spacing: 0.5px; white-space: nowrap; min-width: 90px; flex-shrink: 0;
+}
+.modal-field .value { font-size: 13px; }
+.modal-field input, .modal-field textarea, .modal-field select {
+  width: 100%; padding: 8px 10px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: 6px; color: var(--text); font-size: 13px; font-family: inherit;
+}
+.modal-field input:focus, .modal-field textarea:focus, .modal-field select:focus {
+  outline: none; border-color: var(--accent);
+}
+.modal-field textarea { min-height: 80px; resize: vertical; }
+</style>
+<script>
+/* Shared JS utilities — loaded in <head> so page fragments can use them */
+var BASE_URL = "{{BASE_URL}}";
+var authHeaders = { 'Authorization': 'Basic {{AUTH_TOKEN}}' };
+
+async function api(path) {
+  try {
+    var resp = await fetch(BASE_URL + '/api' + path, { headers: authHeaders });
+    if (!resp.ok) return null;
+    return await resp.json();
+  } catch (e) {
+    console.error('api GET failed:', path, e);
+    return null;
+  }
+}
+
+async function apiPost(path) {
+  try {
+    var resp = await fetch(BASE_URL + '/api' + path, { method: 'POST', headers: authHeaders });
+    return await resp.json();
+  } catch (e) {
+    console.error('api POST failed:', path, e);
+    return null;
+  }
+}
+
+async function apiPut(path, data) {
+  try {
+    var resp = await fetch(BASE_URL + '/api' + path, {
+      method: 'PUT',
+      headers: Object.assign({}, authHeaders, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify(data)
+    });
+    return await resp.json();
+  } catch (e) {
+    console.error('api PUT failed:', path, e);
+    return null;
+  }
+}
+
+async function apiDelete(path) {
+  try {
+    var resp = await fetch(BASE_URL + '/api' + path, { method: 'DELETE', headers: authHeaders });
+    return await resp.json();
+  } catch (e) {
+    console.error('api DELETE failed:', path, e);
+    return null;
+  }
+}
+
+function escHtml(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function pill(status) {
+  var s = String(status || 'unknown').toLowerCase();
+  return '<span class="pill ' + escHtml(s) + '">' + escHtml(s) + '</span>';
+}
+
+function fmtUptime(secs) {
+  secs = Math.floor(secs);
+  var d = Math.floor(secs / 86400); secs %= 86400;
+  var h = Math.floor(secs / 3600);  secs %= 3600;
+  var m = Math.floor(secs / 60);    var s = secs % 60;
+  var parts = [];
+  if (d) parts.push(d + 'd');
+  if (h || d) parts.push(h + 'h');
+  if (m || h || d) parts.push(m + 'm');
+  if (parts.length === 0) parts.push(s + 's');
+  return parts.join(' ');
+}
+
+/* ---- Modal dialog API ---- */
+
+function openModal(title, bodyHtml, options) {
+  var overlay = document.getElementById('modal-overlay');
+  var titleEl = document.getElementById('modal-title');
+  var bodyEl = document.getElementById('modal-body');
+  var footerEl = document.getElementById('modal-footer');
+  titleEl.textContent = title;
+  bodyEl.replaceChildren();
+  if (typeof bodyHtml === 'string') {
+    var temp = document.createElement('div');
+    temp.textContent = bodyHtml;
+    bodyEl.appendChild(temp);
+  } else if (bodyHtml instanceof Node) {
+    bodyEl.appendChild(bodyHtml);
+  }
+  footerEl.replaceChildren();
+  if (options && options.buttons) {
+    for (var i = 0; i < options.buttons.length; i++) {
+      var btnDef = options.buttons[i];
+      var btn = document.createElement('button');
+      btn.className = 'btn' + (btnDef.danger ? ' danger' : '');
+      btn.textContent = btnDef.label;
+      btn.onclick = btnDef.onclick || closeModal;
+      footerEl.appendChild(btn);
+    }
+  } else {
+    var closeBtn = document.createElement('button');
+    closeBtn.className = 'btn';
+    closeBtn.textContent = 'Close';
+    closeBtn.onclick = closeModal;
+    footerEl.appendChild(closeBtn);
+  }
+  overlay.classList.add('active');
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.remove('active');
+}
+
+function modalViewFields(title, fields) {
+  var container = document.createElement('div');
+  container.className = 'modal-fields';
+  for (var i = 0; i < fields.length; i++) {
+    var f = fields[i];
+    var field = document.createElement('div');
+    var isWide = f.pre || f.wide || (f.value && String(f.value).length > 60);
+    field.className = 'modal-field' + (isWide ? ' wide' : '');
+    var label = document.createElement('label');
+    label.textContent = f.label;
+    field.appendChild(label);
+    var value = document.createElement('div');
+    value.className = 'value';
+    if (f.pre) {
+      var pre = document.createElement('pre');
+      pre.style.cssText = 'white-space:pre-wrap;word-break:break-all;font-size:12px;color:var(--dim);margin:0';
+      pre.textContent = f.value || '';
+      value.appendChild(pre);
+    } else {
+      value.textContent = f.value || '—';
+    }
+    field.appendChild(value);
+    container.appendChild(field);
+  }
+  openModal(title, container);
+}
+
+function modalEditFields(title, fields, onSave) {
+  var container = document.createElement('div');
+  var inputs = {};
+  for (var i = 0; i < fields.length; i++) {
+    var f = fields[i];
+    var field = document.createElement('div');
+    field.className = 'modal-field';
+    var label = document.createElement('label');
+    label.textContent = f.label;
+    field.appendChild(label);
+    var input;
+    if (f.type === 'textarea') {
+      input = document.createElement('textarea');
+      input.value = f.value || '';
+    } else if (f.type === 'select' && f.options) {
+      input = document.createElement('select');
+      for (var j = 0; j < f.options.length; j++) {
+        var opt = document.createElement('option');
+        opt.value = f.options[j];
+        opt.textContent = f.options[j];
+        if (f.options[j] === f.value) opt.selected = true;
+        input.appendChild(opt);
+      }
+    } else {
+      input = document.createElement('input');
+      input.type = f.type || 'text';
+      input.value = f.value || '';
+    }
+    if (f.readonly) { input.readOnly = true; input.style.opacity = '0.6'; }
+    if (f.disabled) { input.disabled = true; input.style.opacity = '0.4'; }
+    inputs[f.key] = input;
+    field.appendChild(input);
+    container.appendChild(field);
+  }
+  openModal(title, container, {
+    buttons: [
+      { label: 'Cancel', onclick: closeModal },
+      { label: 'Save', onclick: function() {
+        var data = {};
+        for (var key in inputs) { data[key] = inputs[key].value; }
+        if (onSave) onSave(data);
+        closeModal();
+      }}
+    ]
+  });
+}
+</script>
+</head>
+<body>
+<div class="layout">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <a href="/admin/gateway" class="agent-name" style="text-decoration:none;color:inherit">{{AGENT_NAME}}</a>
+      <a href="/admin/gateway" class="subtitle" style="text-decoration:none;color:inherit">CLIver Admin Portal</a>
+    </div>
+
+    <div class="status-badge" id="statusBadge">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">Checking...</span>
+    </div>
+
+    <nav>
+      <a href="/admin/gateway"   data-page="gateway">Gateway</a>
+      <a href="/admin/tasks"     data-page="tasks">Tasks</a>
+      <a href="/admin/sessions"  data-page="sessions">Sessions</a>
+      <a href="/admin/workflows" data-page="workflows">Workflows</a>
+      <a href="/admin/skills"    data-page="skills">Skills</a>
+      <a href="/admin/agent"     data-page="agent">Agent</a>
+      <a href="/admin/config"    data-page="config">Config</a>
+    </nav>
+  </aside>
+
+  <!-- Main content -->
+  <main>
+  {{CONTENT}}
+  </main>
+</div>
+
+<script>
+/* ---------------------------------------------------------------
+   Active nav highlighting
+   --------------------------------------------------------------- */
+document.querySelectorAll('nav a').forEach(function(a) {
+  if (a.dataset.page === '{{CURRENT_PAGE}}') a.classList.add('active');
+});
+
+/* ---------------------------------------------------------------
+   Status badge auto-refresh (every 30s)
+   --------------------------------------------------------------- */
+(function() {
+  var dot = document.getElementById('statusDot');
+  var txt = document.getElementById('statusText');
+
+  async function refresh() {
+    try {
+      var data = await api('/status');
+      if (data && data.uptime != null) {
+        dot.className = 'status-dot ok';
+        txt.textContent = 'Running · ' + fmtUptime(data.uptime);
+      } else {
+        dot.className = 'status-dot err';
+        txt.textContent = 'Error';
+      }
+    } catch (e) {
+      dot.className = 'status-dot err';
+      txt.textContent = 'Error';
+    }
+  }
+
+  refresh();
+  setInterval(refresh, 30000);
+})();
+</script>
+
+<!-- Reusable modal dialog -->
+<div class="modal-overlay" id="modal-overlay" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="modal-title"></h3>
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-footer" id="modal-footer"></div>
+  </div>
+</div>
+
+</body>
+</html>

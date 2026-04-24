@@ -4,6 +4,7 @@ Cliver CLI Module
 The main entrance of the cliver application
 """
 
+import shutil
 import sys
 from pathlib import Path
 from typing import Any, Dict
@@ -97,11 +98,9 @@ class Cliver:
 
     def echo_user_input(self, text: str) -> None:
         """Echo user input with a distinct background block in the conversation output."""
-        import shutil as _shutil
-
         from cliver.themes import get_theme
 
-        tw = _shutil.get_terminal_size().columns
+        tw = shutil.get_terminal_size().columns
         self.console.print(get_theme().user_input_markup(text, tw))
 
     def _init_agent(self, agent_name: str) -> None:
@@ -445,6 +444,7 @@ def _create_permission_prompt(console: Console, cliver_inst: "Cliver" = None):
                 title="[bold yellow]Permission Required[/bold yellow]",
                 border_style="yellow",
                 padding=(0, 1),
+                width=min(shutil.get_terminal_size().columns, 120),
             )
         )
 

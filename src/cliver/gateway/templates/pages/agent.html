@@ -1,0 +1,51 @@
+<h2 id="agent-title">Agent</h2>
+<div id="agent-content" class="loading">Loading...</div>
+
+<script>
+(async function() {
+  var data = await api('/agent');
+  var titleEl = document.getElementById('agent-title');
+  var el = document.getElementById('agent-content');
+  if (!data) { el.textContent = 'Failed to load data'; el.className = ''; return; }
+
+  el.className = '';
+  el.innerHTML = '';
+
+  // Set heading with agent name
+  titleEl.textContent = data.name || 'Agent';
+
+  // --- Identity section ---
+  var identityHeading = document.createElement('h3');
+  identityHeading.textContent = 'Identity';
+  identityHeading.style.cssText = 'font-size:14px;font-weight:600;margin-bottom:10px;';
+  el.appendChild(identityHeading);
+
+  var identityDiv = document.createElement('div');
+  identityDiv.className = 'md-content';
+  if (data.identity) {
+    identityDiv.textContent = data.identity;
+  } else {
+    identityDiv.textContent = 'No identity configured';
+    identityDiv.style.color = 'var(--text-dim)';
+    identityDiv.style.fontStyle = 'italic';
+  }
+  el.appendChild(identityDiv);
+
+  // --- Memory section ---
+  var memoryHeading = document.createElement('h3');
+  memoryHeading.textContent = 'Memory';
+  memoryHeading.style.cssText = 'font-size:14px;font-weight:600;margin-bottom:10px;margin-top:20px;';
+  el.appendChild(memoryHeading);
+
+  var memoryDiv = document.createElement('div');
+  memoryDiv.className = 'md-content';
+  if (data.memory) {
+    memoryDiv.textContent = data.memory;
+  } else {
+    memoryDiv.textContent = 'No memories stored';
+    memoryDiv.style.color = 'var(--text-dim)';
+    memoryDiv.style.fontStyle = 'italic';
+  }
+  el.appendChild(memoryDiv);
+})();
+</script>
