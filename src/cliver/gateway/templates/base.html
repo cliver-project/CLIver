@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{{AGENT_NAME}} — Admin Portal</title>
+<link id="favicon" rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cline x1='18' y1='18' x2='34' y2='28' stroke='%23059669' stroke-width='3' opacity='.4'/%3E%3Cline x1='34' y1='28' x2='48' y2='38' stroke='%23059669' stroke-width='3' opacity='.6'/%3E%3Cline x1='48' y1='38' x2='60' y2='50' stroke='%2300d4aa' stroke-width='3.5' opacity='.8'/%3E%3Cline x1='60' y1='50' x2='48' y2='62' stroke='%2300d4aa' stroke-width='3.5' opacity='.8'/%3E%3Cline x1='48' y1='62' x2='34' y2='72' stroke='%23059669' stroke-width='3' opacity='.6'/%3E%3Cline x1='34' y1='72' x2='18' y2='82' stroke='%23059669' stroke-width='3' opacity='.4'/%3E%3Ccircle cx='18' cy='18' r='5' fill='%23059669' opacity='.5'/%3E%3Ccircle cx='34' cy='28' r='5.5' fill='%23059669' opacity='.65'/%3E%3Ccircle cx='48' cy='38' r='6' fill='%23059669' opacity='.8'/%3E%3Ccircle cx='48' cy='62' r='6' fill='%23059669' opacity='.8'/%3E%3Ccircle cx='34' cy='72' r='5.5' fill='%23059669' opacity='.65'/%3E%3Ccircle cx='18' cy='82' r='5' fill='%23059669' opacity='.5'/%3E%3Ccircle cx='60' cy='50' r='9' fill='%2300d4aa'/%3E%3Crect x='74' y='46' width='16' height='5' rx='2' fill='%2300d4aa' opacity='.8'/%3E%3C/svg%3E">
 <script>
 var t = localStorage.getItem('cliver-theme') || 'light';
 document.documentElement.setAttribute('data-theme', t);
@@ -88,8 +89,15 @@ a:hover { text-decoration: underline; }
   text-align: center;
 }
 
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
 .sidebar-header .agent-name {
-  display: block;
   font-size: 16px;
   font-weight: 700;
   color: var(--accent);
@@ -886,8 +894,38 @@ function modalEditFields(title, fields, onSave) {
   <!-- Sidebar -->
   <aside class="sidebar">
     <div class="sidebar-header">
-      <a href="/admin/gateway" class="agent-name" style="text-decoration:none;color:inherit">{{AGENT_NAME}}</a>
-      <a href="/admin/gateway" class="subtitle" style="text-decoration:none;color:inherit">CLIver Admin Portal</a>
+      <a href="/admin/gateway" class="sidebar-brand" style="text-decoration:none" aria-label="Home">
+        <svg class="sidebar-logo" width="32" height="32" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <line x1="18" y1="22" x2="48" y2="36" stroke="var(--accent)" stroke-width="0.8" opacity="0.12"/>
+          <line x1="18" y1="30" x2="60" y2="50" stroke="var(--accent)" stroke-width="0.8" opacity="0.1"/>
+          <line x1="18" y1="70" x2="60" y2="50" stroke="var(--accent)" stroke-width="0.8" opacity="0.1"/>
+          <line x1="18" y1="78" x2="48" y2="64" stroke="var(--accent)" stroke-width="0.8" opacity="0.12"/>
+          <line x1="18" y1="18" x2="34" y2="28" stroke="var(--accent)" stroke-width="1.8" opacity="0.35"/>
+          <line x1="34" y1="28" x2="48" y2="38" stroke="var(--accent)" stroke-width="2" opacity="0.5"/>
+          <line x1="48" y1="38" x2="60" y2="50" stroke="var(--accent)" stroke-width="2.2" opacity="0.7"/>
+          <line x1="60" y1="50" x2="48" y2="62" stroke="var(--accent)" stroke-width="2.2" opacity="0.7"/>
+          <line x1="48" y1="62" x2="34" y2="72" stroke="var(--accent)" stroke-width="2" opacity="0.5"/>
+          <line x1="34" y1="72" x2="18" y2="82" stroke="var(--accent)" stroke-width="1.8" opacity="0.35"/>
+          <line x1="34" y1="28" x2="34" y2="72" stroke="var(--accent)" stroke-width="0.8" opacity="0.15"/>
+          <line x1="48" y1="38" x2="48" y2="62" stroke="var(--accent)" stroke-width="1" opacity="0.2"/>
+          <circle cx="18" cy="30" r="2" fill="var(--accent)" opacity="0.25"/>
+          <circle cx="18" cy="70" r="2" fill="var(--accent)" opacity="0.25"/>
+          <circle cx="18" cy="18" r="3.5" fill="var(--accent)" opacity="0.5"/>
+          <circle cx="34" cy="28" r="4" fill="var(--accent)" opacity="0.65"/>
+          <circle cx="48" cy="38" r="4.5" fill="var(--accent)" opacity="0.8"/>
+          <circle cx="48" cy="62" r="4.5" fill="var(--accent)" opacity="0.8"/>
+          <circle cx="34" cy="72" r="4" fill="var(--accent)" opacity="0.65"/>
+          <circle cx="18" cy="82" r="3.5" fill="var(--accent)" opacity="0.5"/>
+          <circle cx="60" cy="50" r="7" fill="var(--accent)"/>
+          <circle cx="60" cy="50" r="3.5" fill="var(--sidebar)"/>
+          <circle cx="60" cy="50" r="1.5" fill="var(--accent)" opacity="0.5"/>
+          <rect x="72" y="47.5" width="12" height="3.5" rx="1.5" fill="var(--accent)" opacity="0.8">
+            <animate attributeName="opacity" values="0.8;0.15;0.8" dur="1.2s" repeatCount="indefinite"/>
+          </rect>
+        </svg>
+        <span class="agent-name">{{AGENT_NAME}}</span>
+      </a>
+      <a href="/admin/gateway" class="subtitle" style="text-decoration:none;color:inherit">Admin Portal</a>
     </div>
 
     <div class="status-badge" id="statusBadge">
