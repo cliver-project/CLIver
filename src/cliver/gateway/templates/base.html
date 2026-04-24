@@ -4,6 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{{AGENT_NAME}} — Admin Portal</title>
+<script>
+var t = localStorage.getItem('cliver-theme') || 'light';
+document.documentElement.setAttribute('data-theme', t);
+</script>
 <style>
 /* ---------------------------------------------------------------
    Reset & Base
@@ -25,6 +29,19 @@
   --font:      -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
                Oxygen, Ubuntu, Cantarell, "Fira Sans", "Droid Sans",
                "Helvetica Neue", Arial, sans-serif;
+}
+
+[data-theme="light"] {
+  --bg:        #f4f5f7;
+  --sidebar:   #ffffff;
+  --card:      #ffffff;
+  --border:    #d8dce3;
+  --text:      #1a1a2e;
+  --text-dim:  #6b7280;
+  --accent:    #059669;
+  --red:       #dc2626;
+  --yellow:    #d97706;
+  --blue:      #2563eb;
 }
 
 html, body {
@@ -569,6 +586,47 @@ tbody tr:hover {
   }
 }
 
+/* ---------------------------------------------------------------
+   Theme toggle
+   --------------------------------------------------------------- */
+.theme-toggle {
+  position: fixed;
+  top: 16px;
+  right: 20px;
+  z-index: 200;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  transition: background 0.2s, border-color 0.2s, transform 0.3s;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+.theme-toggle:hover {
+  border-color: var(--accent);
+  transform: scale(1.1);
+}
+
+[data-theme="light"] .sidebar nav a:hover { background: rgba(0,0,0,0.04); }
+[data-theme="light"] .sidebar nav a.active { background: rgba(5,150,105,0.08); }
+[data-theme="light"] tbody tr:hover { background: rgba(0,0,0,0.02); }
+[data-theme="light"] .btn:hover { background: rgba(0,0,0,0.04); }
+[data-theme="light"] .modal-overlay { background: rgba(0,0,0,0.3); }
+[data-theme="light"] .modal { box-shadow: 0 8px 32px rgba(0,0,0,0.12); }
+[data-theme="light"] .stat-card:hover,
+[data-theme="light"] .item-card:hover {
+  box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+}
+[data-theme="light"] .modal-field label { background: rgba(0,0,0,0.03); }
+[data-theme="light"] .modal-field { background: var(--bg); }
+
 /* Modal dialog */
 .modal-overlay {
   display: none;
@@ -600,17 +658,28 @@ tbody tr:hover {
   padding: 12px 20px; border-top: 1px solid var(--border);
   display: flex; justify-content: flex-end; gap: 8px;
 }
-.modal-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 0 20px; }
-.modal-field { margin-bottom: 10px; display: flex; align-items: baseline; gap: 8px; }
-.modal-field.wide { grid-column: 1 / -1; flex-direction: column; gap: 2px; }
-.modal-field label {
-  font-size: 11px; color: var(--dim); text-transform: uppercase;
-  letter-spacing: 0.5px; white-space: nowrap; min-width: 90px; flex-shrink: 0;
+.modal-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; }
+.modal-field {
+  display: flex; flex-direction: column; gap: 0;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+  overflow: hidden;
 }
-.modal-field .value { font-size: 13px; }
+.modal-field.wide { grid-column: 1 / -1; }
+.modal-field label {
+  font-size: 10px; color: var(--text-dim); text-transform: uppercase;
+  letter-spacing: 0.06em; padding: 6px 10px 4px; background: rgba(255,255,255,0.02);
+  border-bottom: 1px solid var(--border); font-weight: 600;
+}
+.modal-field .value {
+  font-size: 13px; padding: 8px 10px; line-height: 1.5; word-break: break-word;
+}
+.modal-field .value:empty::after { content: '\2014'; color: var(--text-dim); }
+.modal-field .value.scroll {
+  max-height: 260px; overflow-y: auto;
+}
 .modal-field input, .modal-field textarea, .modal-field select {
-  width: 100%; padding: 8px 10px; background: var(--bg); border: 1px solid var(--border);
-  border-radius: 6px; color: var(--text); font-size: 13px; font-family: inherit;
+  width: 100%; padding: 8px 10px; background: transparent; border: none;
+  border-radius: 0; color: var(--text); font-size: 13px; font-family: inherit;
 }
 .modal-field input:focus, .modal-field textarea:focus, .modal-field select:focus {
   outline: none; border-color: var(--accent);
@@ -742,12 +811,18 @@ function modalViewFields(title, fields) {
     label.textContent = f.label;
     field.appendChild(label);
     var value = document.createElement('div');
-    value.className = 'value';
+    value.className = 'value' + (f.scroll ? ' scroll' : '');
     if (f.pre) {
       var pre = document.createElement('pre');
-      pre.style.cssText = 'white-space:pre-wrap;word-break:break-all;font-size:12px;color:var(--dim);margin:0';
+      pre.style.cssText = 'white-space:pre-wrap;word-break:break-word;font-size:12px;color:var(--text-dim);margin:0;line-height:1.6';
       pre.textContent = f.value || '';
       value.appendChild(pre);
+    } else if (f.pill) {
+      var pillSpan = document.createElement('span');
+      var pillCls = String(f.value || 'unknown').toLowerCase();
+      pillSpan.className = 'pill ' + pillCls;
+      pillSpan.textContent = pillCls;
+      value.appendChild(pillSpan);
     } else {
       value.textContent = f.value || '—';
     }
@@ -806,6 +881,7 @@ function modalEditFields(title, fields, onSave) {
 </script>
 </head>
 <body>
+<button class="theme-toggle" id="themeToggle" title="Toggle theme" aria-label="Toggle theme"></button>
 <div class="layout">
   <!-- Sidebar -->
   <aside class="sidebar">
@@ -883,6 +959,31 @@ document.querySelectorAll('nav a').forEach(function(a) {
     <div class="modal-footer" id="modal-footer"></div>
   </div>
 </div>
+
+<script>
+/* ---------------------------------------------------------------
+   Theme toggle (persisted in localStorage)
+   --------------------------------------------------------------- */
+(function() {
+  var btn = document.getElementById('themeToggle');
+  var stored = localStorage.getItem('cliver-theme');
+  var theme = stored || 'light';
+
+  function apply(t) {
+    theme = t;
+    document.documentElement.setAttribute('data-theme', t);
+    btn.textContent = t === 'dark' ? '🌙' : '☀️';
+    btn.title = t === 'dark' ? 'Switch to light theme' : 'Switch to dark theme';
+    localStorage.setItem('cliver-theme', t);
+  }
+
+  apply(theme);
+  btn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    apply(theme === 'dark' ? 'light' : 'dark');
+  });
+})();
+</script>
 
 </body>
 </html>

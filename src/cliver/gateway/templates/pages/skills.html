@@ -75,7 +75,7 @@
           var fields = [
             { label: 'Name', value: skill.name },
             { label: 'Description', value: skill.description },
-            { label: 'Source', value: skill.source },
+            { label: 'Source', value: skill.source || 'unknown', pill: true },
           ];
           if (skill.path) fields.push({ label: 'Path', value: skill.path });
           if (skill.license) fields.push({ label: 'License', value: skill.license });
@@ -83,10 +83,8 @@
           if (skill.allowed_tools && skill.allowed_tools.length) {
             fields.push({ label: 'Allowed Tools', value: skill.allowed_tools.join(', ') });
           }
-          if (skill.body_preview) {
-            var bodyLabel = 'Content Preview';
-            if (skill.body_length > 500) bodyLabel += ' (first 500 of ' + skill.body_length + ' chars)';
-            fields.push({ label: bodyLabel, value: skill.body_preview, pre: true });
+          if (skill.body) {
+            fields.push({ label: 'Content (' + skill.body.length + ' chars)', value: skill.body, pre: true, scroll: true });
           }
           modalViewFields('Skill: ' + skill.name, fields);
         };

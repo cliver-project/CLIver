@@ -79,7 +79,7 @@
           var fields = [
             { label: 'Name', value: a.name },
             { label: 'Type', value: a.type || '—' },
-            { label: 'Status', value: a.state || '—' },
+            { label: 'Status', value: a.state || 'unknown', pill: true },
             { label: 'Error', value: a.error || 'None' },
             { label: 'Token', value: a.token || '—' },
           ];

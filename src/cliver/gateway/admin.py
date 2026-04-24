@@ -306,8 +306,7 @@ def _get_skills() -> list:
                 "license": s.license,
                 "compatibility": s.compatibility,
                 "allowed_tools": s.allowed_tools,
-                "body_preview": s.body[:500] if s.body else "",
-                "body_length": len(s.body) if s.body else 0,
+                "body": s.body or "",
             }
             for s in skills
         ]
