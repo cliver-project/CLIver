@@ -1387,7 +1387,7 @@ class AgentCore:
                 if tool is None:
                     suggestion = _suggest_similar_tool(tool_name, tool_registry.tool_names)
                     return [{"error": f"Tool '{tool_name}' not found.{suggestion}"}]
-                result = tool_registry.execute_tool(tool_name, args)
+                result = await asyncio.to_thread(tool_registry.execute_tool, tool_name, args)
             else:
                 result = await retry_with_confirmation_async(
                     self.mcp_caller.call_mcp_server_tool,
