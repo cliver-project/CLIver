@@ -369,11 +369,15 @@ class Gateway:
                 if task.skills:
                     system_appender = self._build_skill_appender(task.skills)
 
-                response = await self._agent_core.process_user_input(
-                    user_input=task.prompt,
-                    model=task.model,
-                    system_message_appender=system_appender,
-                    conversation_history=conversation_history,
+                loop = asyncio.get_event_loop()
+                response = await loop.run_in_executor(
+                    None,
+                    lambda: self._agent_core.process_user_input_sync(
+                        user_input=task.prompt,
+                        model=task.model,
+                        system_message_appender=system_appender,
+                        conversation_history=conversation_history,
+                    ),
                 )
                 response_text = str(response.content) if response and response.content else "No response."
 
@@ -739,12 +743,23 @@ class Gateway:
                 )
 
             try:
-                response = await self._agent_core.process_user_input(
-                    user_input=event.text,
-                    images=images or None,
-                    audio_files=audio_files or None,
-                    conversation_history=conversation_history or None,
-                    system_message_appender=_im_system_appender,
+                # Run in thread pool so the event loop stays free for
+                # admin portal, health checks, and other IM messages.
+                # copy_context() ensures ContextVars (im_context) propagate.
+                import contextvars
+
+                ctx = contextvars.copy_context()
+                loop = asyncio.get_event_loop()
+                response = await loop.run_in_executor(
+                    None,
+                    lambda: ctx.run(
+                        self._agent_core.process_user_input_sync,
+                        user_input=event.text,
+                        images=images or None,
+                        audio_files=audio_files or None,
+                        conversation_history=conversation_history or None,
+                        system_message_appender=_im_system_appender,
+                    ),
                 )
 
                 from cliver.media_handler import MultimediaResponseHandler
