@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import ANY, AsyncMock, Mock, patch
 
 from langchain_core.messages import AIMessage
 
@@ -31,7 +31,7 @@ class TestImageGenerateTool:
         with patch("cliver.tools.image_generate.get_task_executor", return_value=mock_executor):
             result = tool._run(prompt="a cat")
             assert "https://img.png" in result
-            mock_executor.generate_image.assert_called_once_with("a cat", None)
+            mock_executor.generate_image.assert_called_once_with("a cat", None, ctx=ANY)
 
     def test_run_with_model(self):
         tool = ImageGenerateTool()
@@ -41,7 +41,7 @@ class TestImageGenerateTool:
 
         with patch("cliver.tools.image_generate.get_task_executor", return_value=mock_executor):
             tool._run(prompt="a dog", model="minimax-image")
-            mock_executor.generate_image.assert_called_once_with("a dog", "minimax-image")
+            mock_executor.generate_image.assert_called_once_with("a dog", "minimax-image", ctx=ANY)
 
     def test_run_handles_exception(self):
         tool = ImageGenerateTool()

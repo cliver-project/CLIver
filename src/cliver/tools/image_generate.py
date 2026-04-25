@@ -62,7 +62,9 @@ class ImageGenerateTool(BaseTool):
             return "Error: No task executor available for image generation."
 
         try:
-            result = _run_async(executor.generate_image(prompt, model))
+            from cliver.llm.call_context import CallContext
+
+            result = _run_async(executor.generate_image(prompt, model, ctx=CallContext()))
             return result.content
         except Exception as e:
             logger.warning("Image generation failed: %s", e)
