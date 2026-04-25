@@ -164,4 +164,6 @@ class TaskManager:
 
     @staticmethod
     def timestamp_now() -> str:
-        return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        from cliver.util import format_datetime
+
+        return format_datetime(fmt="%Y-%m-%d %H:%M:%S")

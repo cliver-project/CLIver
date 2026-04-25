@@ -512,6 +512,11 @@ class Gateway:
     def _create_agent_core(self) -> AgentCore:
         """Create a AgentCore from config (same config the CLI uses)."""
         config_manager = self._get_config_manager()
+
+        from cliver.util import configure_timezone
+
+        configure_timezone(config_manager.config.timezone)
+
         agent_profile = CliverProfile(self.agent_name, self.config_dir)
         agent_profile.ensure_dirs()
 

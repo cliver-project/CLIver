@@ -116,10 +116,13 @@ class LLMInferenceEngine(ABC):
 
         cwd = os.getcwd()
         try:
-            local_tz = datetime.now().astimezone().tzinfo
-            tz_name = str(local_tz)
-            utc_offset = datetime.now().astimezone().strftime("%z")
-            now_local = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
+            from cliver.util import format_datetime, get_effective_timezone
+
+            tz = get_effective_timezone()
+            tz_name = str(tz)
+            now_aware = datetime.now(timezone.utc).astimezone(tz)
+            utc_offset = now_aware.strftime("%z")
+            now_local = format_datetime(fmt="%Y-%m-%d %H:%M:%S")
         except Exception:
             tz_name = "unknown"
             utc_offset = ""

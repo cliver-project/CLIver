@@ -104,8 +104,9 @@ class TestAppendMemory:
     def test_append_adds_timestamp(self, profile):
         profile.append_memory("Some fact")
         content = profile.memory_file.read_text()
-        # Should contain UTC timestamp
-        assert "UTC" in content
+        import re
+
+        assert re.search(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}", content)
 
     def test_append_is_additive(self, profile):
         profile.append_memory("First entry")

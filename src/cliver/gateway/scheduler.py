@@ -46,7 +46,10 @@ class CronScheduler:
             if task.run_at:
                 try:
                     scheduled = datetime.fromisoformat(task.run_at)
-                    # Naive datetimes are treated as local time, not UTC
+                    if scheduled.tzinfo is None:
+                        from cliver.util import get_effective_timezone
+
+                        scheduled = scheduled.replace(tzinfo=get_effective_timezone())
                     scheduled = scheduled.astimezone(timezone.utc)
                     if scheduled <= now:
                         last_run = self.run_store.get_last_run_time(task.name) or 0.0

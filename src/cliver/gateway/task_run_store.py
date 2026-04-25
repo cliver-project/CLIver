@@ -119,7 +119,9 @@ class TaskRunStore:
     # -- Task state -----------------------------------------------------------
 
     def set_task_state(self, task_name: str, status: str, reason: Optional[str] = None) -> None:
-        now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        from cliver.util import format_datetime
+
+        now = format_datetime(fmt="%Y-%m-%d %H:%M:%S")
         with self._store.write() as db:
             db.execute(
                 """INSERT INTO task_state (task_name, status, updated_at, suspend_reason)

@@ -292,4 +292,6 @@ def _row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
 
 
 def _timestamp() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    from cliver.util import format_datetime
+
+    return format_datetime()

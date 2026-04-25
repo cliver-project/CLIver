@@ -176,7 +176,9 @@ class CliverProfile:
             comment: Optional context about why this is being saved.
         """
         target = self._memory_target(scope)
-        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        from cliver.util import format_datetime
+
+        timestamp = format_datetime()
 
         comment_line = f" — {comment}" if comment else ""
         formatted = f"\n## {timestamp}{comment_line}\n{entry}\n"

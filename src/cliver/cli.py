@@ -128,6 +128,10 @@ class Cliver:
             audit_dir=self.config_dir / "audit_logs",
             agent_name=agent_name,
         )
+        from cliver.util import configure_timezone
+
+        configure_timezone(self.config_manager.config.timezone)
+
         self.agent_core = AgentCore(
             llm_models=self.config_manager.list_llm_models(),
             mcp_servers=self.config_manager.list_mcp_servers_for_mcp_caller(),
