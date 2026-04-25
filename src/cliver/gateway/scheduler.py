@@ -46,8 +46,8 @@ class CronScheduler:
             if task.run_at:
                 try:
                     scheduled = datetime.fromisoformat(task.run_at)
-                    if scheduled.tzinfo is None:
-                        scheduled = scheduled.replace(tzinfo=timezone.utc)
+                    # Naive datetimes are treated as local time, not UTC
+                    scheduled = scheduled.astimezone(timezone.utc)
                     if scheduled <= now:
                         last_run = self.run_store.get_last_run_time(task.name) or 0.0
                         if last_run < scheduled.timestamp():

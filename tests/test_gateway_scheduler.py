@@ -134,6 +134,78 @@ class TestCronScheduler:
         run_fn.assert_called_once()
 
 
+class TestRunAtScheduling:
+    def test_naive_run_at_treated_as_local_time(self, task_manager, run_store):
+        """A naive (no timezone) run_at should be treated as local time, not UTC."""
+        from datetime import datetime, timedelta, timezone
+
+        # Schedule 1 minute in the past (local time), formatted without timezone
+        past_local = datetime.now() - timedelta(minutes=1)
+        run_at_str = past_local.strftime("%Y-%m-%dT%H:%M:%S")
+
+        task_manager.save_task(
+            TaskDefinition(
+                name="local-time-task",
+                prompt="test",
+                run_at=run_at_str,
+            )
+        )
+
+        scheduler = CronScheduler(
+            task_manager=task_manager,
+            run_store=run_store,
+            run_task_fn=AsyncMock(),
+        )
+        due = scheduler.find_due_tasks()
+        assert any(t.name == "local-time-task" for t in due)
+
+    def test_aware_run_at_respected(self, task_manager, run_store):
+        """An aware (with timezone) run_at should be used as-is."""
+        from datetime import datetime, timedelta, timezone
+
+        past_utc = datetime.now(timezone.utc) - timedelta(minutes=1)
+        run_at_str = past_utc.isoformat()
+
+        task_manager.save_task(
+            TaskDefinition(
+                name="utc-task",
+                prompt="test",
+                run_at=run_at_str,
+            )
+        )
+
+        scheduler = CronScheduler(
+            task_manager=task_manager,
+            run_store=run_store,
+            run_task_fn=AsyncMock(),
+        )
+        due = scheduler.find_due_tasks()
+        assert any(t.name == "utc-task" for t in due)
+
+    def test_future_run_at_not_due(self, task_manager, run_store):
+        """A run_at in the future should not be due."""
+        from datetime import datetime, timedelta
+
+        future = datetime.now() + timedelta(hours=1)
+        run_at_str = future.strftime("%Y-%m-%dT%H:%M:%S")
+
+        task_manager.save_task(
+            TaskDefinition(
+                name="future-task",
+                prompt="test",
+                run_at=run_at_str,
+            )
+        )
+
+        scheduler = CronScheduler(
+            task_manager=task_manager,
+            run_store=run_store,
+            run_task_fn=AsyncMock(),
+        )
+        due = scheduler.find_due_tasks()
+        assert not any(t.name == "future-task" for t in due)
+
+
 class TestTaskValidation:
     def test_warns_on_invalid_cron(self, task_manager, run_store, caplog):
         """Tasks with invalid cron expressions should log a warning."""
