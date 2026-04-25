@@ -5,6 +5,7 @@ and runs any that are due. "Last run" is derived from the task_runs
 table in gateway.db — no separate state file needed.
 """
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Any, Callable, Coroutine, List
@@ -99,17 +100,26 @@ class CronScheduler:
         if not due_tasks:
             return 0
 
-        executed = 0
+        tasks = []
         for task in due_tasks:
-            logger.info(f"Cron: executing task '{task.name}'")
-            try:
-                await self.run_task_fn(task)
-            except Exception as e:
-                logger.error(f"Cron: task '{task.name}' failed: {e}")
-            finally:
-                executed += 1
+            logger.info(f"Cron: dispatching task '{task.name}'")
+            coro = self._run_one(task)
+            tasks.append(asyncio.create_task(coro, name=f"cron:{task.name}"))
 
-        return executed
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for task_def, result in zip(due_tasks, results):
+            if isinstance(result, Exception):
+                logger.error(f"Cron: task '{task_def.name}' failed: {result}")
+
+        return len(due_tasks)
+
+    async def _run_one(self, task: TaskDefinition) -> None:
+        """Run a single task in its own asyncio.Task for ContextVar isolation."""
+        try:
+            await self.run_task_fn(task)
+        except Exception as e:
+            logger.error(f"Cron: task '{task.name}' failed: {e}")
+            raise
 
     def validate_tasks(self) -> None:
         """Log warnings for tasks with invalid configurations.

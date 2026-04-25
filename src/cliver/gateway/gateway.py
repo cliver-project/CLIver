@@ -643,7 +643,17 @@ class Gateway:
             logger.error("".join(traceback.format_exception(type(exception), exception, exception.__traceback__)))
 
     async def _handle_message(self, event: MessageEvent) -> None:
-        """Central message handler -- routes platform messages to AgentCore."""
+        """Central message handler -- routes platform messages to AgentCore.
+
+        Each message is dispatched as a separate asyncio.Task to ensure
+        ContextVar isolation (im_context) between concurrent conversations.
+        """
+        asyncio.create_task(
+            self._handle_message_safe(event),
+            name=f"msg:{event.platform}:{event.channel_id}",
+        )
+
+    async def _handle_message_safe(self, event: MessageEvent) -> None:
         try:
             await self._handle_message_inner(event)
         except Exception as e:
