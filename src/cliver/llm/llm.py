@@ -1142,6 +1142,7 @@ class AgentCore:
         confirm_tool_exec: Optional[Callable[[str], bool]],
         tool_error_check: Optional[Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]],
         llm_response: Optional[BaseMessage] = None,
+        ctx: "CallContext | None" = None,
     ) -> Tuple[bool, str | None]:
         """Execute tool calls and return a Tuple with sent bool and result.
 
@@ -1156,7 +1157,8 @@ class AgentCore:
         """
         try:
             # Track tool calls for skill auto-learning
-            self._tool_call_count += len(tool_calls)
+            if ctx:
+                ctx.tool_call_count += len(tool_calls)
 
             for tool_call in tool_calls:
                 mcp_server = tool_call.get("mcp_server", "")
@@ -1222,7 +1224,7 @@ class AgentCore:
 
                 # Execute the tool and capture the result
                 start_time = time.monotonic()
-                tool_result = await self._execute_single_tool(mcp_server, tool_name, args, full_tool_name)
+                tool_result = await self._execute_single_tool(mcp_server, tool_name, args, full_tool_name, ctx=ctx)
                 duration_ms = (time.monotonic() - start_time) * 1000
 
                 # Format and append result as ToolMessage
@@ -1378,6 +1380,7 @@ class AgentCore:
         tool_name: str,
         args: Dict[str, Any],
         full_tool_name: str,
+        ctx: "CallContext | None" = None,
     ) -> List[Dict[str, Any]]:
         """Execute a single tool call, returning a result list.
 
@@ -1386,9 +1389,10 @@ class AgentCore:
         Uses a per-conversation cache to deduplicate identical calls.
         """
         cache_key = self._tool_cache_key(full_tool_name, args)
-        if cache_key and cache_key in self._tool_result_cache:
+        cache = ctx.tool_result_cache if ctx else {}
+        if cache_key and cache_key in cache:
             logger.info(f"Tool cache hit: {full_tool_name}")
-            return self._tool_result_cache[cache_key]
+            return cache[cache_key]
 
         try:
             if not mcp_server or mcp_server == "" or mcp_server == "builtin":
@@ -1406,8 +1410,8 @@ class AgentCore:
                     confirm_on_retry=False,
                 )
 
-            if cache_key:
-                self._tool_result_cache[cache_key] = result
+            if cache_key and ctx:
+                ctx.tool_result_cache[cache_key] = result
             return result
         except Exception as e:
             logger.error(f"Exception executing tool '{full_tool_name}': {e}", exc_info=True)
