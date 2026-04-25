@@ -14,8 +14,12 @@ logger = logging.getLogger(__name__)
 
 
 class CreateTaskInput(BaseModel):
-    name: str = Field(..., description="Task name (snake_case)")
-    prompt: str = Field(..., description="Prompt the LLM receives when the task runs")
+    name: str = Field(..., description="Task name in snake_case (e.g. 'daily_greeting')")
+    prompt: str = Field(
+        ...,
+        description="The text/instruction the LLM will execute when the task runs. "
+        "This is the task content — NOT called 'content' or 'command'.",
+    )
     description: Optional[str] = Field(None, description="What this task does")
     model: Optional[str] = Field(None, description="Model override")
     schedule: Optional[str] = Field(

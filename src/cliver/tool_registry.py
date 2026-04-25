@@ -217,5 +217,18 @@ class ToolRegistry:
             else:
                 return [{"tool_result": str(result)}]
         except Exception as e:
+            from pydantic import ValidationError
+
+            if isinstance(e, ValidationError) or "ValidationError" in type(e).__name__:
+                schema = getattr(tool, "args_schema", None)
+                hint = ""
+                if schema:
+                    fields = schema.model_fields
+                    required = [f for f, info in fields.items() if info.is_required()]
+                    optional = [f for f, info in fields.items() if not info.is_required()]
+                    hint = f" Required: {', '.join(required)}." if required else ""
+                    hint += f" Optional: {', '.join(optional)}." if optional else ""
+                logger.warning("Tool '%s' called with wrong arguments: %s", tool_name, e)
+                return [{"error": f"Wrong arguments for '{tool_name}'.{hint} Got: {list(args.keys())}"}]
             logger.error(f"Failed to execute tool {tool_name}", exc_info=e)
             return [{"error": str(e)}]

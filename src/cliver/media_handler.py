@@ -105,11 +105,16 @@ class MultimediaResponseHandler:
             if isinstance(response.content, str):
                 text_content = response.content
             elif isinstance(response.content, list):
-                # Handle structured content (like OpenAI's multimodal format)
                 for item in response.content:
                     if isinstance(item, dict):
                         if item.get("type") == "text":
                             text_content += item.get("text", "")
+
+        # Strip thinking/reasoning content that shouldn't be shown to users
+        if text_content:
+            from cliver.llm.llm_utils import remove_thinking_sections
+
+            text_content = remove_thinking_sections(text_content).strip()
                         # TODO: Handle other content types if needed
 
         # Extract media content from the response
