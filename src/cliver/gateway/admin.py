@@ -8,8 +8,8 @@ skills, adapters, agent info, and configuration.
 Multi-page routing: base.html + pages/{page_name}.html assembly pattern.
 
 Usage:
-    app = web.Application()
-    register_admin_routes(app, username="admin", password="secret", context={...})
+    from cliver.gateway.admin import get_admin_routes
+    routes = get_admin_routes(username="admin", password="secret", context={...})
 """
 
 import asyncio
@@ -22,6 +22,10 @@ import logging
 import secrets
 from pathlib import Path
 from typing import Optional
+
+from starlette.requests import Request
+from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from starlette.routing import Route
 
 logger = logging.getLogger(__name__)
 
@@ -508,16 +512,14 @@ def _get_config(ctx: dict) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def register_admin_routes(
-    app,
+def get_admin_routes(
     username: Optional[str],
     password: Optional[str],
     context: dict,
-) -> None:
-    """Register admin portal routes on an aiohttp application.
+) -> list:
+    """Return admin portal routes as a list of Starlette Route objects.
 
     Args:
-        app: aiohttp.web.Application
         username: Admin username (None = portal disabled)
         password: Admin password (None = portal disabled)
         context: Dict with keys:
@@ -526,133 +528,132 @@ def register_admin_routes(
             - config_dir: Path or None
             - gateway: Gateway instance (optional)
             - cli_session_manager: SessionManager for CLI sessions (optional)
-    """
-    from aiohttp import web
 
+    Returns:
+        list of starlette.routing.Route
+    """
     session_secret = secrets.token_hex(32)
 
     # --- Auth decorator (cookie-first, Basic Auth fallback) ---
 
     def require_auth(handler):
         @functools.wraps(handler)
-        async def wrapper(request):
+        async def wrapper(request: Request):
             if username is None or password is None:
-                return web.json_response(
+                return JSONResponse(
                     {"error": "Admin portal is disabled"},
-                    status=403,
+                    status_code=403,
                 )
             if _check_session_cookie(request, username, session_secret):
                 return await handler(request)
             if _check_basic_auth(request, username, password):
                 return await handler(request)
-            is_api = request.path.startswith("/admin/api/")
+            is_api = request.url.path.startswith("/admin/api/")
             if is_api:
-                return web.json_response({"error": "Unauthorized"}, status=401)
-            raise web.HTTPFound("/admin/login")
+                return JSONResponse({"error": "Unauthorized"}, status_code=401)
+            return RedirectResponse("/admin/login", status_code=302)
 
         return wrapper
 
     # --- Route handlers (closures capturing context) ---
 
-    async def handle_login_page(request):
+    async def handle_login_page(request: Request):
         if _check_session_cookie(request, username, session_secret):
-            raise web.HTTPFound("/admin/gateway")
+            return RedirectResponse("/admin/gateway", status_code=302)
         html = _render_login_page(context)
-        return web.Response(text=html, content_type="text/html")
+        return HTMLResponse(html)
 
-    async def handle_login_submit(request):
+    async def handle_login_submit(request: Request):
         try:
             data = await request.json()
         except Exception:
-            return web.json_response({"error": "Invalid request"}, status=400)
+            return JSONResponse({"error": "Invalid request"}, status_code=400)
         u = data.get("username", "")
         p = data.get("password", "")
         if u == username and p == password:
             token = _make_session_token(username, session_secret)
-            resp = web.json_response({"status": "ok"})
-            resp.set_cookie("cliver_session", token, httponly=True, samesite="Lax", path="/admin")
+            resp = JSONResponse({"status": "ok"})
+            resp.set_cookie("cliver_session", token, httponly=True, samesite="lax", path="/admin")
             return resp
-        return web.json_response({"error": "Invalid credentials"}, status=401)
+        return JSONResponse({"error": "Invalid credentials"}, status_code=401)
 
-    async def handle_logout(request):
-        resp = web.HTTPFound("/admin/login")
-        resp.del_cookie("cliver_session", path="/admin")
+    async def handle_logout(request: Request):
+        resp = RedirectResponse("/admin/login", status_code=302)
+        resp.delete_cookie("cliver_session", path="/admin")
         return resp
 
     @require_auth
-    async def handle_admin_root(request):
-        raise web.HTTPFound("/admin/gateway")
+    async def handle_admin_root(request: Request):
+        return RedirectResponse("/admin/gateway", status_code=302)
 
     @require_auth
-    async def handle_admin_page(request):
-        page = request.match_info["page"]
+    async def handle_admin_page(request: Request):
+        page = request.path_params["page"]
         if page == "login":
             return await handle_login_page(request)
         html = _render_page(page, context)
         if html is None:
-            return web.Response(text="Page not found", status=404)
-        return web.Response(text=html, content_type="text/html")
+            return Response("Page not found", status_code=404)
+        return HTMLResponse(html)
 
     @require_auth
-    async def handle_task_detail_page(request):
-        name = request.match_info["name"]
+    async def handle_task_detail_page(request: Request):
+        name = request.path_params["name"]
         html = _render_page(
             "task_detail",
             context,
             extra_replacements={"{{ITEM_NAME}}": name},
         )
         if html is None:
-            return web.Response(text="Page not found", status=404)
-        return web.Response(text=html, content_type="text/html")
+            return Response("Page not found", status_code=404)
+        return HTMLResponse(html)
 
     @require_auth
-    async def handle_workflow_detail_page(request):
-        name = request.match_info["name"]
+    async def handle_workflow_detail_page(request: Request):
+        name = request.path_params["name"]
         html = _render_page(
             "workflow_detail",
             context,
-            username,
-            password,
             extra_replacements={"{{ITEM_NAME}}": name},
         )
         if html is None:
-            return web.Response(text="Page not found", status=404)
-        return web.Response(text=html, content_type="text/html")
+            return Response("Page not found", status_code=404)
+        return HTMLResponse(html)
 
     @require_auth
-    async def handle_status(request):
+    async def handle_status(request: Request):
         get_status = context.get("get_status")
         if get_status is None:
-            return web.json_response({})
+            return JSONResponse({})
         if callable(get_status):
             result = get_status()
             if inspect.isawaitable(result):
                 result = await result
-            return web.json_response(result)
-        return web.json_response(get_status)
+            return JSONResponse(result)
+        return JSONResponse(get_status)
 
     @require_auth
-    async def handle_tasks(request):
+    async def handle_tasks(request: Request):
         tasks = await _run_in_thread(_get_tasks, context)
-        return web.json_response(tasks)
+        return JSONResponse(tasks)
 
     @require_auth
-    async def handle_task_detail_api(request):
-        name = request.match_info["name"]
+    async def handle_task_detail_api(request: Request):
+        name = request.path_params["name"]
         detail = await _run_in_thread(_get_task_detail, context, name)
-        return web.json_response(detail)
+        return JSONResponse(detail)
 
     @require_auth
-    async def handle_run_task(request):
-        task_name = request.match_info["name"]
+    async def handle_run_task(request: Request):
+        task_name = request.path_params["name"]
         logger.info("[admin] Task '%s' triggered via admin portal", task_name)
         result = await _run_task(context, task_name)
         status_code = 200 if result.get("status") == "started" else 400
-        return web.json_response(result, status=status_code)
+        return JSONResponse(result, status_code=status_code)
 
     @require_auth
-    async def handle_delete_task(request):
-        task_name = request.match_info["name"]
+    async def handle_delete_task(request: Request):
+        task_name = request.path_params["name"]
         logger.info("[admin] Task '%s' deleted via admin portal", task_name)
         try:
             from cliver.agent_profile import CliverProfile
@@ -661,7 +662,7 @@ def register_admin_routes(
 
             config_dir = context.get("config_dir")
             if not config_dir:
-                return web.json_response({"error": "No config dir"}, status=500)
+                return JSONResponse({"error": "No config dir"}, status_code=500)
 
             profile = CliverProfile(context["agent_name"], config_dir)
             tm = TaskManager(profile.tasks_dir)
@@ -676,9 +677,9 @@ def register_admin_routes(
                 run_store.close()
 
             if not yaml_removed and deleted_runs == 0:
-                return web.json_response({"error": "Task not found"}, status=404)
+                return JSONResponse({"error": "Task not found"}, status_code=404)
 
-            return web.json_response(
+            return JSONResponse(
                 {
                     "status": "deleted",
                     "runs_removed": deleted_runs,
@@ -686,39 +687,39 @@ def register_admin_routes(
             )
         except Exception as e:
             logger.error("Failed to delete task '%s': %s", task_name, e)
-            return web.json_response({"error": str(e)}, status=500)
+            return JSONResponse({"error": str(e)}, status_code=500)
 
     @require_auth
-    async def handle_sessions_by_source(request):
-        source = request.match_info["source"]
+    async def handle_sessions_by_source(request: Request):
+        source = request.path_params["source"]
         if source not in ("cli", "gateway"):
-            return web.json_response(
+            return JSONResponse(
                 {"error": f"Invalid source '{source}'. Use 'cli' or 'gateway'."},
-                status=400,
+                status_code=400,
             )
         sessions = await _run_in_thread(_get_sessions_by_source, context, source)
-        return web.json_response(sessions)
+        return JSONResponse(sessions)
 
     @require_auth
-    async def handle_session_turns(request):
-        source = request.match_info["source"]
-        session_id = request.match_info["id"]
+    async def handle_session_turns(request: Request):
+        source = request.path_params["source"]
+        session_id = request.path_params["id"]
         if source not in ("cli", "gateway"):
-            return web.json_response(
+            return JSONResponse(
                 {"error": f"Invalid source '{source}'."},
-                status=400,
+                status_code=400,
             )
         turns = await _run_in_thread(_get_session_turns, context, source, session_id)
-        return web.json_response(turns)
+        return JSONResponse(turns)
 
     @require_auth
-    async def handle_delete_session(request):
-        source = request.match_info["source"]
-        session_id = request.match_info["id"]
+    async def handle_delete_session(request: Request):
+        source = request.path_params["source"]
+        session_id = request.path_params["id"]
         if source not in ("cli", "gateway"):
-            return web.json_response(
+            return JSONResponse(
                 {"error": f"Invalid source '{source}'."},
-                status=400,
+                status_code=400,
             )
         logger.info(
             "[admin] Session '%s' (%s) deleted via admin portal",
@@ -727,68 +728,67 @@ def register_admin_routes(
         )
         deleted = _delete_session(context, source, session_id)
         if deleted:
-            return web.json_response({"status": "deleted"})
-        return web.json_response({"error": "session not found"}, status=404)
+            return JSONResponse({"status": "deleted"})
+        return JSONResponse({"error": "session not found"}, status_code=404)
 
     @require_auth
-    async def handle_workflows(request):
+    async def handle_workflows(request: Request):
         workflows = _get_workflows(context)
-        return web.json_response(workflows)
+        return JSONResponse(workflows)
 
     @require_auth
-    async def handle_workflow_detail_api(request):
-        name = request.match_info["name"]
+    async def handle_workflow_detail_api(request: Request):
+        name = request.path_params["name"]
         detail = _get_workflow_detail(context, name)
-        return web.json_response(detail)
+        return JSONResponse(detail)
 
     @require_auth
-    async def handle_skills(request):
+    async def handle_skills(request: Request):
         skills = _get_skills()
-        return web.json_response(skills)
+        return JSONResponse(skills)
 
     @require_auth
-    async def handle_adapters(request):
+    async def handle_adapters(request: Request):
         adapters = _get_adapters(context)
-        return web.json_response(adapters)
+        return JSONResponse(adapters)
 
     @require_auth
-    async def handle_agent(request):
+    async def handle_agent(request: Request):
         info = _get_agent_info(context)
-        return web.json_response(info)
+        return JSONResponse(info)
 
     @require_auth
-    async def handle_config(request):
+    async def handle_config(request: Request):
         config = _get_config(context)
-        return web.json_response(config)
+        return JSONResponse(config)
 
-    # --- Register routes ---
+    # --- Return routes ---
 
-    # Root redirect
-    app.router.add_get("/admin", handle_admin_root)
-    app.router.add_get("/admin/", handle_admin_root)
-    app.router.add_get("/admin/login", handle_login_page)
-    app.router.add_post("/admin/api/login", handle_login_submit)
-    app.router.add_get("/admin/logout", handle_logout)
-
-    # Detail page routes (before catch-all)
-    app.router.add_get("/admin/tasks/{name}", handle_task_detail_page)
-    app.router.add_get("/admin/workflows/{name}", handle_workflow_detail_page)
-
-    # Catch-all section route
-    app.router.add_get("/admin/{page}", handle_admin_page)
-
-    # API routes
-    app.router.add_get("/admin/api/status", handle_status)
-    app.router.add_get("/admin/api/tasks", handle_tasks)
-    app.router.add_get("/admin/api/tasks/{name}", handle_task_detail_api)
-    app.router.add_post("/admin/api/tasks/{name}/run", handle_run_task)
-    app.router.add_delete("/admin/api/tasks/{name}", handle_delete_task)
-    app.router.add_get("/admin/api/sessions/{source}", handle_sessions_by_source)
-    app.router.add_get("/admin/api/sessions/{source}/{id}", handle_session_turns)
-    app.router.add_delete("/admin/api/sessions/{source}/{id}", handle_delete_session)
-    app.router.add_get("/admin/api/workflows", handle_workflows)
-    app.router.add_get("/admin/api/workflows/{name}", handle_workflow_detail_api)
-    app.router.add_get("/admin/api/skills", handle_skills)
-    app.router.add_get("/admin/api/adapters", handle_adapters)
-    app.router.add_get("/admin/api/agent", handle_agent)
-    app.router.add_get("/admin/api/config", handle_config)
+    return [
+        # Root redirect
+        Route("/admin", handle_admin_root),
+        Route("/admin/", handle_admin_root),
+        Route("/admin/login", handle_login_page),
+        Route("/admin/api/login", handle_login_submit, methods=["POST"]),
+        Route("/admin/logout", handle_logout),
+        # Detail page routes (before catch-all)
+        Route("/admin/tasks/{name}", handle_task_detail_page),
+        Route("/admin/workflows/{name}", handle_workflow_detail_page),
+        # Catch-all section route
+        Route("/admin/{page}", handle_admin_page),
+        # API routes
+        Route("/admin/api/status", handle_status),
+        Route("/admin/api/tasks", handle_tasks),
+        Route("/admin/api/tasks/{name}", handle_task_detail_api),
+        Route("/admin/api/tasks/{name}/run", handle_run_task, methods=["POST"]),
+        Route("/admin/api/tasks/{name}", handle_delete_task, methods=["DELETE"]),
+        Route("/admin/api/sessions/{source}", handle_sessions_by_source),
+        Route("/admin/api/sessions/{source}/{id}", handle_session_turns),
+        Route("/admin/api/sessions/{source}/{id}", handle_delete_session, methods=["DELETE"]),
+        Route("/admin/api/workflows", handle_workflows),
+        Route("/admin/api/workflows/{name}", handle_workflow_detail_api),
+        Route("/admin/api/skills", handle_skills),
+        Route("/admin/api/adapters", handle_adapters),
+        Route("/admin/api/agent", handle_agent),
+        Route("/admin/api/config", handle_config),
+    ]

@@ -1,11 +1,10 @@
-"""Tests for the Gateway aiohttp application."""
+"""Tests for the Gateway Starlette application."""
 
 import asyncio
 import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from aiohttp import web
 
 from cliver.gateway.gateway import Gateway, ThreadQueue
 from cliver.task_manager import TaskDefinition, TaskOrigin
@@ -22,20 +21,24 @@ class TestGateway:
     @pytest.mark.asyncio
     async def test_create_app_returns_application(self, config_dir):
         gw = Gateway(config_dir=config_dir, agent_name="test")
-        app = gw.create_app()
-        assert isinstance(app, web.Application)
+        with patch.object(gw, "_create_agent_core", return_value=MagicMock()):
+            with patch.object(gw, "_get_config_manager") as mock_cm:
+                mock_cm.return_value.config.gateway = None
+                app = gw.create_app()
+                from starlette.applications import Starlette
+
+                assert isinstance(app, Starlette)
 
     @pytest.mark.asyncio
     async def test_startup_acquires_flock(self, config_dir):
         gw = Gateway(config_dir=config_dir, agent_name="test")
-        app = web.Application()
         with patch.object(gw, "_create_agent_core", return_value=MagicMock()):
             with patch.object(gw, "_load_adapters", return_value=[]):
-                await gw._on_startup(app)
+                await gw._on_startup()
                 assert gw._pid_path.exists()
                 pid = int(gw._pid_path.read_text().strip())
                 assert pid > 0
-                await gw._on_cleanup(app)
+                await gw._on_cleanup()
                 assert not gw._pid_path.exists()
 
     @pytest.mark.asyncio
@@ -54,12 +57,11 @@ class TestGateway:
     @pytest.mark.asyncio
     async def test_cleanup_releases_flock(self, config_dir):
         gw = Gateway(config_dir=config_dir, agent_name="test")
-        app = web.Application()
         with patch.object(gw, "_create_agent_core", return_value=MagicMock()):
             with patch.object(gw, "_load_adapters", return_value=[]):
-                await gw._on_startup(app)
+                await gw._on_startup()
                 assert gw._pid_file is not None
-                await gw._on_cleanup(app)
+                await gw._on_cleanup()
                 assert gw._pid_file is None
                 assert not gw._pid_path.exists()
 
@@ -126,14 +128,14 @@ class TestOriginAwareExecution:
         """CLI-originated task runs statelessly, no reply-back."""
         gw = Gateway(config_dir=config_dir, agent_name="test")
         gw._agent_core = MagicMock()
-        gw._agent_core.process_user_input_sync = MagicMock(return_value=MagicMock(content="done"))
+        gw._agent_core.process_user_input = AsyncMock(return_value=MagicMock(content="done"))
         gw._run_store = MagicMock()
         gw._run_store.set_task_state = MagicMock()
 
         task = TaskDefinition(name="cli-task", prompt="do x")
         await gw._run_task(task)
 
-        gw._agent_core.process_user_input_sync.assert_called_once()
+        gw._agent_core.process_user_input.assert_awaited_once()
         gw._run_store.record_run.assert_called_once()
 
     @pytest.mark.asyncio
@@ -141,7 +143,7 @@ class TestOriginAwareExecution:
         """IM-originated task delivers result back to thread."""
         gw = Gateway(config_dir=config_dir, agent_name="test")
         gw._agent_core = MagicMock()
-        gw._agent_core.process_user_input_sync = MagicMock(return_value=MagicMock(content="AI trends summary"))
+        gw._agent_core.process_user_input = AsyncMock(return_value=MagicMock(content="AI trends summary"))
         gw._run_store = MagicMock()
         gw._run_store.set_task_state = MagicMock()
 
@@ -179,7 +181,7 @@ class TestOriginAwareExecution:
         """IM-originated task gets suspended if adapter is not connected."""
         gw = Gateway(config_dir=config_dir, agent_name="test")
         gw._agent_core = MagicMock()
-        gw._agent_core.process_user_input_sync = MagicMock()
+        gw._agent_core.process_user_input = AsyncMock()
         gw._run_store = MagicMock()
         gw._run_store.set_task_state = MagicMock()
         gw._adapter_manager = MagicMock()
@@ -197,4 +199,4 @@ class TestOriginAwareExecution:
         gw._run_store.set_task_state.assert_called_with(
             "suspended-task", "suspended", reason="Adapter 'slack' not connected"
         )
-        gw._agent_core.process_user_input_sync.assert_not_called()
+        gw._agent_core.process_user_input.assert_not_awaited()

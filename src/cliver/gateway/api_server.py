@@ -5,8 +5,8 @@ Exposes CLIver's agent capabilities via standard OpenAI API endpoints.
 Stateless — each request runs a full Re-Act loop and returns the final answer.
 
 Usage:
-    app = web.Application()
-    register_routes(app, executor, get_status, api_key="secret")
+    from cliver.gateway.api_server import get_api_routes
+    routes = get_api_routes(executor, get_status, api_key="secret")
 """
 
 import json
@@ -14,6 +14,10 @@ import logging
 import time
 import uuid
 from typing import Callable, Optional
+
+from starlette.requests import Request
+from starlette.responses import JSONResponse, StreamingResponse
+from starlette.routing import Route
 
 logger = logging.getLogger(__name__)
 
@@ -167,8 +171,6 @@ def _build_models_response(executor) -> dict:
 
 async def _handle_sync(executor, request_id: str, parsed: dict):
     """Handle a non-streaming chat completion request."""
-    from aiohttp import web
-
     system_appender = _build_system_appender(parsed.get("system_message"))
 
     try:
@@ -195,49 +197,45 @@ async def _handle_sync(executor, request_id: str, parsed: dict):
             input_tokens,
             output_tokens,
         )
-        return web.json_response(result)
+        return JSONResponse(result)
 
     except Exception as e:
         logger.error(f"Chat completion error: {e}")
-        return web.json_response({"error": {"message": str(e)}}, status=500)
+        return JSONResponse({"error": {"message": str(e)}}, status_code=500)
 
 
-async def _handle_streaming(executor, request, request_id: str, parsed: dict):
+async def _handle_streaming(executor, request_id: str, parsed: dict):
     """Handle a streaming chat completion request via SSE."""
-    from aiohttp import web
+    system_appender = _build_system_appender(parsed.get("system_message"))
 
-    response = web.StreamResponse(
-        status=200,
+    async def generate():
+        try:
+            async for chunk in executor.stream_user_input(
+                user_input=parsed["user_input"],
+                model=parsed["model"],
+                options=parsed.get("options"),
+                conversation_history=parsed.get("conversation_history"),
+                system_message_appender=system_appender,
+            ):
+                if hasattr(chunk, "content") and chunk.content:
+                    data = _build_stream_chunk(request_id, parsed["model"], str(chunk.content))
+                    yield f"data: {json.dumps(data)}\n\n".encode()
+
+            yield b"data: [DONE]\n\n"
+
+        except Exception as e:
+            logger.error(f"Streaming error: {e}")
+            error_data = {"error": {"message": str(e)}}
+            yield f"data: {json.dumps(error_data)}\n\n".encode()
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
         headers={
-            "Content-Type": "text/event-stream",
             "Cache-Control": "no-cache",
             "Connection": "keep-alive",
         },
     )
-    await response.prepare(request)
-
-    system_appender = _build_system_appender(parsed.get("system_message"))
-
-    try:
-        async for chunk in executor.stream_user_input(
-            user_input=parsed["user_input"],
-            model=parsed["model"],
-            options=parsed.get("options"),
-            conversation_history=parsed.get("conversation_history"),
-            system_message_appender=system_appender,
-        ):
-            if hasattr(chunk, "content") and chunk.content:
-                data = _build_stream_chunk(request_id, parsed["model"], str(chunk.content))
-                await response.write(f"data: {json.dumps(data)}\n\n".encode())
-
-        await response.write(b"data: [DONE]\n\n")
-
-    except Exception as e:
-        logger.error(f"Streaming error: {e}")
-        error_data = {"error": {"message": str(e)}}
-        await response.write(f"data: {json.dumps(error_data)}\n\n".encode())
-
-    return response
 
 
 # ---------------------------------------------------------------------------
@@ -245,25 +243,25 @@ async def _handle_streaming(executor, request, request_id: str, parsed: dict):
 # ---------------------------------------------------------------------------
 
 
-def register_routes(
-    app,
+def get_api_routes(
     executor,
     get_status: Callable,
     api_key: Optional[str] = None,
-) -> None:
-    """Register OpenAI-compatible API routes on an aiohttp app.
+) -> list:
+    """Return OpenAI-compatible API routes as a list of Starlette Route objects.
 
     Args:
-        app: aiohttp.web.Application
         executor: AgentCore instance
         get_status: callable returning {"uptime": int, "tasks_run": int, "platforms": [...]}
         api_key: optional API key for authentication
+
+    Returns:
+        list of starlette.routing.Route
     """
-    from aiohttp import web
 
     # --- Auth closure ---
 
-    def check_auth(request) -> bool:
+    def check_auth(request: Request) -> bool:
         if not api_key:
             return True
         auth = request.headers.get("Authorization", "")
@@ -272,44 +270,46 @@ def register_routes(
 
     # --- Route handlers (closures capturing executor, api_key, get_status) ---
 
-    async def handle_health(request):
+    async def handle_health(request: Request):
         status = get_status()
-        return web.json_response({"status": "ok", **status})
+        return JSONResponse({"status": "ok", **status})
 
-    async def handle_list_models(request):
+    async def handle_list_models(request: Request):
         if not check_auth(request):
-            return web.json_response({"error": "Unauthorized"}, status=401)
-        return web.json_response(_build_models_response(executor))
+            return JSONResponse({"error": "Unauthorized"}, status_code=401)
+        return JSONResponse(_build_models_response(executor))
 
-    async def handle_chat_completions(request):
+    async def handle_chat_completions(request: Request):
         if not check_auth(request):
-            return web.json_response({"error": "Unauthorized"}, status=401)
+            return JSONResponse({"error": "Unauthorized"}, status_code=401)
 
         try:
             body = await request.json()
         except Exception:
-            return web.json_response({"error": {"message": "Invalid JSON body"}}, status=400)
+            return JSONResponse({"error": {"message": "Invalid JSON body"}}, status_code=400)
 
         try:
             parsed = _parse_chat_request(body, executor)
         except ValueError as e:
-            return web.json_response({"error": {"message": str(e)}}, status=400)
+            return JSONResponse({"error": {"message": str(e)}}, status_code=400)
 
         model = parsed["model"]
         if model and model not in executor.llm_models:
-            return web.json_response({"error": {"message": f"Model '{model}' not found"}}, status=404)
+            return JSONResponse({"error": {"message": f"Model '{model}' not found"}}, status_code=404)
 
         request_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
 
         _configure_server_mode(executor)
 
         if parsed["stream"]:
-            return await _handle_streaming(executor, request, request_id, parsed)
+            return await _handle_streaming(executor, request_id, parsed)
         else:
             return await _handle_sync(executor, request_id, parsed)
 
-    # --- Register routes ---
+    # --- Return routes ---
 
-    app.router.add_get("/health", handle_health)
-    app.router.add_get("/v1/models", handle_list_models)
-    app.router.add_post("/v1/chat/completions", handle_chat_completions)
+    return [
+        Route("/health", handle_health),
+        Route("/v1/models", handle_list_models),
+        Route("/v1/chat/completions", handle_chat_completions, methods=["POST"]),
+    ]

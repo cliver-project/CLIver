@@ -1,6 +1,6 @@
 """Gateway — the long-running daemon process for CLIver.
 
-Hosts a cron scheduler for background tasks, an aiohttp web application
+Hosts a cron scheduler for background tasks, a Starlette web application
 for the API, and platform adapters for messaging integrations.
 """
 
@@ -20,7 +20,6 @@ from cliver.agent_profile import CliverProfile
 from cliver.config import ConfigManager
 from cliver.gateway.adapter_manager import AdapterManager
 from cliver.gateway.adapters import BUILTIN_ADAPTERS
-from cliver.gateway.api_server import register_routes
 from cliver.gateway.platform_adapter import (
     MediaAttachment,
     MessageEvent,
@@ -63,7 +62,7 @@ class Gateway:
     """Top-level orchestrator for the gateway daemon.
 
     Manages the lifecycle of:
-    - aiohttp web application (API server)
+    - Starlette web application (API server)
     - CronScheduler (tick-based task execution)
     - AdapterManager (platform adapter connections)
     """
@@ -104,32 +103,103 @@ class Gateway:
         return ConfigManager(self.config_dir, config=self._resolved_config)
 
     def create_app(self):
-        """Create and return the aiohttp web application."""
-        from aiohttp import web
+        """Create and return the Starlette web application."""
+        from contextlib import asynccontextmanager
 
-        app = web.Application()
-        app.on_startup.append(self._on_startup)
-        app.on_cleanup.append(self._on_cleanup)
+        from starlette.applications import Starlette
+
+        # AgentCore may already be set if pre-initialized before fork
+        if not self._agent_core:
+            try:
+                self._agent_core = self._create_agent_core()
+            except Exception as e:
+                logger.error(f"Failed to create AgentCore in create_app: {e}")
+
+        routes = self._build_routes()
+
+        gateway_ref = self
+
+        @asynccontextmanager
+        async def lifespan(app):
+            await gateway_ref._on_startup()
+            yield
+            await gateway_ref._on_cleanup()
+
+        app = Starlette(
+            routes=routes,
+            lifespan=lifespan,
+        )
         return app
 
+    def _build_routes(self) -> list:
+        """Build the full list of Starlette routes."""
+        routes = []
+
+        # API routes (executor may not be ready yet — handlers check)
+        config = self._get_config_manager().config
+        gw_config = config.gateway
+        api_key = gw_config.api_key if gw_config else None
+
+        if self._agent_core:
+            from cliver.gateway.api_server import get_api_routes
+
+            routes.extend(get_api_routes(self._agent_core, self._get_status, api_key=api_key))
+        else:
+            # Fallback health endpoint when AgentCore is not ready
+            from starlette.responses import JSONResponse
+            from starlette.routing import Route
+
+            async def health_fallback(request):
+                return JSONResponse({"status": "degraded", **self._get_status()})
+
+            routes.append(Route("/health", health_fallback))
+
+        # Admin portal routes
+        try:
+            from cliver.gateway.admin import get_admin_routes
+
+            admin_user = gw_config.admin_username if gw_config else None
+            admin_pass = gw_config.admin_password if gw_config else None
+
+            cli_sm = None
+            try:
+                cli_sessions_dir = CliverProfile(self.agent_name, self.config_dir).sessions_dir
+                if cli_sessions_dir.exists():
+                    from cliver.session_manager import SessionManager as SM
+
+                    cli_sm = SM(cli_sessions_dir)
+            except Exception as e:
+                logger.debug("CLI sessions not available: %s", e)
+
+            admin_ctx = {
+                "get_status": self._get_status_async,
+                "agent_name": self.agent_name,
+                "config_dir": self.config_dir,
+                "gateway": self,
+                "cli_session_manager": cli_sm,
+            }
+            routes.extend(get_admin_routes(username=admin_user, password=admin_pass, context=admin_ctx))
+            if admin_user and admin_pass:
+                logger.info("Admin portal enabled at /admin")
+            else:
+                logger.info("Admin portal disabled (no credentials configured)")
+        except Exception as e:
+            logger.error(f"Failed to build admin routes: {e}")
+
+        return routes
+
     def run(self) -> None:
-        """Start the gateway as an aiohttp web server."""
-        # Allow nested asyncio.run() calls from tools (e.g. browser_action,
-        # parallel_tasks) that assume they're in a sync context.
-        import nest_asyncio
-
-        nest_asyncio.apply()
-
-        from aiohttp import web
+        """Start the gateway as a uvicorn web server."""
+        import uvicorn
 
         config = self._get_config_manager().config
         gw_config = config.gateway
         host = gw_config.host if gw_config else "127.0.0.1"
         port = gw_config.port if gw_config else 8321
-        web.run_app(self.create_app(), host=host, port=port, print=logger.info)
+        uvicorn.run(self.create_app(), host=host, port=port, log_level="info")
 
-    async def _on_startup(self, app) -> None:
-        """Lifecycle hook: acquire flock, init components, register routes."""
+    async def _on_startup(self) -> None:
+        """Lifecycle hook: acquire flock, init components."""
         logger.info(f"Gateway starting (agent: {self.agent_name})")
         self._start_time = time.monotonic()
 
@@ -144,7 +214,7 @@ class Gateway:
         self._pid_file.write(str(os.getpid()))
         self._pid_file.flush()
 
-        # AgentCore (may already be set if pre-initialized before fork)
+        # AgentCore (may already be set if pre-initialized)
         if self._agent_core:
             logger.info("Using pre-initialized AgentCore")
         else:
@@ -152,57 +222,6 @@ class Gateway:
                 self._agent_core = self._create_agent_core()
             except Exception as e:
                 logger.error(f"Failed to create AgentCore: {e}")
-
-        # Register API routes
-        config = self._get_config_manager().config
-        gw_config = config.gateway
-        api_key = gw_config.api_key if gw_config else None
-        if self._agent_core:
-            register_routes(app, self._agent_core, self._get_status, api_key=api_key)
-
-        # Always register /health even without executor
-        from aiohttp import web
-
-        existing_health = any(
-            r.resource.canonical == "/health" for r in app.router.routes() if hasattr(r.resource, "canonical")
-        )
-        if not existing_health:
-
-            async def health_fallback(request):
-                return web.json_response({"status": "degraded", **self._get_status()})
-
-            app.router.add_get("/health", health_fallback)
-
-        # Admin portal
-        try:
-            from cliver.gateway.admin import register_admin_routes
-            from cliver.session_manager import SessionManager as SM
-
-            admin_user = gw_config.admin_username if gw_config else None
-            admin_pass = gw_config.admin_password if gw_config else None
-
-            cli_sm = None
-            try:
-                cli_sessions_dir = CliverProfile(self.agent_name, self.config_dir).sessions_dir
-                if cli_sessions_dir.exists():
-                    cli_sm = SM(cli_sessions_dir)
-            except Exception as e:
-                logger.debug("CLI sessions not available: %s", e)
-
-            admin_ctx = {
-                "get_status": self._get_status_async,
-                "agent_name": self.agent_name,
-                "config_dir": self.config_dir,
-                "gateway": self,
-                "cli_session_manager": cli_sm,
-            }
-            register_admin_routes(app, username=admin_user, password=admin_pass, context=admin_ctx)
-            if admin_user and admin_pass:
-                logger.info("Admin portal enabled at /admin")
-            else:
-                logger.info("Admin portal disabled (no credentials configured)")
-        except Exception as e:
-            logger.error(f"Failed to register admin routes: {e}")
 
         # Cron scheduler
         try:
@@ -256,7 +275,7 @@ class Gateway:
 
         logger.info("Gateway started")
 
-    async def _on_cleanup(self, app) -> None:
+    async def _on_cleanup(self) -> None:
         """Lifecycle hook: stop adapters, close DB, release flock."""
         logger.info("Gateway stopping")
 
@@ -369,15 +388,11 @@ class Gateway:
                 if task.skills:
                     system_appender = self._build_skill_appender(task.skills)
 
-                loop = asyncio.get_event_loop()
-                response = await loop.run_in_executor(
-                    None,
-                    lambda: self._agent_core.process_user_input_sync(
-                        user_input=task.prompt,
-                        model=task.model,
-                        system_message_appender=system_appender,
-                        conversation_history=conversation_history,
-                    ),
+                response = await self._agent_core.process_user_input(
+                    user_input=task.prompt,
+                    model=task.model,
+                    system_message_appender=system_appender,
+                    conversation_history=conversation_history,
                 )
                 response_text = str(response.content) if response and response.content else "No response."
 
@@ -743,23 +758,12 @@ class Gateway:
                 )
 
             try:
-                # Run in thread pool so the event loop stays free for
-                # admin portal, health checks, and other IM messages.
-                # copy_context() ensures ContextVars (im_context) propagate.
-                import contextvars
-
-                ctx = contextvars.copy_context()
-                loop = asyncio.get_event_loop()
-                response = await loop.run_in_executor(
-                    None,
-                    lambda: ctx.run(
-                        self._agent_core.process_user_input_sync,
-                        user_input=event.text,
-                        images=images or None,
-                        audio_files=audio_files or None,
-                        conversation_history=conversation_history or None,
-                        system_message_appender=_im_system_appender,
-                    ),
+                response = await self._agent_core.process_user_input(
+                    user_input=event.text,
+                    images=images or None,
+                    audio_files=audio_files or None,
+                    conversation_history=conversation_history or None,
+                    system_message_appender=_im_system_appender,
                 )
 
                 from cliver.media_handler import MultimediaResponseHandler

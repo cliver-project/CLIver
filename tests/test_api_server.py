@@ -3,8 +3,8 @@
 from unittest.mock import MagicMock
 
 import pytest
-from aiohttp import web
-from aiohttp.test_utils import AioHTTPTestCase
+from starlette.applications import Starlette
+from starlette.testclient import TestClient
 
 from cliver.gateway.api_server import (
     _build_completion_response,
@@ -12,7 +12,7 @@ from cliver.gateway.api_server import (
     _build_system_appender,
     _configure_server_mode,
     _parse_chat_request,
-    register_routes,
+    get_api_routes,
 )
 
 # ---------------------------------------------------------------------------
@@ -35,15 +35,13 @@ def _mock_status():
 
 
 def _make_app(executor=None, api_key=None, get_status=None):
-    """Create an aiohttp app with routes registered."""
-    app = web.Application()
-    register_routes(
-        app,
+    """Create a Starlette app with routes registered."""
+    routes = get_api_routes(
         executor or _mock_executor(),
         get_status or _mock_status,
         api_key=api_key,
     )
-    return app
+    return Starlette(routes=routes)
 
 
 # ---------------------------------------------------------------------------
@@ -156,91 +154,85 @@ class TestServerMode:
 
 
 # ---------------------------------------------------------------------------
-# HTTP-level tests using aiohttp test client
+# HTTP-level tests using Starlette TestClient
 # ---------------------------------------------------------------------------
 
 
-class TestHealthEndpoint(AioHTTPTestCase):
-    async def get_application(self):
-        return _make_app()
-
-    async def test_health_returns_status(self):
-        resp = await self.client.request("GET", "/health")
-        assert resp.status == 200
-        data = await resp.json()
+class TestHealthEndpoint:
+    def test_health_returns_status(self):
+        client = TestClient(_make_app())
+        resp = client.get("/health")
+        assert resp.status_code == 200
+        data = resp.json()
         assert data["status"] == "ok"
         assert data["uptime"] == 42
         assert data["tasks_run"] == 3
         assert data["platforms"] == ["slack"]
 
 
-class TestModelsEndpoint(AioHTTPTestCase):
-    async def get_application(self):
-        return _make_app()
-
-    async def test_list_models(self):
-        resp = await self.client.request("GET", "/v1/models")
-        assert resp.status == 200
-        data = await resp.json()
+class TestModelsEndpoint:
+    def test_list_models(self):
+        client = TestClient(_make_app())
+        resp = client.get("/v1/models")
+        assert resp.status_code == 200
+        data = resp.json()
         assert len(data["data"]) == 2
         model_ids = [m["id"] for m in data["data"]]
         assert "qwen" in model_ids
 
 
-class TestAuthEndpoints(AioHTTPTestCase):
-    async def get_application(self):
-        return _make_app(api_key="secret")
+class TestAuthEndpoints:
+    def test_models_unauthorized_without_key(self):
+        client = TestClient(_make_app(api_key="secret"))
+        resp = client.get("/v1/models")
+        assert resp.status_code == 401
 
-    async def test_models_unauthorized_without_key(self):
-        resp = await self.client.request("GET", "/v1/models")
-        assert resp.status == 401
+    def test_models_unauthorized_wrong_key(self):
+        client = TestClient(_make_app(api_key="secret"))
+        resp = client.get("/v1/models", headers={"Authorization": "Bearer wrong"})
+        assert resp.status_code == 401
 
-    async def test_models_unauthorized_wrong_key(self):
-        resp = await self.client.request("GET", "/v1/models", headers={"Authorization": "Bearer wrong"})
-        assert resp.status == 401
+    def test_models_authorized(self):
+        client = TestClient(_make_app(api_key="secret"))
+        resp = client.get("/v1/models", headers={"Authorization": "Bearer secret"})
+        assert resp.status_code == 200
 
-    async def test_models_authorized(self):
-        resp = await self.client.request("GET", "/v1/models", headers={"Authorization": "Bearer secret"})
-        assert resp.status == 200
+    def test_health_no_auth_required(self):
+        client = TestClient(_make_app(api_key="secret"))
+        resp = client.get("/health")
+        assert resp.status_code == 200
 
-    async def test_health_no_auth_required(self):
-        resp = await self.client.request("GET", "/health")
-        assert resp.status == 200
-
-    async def test_chat_unauthorized(self):
-        resp = await self.client.request(
-            "POST",
+    def test_chat_unauthorized(self):
+        client = TestClient(_make_app(api_key="secret"))
+        resp = client.post(
             "/v1/chat/completions",
             json={"model": "qwen", "messages": [{"role": "user", "content": "hi"}]},
         )
-        assert resp.status == 401
+        assert resp.status_code == 401
 
 
-class TestChatCompletionsEndpoint(AioHTTPTestCase):
-    async def get_application(self):
-        return _make_app()
-
-    async def test_invalid_json(self):
-        resp = await self.client.request(
-            "POST",
+class TestChatCompletionsEndpoint:
+    def test_invalid_json(self):
+        client = TestClient(_make_app())
+        resp = client.post(
             "/v1/chat/completions",
-            data=b"not json",
+            content=b"not json",
             headers={"Content-Type": "application/json"},
         )
-        assert resp.status == 400
+        assert resp.status_code == 400
 
-    async def test_missing_messages(self):
-        resp = await self.client.request(
-            "POST",
+    def test_missing_messages(self):
+        client = TestClient(_make_app())
+        resp = client.post(
             "/v1/chat/completions",
             json={"model": "qwen"},
         )
-        assert resp.status == 400
+        assert resp.status_code == 400
 
-    async def test_unknown_model(self):
-        resp = await self.client.request(
-            "POST",
+    def test_unknown_model(self):
+        client = TestClient(_make_app())
+        resp = client.post(
             "/v1/chat/completions",
             json={"model": "nonexistent", "messages": [{"role": "user", "content": "hi"}]},
         )
-        assert resp.status == 404
+        assert resp.status_code == 404
