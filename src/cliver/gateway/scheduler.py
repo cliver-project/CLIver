@@ -37,11 +37,26 @@ class CronScheduler:
         self.run_task_fn = run_task_fn
 
     def find_due_tasks(self) -> List[TaskDefinition]:
-        """Return tasks whose cron schedule is due since their last run."""
+        """Return tasks whose cron schedule or run_at datetime is due."""
         now = datetime.now(timezone.utc)
         due = []
 
         for task in self.task_manager.list_tasks():
+            # One-shot: run_at datetime
+            if task.run_at:
+                try:
+                    scheduled = datetime.fromisoformat(task.run_at)
+                    if scheduled.tzinfo is None:
+                        scheduled = scheduled.replace(tzinfo=timezone.utc)
+                    if scheduled <= now:
+                        last_run = self.run_store.get_last_run_time(task.name) or 0.0
+                        if last_run < scheduled.timestamp():
+                            due.append(task)
+                except ValueError as e:
+                    logger.warning(f"Invalid run_at for task '{task.name}': {e}")
+                continue
+
+            # Recurring: cron schedule
             if not task.schedule:
                 continue
 
@@ -100,6 +115,16 @@ class CronScheduler:
                         "Task '%s' has invalid cron expression '%s' — it will never be scheduled",
                         task.name,
                         task.schedule,
+                    )
+
+            if task.run_at:
+                try:
+                    datetime.fromisoformat(task.run_at)
+                except ValueError:
+                    logger.warning(
+                        "Task '%s' has invalid run_at '%s' — it will never be scheduled",
+                        task.name,
+                        task.run_at,
                     )
 
     def cleanup_orphan_runs(self) -> int:

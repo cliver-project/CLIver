@@ -56,7 +56,15 @@ var taskName = "{{ITEM_NAME}}";
   }
 
   addMetaRow('Model', task.model || 'default');
-  addMetaRow('Schedule', task.schedule || 'one-shot');
+  if (task.schedule) {
+    addMetaRow('Schedule', task.schedule);
+  }
+  if (task.run_at) {
+    addMetaRow('Run At', task.run_at);
+  }
+  if (!task.schedule && !task.run_at) {
+    addMetaRow('Schedule', 'manual');
+  }
 
   metaTable.appendChild(metaBody);
   metaPanel.appendChild(metaTable);
@@ -186,7 +194,7 @@ var taskName = "{{ITEM_NAME}}";
     var runsTable = document.createElement('table');
     var runsThead = document.createElement('thead');
     var runsHeadRow = document.createElement('tr');
-    var runCols = ['Execution ID', 'Status', 'Started', 'Finished', 'Error'];
+    var runCols = ['Execution ID', 'Status', 'Started', 'Finished', 'Error', 'Result'];
     for (var rc = 0; rc < runCols.length; rc++) {
       var rth = document.createElement('th');
       rth.textContent = runCols[rc];
@@ -227,6 +235,26 @@ var taskName = "{{ITEM_NAME}}";
       tdError.style.color = run.error ? 'var(--red)' : '';
       runRow.appendChild(tdError);
 
+      var tdResult = document.createElement('td');
+      if (run.result) {
+        var resultText = run.result.length > 80 ? run.result.substring(0, 80) + '...' : run.result;
+        tdResult.textContent = resultText;
+        tdResult.style.cssText = 'font-size:12px;color:var(--text-dim);cursor:pointer';
+        tdResult.title = 'Click to view full result';
+        (function(fullResult, taskName, execId) {
+          tdResult.onclick = function() {
+            var fields = [
+              { label: 'Result', value: fullResult, pre: true, scroll: true, wide: true }
+            ];
+            modalViewFields('Run ' + execId + ' — Result', fields);
+          };
+        })(run.result, run.task_name, run.execution_id);
+      } else {
+        tdResult.textContent = '—';
+        tdResult.style.color = 'var(--text-dim)';
+      }
+      runRow.appendChild(tdResult);
+
       runsTbody.appendChild(runRow);
     }
     runsTable.appendChild(runsTbody);
@@ -247,23 +275,24 @@ var taskName = "{{ITEM_NAME}}";
   runNowBtn.className = 'btn';
   runNowBtn.textContent = 'Run Now';
   runNowBtn.onclick = function() {
-    if (!confirm('Run task "' + task.name + '" now?')) return;
-    runNowBtn.disabled = true;
-    runNowBtn.textContent = 'Starting...';
-    apiPost('/tasks/' + encodeURIComponent(task.name) + '/run').then(function(result) {
-      if (result && result.status === 'started') {
-        runNowBtn.textContent = 'Started';
-        runNowBtn.style.color = 'var(--accent)';
-      } else {
-        runNowBtn.textContent = 'Error';
-        runNowBtn.style.color = 'var(--red)';
-        alert('Failed: ' + (result ? result.message || 'unknown error' : 'no response'));
-      }
-      setTimeout(function() {
-        runNowBtn.disabled = false;
-        runNowBtn.textContent = 'Run Now';
-        runNowBtn.style.color = '';
-      }, 3000);
+    confirmAction('Run Task', 'Run task "' + task.name + '" now?', function() {
+      runNowBtn.disabled = true;
+      runNowBtn.textContent = 'Starting...';
+      apiPost('/tasks/' + encodeURIComponent(task.name) + '/run').then(function(result) {
+        if (result && result.status === 'started') {
+          runNowBtn.textContent = 'Started';
+          runNowBtn.style.color = 'var(--accent)';
+        } else {
+          runNowBtn.textContent = 'Error';
+          runNowBtn.style.color = 'var(--red)';
+          alertMessage('Error', 'Failed: ' + (result ? result.message || 'unknown error' : 'no response'));
+        }
+        setTimeout(function() {
+          runNowBtn.disabled = false;
+          runNowBtn.textContent = 'Run Now';
+          runNowBtn.style.color = '';
+        }, 3000);
+      });
     });
   };
   actionsDiv.appendChild(runNowBtn);

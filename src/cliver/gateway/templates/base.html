@@ -697,11 +697,11 @@ tbody tr:hover {
 <script>
 /* Shared JS utilities — loaded in <head> so page fragments can use them */
 var BASE_URL = "{{BASE_URL}}";
-var authHeaders = { 'Authorization': 'Basic {{AUTH_TOKEN}}' };
 
 async function api(path) {
   try {
-    var resp = await fetch(BASE_URL + '/api' + path, { headers: authHeaders });
+    var resp = await fetch(BASE_URL + '/api' + path);
+    if (resp.status === 401) { window.location.href = '/admin/login'; return null; }
     if (!resp.ok) return null;
     return await resp.json();
   } catch (e) {
@@ -712,7 +712,8 @@ async function api(path) {
 
 async function apiPost(path) {
   try {
-    var resp = await fetch(BASE_URL + '/api' + path, { method: 'POST', headers: authHeaders });
+    var resp = await fetch(BASE_URL + '/api' + path, { method: 'POST' });
+    if (resp.status === 401) { window.location.href = '/admin/login'; return null; }
     return await resp.json();
   } catch (e) {
     console.error('api POST failed:', path, e);
@@ -724,9 +725,10 @@ async function apiPut(path, data) {
   try {
     var resp = await fetch(BASE_URL + '/api' + path, {
       method: 'PUT',
-      headers: Object.assign({}, authHeaders, { 'Content-Type': 'application/json' }),
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
     });
+    if (resp.status === 401) { window.location.href = '/admin/login'; return null; }
     return await resp.json();
   } catch (e) {
     console.error('api PUT failed:', path, e);
@@ -736,7 +738,8 @@ async function apiPut(path, data) {
 
 async function apiDelete(path) {
   try {
-    var resp = await fetch(BASE_URL + '/api' + path, { method: 'DELETE', headers: authHeaders });
+    var resp = await fetch(BASE_URL + '/api' + path, { method: 'DELETE' });
+    if (resp.status === 401) { window.location.href = '/admin/login'; return null; }
     return await resp.json();
   } catch (e) {
     console.error('api DELETE failed:', path, e);
@@ -886,6 +889,25 @@ function modalEditFields(title, fields, onSave) {
     ]
   });
 }
+
+function confirmAction(title, message, onConfirm) {
+  var body = document.createElement('p');
+  body.textContent = message;
+  body.style.cssText = 'padding:8px 0;font-size:14px;line-height:1.6';
+  openModal(title, body, {
+    buttons: [
+      { label: 'Cancel', onclick: closeModal },
+      { label: 'Confirm', danger: true, onclick: function() { closeModal(); if (onConfirm) onConfirm(); } }
+    ]
+  });
+}
+
+function alertMessage(title, message) {
+  var body = document.createElement('p');
+  body.textContent = message;
+  body.style.cssText = 'padding:8px 0;font-size:14px;line-height:1.6';
+  openModal(title, body);
+}
 </script>
 </head>
 <body>
@@ -941,6 +963,7 @@ function modalEditFields(title, fields, onSave) {
       <a href="/admin/skills"    data-page="skills">Skills</a>
       <a href="/admin/agent"     data-page="agent">Agent</a>
       <a href="/admin/config"    data-page="config">Config</a>
+      <a href="/admin/logout" style="margin-top:auto;border-top:1px solid var(--border);color:var(--text-dim)">Logout</a>
     </nav>
   </aside>
 

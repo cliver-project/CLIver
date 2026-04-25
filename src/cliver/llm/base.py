@@ -112,8 +112,18 @@ class LLMInferenceEngine(ABC):
     @staticmethod
     def _section_identity(agent_name: str) -> str:
         import os
+        from datetime import datetime, timezone
 
         cwd = os.getcwd()
+        try:
+            local_tz = datetime.now().astimezone().tzinfo
+            tz_name = str(local_tz)
+            utc_offset = datetime.now().astimezone().strftime("%z")
+            now_local = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            tz_name = "unknown"
+            utc_offset = ""
+            now_local = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         return (
             "# Identity\n\n"
             f"You are **{agent_name}**, a general-purpose AI agent. "
@@ -123,8 +133,10 @@ class LLMInferenceEngine(ABC):
             "You can operate in different environments: command-line interfaces, "
             "embedded applications, or as a backend service. "
             "Adapt your tone, depth, and approach to whatever the user needs.\n\n"
-            "## Working Directory\n\n"
-            f"Your current working directory is: `{cwd}`\n\n"
+            "## Environment\n\n"
+            f"- Working directory: `{cwd}`\n"
+            f"- Local time: {now_local}\n"
+            f"- Timezone: {tz_name} (UTC{utc_offset})\n\n"
             "- All file operations (read, write, list, grep) should be relative to this directory "
             "unless the user explicitly specifies an absolute path outside it.\n"
             "- Do NOT list or access `/`, `/etc`, `/usr`, or other system directories "
@@ -149,12 +161,10 @@ class LLMInferenceEngine(ABC):
             f"- Memory: `{config_dir}/agents/*/memory.md` — persistent knowledge\n"
             f"- Skills: `.cliver/skills/` (project) or `{config_dir}/skills/` (global) — SKILL.md files\n"
             f"- Tasks: `{config_dir}/agents/*/tasks/` — YAML task definitions with cron schedules\n\n"
-            "## Commands (use the CliverHelp tool for details)\n\n"
-            "Available slash commands: model, config, gateway, session, permissions, "
-            "mcp, skill, skills, identity, agent, cost, provider, task, workflow.\n\n"
-            "You can self-administer by reading/writing config files directly, "
-            "or by running `cliver <command>` via the Bash tool. "
-            "Use the CliverHelp tool to look up specific command syntax."
+            "## Commands\n\n"
+            "Slash commands: model, config, gateway, session, permissions, "
+            "mcp, skill, skills, identity, agent, cost, provider, task, workflow. "
+            "Use the CliverHelp tool for syntax."
         )
 
     @staticmethod

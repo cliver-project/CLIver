@@ -166,6 +166,10 @@ class AgentCore:
         # Reset per process_user_input call, attached to final response.
         self._generated_media: list = []
 
+        # Per-conversation tool result cache for deduplication.
+        # If the LLM calls the same tool with the same args twice, return the cached result.
+        self._tool_result_cache: dict[str, list] = {}
+
         # Per-provider rate limiter (configured via configure_rate_limits)
         self.rate_limiter = RateLimiter()
 
@@ -570,6 +574,7 @@ class AgentCore:
 
         # Reset per-call state
         self._generated_media = []
+        self._tool_result_cache = {}
 
         required_caps = self._compute_required_capabilities(
             images,
@@ -880,6 +885,7 @@ class AgentCore:
         # Reset per-call state
         self._tool_call_count = 0
         self._generated_media = []
+        self._tool_result_cache = {}
 
         required_caps = self._compute_required_capabilities(
             images,
@@ -1344,6 +1350,28 @@ class AgentCore:
             )
         )
 
+    _CACHEABLE_TOOLS = frozenset(
+        {
+            "WebSearch",
+            "WebFetch",
+            "Read",
+            "LS",
+            "Grep",
+            "CliverHelp",
+            "Skill",
+            "SearchSessions",
+        }
+    )
+
+    def _tool_cache_key(self, full_tool_name: str, args: Dict[str, Any]) -> Optional[str]:
+        """Return a cache key for idempotent tools, None for non-cacheable ones."""
+        import json
+
+        base_name = full_tool_name.split("#")[-1] if "#" in full_tool_name else full_tool_name
+        if base_name not in self._CACHEABLE_TOOLS:
+            return None
+        return f"{full_tool_name}::{json.dumps(args, sort_keys=True, default=str)}"
+
     async def _execute_single_tool(
         self,
         mcp_server: str,
@@ -1355,23 +1383,32 @@ class AgentCore:
 
         Handles tool-not-found with suggestions and wraps execution
         exceptions as error results so the LLM can recover.
+        Uses a per-conversation cache to deduplicate identical calls.
         """
+        cache_key = self._tool_cache_key(full_tool_name, args)
+        if cache_key and cache_key in self._tool_result_cache:
+            logger.info(f"Tool cache hit: {full_tool_name}")
+            return self._tool_result_cache[cache_key]
+
         try:
             if not mcp_server or mcp_server == "" or mcp_server == "builtin":
-                # Check if tool exists before executing
                 tool = tool_registry.get_tool_by_name(tool_name)
                 if tool is None:
                     suggestion = _suggest_similar_tool(tool_name, tool_registry.tool_names)
                     return [{"error": f"Tool '{tool_name}' not found.{suggestion}"}]
-                return tool_registry.execute_tool(tool_name, args)
+                result = tool_registry.execute_tool(tool_name, args)
             else:
-                return await retry_with_confirmation_async(
+                result = await retry_with_confirmation_async(
                     self.mcp_caller.call_mcp_server_tool,
                     mcp_server,
                     tool_name,
                     args,
                     confirm_on_retry=False,
                 )
+
+            if cache_key:
+                self._tool_result_cache[cache_key] = result
+            return result
         except Exception as e:
             logger.error(f"Exception executing tool '{full_tool_name}': {e}", exc_info=True)
             return [{"error": f"Tool execution failed: {e}"}]

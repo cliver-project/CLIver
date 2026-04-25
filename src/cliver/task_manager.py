@@ -48,6 +48,7 @@ class TaskDefinition(BaseModel):
     skills: Optional[List[str]] = Field(None, description="Skills to pre-activate in system prompt")
     model: Optional[str] = Field(None, description="Model override for this task")
     schedule: Optional[str] = Field(None, description="Cron expression for recurring execution")
+    run_at: Optional[str] = Field(None, description="ISO 8601 datetime for one-shot execution")
     permissions: Optional[Any] = Field(None, description="Permission overrides for this task")
     origin: Optional[TaskOrigin] = Field(None, description="Where the task was created from")
 
@@ -61,6 +62,7 @@ class TaskRun(BaseModel):
     started_at: str
     finished_at: Optional[str] = None
     error: Optional[str] = None
+    result: Optional[str] = None
 
 
 class TaskManager:
@@ -101,16 +103,46 @@ class TaskManager:
         path = self.tasks_dir / f"{name}.yaml"
         if not path.exists():
             return None
-        return self._load_task_file(path)
+        try:
+            return self._load_task_file(path)
+        except Exception as e:
+            logger.warning("Invalid task file %s: %s", path, e)
+            return None
 
     def save_task(self, task: TaskDefinition) -> Path:
-        """Save a task definition. Creates or overwrites."""
+        """Save a task definition. Creates or overwrites.
+
+        Automatically attaches IM origin if running inside a gateway
+        message handler and the task doesn't already have an origin.
+        """
+        if not task.origin:
+            task.origin = self._resolve_im_origin()
         self._ensure_dir()
         path = self.tasks_dir / f"{task.name}.yaml"
         data = task.model_dump(exclude_none=True)
         path.write_text(yaml.dump(data, default_flow_style=False, allow_unicode=True), encoding="utf-8")
         logger.info(f"Task '{task.name}' saved to {path}")
         return path
+
+    @staticmethod
+    def _resolve_im_origin() -> Optional[TaskOrigin]:
+        """Auto-detect IM origin from gateway context if available."""
+        try:
+            from cliver.gateway.gateway import im_context
+
+            ctx = im_context.get()
+            if ctx:
+                return TaskOrigin(
+                    source=ctx["platform"],
+                    platform=ctx["platform"],
+                    channel_id=ctx.get("channel_id"),
+                    thread_id=ctx.get("thread_id"),
+                    user_id=ctx.get("user_id"),
+                    session_key=ctx.get("session_key"),
+                )
+        except ImportError:
+            pass
+        return None
 
     def remove_task(self, name: str) -> bool:
         """Remove a task definition."""

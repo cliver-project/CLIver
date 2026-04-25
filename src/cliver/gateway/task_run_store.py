@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS task_runs (
     status TEXT NOT NULL,
     started_at TEXT NOT NULL,
     finished_at TEXT,
-    error TEXT
+    error TEXT,
+    result TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_task_runs_task_name
@@ -51,21 +52,37 @@ class TaskRunStore:
         self.db_path = Path(db_path)
         self._store = SQLiteStore(db_path)
         self._store.execute_schema(_SCHEMA)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Add columns that may be missing in older databases."""
+        with self._store.write() as db:
+            cols = {r["name"] for r in db.execute("PRAGMA table_info(task_runs)").fetchall()}
+            if "result" not in cols:
+                db.execute("ALTER TABLE task_runs ADD COLUMN result TEXT")
 
     def record_run(self, run: TaskRun) -> None:
         with self._store.write() as db:
             db.execute(
                 """INSERT INTO task_runs
-                   (task_name, execution_id, status, started_at, finished_at, error)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (run.task_name, run.execution_id, run.status, run.started_at, run.finished_at, run.error),
+                   (task_name, execution_id, status, started_at, finished_at, error, result)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    run.task_name,
+                    run.execution_id,
+                    run.status,
+                    run.started_at,
+                    run.finished_at,
+                    run.error,
+                    run.result,
+                ),
             )
 
     def get_runs(self, task_name: str, limit: int = 10) -> List[TaskRun]:
         with self._store.read() as db:
             rows = db.execute(
                 """SELECT task_name, execution_id, status,
-                          started_at, finished_at, error
+                          started_at, finished_at, error, result
                    FROM task_runs
                    WHERE task_name = ?
                    ORDER BY id DESC

@@ -38,18 +38,21 @@ class TestAdminAuth(AioHTTPTestCase):
         assert resp.headers["Location"] == "/admin/gateway"
 
     async def test_admin_page_requires_auth(self):
-        resp = await self.client.request("GET", "/admin/gateway")
-        assert resp.status == 401
+        resp = await self.client.request("GET", "/admin/gateway", allow_redirects=False)
+        assert resp.status == 302
+        assert "/admin/login" in resp.headers["Location"]
 
     async def test_admin_page_wrong_password(self):
-        resp = await self.client.request("GET", "/admin/gateway", headers=_auth_header("admin", "wrong"))
-        assert resp.status == 401
+        resp = await self.client.request(
+            "GET", "/admin/gateway", allow_redirects=False, headers=_auth_header("admin", "wrong")
+        )
+        assert resp.status == 302
 
     async def test_admin_page_succeeds_with_correct_auth(self):
         resp = await self.client.request("GET", "/admin/gateway", headers=_auth_header())
         assert resp.status == 200
         text = await resp.text()
-        assert "CLIver" in text
+        assert "Admin Portal" in text
 
     async def test_admin_unknown_page_returns_404(self):
         resp = await self.client.request("GET", "/admin/nonexistent", headers=_auth_header())

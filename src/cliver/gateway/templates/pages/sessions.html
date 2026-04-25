@@ -47,7 +47,9 @@ function renderSessionTable(data, source, containerEl) {
   var table = document.createElement('table');
   var thead = document.createElement('thead');
   var headRow = document.createElement('tr');
-  var cols = ['Title', 'Turns', 'Created', 'Updated', 'Actions'];
+  var isGateway = source === 'gateway';
+  var cols = isGateway ? ['Title', 'Source', 'Turns', 'Created', 'Updated', 'Actions']
+                       : ['Title', 'Turns', 'Created', 'Updated', 'Actions'];
   for (var c = 0; c < cols.length; c++) {
     var th = document.createElement('th');
     th.textContent = cols[c];
@@ -69,8 +71,9 @@ function renderSessionTable(data, source, containerEl) {
     titleLink.onclick = (function(sid, src) {
       return function(e) { e.preventDefault(); viewSession(src, sid); };
     })(session.id, source);
-    if (session.title) {
-      titleLink.textContent = session.title.length > 60 ? session.title.substring(0, 60) + '...' : session.title;
+    var displayTitle = session.display_title || session.title || '';
+    if (displayTitle) {
+      titleLink.textContent = displayTitle.length > 60 ? displayTitle.substring(0, 60) + '...' : displayTitle;
     } else {
       titleLink.textContent = 'untitled';
       titleLink.style.color = 'var(--dim)';
@@ -78,6 +81,22 @@ function renderSessionTable(data, source, containerEl) {
     }
     tdTitle.appendChild(titleLink);
     row.appendChild(tdTitle);
+
+    // Source (gateway only)
+    if (isGateway) {
+      var tdSource = document.createElement('td');
+      var platform = session.platform || '';
+      if (platform) {
+        var srcPill = document.createElement('span');
+        srcPill.className = 'pill';
+        srcPill.textContent = platform;
+        tdSource.appendChild(srcPill);
+      } else {
+        tdSource.textContent = '—';
+        tdSource.style.color = 'var(--text-dim)';
+      }
+      row.appendChild(tdSource);
+    }
 
     // Turns
     var tdTurns = document.createElement('td');
@@ -217,18 +236,17 @@ async function viewSession(source, sessionId) {
   detailEl.appendChild(panel);
 }
 
-async function deleteSession(source, sessionId) {
-  if (!confirm('Delete this session? This cannot be undone.')) return;
-
-  var result = await apiDelete('/sessions/' + source + '/' + encodeURIComponent(sessionId));
-  if (result && result.status === 'deleted') {
-    // Reload the current tab's sessions
-    loadSessions(source);
-    // Clear detail panel if showing this session
-    document.getElementById('session-detail').textContent = '';
-  } else {
-    alert('Failed to delete session: ' + (result ? result.error || 'unknown error' : 'no response'));
-  }
+function deleteSession(source, sessionId) {
+  confirmAction('Delete Session', 'Delete this session? This cannot be undone.', function() {
+    apiDelete('/sessions/' + source + '/' + encodeURIComponent(sessionId)).then(function(result) {
+      if (result && result.status === 'deleted') {
+        loadSessions(source);
+        document.getElementById('session-detail').textContent = '';
+      } else {
+        alertMessage('Error', 'Failed to delete session: ' + (result ? result.error || 'unknown error' : 'no response'));
+      }
+    });
+  });
 }
 
 // Initial load for both tabs

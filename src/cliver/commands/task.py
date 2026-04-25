@@ -51,6 +51,7 @@ def _create_task(
     description: Optional[str] = None,
     model: Optional[str] = None,
     schedule: Optional[str] = None,
+    run_at: Optional[str] = None,
     workflow: Optional[str] = None,
     workflow_inputs: Optional[str] = None,
     skills: Optional[list] = None,
@@ -67,6 +68,17 @@ def _create_task(
             cliver.output(f"Invalid JSON for --workflow-inputs: {e}")
             return 1
 
+    # Validate run_at format
+    if run_at:
+        from datetime import datetime
+
+        try:
+            datetime.fromisoformat(run_at)
+        except ValueError:
+            cliver.output(f"[red]Invalid datetime format: {run_at}[/red]")
+            cliver.output("[dim]Use ISO 8601 format, e.g. 2026-04-25T14:30:00[/dim]")
+            return 1
+
     task_def = TaskDefinition(
         name=name,
         description=description,
@@ -76,6 +88,7 @@ def _create_task(
         skills=skills,
         model=model,
         schedule=schedule,
+        run_at=run_at,
     )
 
     manager = TaskManager(cliver.agent_profile.tasks_dir)
@@ -243,9 +256,10 @@ def dispatch(cliver: Cliver, args: str):
         task_name = rest.strip()
         _remove_task(cliver, task_name)
     elif sub == "create":
-        # /task create <name> <prompt> [--prompt P] [--model M] [--schedule S] [--workflow W] [--skills s1,s2]
         if not rest:
-            cliver.output('[yellow]Usage: /task create <name> "<prompt>" [--schedule CRON][/yellow]')
+            cliver.output(
+                "[yellow]Usage: /task create <name> [--prompt P] [--schedule CRON] [--run-at DATETIME][/yellow]"
+            )
             return
         from shlex import split as shlex_split
 
@@ -254,22 +268,25 @@ def dispatch(cliver: Cliver, args: str):
         except ValueError:
             parts_split = rest.split()
         task_name = parts_split[0]
-        prompt_parts = []
-        prompt_flag = None
+        prompt = None
         model = None
         schedule = None
+        run_at = None
         workflow = None
         skills = None
         i = 1
         while i < len(parts_split):
             if parts_split[i] == "--prompt" and i + 1 < len(parts_split):
-                prompt_flag = parts_split[i + 1]
+                prompt = parts_split[i + 1]
                 i += 2
             elif parts_split[i] == "--model" and i + 1 < len(parts_split):
                 model = parts_split[i + 1]
                 i += 2
             elif parts_split[i] == "--schedule" and i + 1 < len(parts_split):
                 schedule = parts_split[i + 1]
+                i += 2
+            elif parts_split[i] == "--run-at" and i + 1 < len(parts_split):
+                run_at = parts_split[i + 1]
                 i += 2
             elif parts_split[i] == "--workflow" and i + 1 < len(parts_split):
                 workflow = parts_split[i + 1]
@@ -278,17 +295,34 @@ def dispatch(cliver: Cliver, args: str):
                 skills = [s.strip() for s in parts_split[i + 1].split(",")]
                 i += 2
             else:
-                prompt_parts.append(parts_split[i])
                 i += 1
-        prompt = prompt_flag or (" ".join(prompt_parts) if prompt_parts else task_name)
-        _create_task(cliver, task_name, prompt, model=model, schedule=schedule, workflow=workflow, skills=skills)
+
+        if not prompt:
+            prompt = cliver.ui.ask_input(f"  Enter prompt for task '{task_name}': ")
+            if not prompt or not prompt.strip():
+                cliver.output("[yellow]Cancelled — prompt is required.[/yellow]")
+                return
+            prompt = prompt.strip()
+
+        _create_task(
+            cliver,
+            task_name,
+            prompt,
+            model=model,
+            schedule=schedule,
+            run_at=run_at,
+            workflow=workflow,
+            skills=skills,
+        )
     elif sub in ("--help", "help"):
         cliver.output("Usage: /task [list|create|run|history|remove] ...")
         cliver.output("  list                — list all tasks")
-        cliver.output("  create <name> <prompt> [--model M] [--schedule S] [--workflow W] [--skills s1,s2]")
+        cliver.output("  create <name> [--prompt P] [--model M] [--schedule S] [--run-at DATETIME]")
         cliver.output("  run <name>          — run a task")
         cliver.output("  history <name>      — show run history")
         cliver.output("  remove <name>       — remove a task")
+        cliver.output("")
+        cliver.output("Note: To create tasks programmatically, use the CreateTask tool directly.")
     else:
         cliver.output(f"[yellow]Unknown: /task {sub}[/yellow]")
 
@@ -314,6 +348,7 @@ def list_tasks(cliver: Cliver):
 @click.option("--description", "-d", default=None, help="Task description")
 @click.option("--model", "-m", default=None, help="Model override for this task")
 @click.option("--schedule", "-s", default=None, help="Cron expression for recurring execution")
+@click.option("--run-at", default=None, help="ISO 8601 datetime for one-shot execution (e.g. 2026-04-25T14:30:00)")
 @click.option("--workflow", "-w", default=None, help="Workflow name to execute (runs workflow instead of chat)")
 @click.option("--workflow-inputs", default=None, help="Workflow inputs as JSON string")
 @click.option("--skills", multiple=True, help="Skills to pre-activate (can be specified multiple times)")
@@ -325,6 +360,7 @@ def create_task(
     description: Optional[str],
     model: Optional[str],
     schedule: Optional[str],
+    run_at: Optional[str],
     workflow: Optional[str],
     workflow_inputs: Optional[str],
     skills: tuple,
@@ -336,6 +372,7 @@ def create_task(
         description,
         model,
         schedule,
+        run_at,
         workflow,
         workflow_inputs,
         list(skills) if skills else None,

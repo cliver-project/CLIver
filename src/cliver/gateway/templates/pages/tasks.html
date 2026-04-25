@@ -34,25 +34,53 @@
     var task = data[i];
     var row = document.createElement('tr');
 
-    // Name — clickable link
+    var isOrphan = !!task.orphaned;
+    if (isOrphan) row.style.opacity = '0.6';
+
+    // Name
     var tdName = document.createElement('td');
-    var link = document.createElement('a');
-    link.href = '/admin/tasks/' + encodeURIComponent(task.name);
-    link.textContent = task.name;
-    tdName.appendChild(link);
+    if (isOrphan) {
+      var nameSpan = document.createElement('span');
+      nameSpan.textContent = task.name;
+      nameSpan.style.color = 'var(--text-dim)';
+      tdName.appendChild(nameSpan);
+      var badge = document.createElement('span');
+      badge.className = 'pill warn';
+      badge.textContent = 'orphaned';
+      badge.style.marginLeft = '6px';
+      tdName.appendChild(badge);
+    } else {
+      var link = document.createElement('a');
+      link.href = '/admin/tasks/' + encodeURIComponent(task.name);
+      link.textContent = task.name;
+      tdName.appendChild(link);
+    }
     row.appendChild(tdName);
 
-    // Description — truncated to 60 chars, fallback to prompt
+    // Description
     var tdDesc = document.createElement('td');
-    var descText = task.description || (task.prompt || '');
-    if (descText.length > 60) descText = descText.substring(0, 60) + '...';
-    tdDesc.textContent = descText;
-    tdDesc.style.color = 'var(--text-dim)';
+    if (isOrphan) {
+      tdDesc.textContent = 'YAML file missing';
+      tdDesc.style.cssText = 'color:var(--text-dim);font-style:italic';
+    } else {
+      var descText = task.description || (task.prompt || '');
+      if (descText.length > 60) descText = descText.substring(0, 60) + '...';
+      tdDesc.textContent = descText;
+      tdDesc.style.color = 'var(--text-dim)';
+    }
     row.appendChild(tdDesc);
 
     // Schedule
     var tdSched = document.createElement('td');
-    tdSched.textContent = task.schedule || 'one-shot';
+    if (task.schedule) {
+      tdSched.textContent = task.schedule;
+    } else if (task.run_at) {
+      tdSched.textContent = task.run_at;
+      tdSched.style.fontSize = '12px';
+    } else {
+      tdSched.textContent = isOrphan ? '—' : 'manual';
+      tdSched.style.color = 'var(--text-dim)';
+    }
     row.appendChild(tdSched);
 
     // Origin
@@ -103,35 +131,60 @@
     }
     row.appendChild(tdLastRun);
 
-    // Actions — Run button
+    // Actions
     var tdActions = document.createElement('td');
-    var runBtn = document.createElement('button');
-    runBtn.className = 'btn';
-    runBtn.textContent = 'Run';
-    runBtn.setAttribute('data-task', task.name);
-    runBtn.onclick = (function(taskName, btn) {
+    if (!isOrphan) {
+      var runBtn = document.createElement('button');
+      runBtn.className = 'btn';
+      runBtn.textContent = 'Run';
+      runBtn.onclick = (function(taskName, btn) {
+        return function() {
+          confirmAction('Run Task', 'Run task "' + taskName + '" now?', function() {
+            btn.disabled = true;
+            btn.textContent = 'Starting...';
+            apiPost('/tasks/' + encodeURIComponent(taskName) + '/run').then(function(result) {
+              if (result && result.status === 'started') {
+                btn.textContent = 'Started';
+                btn.style.color = 'var(--accent)';
+              } else {
+                btn.textContent = 'Error';
+                btn.style.color = 'var(--red)';
+                alertMessage('Error', 'Failed: ' + (result ? result.message || 'unknown error' : 'no response'));
+              }
+              setTimeout(function() {
+                btn.disabled = false;
+                btn.textContent = 'Run';
+                btn.style.color = '';
+              }, 3000);
+            });
+          });
+        };
+      })(task.name, runBtn);
+      tdActions.appendChild(runBtn);
+    }
+
+    var delBtn = document.createElement('button');
+    delBtn.className = 'btn danger';
+    delBtn.textContent = isOrphan ? 'Clean Up' : 'Delete';
+    delBtn.style.marginLeft = '6px';
+    var delMsg = isOrphan
+      ? 'Clean up all run history for orphaned task "' + task.name + '"?'
+      : 'Delete task "' + task.name + '" and all its run history?';
+    delBtn.onclick = (function(taskName, msg) {
       return function() {
-        if (!confirm('Run task "' + taskName + '" now?')) return;
-        btn.disabled = true;
-        btn.textContent = 'Starting...';
-        apiPost('/tasks/' + encodeURIComponent(taskName) + '/run').then(function(result) {
-          if (result && result.status === 'started') {
-            btn.textContent = 'Started';
-            btn.style.color = 'var(--accent)';
-          } else {
-            btn.textContent = 'Error';
-            btn.style.color = 'var(--red)';
-            alert('Failed: ' + (result ? result.message || 'unknown error' : 'no response'));
-          }
-          setTimeout(function() {
-            btn.disabled = false;
-            btn.textContent = 'Run';
-            btn.style.color = '';
-          }, 3000);
+        confirmAction(isOrphan ? 'Clean Up' : 'Delete Task', msg, function() {
+          apiDelete('/tasks/' + encodeURIComponent(taskName)).then(function(result) {
+            if (result && result.status === 'deleted') {
+              location.reload();
+            } else {
+              alertMessage('Error', 'Failed: ' + (result ? result.error || 'unknown error' : 'no response'));
+            }
+          });
         });
       };
-    })(task.name, runBtn);
-    tdActions.appendChild(runBtn);
+    })(task.name, delMsg);
+    tdActions.appendChild(delBtn);
+
     row.appendChild(tdActions);
 
     tbody.appendChild(row);

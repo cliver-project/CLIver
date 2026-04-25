@@ -82,6 +82,7 @@ class Gateway:
         self._task_executor: Optional[AgentCore] = None
         self._scheduler: Optional[CronScheduler] = None
         self._run_store: Optional[TaskRunStore] = None
+        self._task_manager: Optional[TaskManager] = None
         self._adapter_manager: Optional[AdapterManager] = None
         self._session_manager: Optional[SessionManager] = None
         self._cron_task: Optional[asyncio.Task] = None
@@ -207,11 +208,11 @@ class Gateway:
         try:
             agent_profile = CliverProfile(self.agent_name, self.config_dir)
             agent_profile.ensure_dirs()
-            task_manager = TaskManager(agent_profile.tasks_dir)
+            self._task_manager = TaskManager(agent_profile.tasks_dir)
             self._run_store = TaskRunStore(agent_profile.agent_dir / "gateway.db")
 
             self._scheduler = CronScheduler(
-                task_manager=task_manager,
+                task_manager=self._task_manager,
                 run_store=self._run_store,
                 run_task_fn=self._run_task,
             )
@@ -377,6 +378,7 @@ class Gateway:
                 response_text = str(response.content) if response and response.content else "No response."
 
             run_record.status = "completed"
+            run_record.result = response_text
 
             # Deliver result to IM origin
             if task.origin and task.origin.platform and task.origin.channel_id:
@@ -399,6 +401,12 @@ class Gateway:
             if self._run_store:
                 self._run_store.record_run(run_record)
                 self._run_store.set_task_state(task.name, run_record.status)
+
+            # Clear run_at after one-shot execution
+            if task.run_at and self._task_manager:
+                task.run_at = None
+                self._task_manager.save_task(task)
+                logger.info(f"Cleared run_at for one-shot task '{task.name}'")
 
     def _load_origin_history(self, session_key: str):
         """Load conversation history from an IM session for task context."""
@@ -713,12 +721,22 @@ class Gateway:
                     "session_key": session_key,
                 }
             )
+
+            def _im_system_appender() -> str:
+                return (
+                    "# IM Context\n\n"
+                    "You are responding in an IM conversation (e.g. Slack, Telegram). "
+                    "Interactive input is not available — do NOT use the Ask tool. "
+                    "Proceed autonomously with reasonable defaults."
+                )
+
             try:
                 response = await self._task_executor.process_user_input(
                     user_input=event.text,
                     images=images or None,
                     audio_files=audio_files or None,
                     conversation_history=conversation_history or None,
+                    system_message_appender=_im_system_appender,
                 )
 
                 from cliver.media_handler import MultimediaResponseHandler

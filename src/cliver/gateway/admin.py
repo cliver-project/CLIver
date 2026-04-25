@@ -1,9 +1,9 @@
 """
 Admin portal for CLIver gateway.
 
-Provides a web-based admin interface with Basic Auth for monitoring
-and managing the gateway: tasks, sessions, workflows, skills, adapters,
-agent info, and configuration.
+Provides a web-based admin interface with cookie-based session auth
+for monitoring and managing the gateway: tasks, sessions, workflows,
+skills, adapters, agent info, and configuration.
 
 Multi-page routing: base.html + pages/{page_name}.html assembly pattern.
 
@@ -15,8 +15,11 @@ Usage:
 import asyncio
 import base64
 import functools
+import hashlib
+import hmac
 import inspect
 import logging
+import secrets
 from pathlib import Path
 from typing import Optional
 
@@ -46,6 +49,21 @@ def _check_basic_auth(request, username: str, password: str) -> bool:
     return parts[0] == username and parts[1] == password
 
 
+def _make_session_token(username: str, secret: str) -> str:
+    """Create an HMAC-signed session token."""
+    sig = hmac.new(secret.encode(), username.encode(), hashlib.sha256).hexdigest()
+    return f"{username}:{sig}"
+
+
+def _check_session_cookie(request, username: str, secret: str) -> bool:
+    """Validate the session cookie."""
+    cookie = request.cookies.get("cliver_session", "")
+    if not cookie or ":" not in cookie:
+        return False
+    expected = _make_session_token(username, secret)
+    return hmac.compare_digest(cookie, expected)
+
+
 def _mask_secret(value: Optional[str]) -> str:
     """Mask a secret string for safe display.
 
@@ -67,7 +85,7 @@ def _mask_secret(value: Optional[str]) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _render_page(page_name, context, username, password, extra_replacements=None):
+def _render_page(page_name, context, extra_replacements=None):
     """Assemble base.html + pages/{page_name}.html with substitutions."""
     base_path = _TEMPLATE_DIR / "base.html"
     page_path = _PAGES_DIR / f"{page_name}.html"
@@ -75,15 +93,25 @@ def _render_page(page_name, context, username, password, extra_replacements=None
         return None
     base_html = base_path.read_text(encoding="utf-8")
     page_html = page_path.read_text(encoding="utf-8")
-    auth_token = base64.b64encode(f"{username}:{password}".encode()).decode()
     html = base_html.replace("{{CONTENT}}", page_html)
     html = html.replace("{{AGENT_NAME}}", context.get("agent_name", "CLIver"))
     html = html.replace("{{BASE_URL}}", "/admin")
-    html = html.replace("{{AUTH_TOKEN}}", auth_token)
     html = html.replace("{{CURRENT_PAGE}}", page_name.split("_")[0])
     if extra_replacements:
         for key, value in extra_replacements.items():
             html = html.replace(key, value)
+    return html
+
+
+def _render_login_page(context, error=None):
+    """Render the standalone login page."""
+    page_path = _PAGES_DIR / "login.html"
+    if not page_path.exists():
+        return "<html><body><h1>Login page not found</h1></body></html>"
+    html = page_path.read_text(encoding="utf-8")
+    html = html.replace("{{AGENT_NAME}}", context.get("agent_name", "CLIver"))
+    html = html.replace("{{ERROR}}", error or "")
+    html = html.replace("{{ERROR_DISPLAY}}", "block" if error else "none")
     return html
 
 
@@ -93,7 +121,11 @@ def _render_page(page_name, context, username, password, extra_replacements=None
 
 
 def _get_tasks(ctx: dict) -> list:
-    """List tasks with live state and last run info."""
+    """List tasks from YAML + orphaned DB records.
+
+    Merges YAML-defined tasks with any DB-only (orphaned) tasks whose
+    YAML files have been deleted but still have run history or state.
+    """
     try:
         from cliver.agent_profile import CliverProfile
         from cliver.gateway.task_run_store import TaskRunStore
@@ -105,8 +137,6 @@ def _get_tasks(ctx: dict) -> list:
         profile = CliverProfile(ctx["agent_name"], config_dir)
         tm = TaskManager(profile.tasks_dir)
         tasks = tm.list_tasks()
-        if not tasks:
-            return []
 
         db_path = profile.agent_dir / "gateway.db"
         run_store = None
@@ -114,7 +144,9 @@ def _get_tasks(ctx: dict) -> list:
             run_store = TaskRunStore(db_path)
 
         result = []
+        yaml_names = set()
         for task in tasks:
+            yaml_names.add(task.name)
             entry = task.model_dump(exclude_none=True)
             if run_store:
                 state = run_store.get_task_state(task.name)
@@ -126,7 +158,24 @@ def _get_tasks(ctx: dict) -> list:
             result.append(entry)
 
         if run_store:
+            db_names = set(run_store.get_all_task_names())
+            state_names = {
+                s["task_name"]
+                for status in ("completed", "failed", "running", "suspended", "pending")
+                for s in run_store.get_tasks_by_status(status)
+            }
+            orphan_names = (db_names | state_names) - yaml_names
+            for name in sorted(orphan_names):
+                entry = {"name": name, "orphaned": True}
+                state = run_store.get_task_state(name)
+                if state:
+                    entry["live_status"] = state
+                runs = run_store.get_runs(name, limit=1)
+                if runs:
+                    entry["last_run"] = runs[0].model_dump(exclude_none=True)
+                result.append(entry)
             run_store.close()
+
         return result
     except Exception as e:
         logger.warning("Failed to get tasks: %s", e)
@@ -162,6 +211,12 @@ async def _run_task(ctx: dict, task_name: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
+async def _run_in_thread(fn, *args):
+    """Run a blocking function in a thread executor to avoid blocking the event loop."""
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, fn, *args)
+
+
 def _get_session_manager(ctx, source):
     """Get the session manager for a given source ('cli' or 'gateway')."""
     if source == "gateway":
@@ -173,12 +228,27 @@ def _get_session_manager(ctx, source):
 
 
 def _get_sessions_by_source(ctx, source):
-    """List sessions from the specified source."""
+    """List sessions from the specified source.
+
+    For gateway sessions, extracts the platform from the session_key title
+    and fetches the first user message as a display title.
+    """
     sm = _get_session_manager(ctx, source)
     if not sm:
         return []
     try:
-        return sm.list_sessions()
+        sessions = sm.list_sessions()
+        if source == "gateway":
+            for s in sessions:
+                title = s.get("title") or ""
+                parts = title.split(":", 2)
+                if len(parts) >= 2:
+                    s["platform"] = parts[0]
+                    turns = sm.load_turns(s["id"])
+                    first_user = next((t["content"] for t in turns if t["role"] == "user"), None)
+                    if first_user:
+                        s["display_title"] = first_user[:80]
+        return sessions
     except Exception as e:
         logger.warning("Failed to get %s sessions: %s", source, e)
         return []
@@ -459,7 +529,9 @@ def register_admin_routes(
     """
     from aiohttp import web
 
-    # --- Auth decorator (closure capturing username/password) ---
+    session_secret = secrets.token_hex(32)
+
+    # --- Auth decorator (cookie-first, Basic Auth fallback) ---
 
     def require_auth(handler):
         @functools.wraps(handler)
@@ -469,17 +541,43 @@ def register_admin_routes(
                     {"error": "Admin portal is disabled"},
                     status=403,
                 )
-            if not _check_basic_auth(request, username, password):
-                return web.Response(
-                    status=401,
-                    headers={"WWW-Authenticate": 'Basic realm="CLIver Admin"'},
-                    text="Unauthorized",
-                )
-            return await handler(request)
+            if _check_session_cookie(request, username, session_secret):
+                return await handler(request)
+            if _check_basic_auth(request, username, password):
+                return await handler(request)
+            is_api = request.path.startswith("/admin/api/")
+            if is_api:
+                return web.json_response({"error": "Unauthorized"}, status=401)
+            raise web.HTTPFound("/admin/login")
 
         return wrapper
 
     # --- Route handlers (closures capturing context) ---
+
+    async def handle_login_page(request):
+        if _check_session_cookie(request, username, session_secret):
+            raise web.HTTPFound("/admin/gateway")
+        html = _render_login_page(context)
+        return web.Response(text=html, content_type="text/html")
+
+    async def handle_login_submit(request):
+        try:
+            data = await request.json()
+        except Exception:
+            return web.json_response({"error": "Invalid request"}, status=400)
+        u = data.get("username", "")
+        p = data.get("password", "")
+        if u == username and p == password:
+            token = _make_session_token(username, session_secret)
+            resp = web.json_response({"status": "ok"})
+            resp.set_cookie("cliver_session", token, httponly=True, samesite="Lax", path="/admin")
+            return resp
+        return web.json_response({"error": "Invalid credentials"}, status=401)
+
+    async def handle_logout(request):
+        resp = web.HTTPFound("/admin/login")
+        resp.del_cookie("cliver_session", path="/admin")
+        return resp
 
     @require_auth
     async def handle_admin_root(request):
@@ -488,7 +586,9 @@ def register_admin_routes(
     @require_auth
     async def handle_admin_page(request):
         page = request.match_info["page"]
-        html = _render_page(page, context, username, password)
+        if page == "login":
+            return await handle_login_page(request)
+        html = _render_page(page, context)
         if html is None:
             return web.Response(text="Page not found", status=404)
         return web.Response(text=html, content_type="text/html")
@@ -499,8 +599,6 @@ def register_admin_routes(
         html = _render_page(
             "task_detail",
             context,
-            username,
-            password,
             extra_replacements={"{{ITEM_NAME}}": name},
         )
         if html is None:
@@ -535,13 +633,13 @@ def register_admin_routes(
 
     @require_auth
     async def handle_tasks(request):
-        tasks = _get_tasks(context)
+        tasks = await _run_in_thread(_get_tasks, context)
         return web.json_response(tasks)
 
     @require_auth
     async def handle_task_detail_api(request):
         name = request.match_info["name"]
-        detail = _get_task_detail(context, name)
+        detail = await _run_in_thread(_get_task_detail, context, name)
         return web.json_response(detail)
 
     @require_auth
@@ -553,6 +651,44 @@ def register_admin_routes(
         return web.json_response(result, status=status_code)
 
     @require_auth
+    async def handle_delete_task(request):
+        task_name = request.match_info["name"]
+        logger.info("[admin] Task '%s' deleted via admin portal", task_name)
+        try:
+            from cliver.agent_profile import CliverProfile
+            from cliver.gateway.task_run_store import TaskRunStore
+            from cliver.task_manager import TaskManager
+
+            config_dir = context.get("config_dir")
+            if not config_dir:
+                return web.json_response({"error": "No config dir"}, status=500)
+
+            profile = CliverProfile(context["agent_name"], config_dir)
+            tm = TaskManager(profile.tasks_dir)
+            yaml_removed = tm.remove_task(task_name)
+
+            db_path = profile.agent_dir / "gateway.db"
+            deleted_runs = 0
+            if db_path.exists():
+                run_store = TaskRunStore(db_path)
+                deleted_runs = run_store.delete_runs(task_name)
+                run_store.delete_task_state(task_name)
+                run_store.close()
+
+            if not yaml_removed and deleted_runs == 0:
+                return web.json_response({"error": "Task not found"}, status=404)
+
+            return web.json_response(
+                {
+                    "status": "deleted",
+                    "runs_removed": deleted_runs,
+                }
+            )
+        except Exception as e:
+            logger.error("Failed to delete task '%s': %s", task_name, e)
+            return web.json_response({"error": str(e)}, status=500)
+
+    @require_auth
     async def handle_sessions_by_source(request):
         source = request.match_info["source"]
         if source not in ("cli", "gateway"):
@@ -560,7 +696,7 @@ def register_admin_routes(
                 {"error": f"Invalid source '{source}'. Use 'cli' or 'gateway'."},
                 status=400,
             )
-        sessions = _get_sessions_by_source(context, source)
+        sessions = await _run_in_thread(_get_sessions_by_source, context, source)
         return web.json_response(sessions)
 
     @require_auth
@@ -572,7 +708,7 @@ def register_admin_routes(
                 {"error": f"Invalid source '{source}'."},
                 status=400,
             )
-        turns = _get_session_turns(context, source, session_id)
+        turns = await _run_in_thread(_get_session_turns, context, source, session_id)
         return web.json_response(turns)
 
     @require_auth
@@ -629,6 +765,10 @@ def register_admin_routes(
 
     # Root redirect
     app.router.add_get("/admin", handle_admin_root)
+    app.router.add_get("/admin/", handle_admin_root)
+    app.router.add_get("/admin/login", handle_login_page)
+    app.router.add_post("/admin/api/login", handle_login_submit)
+    app.router.add_get("/admin/logout", handle_logout)
 
     # Detail page routes (before catch-all)
     app.router.add_get("/admin/tasks/{name}", handle_task_detail_page)
@@ -642,6 +782,7 @@ def register_admin_routes(
     app.router.add_get("/admin/api/tasks", handle_tasks)
     app.router.add_get("/admin/api/tasks/{name}", handle_task_detail_api)
     app.router.add_post("/admin/api/tasks/{name}/run", handle_run_task)
+    app.router.add_delete("/admin/api/tasks/{name}", handle_delete_task)
     app.router.add_get("/admin/api/sessions/{source}", handle_sessions_by_source)
     app.router.add_get("/admin/api/sessions/{source}/{id}", handle_session_turns)
     app.router.add_delete("/admin/api/sessions/{source}/{id}", handle_delete_session)
