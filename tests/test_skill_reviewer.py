@@ -88,8 +88,8 @@ class TestMaybeReviewForSkill:
 
 
 class TestToolCallCounter:
-    def test_counter_increments_on_tool_calls(self):
-        from cliver.llm.llm import AgentCore
+    def test_call_context_starts_at_zero(self):
+        from cliver.llm.call_context import CallContext
 
-        executor = AgentCore(llm_models={}, mcp_servers={})
-        assert executor._tool_call_count == 0
+        ctx = CallContext()
+        assert ctx.tool_call_count == 0

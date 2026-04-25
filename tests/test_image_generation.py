@@ -144,6 +144,7 @@ class TestAgentCoreGenerateImage:
     async def test_generate_with_explicit_model(self):
         from langchain_core.messages import AIMessage
 
+        from cliver.llm.call_context import CallContext
         from cliver.llm.llm import AgentCore
 
         prov = self._make_provider()
@@ -158,7 +159,7 @@ class TestAgentCoreGenerateImage:
         }
         with patch.object(executor, "_call_generation_api", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = mock_api_response
-            result = await executor.generate_image("a sunset", model="img")
+            result = await executor.generate_image("a sunset", model="img", ctx=CallContext())
 
             assert isinstance(result, AIMessage)
             assert "media_content" in result.additional_kwargs
@@ -169,6 +170,7 @@ class TestAgentCoreGenerateImage:
     async def test_generate_discovers_provider_with_image_url(self):
         from langchain_core.messages import AIMessage
 
+        from cliver.llm.call_context import CallContext
         from cliver.llm.llm import AgentCore
 
         prov = self._make_provider()
@@ -183,7 +185,7 @@ class TestAgentCoreGenerateImage:
         }
         with patch.object(executor, "_call_generation_api", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = mock_api_response
-            result = await executor.generate_image("a cat")
+            result = await executor.generate_image("a cat", ctx=CallContext())
 
             assert isinstance(result, AIMessage)
             mock_call.assert_called_once()
@@ -193,12 +195,13 @@ class TestAgentCoreGenerateImage:
         from langchain_core.messages import AIMessage
 
         from cliver.config import ModelConfig
+        from cliver.llm.call_context import CallContext
         from cliver.llm.llm import AgentCore
 
         chat_model = ModelConfig(name="chat", provider="openai", url="http://x")
         executor = AgentCore(llm_models={"chat": chat_model}, mcp_servers={})
 
-        result = await executor.generate_image("a cat")
+        result = await executor.generate_image("a cat", ctx=CallContext())
         assert isinstance(result, AIMessage)
         assert "error" in result.content.lower() or "no model" in result.content.lower()
 
