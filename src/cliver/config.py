@@ -348,6 +348,10 @@ class AppConfig(BaseModel):
     )
     gateway: Optional[GatewayConfig] = Field(default=None, description="Gateway daemon configuration")
     session: SessionConfig = Field(default_factory=SessionConfig, description="Session storage limits")
+    timezone: Optional[str] = Field(
+        default=None,
+        description="IANA timezone (e.g. Asia/Shanghai). Defaults to system local.",
+    )
     theme: Optional[str] = Field(default=None, description="UI theme: dark (default), light, dracula")
 
     def resolve_secrets(self) -> None:

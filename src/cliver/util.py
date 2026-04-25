@@ -6,14 +6,47 @@ import select
 import stat
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable, List, Optional
+from zoneinfo import ZoneInfo
 
 from langchain_core.tools import BaseTool
 
 from cliver.constants import APP_NAME, CONFIG_DIR
 
 logger = logging.getLogger(__name__)
+
+# -- Timezone utilities -------------------------------------------------------
+
+_configured_tz: ZoneInfo | None = None
+
+
+def configure_timezone(tz_name: str | None) -> None:
+    """Set the app-wide timezone from config. Call once at startup."""
+    global _configured_tz
+    if tz_name:
+        _configured_tz = ZoneInfo(tz_name)
+    else:
+        _configured_tz = None
+
+
+def get_effective_timezone():
+    """Return configured timezone, or system local."""
+    if _configured_tz:
+        return _configured_tz
+    return datetime.now().astimezone().tzinfo
+
+
+def format_datetime(dt: datetime | None = None, fmt: str = "%Y-%m-%d %H:%M") -> str:
+    """Format a datetime in the effective timezone. Defaults to now."""
+    tz = get_effective_timezone()
+    if dt is None:
+        dt = datetime.now(timezone.utc)
+    return dt.astimezone(tz).strftime(fmt)
+
+
+# -- Config directory ---------------------------------------------------------
 
 
 def get_config_dir() -> Path:
