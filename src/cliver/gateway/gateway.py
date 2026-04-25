@@ -196,6 +196,9 @@ class Gateway:
         gw_config = config.gateway
         host = gw_config.host if gw_config else "127.0.0.1"
         port = gw_config.port if gw_config else 8321
+        # Filter noisy polling endpoints from access logs
+        logging.getLogger("uvicorn.access").addFilter(_QuietPollFilter())
+
         uvicorn.run(self.create_app(), host=host, port=port, log_level="info")
 
     async def _on_startup(self) -> None:
@@ -863,6 +866,16 @@ class Gateway:
                     task.name,
                     platform_name,
                 )
+
+
+class _QuietPollFilter(logging.Filter):
+    """Suppress access log entries for high-frequency polling endpoints."""
+
+    _QUIET_PATHS = ("/admin/api/status", "/health")
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        return not any(p in msg for p in self._QUIET_PATHS)
 
 
 def _create_gateway_tool_handler():

@@ -63,6 +63,22 @@ class CronScheduler:
             if not task.schedule:
                 continue
 
+            # Auto-correct: if schedule is a datetime, treat as run_at
+            try:
+                scheduled = datetime.fromisoformat(task.schedule)
+                if scheduled.tzinfo is None:
+                    from cliver.util import get_effective_timezone
+
+                    scheduled = scheduled.replace(tzinfo=get_effective_timezone())
+                scheduled = scheduled.astimezone(timezone.utc)
+                if scheduled <= now:
+                    last_run = self.run_store.get_last_run_time(task.name) or 0.0
+                    if last_run < scheduled.timestamp():
+                        due.append(task)
+                continue
+            except ValueError:
+                pass
+
             last_run = self.run_store.get_last_run_time(task.name) or 0.0
             try:
                 cron = croniter(task.schedule, datetime.fromtimestamp(last_run, tz=timezone.utc))
