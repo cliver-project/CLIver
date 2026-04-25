@@ -101,7 +101,14 @@ class CliverHelpTool(BaseTool):
 
         resolved = _ALIASES.get(topic, topic)
         if resolved in HANDLERS:
-            return _get_command_help(resolved)
+            help_text = _get_command_help(resolved)
+            if resolved == "task":
+                help_text += (
+                    "\n\nNOTE: To create tasks programmatically, use the CreateTask "
+                    "tool — NOT shell commands. CreateTask auto-attaches IM origin "
+                    "so results are delivered back to the conversation."
+                )
+            return help_text
 
         available = sorted({"commands", "config_file"} | set(HANDLERS.keys()))
         return f"Unknown topic: '{topic}'. Available: {', '.join(available)}"

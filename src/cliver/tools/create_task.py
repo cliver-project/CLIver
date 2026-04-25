@@ -25,8 +25,9 @@ class CreateTaskInput(BaseModel):
 class CreateTaskTool(BaseTool):
     name: str = "CreateTask"
     description: str = (
-        "Create a task. Use when the user wants to schedule or defer execution. "
-        "IM origin is auto-attached for reply-back."
+        "Create a scheduled or deferred task. ALWAYS use this tool instead of "
+        "shell commands like 'cliver task create'. This tool auto-attaches IM "
+        "origin so task results are delivered back to the conversation."
     )
     args_schema: Type[BaseModel] = CreateTaskInput
     tags: list = ["task", "scheduling"]
