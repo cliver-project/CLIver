@@ -727,7 +727,10 @@ class Gateway:
                     "# IM Context\n\n"
                     "You are responding in an IM conversation (e.g. Slack, Telegram). "
                     "Interactive input is not available — do NOT use the Ask tool. "
-                    "Proceed autonomously with reasonable defaults."
+                    "Proceed autonomously with reasonable defaults.\n\n"
+                    "To create scheduled tasks, use the CreateTask tool — NOT shell commands "
+                    "like 'cliver task create'. The CreateTask tool auto-attaches IM origin "
+                    "so results are delivered back to this conversation."
                 )
 
             try:
