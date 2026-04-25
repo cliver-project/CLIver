@@ -219,7 +219,7 @@ class AgentCore:
             )
         await self.rate_limiter.wait(provider_name)
 
-    async def generate_image(self, prompt: str, model: str = None, **params) -> BaseMessage:
+    async def generate_image(self, prompt: str, model: str = None, ctx: "CallContext | None" = None, **params) -> BaseMessage:
         """Generate images from a text prompt via the provider's image API.
 
         All HTTP calls are made here — helpers only format requests and parse
@@ -249,8 +249,8 @@ class AgentCore:
             logger.error("Image generation failed: %s", e)
             return AIMessage(content=f"Error generating image: {e}")
 
-        # Accumulate media so it can be attached to the final Re-Act response
-        self._generated_media.extend(media_list)
+        if ctx:
+            ctx.generated_media.extend(media_list)
 
         urls = [m.data for m in media_list if m.data]
         content = f"Generated {len(media_list)} image(s):\n" + "\n".join(urls) if urls else "Image generated."
@@ -422,7 +422,7 @@ class AgentCore:
         compressed_conv = await compressor.compress(conv_msgs, llm_engine)
         return system_msgs + compressed_conv
 
-    async def _maybe_learn_skill(self, user_input: str, result: BaseMessage) -> None:
+    async def _maybe_learn_skill(self, user_input: str, result: BaseMessage, ctx: "CallContext | None" = None) -> None:
         """Post-task hook: trigger skill review if the task was complex.
 
         Runs asynchronously after the main task completes. Uses a low-iteration
@@ -443,7 +443,7 @@ class AgentCore:
 
             skill_name = await maybe_review_for_skill(
                 task_executor=self,
-                tool_call_count=self._tool_call_count,
+                tool_call_count=ctx.tool_call_count if ctx else 0,
                 task_summary=task_summary,
                 skills_dir=skills_dir,
             )
