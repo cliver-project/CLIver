@@ -18,8 +18,16 @@ class CreateTaskInput(BaseModel):
     prompt: str = Field(..., description="Prompt the LLM receives when the task runs")
     description: Optional[str] = Field(None, description="What this task does")
     model: Optional[str] = Field(None, description="Model override")
-    schedule: Optional[str] = Field(None, description="Cron expression for recurring execution")
-    run_at: Optional[str] = Field(None, description="ISO 8601 datetime for one-shot execution")
+    schedule: Optional[str] = Field(
+        None,
+        description="Cron expression for RECURRING tasks ONLY (e.g. '0 9 * * *' for daily 9am). "
+        "Do NOT put a datetime here — use run_at instead.",
+    )
+    run_at: Optional[str] = Field(
+        None,
+        description="ISO 8601 datetime for ONE-TIME execution (e.g. '2026-04-25T14:30:00'). "
+        "Use this for 'run at a specific time', 'in 5 minutes', 'at 3pm', etc.",
+    )
 
 
 class CreateTaskTool(BaseTool):
@@ -48,6 +56,17 @@ class CreateTaskTool(BaseTool):
             if profile is None:
                 return "Error: no agent profile available."
             tasks_dir = profile.tasks_dir
+
+        # Auto-correct: if schedule looks like a datetime, move it to run_at
+        if schedule and not run_at:
+            from datetime import datetime
+
+            try:
+                datetime.fromisoformat(schedule)
+                run_at = schedule
+                schedule = None
+            except ValueError:
+                pass
 
         if run_at:
             from datetime import datetime
