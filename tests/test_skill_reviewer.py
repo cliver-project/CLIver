@@ -36,7 +36,7 @@ class TestMaybeReviewForSkill:
         executor = MagicMock()
         result = asyncio.run(
             maybe_review_for_skill(
-                task_executor=executor,
+                agent_core=executor,
                 tool_call_count=3,
                 task_summary="simple task",
                 threshold=10,
@@ -57,7 +57,7 @@ class TestMaybeReviewForSkill:
 
         result = asyncio.run(
             maybe_review_for_skill(
-                task_executor=executor,
+                agent_core=executor,
                 tool_call_count=15,
                 task_summary="complex kubernetes deployment with error recovery",
                 threshold=10,
@@ -75,7 +75,7 @@ class TestMaybeReviewForSkill:
 
         result = asyncio.run(
             maybe_review_for_skill(
-                task_executor=executor,
+                agent_core=executor,
                 tool_call_count=15,
                 task_summary="some task",
                 threshold=10,

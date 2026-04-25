@@ -156,7 +156,7 @@ class WorkflowCompiler:
             if factory and agent_config:
                 subagent = factory.create(agent_config)
             else:
-                subagent = config["configurable"]["task_executor"]
+                subagent = config["configurable"]["agent_core"]
 
             def system_appender():
                 parts = []
@@ -283,7 +283,7 @@ class WorkflowCompiler:
                 from cliver.workflow.workflow_executor import WorkflowExecutor
 
                 sub_executor = WorkflowExecutor(
-                    task_executor=config["configurable"]["task_executor"],
+                    agent_core=config["configurable"]["agent_core"],
                     store=store,
                     db_path=config["configurable"].get("db_path"),
                     app_config=config["configurable"].get("app_config"),

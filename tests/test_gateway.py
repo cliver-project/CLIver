@@ -29,7 +29,7 @@ class TestGateway:
     async def test_startup_acquires_flock(self, config_dir):
         gw = Gateway(config_dir=config_dir, agent_name="test")
         app = web.Application()
-        with patch.object(gw, "_create_task_executor", return_value=MagicMock()):
+        with patch.object(gw, "_create_agent_core", return_value=MagicMock()):
             with patch.object(gw, "_load_adapters", return_value=[]):
                 await gw._on_startup(app)
                 assert gw._pid_path.exists()
@@ -55,7 +55,7 @@ class TestGateway:
     async def test_cleanup_releases_flock(self, config_dir):
         gw = Gateway(config_dir=config_dir, agent_name="test")
         app = web.Application()
-        with patch.object(gw, "_create_task_executor", return_value=MagicMock()):
+        with patch.object(gw, "_create_agent_core", return_value=MagicMock()):
             with patch.object(gw, "_load_adapters", return_value=[]):
                 await gw._on_startup(app)
                 assert gw._pid_file is not None
@@ -125,23 +125,23 @@ class TestOriginAwareExecution:
     async def test_run_task_without_origin(self, config_dir):
         """CLI-originated task runs statelessly, no reply-back."""
         gw = Gateway(config_dir=config_dir, agent_name="test")
-        gw._task_executor = MagicMock()
-        gw._task_executor.process_user_input = AsyncMock(return_value=MagicMock(content="done"))
+        gw._agent_core = MagicMock()
+        gw._agent_core.process_user_input = AsyncMock(return_value=MagicMock(content="done"))
         gw._run_store = MagicMock()
         gw._run_store.set_task_state = MagicMock()
 
         task = TaskDefinition(name="cli-task", prompt="do x")
         await gw._run_task(task)
 
-        gw._task_executor.process_user_input.assert_awaited_once()
+        gw._agent_core.process_user_input.assert_awaited_once()
         gw._run_store.record_run.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_run_task_with_im_origin_adapter_connected(self, config_dir):
         """IM-originated task delivers result back to thread."""
         gw = Gateway(config_dir=config_dir, agent_name="test")
-        gw._task_executor = MagicMock()
-        gw._task_executor.process_user_input = AsyncMock(return_value=MagicMock(content="AI trends summary"))
+        gw._agent_core = MagicMock()
+        gw._agent_core.process_user_input = AsyncMock(return_value=MagicMock(content="AI trends summary"))
         gw._run_store = MagicMock()
         gw._run_store.set_task_state = MagicMock()
 
@@ -178,8 +178,8 @@ class TestOriginAwareExecution:
     async def test_run_task_suspended_when_adapter_disconnected(self, config_dir):
         """IM-originated task gets suspended if adapter is not connected."""
         gw = Gateway(config_dir=config_dir, agent_name="test")
-        gw._task_executor = MagicMock()
-        gw._task_executor.process_user_input = AsyncMock()
+        gw._agent_core = MagicMock()
+        gw._agent_core.process_user_input = AsyncMock()
         gw._run_store = MagicMock()
         gw._run_store.set_task_state = MagicMock()
         gw._adapter_manager = MagicMock()
@@ -197,4 +197,4 @@ class TestOriginAwareExecution:
         gw._run_store.set_task_state.assert_called_with(
             "suspended-task", "suspended", reason="Adapter 'slack' not connected"
         )
-        gw._task_executor.process_user_input.assert_not_awaited()
+        gw._agent_core.process_user_input.assert_not_awaited()

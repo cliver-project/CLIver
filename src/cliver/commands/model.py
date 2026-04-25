@@ -195,7 +195,7 @@ def _set_default_model(cliver: Cliver, name: str = None):
 
     if cliver.config_manager.set_default_model(name):
         # Sync to the running AgentCore
-        cliver.task_executor.default_model = name
+        cliver.agent_core.default_model = name
         cliver.output(f"Default model set to: [green]{name}[/green]")
     else:
         cliver.output(f"[red]Model '{name}' not found.[/red]")

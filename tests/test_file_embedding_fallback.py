@@ -50,7 +50,7 @@ class TestFileEmbeddingFallback:
         return engine
 
     @pytest.fixture
-    def task_executor(self, mock_engine):
+    def agent_core(self, mock_engine):
         """Create a mock AgentCore."""
         llm_models = {"test-model": mock_engine.config}
         mcp_servers = {}
@@ -58,7 +58,7 @@ class TestFileEmbeddingFallback:
         executor.llm_engines["test-model"] = mock_engine
         return executor
 
-    def test_process_user_input_with_files_fallback(self, task_executor, mock_engine):
+    def test_process_user_input_with_files_fallback(self, agent_core, mock_engine):
         """Test processing user input with file embedding fallback."""
         # Mock the LLM response
         mock_response = AIMessage(content="I've analyzed the file contents.")
@@ -74,7 +74,7 @@ class TestFileEmbeddingFallback:
 
         try:
             # Process user input with files (should use embedding fallback)
-            response = task_executor.process_user_input_sync(
+            response = agent_core.process_user_input_sync(
                 user_input="Analyze this file",
                 files=[test_file_path],
                 model="test-model",
@@ -105,7 +105,7 @@ class TestFileEmbeddingFallback:
             # Clean up the temporary file
             os.unlink(test_file_path)
 
-    def test_process_user_input_with_multiple_files_fallback(self, task_executor, mock_engine):
+    def test_process_user_input_with_multiple_files_fallback(self, agent_core, mock_engine):
         """Test processing user input with multiple files using embedding fallback."""
         # Mock the LLM response
         mock_response = AIMessage(content="I've analyzed the file contents.")
@@ -123,7 +123,7 @@ class TestFileEmbeddingFallback:
                     test_files.append(f.name)
 
             # Process user input with multiple files (should use embedding fallback)
-            response = task_executor.process_user_input_sync(
+            response = agent_core.process_user_input_sync(
                 user_input="Analyze these files", files=test_files, model="test-model"
             )
 

@@ -45,7 +45,7 @@ class TestTranscribeAudioTool:
         audio_file = tmp_path / "audio.mp3"
         audio_file.write_bytes(b"fake audio")
 
-        with patch("cliver.tools.transcribe_audio.get_task_executor", return_value=None):
+        with patch("cliver.tools.transcribe_audio.get_agent_core", return_value=None):
             tool = TranscribeAudioTool()
             result = tool._run(file_path=str(audio_file))
 
@@ -64,7 +64,7 @@ class TestTranscribeAudioTool:
         mock_client.audio.transcriptions.create.return_value = mock_transcript
 
         with (
-            patch("cliver.tools.transcribe_audio.get_task_executor", return_value=mock_executor),
+            patch("cliver.tools.transcribe_audio.get_agent_core", return_value=mock_executor),
             patch("cliver.tools.transcribe_audio.OpenAI", return_value=mock_client),
         ):
             tool = TranscribeAudioTool()
@@ -94,7 +94,7 @@ class TestTranscribeVoiceMessage:
         audio_file = tmp_path / "voice.ogg"
         audio_file.write_bytes(b"fake audio")
 
-        with patch("cliver.tools.transcribe_audio.get_task_executor", return_value=None):
+        with patch("cliver.tools.transcribe_audio.get_agent_core", return_value=None):
             result = asyncio.run(transcribe_voice_message(str(audio_file)))
 
         assert result is None
@@ -111,7 +111,7 @@ class TestTranscribeVoiceMessage:
         mock_client.audio.transcriptions.create.return_value = mock_transcript
 
         with (
-            patch("cliver.tools.transcribe_audio.get_task_executor", return_value=mock_executor),
+            patch("cliver.tools.transcribe_audio.get_agent_core", return_value=mock_executor),
             patch("cliver.tools.transcribe_audio.OpenAI", return_value=mock_client),
         ):
             result = asyncio.run(transcribe_voice_message(str(audio_file)))

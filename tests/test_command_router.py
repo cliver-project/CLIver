@@ -13,7 +13,7 @@ class MockCliver:
         self.outputs = []
         self.session_options = {}
         self.conversation_messages = []
-        self.task_executor = None
+        self.agent_core = None
         self.ui = MagicMock()
         self.ui.output = lambda text, **kw: self.outputs.append(text)
         self._cancel_requested = False

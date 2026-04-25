@@ -13,7 +13,7 @@ from cliver.cli import Cliver, pass_cliver
 from cliver.skill_manager import SkillManager
 
 
-def _compress_if_needed(cliver, task_executor, model_config, model_name, new_input):
+def _compress_if_needed(cliver, agent_core, model_config, model_name, new_input):
     """Check and compress conversation history if it exceeds context window budget."""
     from cliver.conversation_compressor import ConversationCompressor, estimate_tokens, get_context_window
 
@@ -24,7 +24,7 @@ def _compress_if_needed(cliver, task_executor, model_config, model_name, new_inp
         return
 
     before_tokens = estimate_tokens(cliver.conversation_messages)
-    llm_engine = task_executor.get_llm_engine(model_name)
+    llm_engine = agent_core.get_llm_engine(model_name)
 
     try:
         compressed = asyncio.get_event_loop().run_until_complete(
@@ -76,15 +76,15 @@ def _activate_skill(cliver: Cliver, name: str, message: str = ""):
     session_options = cliver.session_options or {}
     use_model = session_options.get("model", None)
     use_stream = session_options.get("stream", True)
-    task_executor = cliver.task_executor
+    agent_core = cliver.agent_core
 
     # Record user turn
     cliver.record_turn("user", user_message)
 
     # Compress if needed
-    model_config = task_executor._get_llm_model(use_model)
+    model_config = agent_core._get_llm_model(use_model)
     if model_config and cliver.conversation_messages:
-        _compress_if_needed(cliver, task_executor, model_config, use_model, user_message)
+        _compress_if_needed(cliver, agent_core, model_config, use_model, user_message)
 
     conv_history = list(cliver.conversation_messages) if cliver.conversation_messages else None
     cliver.conversation_messages.append(HumanMessage(content=user_message))

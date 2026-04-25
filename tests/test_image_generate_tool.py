@@ -14,7 +14,7 @@ class TestImageGenerateTool:
 
     def test_run_no_executor(self):
         tool = ImageGenerateTool()
-        with patch("cliver.tools.image_generate.get_task_executor", return_value=None):
+        with patch("cliver.tools.image_generate.get_agent_core", return_value=None):
             result = tool._run(prompt="a cat")
             assert "error" in result.lower()
 
@@ -28,7 +28,7 @@ class TestImageGenerateTool:
         )
         mock_executor.generate_image = AsyncMock(return_value=mock_result)
 
-        with patch("cliver.tools.image_generate.get_task_executor", return_value=mock_executor):
+        with patch("cliver.tools.image_generate.get_agent_core", return_value=mock_executor):
             result = tool._run(prompt="a cat")
             assert "https://img.png" in result
             mock_executor.generate_image.assert_called_once_with("a cat", None, ctx=ANY)
@@ -39,7 +39,7 @@ class TestImageGenerateTool:
         mock_result = AIMessage(content="Generated 1 image(s):\nhttps://img.png")
         mock_executor.generate_image = AsyncMock(return_value=mock_result)
 
-        with patch("cliver.tools.image_generate.get_task_executor", return_value=mock_executor):
+        with patch("cliver.tools.image_generate.get_agent_core", return_value=mock_executor):
             tool._run(prompt="a dog", model="minimax-image")
             mock_executor.generate_image.assert_called_once_with("a dog", "minimax-image", ctx=ANY)
 
@@ -48,7 +48,7 @@ class TestImageGenerateTool:
         mock_executor = Mock()
         mock_executor.generate_image = AsyncMock(side_effect=RuntimeError("API down"))
 
-        with patch("cliver.tools.image_generate.get_task_executor", return_value=mock_executor):
+        with patch("cliver.tools.image_generate.get_agent_core", return_value=mock_executor):
             result = tool._run(prompt="a cat")
             assert "error" in result.lower()
             assert "API down" in result

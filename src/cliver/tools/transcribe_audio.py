@@ -13,7 +13,7 @@ from langchain_core.tools import BaseTool
 from openai import OpenAI
 from pydantic import BaseModel, Field
 
-from cliver.agent_profile import get_task_executor
+from cliver.agent_profile import get_agent_core
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +69,7 @@ class TranscribeAudioTool(BaseTool):
 
 def _find_audio_model() -> Optional[dict]:
     """Find a configured model with AUDIO_TO_TEXT capability."""
-    executor = get_task_executor()
+    executor = get_agent_core()
     if not executor:
         return None
 

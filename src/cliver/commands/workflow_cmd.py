@@ -69,7 +69,7 @@ def _run_workflow(cliver: Cliver, name: str, inputs: tuple):
 
     db_path = cliver.config_dir / "workflow-checkpoints.db"
     executor = WorkflowExecutor(
-        task_executor=cliver.task_executor,
+        agent_core=cliver.agent_core,
         store=store,
         db_path=db_path,
         app_config=cliver.config_manager.config,
@@ -116,7 +116,7 @@ def _resume_workflow(cliver: Cliver, name: str, thread: str, answer: str | None)
 
     db_path = cliver.config_dir / "workflow-checkpoints.db"
     executor = WorkflowExecutor(
-        task_executor=cliver.task_executor,
+        agent_core=cliver.agent_core,
         store=store,
         db_path=db_path,
         app_config=cliver.config_manager.config,

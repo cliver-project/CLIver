@@ -42,7 +42,7 @@ class TestFileUpload:
         return engine
 
     @pytest.fixture
-    def task_executor(self, openai_engine):
+    def agent_core(self, openai_engine):
         """Create a mock AgentCore."""
         llm_models = {"gpt-4": openai_engine.config}
         mcp_servers = {}
@@ -50,7 +50,7 @@ class TestFileUpload:
         executor.llm_engines["gpt-4"] = openai_engine
         return executor
 
-    def test_process_user_input_with_files(self, task_executor, openai_engine):
+    def test_process_user_input_with_files(self, agent_core, openai_engine):
         """Test processing user input with file uploads."""
         # Mock the LLM response
         mock_response = AIMessage(content="I've analyzed the files.")
@@ -60,7 +60,7 @@ class TestFileUpload:
         openai_engine.upload_file = Mock(return_value="file-12345")
 
         # Process user input with files
-        response = task_executor.process_user_input_sync(
+        response = agent_core.process_user_input_sync(
             user_input="Analyze these files",
             files=["test.txt", "data.csv"],
             model="gpt-4",

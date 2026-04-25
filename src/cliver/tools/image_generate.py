@@ -13,7 +13,7 @@ from typing import Optional, Type
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from cliver.agent_profile import get_task_executor
+from cliver.agent_profile import get_agent_core
 
 logger = logging.getLogger(__name__)
 
@@ -57,9 +57,9 @@ class ImageGenerateTool(BaseTool):
     args_schema: Type[BaseModel] = ImageGenerateInput
 
     def _run(self, prompt: str, model: Optional[str] = None) -> str:
-        executor = get_task_executor()
+        executor = get_agent_core()
         if not executor:
-            return "Error: No task executor available for image generation."
+            return "Error: No AgentCore available for image generation."
 
         try:
             from cliver.llm.call_context import CallContext

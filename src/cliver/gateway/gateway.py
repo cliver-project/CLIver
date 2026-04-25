@@ -79,7 +79,7 @@ class Gateway:
         self._resolved_config = resolved_config
         self._pid_path = self.config_dir / "cliver-gateway.pid"
         self._pid_file = None
-        self._task_executor: Optional[AgentCore] = None
+        self._agent_core: Optional[AgentCore] = None
         self._scheduler: Optional[CronScheduler] = None
         self._run_store: Optional[TaskRunStore] = None
         self._task_manager: Optional[TaskManager] = None
@@ -97,7 +97,7 @@ class Gateway:
         parent process before fork — the child inherits the initialized
         state and never touches the keychain.
         """
-        self._task_executor = self._create_task_executor()
+        self._agent_core = self._create_agent_core()
 
     def _get_config_manager(self) -> "ConfigManager":
         """Get config manager, using pre-resolved config if available."""
@@ -145,20 +145,20 @@ class Gateway:
         self._pid_file.flush()
 
         # AgentCore (may already be set if pre-initialized before fork)
-        if self._task_executor:
+        if self._agent_core:
             logger.info("Using pre-initialized AgentCore")
         else:
             try:
-                self._task_executor = self._create_task_executor()
+                self._agent_core = self._create_agent_core()
             except Exception as e:
-                logger.error(f"Failed to create task executor: {e}")
+                logger.error(f"Failed to create AgentCore: {e}")
 
         # Register API routes
         config = self._get_config_manager().config
         gw_config = config.gateway
         api_key = gw_config.api_key if gw_config else None
-        if self._task_executor:
-            register_routes(app, self._task_executor, self._get_status, api_key=api_key)
+        if self._agent_core:
+            register_routes(app, self._agent_core, self._get_status, api_key=api_key)
 
         # Always register /health even without executor
         from aiohttp import web
@@ -369,7 +369,7 @@ class Gateway:
                 if task.skills:
                     system_appender = self._build_skill_appender(task.skills)
 
-                response = await self._task_executor.process_user_input(
+                response = await self._agent_core.process_user_input(
                     user_input=task.prompt,
                     model=task.model,
                     system_message_appender=system_appender,
@@ -491,7 +491,7 @@ class Gateway:
         from cliver.workflow.persistence import WorkflowStore
         from cliver.workflow.workflow_executor import WorkflowExecutor
 
-        if not self._task_executor:
+        if not self._agent_core:
             logger.error("Gateway not started — cannot run workflow")
             return None
 
@@ -501,7 +501,7 @@ class Gateway:
 
         config_manager = self._get_config_manager()
         executor = WorkflowExecutor(
-            task_executor=self._task_executor,
+            agent_core=self._agent_core,
             store=store,
             db_path=db_path,
             app_config=config_manager.config,
@@ -509,7 +509,7 @@ class Gateway:
 
         return await executor.execute_workflow(workflow_name, inputs=inputs)
 
-    def _create_task_executor(self) -> AgentCore:
+    def _create_agent_core(self) -> AgentCore:
         """Create a AgentCore from config (same config the CLI uses)."""
         config_manager = self._get_config_manager()
         agent_profile = CliverProfile(self.agent_name, self.config_dir)
@@ -595,8 +595,8 @@ class Gateway:
         """Compress conversation history if it exceeds the model's context window."""
         from cliver.conversation_compressor import ConversationCompressor
 
-        llm_engine = self._task_executor.get_llm_engine()
-        model_config = self._task_executor._get_llm_model()
+        llm_engine = self._agent_core.get_llm_engine()
+        model_config = self._agent_core._get_llm_model()
         context_window = getattr(model_config, "context_window", None) or 32768
 
         compressor = ConversationCompressor(context_window=context_window)
@@ -626,7 +626,7 @@ class Gateway:
         logger.info(
             "_handle_message called: platform=%s, user=%s, text=%.100s", event.platform, event.user_id, event.text
         )
-        if not self._task_executor:
+        if not self._agent_core:
             logger.error("AgentCore not initialized — cannot process message")
             return
 
@@ -696,7 +696,7 @@ class Gateway:
                     conversation_history.append(AIMessage(content=turn["content"]))
 
             # Compress history if it exceeds the model's context window
-            if conversation_history and self._task_executor:
+            if conversation_history and self._agent_core:
                 try:
                     conversation_history = await self._compress_history(conversation_history, event.text)
                 except Exception as e:
@@ -708,7 +708,7 @@ class Gateway:
             # Run AgentCore
             logger.info(
                 "Calling AgentCore.process_user_input (model=%s, history=%d turns)",
-                self._task_executor.default_model,
+                self._agent_core.default_model,
                 len(conversation_history),
             )
             # Set IM context for tools (e.g., create_task) to read
@@ -731,7 +731,7 @@ class Gateway:
                 )
 
             try:
-                response = await self._task_executor.process_user_input(
+                response = await self._agent_core.process_user_input(
                     user_input=event.text,
                     images=images or None,
                     audio_files=audio_files or None,

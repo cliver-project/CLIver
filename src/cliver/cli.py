@@ -128,7 +128,7 @@ class Cliver:
             audit_dir=self.config_dir / "audit_logs",
             agent_name=agent_name,
         )
-        self.task_executor = AgentCore(
+        self.agent_core = AgentCore(
             llm_models=self.config_manager.list_llm_models(),
             mcp_servers=self.config_manager.list_mcp_servers_for_mcp_caller(),
             default_model=self.config_manager.get_llm_model().name if self.config_manager.get_llm_model() else None,
@@ -141,7 +141,7 @@ class Cliver:
             on_permission_prompt=_create_permission_prompt(self.console, self),
             enabled_toolsets=self.config_manager.config.enabled_toolsets,
         )
-        self.task_executor.configure_rate_limits(self.config_manager.config.providers)
+        self.agent_core.configure_rate_limits(self.config_manager.config.providers)
 
         from cliver.cost_tracker import CostTracker
 

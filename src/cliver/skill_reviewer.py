@@ -50,7 +50,7 @@ Here is a summary of what was accomplished:
 
 
 async def maybe_review_for_skill(
-    task_executor,
+    agent_core,
     tool_call_count: int,
     task_summary: str,
     threshold: int = DEFAULT_SKILL_NUDGE_THRESHOLD,
@@ -59,7 +59,7 @@ async def maybe_review_for_skill(
     """Evaluate whether the completed task should generate a skill.
 
     Args:
-        task_executor: The AgentCore instance (for making the review LLM call)
+        agent_core: The AgentCore instance (for making the review LLM call)
         tool_call_count: Number of tool calls made during the task
         task_summary: Brief summary of what was accomplished
         threshold: Minimum tool calls to trigger review
@@ -100,7 +100,7 @@ async def maybe_review_for_skill(
     )
 
     try:
-        response = await task_executor.process_user_input(
+        response = await agent_core.process_user_input(
             user_input=prompt,
             max_iterations=8,  # Low cap — just needs to decide + write file
         )

@@ -29,7 +29,7 @@ _current_profile: Optional["CliverProfile"] = None
 
 # Global AgentCore reference — set by AgentCore at init.
 # Tools like parallel_tasks need this to spawn concurrent LLM calls.
-_task_executor = None
+_agent_core = None
 
 # Global input function — set by CLI layer to support TUI-safe input.
 # Tools should call get_input_fn()("prompt") instead of raw input().
@@ -54,15 +54,15 @@ def get_current_profile() -> Optional["CliverProfile"]:
     return _current_profile
 
 
-def set_task_executor(executor) -> None:
+def set_agent_core(executor) -> None:
     """Set the active AgentCore. Called by AgentCore at init."""
-    global _task_executor
-    _task_executor = executor
+    global _agent_core
+    _agent_core = executor
 
 
-def get_task_executor():
+def get_agent_core():
     """Get the active AgentCore. Used by tools that need LLM calls."""
-    return _task_executor
+    return _agent_core
 
 
 def set_input_fn(fn) -> None:

@@ -12,7 +12,7 @@ from typing import List, Type
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
-from cliver.agent_profile import get_task_executor
+from cliver.agent_profile import get_agent_core
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ class ParallelTasksTool(BaseTool):
     args_schema: Type[BaseModel] = ParallelTasksInput
 
     def _run(self, tasks: List[str]) -> str:
-        executor = get_task_executor()
+        executor = get_agent_core()
         if executor is None:
             return "Error: parallel_tasks is not available in this session."
 

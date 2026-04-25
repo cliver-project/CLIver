@@ -170,8 +170,8 @@ def _compress_session(cliver: Cliver):
     # Get model config for context window
     _session_options = cliver.session_options or {}
     model_name = _session_options.get("model", None)
-    task_executor = cliver.task_executor
-    model_config = task_executor._get_llm_model(model_name)
+    agent_core = cliver.agent_core
+    model_config = agent_core._get_llm_model(model_name)
 
     if not model_config:
         cliver.output("No model configured. Cannot compress.")
@@ -179,7 +179,7 @@ def _compress_session(cliver: Cliver):
 
     context_window = get_context_window(model_config)
     compressor = ConversationCompressor(context_window)
-    llm_engine = task_executor.get_llm_engine(model_name)
+    llm_engine = agent_core.get_llm_engine(model_name)
 
     before_tokens = estimate_tokens(cliver.conversation_messages)
     before_count = len(cliver.conversation_messages)
@@ -221,8 +221,8 @@ def _compress_loaded_session(cliver):
 
     _session_options = cliver.session_options or {}
     model_name = _session_options.get("model", None)
-    task_executor = cliver.task_executor
-    model_config = task_executor._get_llm_model(model_name)
+    agent_core = cliver.agent_core
+    model_config = agent_core._get_llm_model(model_name)
 
     if not model_config:
         return
@@ -234,7 +234,7 @@ def _compress_loaded_session(cliver):
         return
 
     before_tokens = estimate_tokens(cliver.conversation_messages)
-    llm_engine = task_executor.get_llm_engine(model_name)
+    llm_engine = agent_core.get_llm_engine(model_name)
 
     try:
         compressed = asyncio.run(compressor.compress(cliver.conversation_messages, llm_engine))
@@ -289,7 +289,7 @@ def _display_options(cliver: Cliver) -> None:
         cliver.output(f"  extra options:     {extra}")
 
     # Show model exclusions
-    excluded = cliver.task_executor.excluded_models
+    excluded = cliver.agent_core.excluded_models
     if excluded:
         cliver.output(f"\n  excluded models:   {', '.join(sorted(excluded))}")
 
@@ -421,7 +421,7 @@ def reset_options(cliver: Cliver):
         "save_media": False,
         "media_dir": None,
     }
-    cliver.task_executor.excluded_models.clear()
+    cliver.agent_core.excluded_models.clear()
     cliver.output("Session options have been reset to defaults.")
     _persist_session_options(cliver)
     return 0
@@ -435,7 +435,7 @@ def option_model_exclude(cliver: Cliver, model_name: str):
     if model_name not in cliver.config_manager.list_llm_models():
         cliver.output(f"Unknown model: {model_name}")
         return
-    cliver.task_executor.excluded_models.add(model_name)
+    cliver.agent_core.excluded_models.add(model_name)
     cliver.output(f"Excluded '{model_name}' from fallback for this session.")
 
 
@@ -444,8 +444,8 @@ def option_model_exclude(cliver: Cliver, model_name: str):
 @pass_cliver
 def option_model_include(cliver: Cliver, model_name: str):
     """Re-include a previously excluded model."""
-    if model_name in cliver.task_executor.excluded_models:
-        cliver.task_executor.excluded_models.discard(model_name)
+    if model_name in cliver.agent_core.excluded_models:
+        cliver.agent_core.excluded_models.discard(model_name)
         cliver.output(f"Re-included '{model_name}' for fallback.")
     else:
         cliver.output(f"'{model_name}' is not excluded.")
@@ -483,13 +483,13 @@ def _dispatch_option(cliver: Cliver, args: str):
         cliver.output("[green]Session options reset to defaults.[/green]")
     elif sub == "exclude":
         if rest:
-            cliver.task_executor.excluded_models.add(rest.strip())
+            cliver.agent_core.excluded_models.add(rest.strip())
             cliver.output(f"Excluded model: {rest.strip()}")
         else:
             cliver.output("[yellow]Usage: /session option exclude <model>[/yellow]")
     elif sub == "include":
         if rest:
-            cliver.task_executor.excluded_models.discard(rest.strip())
+            cliver.agent_core.excluded_models.discard(rest.strip())
             cliver.output(f"Re-included model: {rest.strip()}")
         else:
             cliver.output("[yellow]Usage: /session option include <model>[/yellow]")

@@ -23,13 +23,13 @@ class WorkflowExecutor:
 
     def __init__(
         self,
-        task_executor: AgentCore,
+        agent_core: AgentCore,
         store: WorkflowStore,
         db_path: Optional[Path] = None,
         app_config=None,
         skill_manager=None,
     ):
-        self.task_executor = task_executor
+        self.agent_core = agent_core
         self.store = store
         self.compiler = WorkflowCompiler()
 
@@ -76,7 +76,7 @@ class WorkflowExecutor:
         config = {
             "configurable": {
                 "thread_id": f"{workflow_name}_{execution_id}",
-                "task_executor": self.task_executor,
+                "agent_core": self.agent_core,
                 "subagent_factory": self._subagent_factory,
                 "workflow_store": self.store,
                 "db_path": self._db_path,
@@ -117,7 +117,7 @@ class WorkflowExecutor:
         config = {
             "configurable": {
                 "thread_id": thread_id,
-                "task_executor": self.task_executor,
+                "agent_core": self.agent_core,
                 "subagent_factory": self._subagent_factory,
                 "workflow_store": self.store,
                 "db_path": self._db_path,

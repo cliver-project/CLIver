@@ -90,7 +90,7 @@ def llm_call(cliver: "Cliver", opts: LLMCallOptions) -> LLMCallResult:
     Returns:
         LLMCallResult with the response text and metadata.
     """
-    task_executor = cliver.task_executor
+    agent_core = cliver.agent_core
     console = cliver.console
     thinking = getattr(cliver, "thinking", None)
 
@@ -100,9 +100,9 @@ def llm_call(cliver: "Cliver", opts: LLMCallOptions) -> LLMCallResult:
 
     try:
         if opts.stream:
-            result = _stream_call(task_executor, opts, thinking, console)
+            result = _stream_call(agent_core, opts, thinking, console)
         else:
-            result = _sync_call(task_executor, opts, thinking, console)
+            result = _sync_call(agent_core, opts, thinking, console)
     except TaskTimeoutError:
         if thinking:
             thinking.stop()
@@ -127,7 +127,7 @@ def llm_call(cliver: "Cliver", opts: LLMCallOptions) -> LLMCallResult:
 
 
 def _stream_call(
-    task_executor: "AgentCore",
+    agent_core: "AgentCore",
     opts: LLMCallOptions,
     thinking,
     console,
@@ -153,7 +153,7 @@ def _stream_call(
 
         async def _run():
             nonlocal accumulated_chunk
-            async for chunk in task_executor.stream_user_input(
+            async for chunk in agent_core.stream_user_input(
                 user_input=opts.user_input,
                 images=opts.images or None,
                 audio_files=opts.audio_files or None,
@@ -186,7 +186,7 @@ def _stream_call(
 
         text = ""
         if accumulated_chunk:
-            llm_engine = task_executor.get_llm_engine(opts.model)
+            llm_engine = agent_core.get_llm_engine(opts.model)
             multimedia_response = response_handler.process_response(
                 accumulated_chunk, llm_engine=llm_engine, auto_save_media=opts.save_media
             )
@@ -219,7 +219,7 @@ def _stream_call(
 
 
 def _sync_call(
-    task_executor: "AgentCore",
+    agent_core: "AgentCore",
     opts: LLMCallOptions,
     thinking,
     console,
@@ -229,7 +229,7 @@ def _sync_call(
 
     response_handler = MultimediaResponseHandler(opts.media_dir)
 
-    response = task_executor.process_user_input_sync(
+    response = agent_core.process_user_input_sync(
         user_input=opts.user_input,
         images=opts.images or None,
         audio_files=opts.audio_files or None,
@@ -255,7 +255,7 @@ def _sync_call(
 
     text = ""
     if response:
-        llm_engine = task_executor.get_llm_engine(opts.model)
+        llm_engine = agent_core.get_llm_engine(opts.model)
         multimedia_response = response_handler.process_response(
             response, llm_engine=llm_engine, auto_save_media=opts.save_media
         )

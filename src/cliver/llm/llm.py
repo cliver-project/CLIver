@@ -169,9 +169,9 @@ class AgentCore:
 
             set_current_profile(agent_profile)
 
-        from cliver.agent_profile import set_task_executor
+        from cliver.agent_profile import set_agent_core
 
-        set_task_executor(self)
+        set_agent_core(self)
 
     def _emit_tool_event(self, event: ToolEvent) -> None:
         """Emit a tool event to the registered handler, if any."""
@@ -431,7 +431,7 @@ class AgentCore:
                 skills_dir = get_config_dir() / "skills"
 
             skill_name = await maybe_review_for_skill(
-                task_executor=self,
+                agent_core=self,
                 tool_call_count=ctx.tool_call_count,
                 task_summary=task_summary,
                 skills_dir=skills_dir,

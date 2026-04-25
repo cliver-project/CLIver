@@ -145,39 +145,39 @@ class TestAgentCore:
     """Test AgentCore multi-media support."""
 
     @pytest.fixture
-    def task_executor(self):
+    def agent_core(self):
         """Create a mock AgentCore."""
         llm_models = {}
         mcp_servers = {}
         executor = AgentCore(llm_models, mcp_servers)
         return executor
 
-    def test_process_user_input_accepts_specific_media_types(self, task_executor):
+    def test_process_user_input_accepts_specific_media_types(self, agent_core):
         """Test that process_user_input method accepts specific media type parameters."""
         # Check that the method signature includes specific media type parameters
         import inspect
 
-        sig = inspect.signature(task_executor.process_user_input)
+        sig = inspect.signature(agent_core.process_user_input)
         assert "images" in sig.parameters
         assert "audio_files" in sig.parameters
         assert "video_files" in sig.parameters
 
-    def test_stream_user_input_accepts_specific_media_types(self, task_executor):
+    def test_stream_user_input_accepts_specific_media_types(self, agent_core):
         """Test that stream_user_input method accepts specific media type parameters."""
         # Check that the method signature includes specific media type parameters
         import inspect
 
-        sig = inspect.signature(task_executor.stream_user_input)
+        sig = inspect.signature(agent_core.stream_user_input)
         assert "images" in sig.parameters
         assert "audio_files" in sig.parameters
         assert "video_files" in sig.parameters
 
-    def test_prepare_messages_and_tools_accepts_specific_media_types(self, task_executor):
+    def test_prepare_messages_and_tools_accepts_specific_media_types(self, agent_core):
         """Test that _prepare_messages_and_tools accepts specific media type parameters."""
         # Check that the method signature includes specific media type parameters
         import inspect
 
-        sig = inspect.signature(task_executor._prepare_messages_and_tools)
+        sig = inspect.signature(agent_core._prepare_messages_and_tools)
         assert "images" in sig.parameters
         assert "audio_files" in sig.parameters
         assert "video_files" in sig.parameters

@@ -127,7 +127,7 @@ def _run_task(cliver: Cliver, name: str, model: Optional[str] = None) -> int:
 
     try:
         result = asyncio.run(
-            cliver.task_executor.process_user_input(
+            cliver.agent_core.process_user_input(
                 user_input=task_def.prompt,
                 model=use_model,
             )
