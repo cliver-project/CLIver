@@ -57,6 +57,30 @@ class MultimediaResponse:
         return [media for media in self.media_content if media.type == media_type]
 
 
+def _extract_text_from_content_blocks(blocks: list) -> str:
+    """Extract text from a list of content blocks, skipping thinking/signature blocks.
+
+    Handles both dict-style blocks ({"type": "text", "text": "..."}) and
+    Pydantic/object-style blocks (block.type == "text", block.text == "...").
+    """
+    parts = []
+    for item in blocks:
+        item_type = None
+        item_text = None
+        if isinstance(item, dict):
+            item_type = item.get("type")
+            item_text = item.get("text")
+        elif isinstance(item, str):
+            parts.append(item)
+            continue
+        else:
+            item_type = getattr(item, "type", None)
+            item_text = getattr(item, "text", None)
+        if item_type == "text" and item_text:
+            parts.append(item_text)
+    return "".join(parts)
+
+
 class MultimediaResponseHandler:
     """
     Handler for processing multimedia responses from LLMs.
@@ -105,17 +129,13 @@ class MultimediaResponseHandler:
             if isinstance(response.content, str):
                 text_content = response.content
             elif isinstance(response.content, list):
-                for item in response.content:
-                    if isinstance(item, dict):
-                        if item.get("type") == "text":
-                            text_content += item.get("text", "")
+                text_content = _extract_text_from_content_blocks(response.content)
 
         # Strip thinking/reasoning content that shouldn't be shown to users
         if text_content:
             from cliver.llm.llm_utils import remove_thinking_sections
 
             text_content = remove_thinking_sections(text_content).strip()
-                        # TODO: Handle other content types if needed
 
         # Extract media content from the response
         media_content = []

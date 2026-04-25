@@ -107,7 +107,7 @@ class CronScheduler:
             tasks.append(asyncio.create_task(coro, name=f"cron:{task.name}"))
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        for task_def, result in zip(due_tasks, results):
+        for task_def, result in zip(due_tasks, results, strict=False):
             if isinstance(result, Exception):
                 logger.error(f"Cron: task '{task_def.name}' failed: {result}")
 
