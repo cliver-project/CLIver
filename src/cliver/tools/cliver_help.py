@@ -68,6 +68,25 @@ def _get_command_help(command_name: str) -> str:
         return f"/{command_name} — error loading help: {e}"
 
 
+def _filter_task_create_help(help_text: str) -> str:
+    """Remove task creation syntax from help output.
+
+    The LLM should use the CreateTask tool instead of shell commands.
+    Keep list/run/history/remove but strip the create subcommand line
+    and remove 'create' from the usage summary.
+    """
+    filtered_lines = []
+    for line in help_text.splitlines():
+        if "create" in line.lower() and ("create <name>" in line.lower() or "--prompt" in line.lower()):
+            continue
+        line = line.replace("|create|", "|").replace("create|", "").replace("|create", "")
+        filtered_lines.append(line)
+    filtered_lines.append(
+        "\nTo create tasks, use the CreateTask tool (not shell commands)."
+    )
+    return "\n".join(filtered_lines)
+
+
 class CliverHelpInput(BaseModel):
     topic: str = Field(
         description="What to look up. Use 'commands' for an overview, "
@@ -103,11 +122,7 @@ class CliverHelpTool(BaseTool):
         if resolved in HANDLERS:
             help_text = _get_command_help(resolved)
             if resolved == "task":
-                help_text += (
-                    "\n\nNOTE: To create tasks programmatically, use the CreateTask "
-                    "tool — NOT shell commands. CreateTask auto-attaches IM origin "
-                    "so results are delivered back to the conversation."
-                )
+                help_text = _filter_task_create_help(help_text)
             return help_text
 
         available = sorted({"commands", "config_file"} | set(HANDLERS.keys()))
