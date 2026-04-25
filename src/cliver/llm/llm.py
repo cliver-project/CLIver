@@ -939,6 +939,7 @@ class AgentCore:
         auto_fallback: bool = True,
         tried_models: Optional[set] = None,
         on_pending_input: Optional[Callable[[], Optional[str]]] = None,
+        ctx: "CallContext | None" = None,
     ) -> BaseMessage:
         """Handle processing messages with tool calling using a while loop."""
 
@@ -1102,6 +1103,7 @@ class AgentCore:
                         confirm_tool_exec,
                         tool_error_check,
                         llm_response=response,
+                        ctx=ctx,
                     )
                     if stop:
                         return AIMessage(content=result)
@@ -1433,6 +1435,7 @@ class AgentCore:
         auto_fallback: bool = True,
         tried_models: Optional[set] = None,
         on_pending_input: Optional[Callable[[], Optional[str]]] = None,
+        ctx: "CallContext | None" = None,
     ) -> AsyncIterator[BaseMessageChunk]:
         """Handle streaming messages with tool calling."""
         iteration = current_iteration
@@ -1694,7 +1697,8 @@ class AgentCore:
                 # If we found tool calls, execute them and continue after emitting the chunks
                 if tool_calls:
                     stop, result = await self._execute_tool_calls(
-                        tool_calls, messages, confirm_tool_exec, tool_error_check, llm_response=accumulated_chunks
+                        tool_calls, messages, confirm_tool_exec, tool_error_check, llm_response=accumulated_chunks,
+                        ctx=ctx,
                     )
                     if stop:
                         if result:
