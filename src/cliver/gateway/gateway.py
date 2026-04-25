@@ -752,9 +752,14 @@ class Gateway:
                     "You are responding in an IM conversation (e.g. Slack, Telegram). "
                     "Interactive input is not available — do NOT use the Ask tool. "
                     "Proceed autonomously with reasonable defaults.\n\n"
-                    "To create scheduled tasks, use the CreateTask tool — NOT shell commands "
-                    "like 'cliver task create'. The CreateTask tool auto-attaches IM origin "
-                    "so results are delivered back to this conversation."
+                    "# IMPORTANT: Task Creation Rules\n\n"
+                    "You MUST use the CreateTask tool to create tasks. "
+                    "NEVER use shell commands like 'cliver task create' or 'bash cliver task ...'. "
+                    "The CreateTask tool auto-attaches IM origin so results are delivered "
+                    "back to this conversation. Shell commands run in a separate process "
+                    "and lose the conversation context.\n\n"
+                    "- One-time task: use the `run_at` parameter (ISO datetime)\n"
+                    "- Recurring task: use the `schedule` parameter (cron expression)\n"
                 )
 
             try:
