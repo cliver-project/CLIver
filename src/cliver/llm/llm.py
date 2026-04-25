@@ -98,13 +98,13 @@ tool_registry = ToolRegistry()
 
 def _extract_last_content(messages: List[BaseMessage]) -> str | None:
     """Extract the last AI content from messages for partial timeout results."""
+    from cliver.media_handler import extract_response_text
+
     for msg in reversed(messages):
         if isinstance(msg, AIMessage) and msg.content:
-            content = msg.content
-            if isinstance(content, list):
-                texts = [p["text"] for p in content if isinstance(p, dict) and p.get("type") == "text"]
-                return "\n".join(texts) if texts else None
-            return str(content)
+            text = extract_response_text(msg)
+            if text:
+                return text
     return None
 
 
@@ -421,7 +421,9 @@ class AgentCore:
             from cliver.skill_reviewer import maybe_review_for_skill
 
             # Build a brief summary from the user input + result
-            result_text = str(result.content)[:500] if result and result.content else ""
+            from cliver.media_handler import extract_response_text
+
+            result_text = extract_response_text(result)[:500]
             task_summary = f"User asked: {user_input[:300]}\nResult: {result_text}"
 
             skills_dir = None

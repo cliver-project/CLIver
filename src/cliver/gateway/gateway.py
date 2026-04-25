@@ -397,7 +397,9 @@ class Gateway:
                     system_message_appender=system_appender,
                     conversation_history=conversation_history,
                 )
-                response_text = str(response.content) if response and response.content else "No response."
+                from cliver.media_handler import extract_response_text
+
+                response_text = extract_response_text(response, fallback="No response.")
 
             run_record.status = "completed"
             run_record.result = response_text
@@ -784,11 +786,10 @@ class Gateway:
                     system_message_appender=_im_system_appender,
                 )
 
-                from cliver.media_handler import MultimediaResponseHandler
+                from cliver.media_handler import MultimediaResponseHandler, extract_response_text
 
-                handler = MultimediaResponseHandler()
-                multimedia = handler.process_response(response)
-                response_text = multimedia.text_content or "No response."
+                response_text = extract_response_text(response, fallback="No response.")
+                multimedia = MultimediaResponseHandler().process_response(response)
                 logger.info("AgentCore response: %.200s", response_text)
             except Exception as e:
                 logger.exception("AgentCore error: %s", e)

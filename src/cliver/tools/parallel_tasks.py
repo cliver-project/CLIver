@@ -65,7 +65,9 @@ class ParallelTasksTool(BaseTool):
             task_start = time.monotonic()
             try:
                 response = await executor.process_user_input(user_input=prompt)
-                text = str(response.content) if response and response.content else "(empty response)"
+                from cliver.media_handler import extract_response_text
+
+                text = extract_response_text(response, fallback="(empty response)")
                 return {
                     "index": index,
                     "prompt": prompt,

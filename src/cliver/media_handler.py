@@ -57,25 +57,54 @@ class MultimediaResponse:
         return [media for media in self.media_content if media.type == media_type]
 
 
-def _extract_text_from_content_blocks(blocks: list) -> str:
-    """Extract text from a list of content blocks, skipping thinking/signature blocks.
+def extract_response_text(response, fallback: str = "") -> str:
+    """Extract clean text from any LLM response, stripping thinking/reasoning.
 
-    Handles both dict-style blocks ({"type": "text", "text": "..."}) and
-    Pydantic/object-style blocks (block.type == "text", block.text == "...").
+    This is the SINGLE function for getting user-visible text from a response.
+    All code that needs text from an LLM response should call this.
+
+    Handles:
+    - String content (with <think> tag stripping)
+    - List-of-blocks content (dict or Pydantic objects, skipping thinking/signature)
+    - None/empty responses (returns fallback)
     """
+    if response is None:
+        return fallback
+
+    if isinstance(response, str):
+        content = response
+    elif hasattr(response, "content"):
+        content = response.content
+    else:
+        return fallback
+
+    if content is None:
+        return fallback
+
+    if isinstance(content, list):
+        text = _extract_text_from_content_blocks(content)
+    elif isinstance(content, str):
+        text = content
+    else:
+        text = str(content)
+
+    if text:
+        from cliver.llm.llm_utils import remove_thinking_sections
+
+        text = remove_thinking_sections(text).strip()
+
+    return text or fallback
+
+
+def _extract_text_from_content_blocks(blocks: list) -> str:
+    """Extract text from a list of content blocks, skipping thinking/signature blocks."""
     parts = []
     for item in blocks:
-        item_type = None
-        item_text = None
-        if isinstance(item, dict):
-            item_type = item.get("type")
-            item_text = item.get("text")
-        elif isinstance(item, str):
+        if isinstance(item, str):
             parts.append(item)
             continue
-        else:
-            item_type = getattr(item, "type", None)
-            item_text = getattr(item, "text", None)
+        item_type = item.get("type") if isinstance(item, dict) else getattr(item, "type", None)
+        item_text = item.get("text") if isinstance(item, dict) else getattr(item, "text", None)
         if item_type == "text" and item_text:
             parts.append(item_text)
     return "".join(parts)
@@ -119,23 +148,7 @@ class MultimediaResponseHandler:
         Returns:
             MultimediaResponse object containing parsed content
         """
-        if isinstance(response, str):
-            return MultimediaResponse(text_content=response)
-
-        # Handle BaseMessage response
-        text_content = ""
-
-        if hasattr(response, "content"):
-            if isinstance(response.content, str):
-                text_content = response.content
-            elif isinstance(response.content, list):
-                text_content = _extract_text_from_content_blocks(response.content)
-
-        # Strip thinking/reasoning content that shouldn't be shown to users
-        if text_content:
-            from cliver.llm.llm_utils import remove_thinking_sections
-
-            text_content = remove_thinking_sections(text_content).strip()
+        text_content = extract_response_text(response)
 
         # Extract media content from the response
         media_content = []

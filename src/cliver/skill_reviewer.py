@@ -105,7 +105,9 @@ async def maybe_review_for_skill(
             max_iterations=8,  # Low cap — just needs to decide + write file
         )
 
-        result = str(response.content) if response and response.content else ""
+        from cliver.media_handler import extract_response_text
+
+        result = extract_response_text(response)
 
         if "no skill needed" in result.lower():
             logger.info("Skill review: no skill created")

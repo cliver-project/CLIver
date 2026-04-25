@@ -182,7 +182,9 @@ async def _handle_sync(executor, request_id: str, parsed: dict):
             system_message_appender=system_appender,
         )
 
-        content = str(response.content) if response and response.content else ""
+        from cliver.media_handler import extract_response_text
+
+        content = extract_response_text(response)
 
         input_tokens, output_tokens = 0, 0
         tracker = getattr(executor, "token_tracker", None)

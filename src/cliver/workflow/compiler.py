@@ -177,7 +177,9 @@ class WorkflowCompiler:
                     video_files=render_template(step.video_files, context) if step.video_files else None,
                     files=render_template(step.files, context) if step.files else None,
                 )
-                result_text = str(response.content) if response and response.content else ""
+                from cliver.media_handler import extract_response_text
+
+                result_text = extract_response_text(response)
                 _save_step_output(state["outputs_dir"], step.id, result_text, step.output_format)
 
                 outputs = {"result": result_text}
