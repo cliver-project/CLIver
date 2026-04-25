@@ -137,7 +137,7 @@ class TestCronScheduler:
 class TestRunAtScheduling:
     def test_naive_run_at_treated_as_local_time(self, task_manager, run_store):
         """A naive (no timezone) run_at should be treated as local time, not UTC."""
-        from datetime import datetime, timedelta, timezone
+        from datetime import datetime, timedelta
 
         # Schedule 1 minute in the past (local time), formatted without timezone
         past_local = datetime.now() - timedelta(minutes=1)

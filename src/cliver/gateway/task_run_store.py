@@ -158,8 +158,6 @@ class TaskRunStore:
 
 
 def _parse_timestamp(ts: str) -> float:
-    from datetime import datetime, timezone
-
     ts = ts.strip()
     if ts.endswith(" UTC"):
         ts = ts[:-4]

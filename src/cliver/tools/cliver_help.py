@@ -81,9 +81,7 @@ def _filter_task_create_help(help_text: str) -> str:
             continue
         line = line.replace("|create|", "|").replace("create|", "").replace("|create", "")
         filtered_lines.append(line)
-    filtered_lines.append(
-        "\nTo create tasks, use the CreateTask tool (not shell commands)."
-    )
+    filtered_lines.append("\nTo create tasks, use the CreateTask tool (not shell commands).")
     return "\n".join(filtered_lines)
 
 

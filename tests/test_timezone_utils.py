@@ -1,7 +1,6 @@
 """Tests for timezone utilities in cliver.util."""
 
 from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
 
 from cliver.util import configure_timezone, format_datetime, get_effective_timezone
 

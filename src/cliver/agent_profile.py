@@ -12,7 +12,6 @@ There is also a global memory at {config_dir}/memory.md shared by all agents.
 """
 
 import logging
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 

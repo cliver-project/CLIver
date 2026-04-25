@@ -174,7 +174,7 @@ class SessionManager:
 
         Returns the number of sessions deleted.
         """
-        from datetime import datetime, timedelta, timezone
+        from datetime import timedelta
 
         cutoff = (datetime.now(timezone.utc) - timedelta(days=max_age_days)).isoformat()
         with self._get_store().write() as db:
