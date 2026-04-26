@@ -69,6 +69,7 @@ def _create_task(
     workflow: Optional[str] = None,
     workflow_inputs: Optional[str] = None,
     skills: Optional[list] = None,
+    reply_to: Optional[str] = None,
 ) -> int:
     """Create a new task definition."""
     import json
@@ -111,8 +112,40 @@ def _create_task(
 
     manager = _get_manager(cliver)
     path = manager.save_task(task_def)
-    cliver.output(f"Task '{name}' created: {path}")
+
+    # Save IM origin from --reply-to so task results route back
+    origin_info = ""
+    if reply_to:
+        origin_info = _save_reply_to_origin(cliver, name, reply_to)
+
+    cliver.output(f"Task '{name}' created: {path}{origin_info}")
     return 0
+
+
+def _save_reply_to_origin(cliver: Cliver, task_name: str, reply_to: str) -> str:
+    """Parse ``--reply-to platform:channel:thread`` and save as TaskOrigin."""
+    from cliver.task_manager import TaskOrigin
+
+    parts = reply_to.split(":", 2)
+    if len(parts) < 2:
+        cliver.output(
+            f"[yellow]Warning: invalid --reply-to format '{reply_to}', expected platform:channel[:thread][/yellow]"
+        )
+        return ""
+
+    platform = parts[0]
+    channel_id = parts[1]
+    thread_id = parts[2] if len(parts) > 2 else None
+
+    origin = TaskOrigin(
+        source=platform,
+        platform=platform,
+        channel_id=channel_id,
+        thread_id=thread_id,
+    )
+    store = _get_store(cliver)
+    store.save_origin(task_name, origin)
+    return f" (reply-back: {platform})"
 
 
 def _run_task(cliver: Cliver, name: str, model: Optional[str] = None) -> int:
@@ -340,6 +373,7 @@ def dispatch(cliver: Cliver, args: str):
         run_at = None
         workflow = None
         skills = None
+        reply_to = None
         i = 1
         while i < len(parts_split):
             if parts_split[i] == "--prompt" and i + 1 < len(parts_split):
@@ -360,6 +394,9 @@ def dispatch(cliver: Cliver, args: str):
             elif parts_split[i] == "--skills" and i + 1 < len(parts_split):
                 skills = [s.strip() for s in parts_split[i + 1].split(",")]
                 i += 2
+            elif parts_split[i] == "--reply-to" and i + 1 < len(parts_split):
+                reply_to = parts_split[i + 1]
+                i += 2
             else:
                 i += 1
 
@@ -379,6 +416,7 @@ def dispatch(cliver: Cliver, args: str):
             run_at=run_at,
             workflow=workflow,
             skills=skills,
+            reply_to=reply_to,
         )
     elif sub in ("--help", "help"):
         cliver.output("Usage: /task [list|create|run|history|remove] ...")
@@ -418,6 +456,7 @@ def list_tasks(cliver: Cliver):
 @click.option("--workflow", "-w", default=None, help="Workflow name to execute (runs workflow instead of chat)")
 @click.option("--workflow-inputs", default=None, help="Workflow inputs as JSON string")
 @click.option("--skills", multiple=True, help="Skills to pre-activate (can be specified multiple times)")
+@click.option("--reply-to", default=None, help="IM origin as platform:channel[:thread] for result delivery")
 @pass_cliver
 def create_task(
     cliver: Cliver,
@@ -430,6 +469,7 @@ def create_task(
     workflow: Optional[str],
     workflow_inputs: Optional[str],
     skills: tuple,
+    reply_to: Optional[str],
 ):
     _create_task(
         cliver,
@@ -442,6 +482,7 @@ def create_task(
         workflow,
         workflow_inputs,
         list(skills) if skills else None,
+        reply_to=reply_to,
     )
 
 

@@ -812,6 +812,12 @@ class Gateway:
                 im_ctx["task_name"] = linked_task_name
             im_context.set(im_ctx)
 
+            # Build reply-to token for task creation
+            _reply_to_parts = [im_ctx["platform"], im_ctx.get("channel_id", "")]
+            if im_ctx.get("thread_id"):
+                _reply_to_parts.append(im_ctx["thread_id"])
+            _reply_to_token = ":".join(_reply_to_parts)
+
             def _im_system_appender() -> str:
                 task_context = ""
                 if linked_task_name:
@@ -833,11 +839,12 @@ class Gateway:
                     "- If you genuinely cannot proceed without user input, reply with "
                     "a plain text question and wait for the user's next message.\n\n"
                     "## Task Creation Rules\n\n"
-                    "You MUST use the CreateTask tool to create tasks. "
-                    "NEVER use shell commands like 'cliver task create' or 'bash cliver task ...'. "
-                    "The CreateTask tool auto-attaches IM origin so results are delivered "
-                    "back to this conversation. Shell commands run in a separate process "
-                    "and lose the conversation context.\n\n"
+                    "Prefer the CreateTask tool — it auto-attaches IM origin.\n"
+                    "If you must use the shell command instead, you MUST include "
+                    f"`--reply-to '{_reply_to_token}'` so results are delivered "
+                    "back to this conversation. Example:\n"
+                    f"  cliver task create my_task --prompt '...' "
+                    f"--reply-to '{_reply_to_token}'\n\n"
                     "- One-time task: use the `run_at` parameter (ISO datetime)\n"
                     "- Recurring task: use the `schedule` parameter (cron expression)\n"
                 ) + task_context
