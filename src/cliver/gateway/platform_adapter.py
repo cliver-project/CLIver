@@ -73,15 +73,19 @@ class PlatformAdapter(ABC):
         """Send a text message to a channel/user."""
 
     @abstractmethod
-    async def send_image(self, channel_id: str, image: bytes | Path, caption: str = "") -> None:
+    async def send_image(
+        self, channel_id: str, image: bytes | Path, caption: str = "", reply_to: Optional[str] = None
+    ) -> None:
         """Send an image with optional caption."""
 
     @abstractmethod
-    async def send_file(self, channel_id: str, file: bytes | Path, filename: str) -> None:
+    async def send_file(
+        self, channel_id: str, file: bytes | Path, filename: str, reply_to: Optional[str] = None
+    ) -> None:
         """Send a file attachment."""
 
     @abstractmethod
-    async def send_voice(self, channel_id: str, audio: bytes | Path) -> None:
+    async def send_voice(self, channel_id: str, audio: bytes | Path, reply_to: Optional[str] = None) -> None:
         """Send a voice message."""
 
     @abstractmethod

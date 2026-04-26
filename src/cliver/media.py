@@ -104,6 +104,20 @@ class MediaContent:
             logger.error("Error saving media to %s, exception: %s", file_path, e, exc_info=True)
             raise e
 
+    def to_bytes(self) -> bytes:
+        """Resolve data to raw bytes (download URL, decode base64)."""
+        if self.is_url():
+            import httpx
+
+            resp = httpx.get(self.data, timeout=120, follow_redirects=True)
+            resp.raise_for_status()
+            return resp.content
+        elif self.data.startswith("data:"):
+            base64_data = self.data.split(",", 1)[1] if "," in self.data else self.data
+            return base64.b64decode(base64_data)
+        else:
+            return base64.b64decode(self.data)
+
     def get_file_extension(self) -> str:
         """
         Get file extension from MIME type.

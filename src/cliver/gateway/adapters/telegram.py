@@ -140,32 +140,41 @@ class TelegramAdapter(PlatformAdapter):
             kwargs["text"] = text.replace("\\", "")  # strip escape chars
             await self._app.bot.send_message(**kwargs)
 
-    async def send_image(self, channel_id: str, image: bytes | Path, caption: str = "") -> None:
+    async def send_image(
+        self, channel_id: str, image: bytes | Path, caption: str = "", reply_to: Optional[str] = None
+    ) -> None:
         if not self._app:
             return
         photo = image if isinstance(image, bytes) else open(image, "rb")
-        await self._app.bot.send_photo(
-            chat_id=int(channel_id),
-            photo=photo,
-            caption=escape_markdown_v2(caption) if caption else None,
-            parse_mode="MarkdownV2" if caption else None,
-        )
+        kwargs: dict = {
+            "chat_id": int(channel_id),
+            "photo": photo,
+            "caption": escape_markdown_v2(caption) if caption else None,
+            "parse_mode": "MarkdownV2" if caption else None,
+        }
+        if reply_to:
+            kwargs["reply_to_message_id"] = int(reply_to)
+        await self._app.bot.send_photo(**kwargs)
 
-    async def send_file(self, channel_id: str, file: bytes | Path, filename: str) -> None:
+    async def send_file(
+        self, channel_id: str, file: bytes | Path, filename: str, reply_to: Optional[str] = None
+    ) -> None:
         if not self._app:
             return
         doc = file if isinstance(file, bytes) else open(file, "rb")
-        await self._app.bot.send_document(
-            chat_id=int(channel_id),
-            document=doc,
-            filename=filename,
-        )
+        kwargs: dict = {"chat_id": int(channel_id), "document": doc, "filename": filename}
+        if reply_to:
+            kwargs["reply_to_message_id"] = int(reply_to)
+        await self._app.bot.send_document(**kwargs)
 
-    async def send_voice(self, channel_id: str, audio: bytes | Path) -> None:
+    async def send_voice(self, channel_id: str, audio: bytes | Path, reply_to: Optional[str] = None) -> None:
         if not self._app:
             return
         voice = audio if isinstance(audio, bytes) else open(audio, "rb")
-        await self._app.bot.send_voice(chat_id=int(channel_id), voice=voice)
+        kwargs: dict = {"chat_id": int(channel_id), "voice": voice}
+        if reply_to:
+            kwargs["reply_to_message_id"] = int(reply_to)
+        await self._app.bot.send_voice(**kwargs)
 
     async def send_typing(self, channel_id: str) -> None:
         if not self._app:

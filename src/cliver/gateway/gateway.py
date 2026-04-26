@@ -894,16 +894,26 @@ class Gateway:
                 except Exception as e:
                     logger.error(f"Failed to send message: {e}")
 
-            # Send media (images, files, audio)
+            # Send media (images, files, audio) — resolve URLs/base64 to bytes first
             if multimedia and multimedia.has_media():
                 for media in multimedia.media_content:
                     try:
-                        if media.data and media.type.value == "image":
-                            await adapter.send_image(event.channel_id, media.data, caption=media.filename or "")
-                        elif media.data and media.type.value == "audio":
-                            await adapter.send_voice(event.channel_id, media.data)
-                        elif media.data:
-                            await adapter.send_file(event.channel_id, media.data, filename=media.filename or "file")
+                        data = media.to_bytes() if media.data else None
+                        if not data:
+                            continue
+                        if media.type.value == "image":
+                            await adapter.send_image(
+                                event.channel_id, data, caption=media.filename or "", reply_to=reply_to
+                            )
+                        elif media.type.value == "audio":
+                            await adapter.send_voice(event.channel_id, data, reply_to=reply_to)
+                        else:
+                            await adapter.send_file(
+                                event.channel_id,
+                                data,
+                                filename=media.filename or f"file{media.get_file_extension()}",
+                                reply_to=reply_to,
+                            )
                         logger.info("Sent %s media to %s", media.type.value, event.channel_id)
                     except Exception as e:
                         logger.error("Failed to send %s media: %s", media.type.value, e)

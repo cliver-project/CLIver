@@ -132,54 +132,46 @@ class SlackAdapter(PlatformAdapter):
             kwargs["thread_ts"] = reply_to
         await self._client.chat_postMessage(**kwargs)
 
-    async def send_image(self, channel_id: str, image: bytes | Path, caption: str = "") -> None:
+    async def send_image(
+        self, channel_id: str, image: bytes | Path, caption: str = "", reply_to: Optional[str] = None
+    ) -> None:
         if not self._client:
             return
+        kwargs: dict = {"channel": channel_id, "initial_comment": caption or None}
+        if reply_to:
+            kwargs["thread_ts"] = reply_to
         if isinstance(image, Path):
-            await self._client.files_upload_v2(
-                channel=channel_id,
-                file=str(image),
-                initial_comment=caption or None,
-            )
+            kwargs["file"] = str(image)
         else:
-            await self._client.files_upload_v2(
-                channel=channel_id,
-                content=image,
-                filename="image.png",
-                initial_comment=caption or None,
-            )
+            kwargs["content"] = image
+            kwargs["filename"] = "image.png"
+        await self._client.files_upload_v2(**kwargs)
 
-    async def send_file(self, channel_id: str, file: bytes | Path, filename: str) -> None:
+    async def send_file(
+        self, channel_id: str, file: bytes | Path, filename: str, reply_to: Optional[str] = None
+    ) -> None:
         if not self._client:
             return
+        kwargs: dict = {"channel": channel_id, "filename": filename}
+        if reply_to:
+            kwargs["thread_ts"] = reply_to
         if isinstance(file, Path):
-            await self._client.files_upload_v2(
-                channel=channel_id,
-                file=str(file),
-                filename=filename,
-            )
+            kwargs["file"] = str(file)
         else:
-            await self._client.files_upload_v2(
-                channel=channel_id,
-                content=file,
-                filename=filename,
-            )
+            kwargs["content"] = file
+        await self._client.files_upload_v2(**kwargs)
 
-    async def send_voice(self, channel_id: str, audio: bytes | Path) -> None:
+    async def send_voice(self, channel_id: str, audio: bytes | Path, reply_to: Optional[str] = None) -> None:
         if not self._client:
             return
+        kwargs: dict = {"channel": channel_id, "filename": "voice.ogg"}
+        if reply_to:
+            kwargs["thread_ts"] = reply_to
         if isinstance(audio, Path):
-            await self._client.files_upload_v2(
-                channel=channel_id,
-                file=str(audio),
-                filename="voice.ogg",
-            )
+            kwargs["file"] = str(audio)
         else:
-            await self._client.files_upload_v2(
-                channel=channel_id,
-                content=audio,
-                filename="voice.ogg",
-            )
+            kwargs["content"] = audio
+        await self._client.files_upload_v2(**kwargs)
 
     async def send_typing(self, channel_id: str) -> None:
         # Slack doesn't have a direct typing indicator API for bots.
