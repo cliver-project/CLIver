@@ -1,16 +1,17 @@
 """Built-in tool for transcribing audio files to text.
 
-Uses whatever configured model has AUDIO_TO_TEXT capability — works with
-OpenAI Whisper, Qwen-Audio, Groq Whisper, or any compatible provider.
-No hardcoded provider — users configure the model in config.yaml.
+All inference is routed through AgentCore → LLMInferenceEngine, which
+handles provider selection, rate limiting, and API calls. No direct
+SDK usage here — the engine abstraction supports any provider with
+AUDIO_TO_TEXT capability.
 """
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Optional, Type
 
 from langchain_core.tools import BaseTool
-from openai import OpenAI
 from pydantic import BaseModel, Field
 
 from cliver.agent_profile import get_agent_core
@@ -51,8 +52,13 @@ class TranscribeAudioTool(BaseTool):
         if suffix not in _SUPPORTED_FORMATS:
             return f"Error: Unsupported format '{suffix}'. Supported: {', '.join(sorted(_SUPPORTED_FORMATS))}"
 
-        config = _find_audio_model()
-        if not config:
+        agent_core = get_agent_core()
+        if not agent_core:
+            return "Error: AgentCore not available."
+
+        result = asyncio.run(agent_core.transcribe_audio(file_path, language))
+
+        if result is None:
             return (
                 "Error: No model with audio_to_text capability configured.\n"
                 "Add one to config.yaml, e.g.:\n"
@@ -64,60 +70,10 @@ class TranscribeAudioTool(BaseTool):
                 "    capabilities: [audio_to_text]"
             )
 
-        return _transcribe(path, config, language)
-
-
-def _find_audio_model() -> Optional[dict]:
-    """Find a configured model with AUDIO_TO_TEXT capability."""
-    executor = get_agent_core()
-    if not executor:
-        return None
-
-    from cliver.model_capabilities import ModelCapability
-
-    for _name, model_config in executor.llm_models.items():
-        caps = model_config.get_capabilities()
-        if ModelCapability.AUDIO_TO_TEXT in caps:
-            return {
-                "api_key": model_config.get_api_key(),
-                "url": model_config.get_resolved_url(),
-                "model_name": model_config.name_in_provider or model_config.name,
-            }
-    return None
-
-
-def _transcribe(file_path: Path, config: dict, language: Optional[str] = None) -> str:
-    """Transcribe using a configured model's API endpoint."""
-    api_key = config.get("api_key")
-    if not api_key:
-        return "Error: Model has no API key configured."
-
-    try:
-        client_kwargs = {"api_key": api_key}
-        base_url = config.get("url")
-        if base_url:
-            client_kwargs["base_url"] = base_url
-
-        client = OpenAI(**client_kwargs)
-        model_name = config.get("model_name", "whisper-1")
-
-        with open(file_path, "rb") as f:
-            kwargs = {"model": model_name, "file": f}
-            if language:
-                kwargs["language"] = language
-            transcript = client.audio.transcriptions.create(**kwargs)
-
-        text = transcript.text if hasattr(transcript, "text") else str(transcript)
-
-        if not text or not text.strip():
+        if not result or not result.strip():
             return "(empty transcription — no speech detected)"
 
-        logger.info("Transcribed %s via %s: %d chars", file_path.name, model_name, len(text))
-        return text
-
-    except Exception as e:
-        logger.warning(f"Transcription failed: {e}")
-        return f"Error transcribing audio: {e}"
+        return result
 
 
 async def transcribe_voice_message(file_path: str, language: Optional[str] = None) -> Optional[str]:
@@ -130,15 +86,15 @@ async def transcribe_voice_message(file_path: str, language: Optional[str] = Non
     if not path.exists():
         return None
 
-    config = _find_audio_model()
-    if not config:
-        logger.debug("No audio_to_text model configured, skipping voice transcription")
+    agent_core = get_agent_core()
+    if not agent_core:
+        logger.debug("AgentCore not available, skipping voice transcription")
         return None
 
-    result = _transcribe(path, config, language)
+    result = await agent_core.transcribe_audio(file_path, language)
 
-    if result.startswith("Error:") or result.startswith("(empty"):
-        logger.debug("Voice transcription failed or empty: %s", result)
+    if not result or not result.strip():
+        logger.debug("Voice transcription returned empty result")
         return None
 
     return result

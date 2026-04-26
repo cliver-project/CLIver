@@ -12,7 +12,7 @@ import logging
 from typing import Any, Dict, List
 
 from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.messages import BaseMessage
 
 from cliver.config import ModelConfig
 from cliver.llm.base import LLMInferenceEngine
@@ -58,27 +58,11 @@ class AnthropicInferenceEngine(LLMInferenceEngine):
     def convert_messages_to_engine_specific(self, messages: List[BaseMessage]) -> List[BaseMessage]:
         """Convert messages for Anthropic.
 
-        ChatAnthropic handles SystemMessage extraction natively (moves them
-        to the top-level 'system' parameter). We only need to handle
-        multimedia content conversion here.
+        ChatAnthropic handles SystemMessage extraction and multimodal
+        format conversion (image_url → Anthropic image blocks) natively.
+        Messages pass through unchanged.
         """
-        converted = []
-        for message in messages:
-            if isinstance(message, HumanMessage):
-                if hasattr(message, "media_content") and message.media_content:
-                    content_parts = []
-                    if message.content:
-                        content_parts.append({"type": "text", "text": message.content})
-
-                    from cliver.media import add_media_content_to_message_parts
-
-                    add_media_content_to_message_parts(content_parts, message.media_content)
-                    converted.append(HumanMessage(content=content_parts))
-                else:
-                    converted.append(message)
-            else:
-                converted.append(message)
-        return converted
+        return list(messages)
 
     def extract_media_from_response(self, response: BaseMessage) -> List[MediaContent]:
         """Anthropic responses don't contain inline media."""

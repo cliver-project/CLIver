@@ -209,6 +209,29 @@ class AgentCore:
             )
         await self.rate_limiter.wait(provider_name)
 
+    def _find_capable_model(self, capability: ModelCapability) -> Optional[ModelConfig]:
+        """Find the first configured model with the given capability."""
+        for _name, mc in self.llm_models.items():
+            if capability in mc.get_capabilities():
+                return mc
+        return None
+
+    async def transcribe_audio(self, file_path: str, language: Optional[str] = None) -> Optional[str]:
+        """Transcribe an audio file to text via the appropriate engine.
+
+        Finds a model with AUDIO_TO_TEXT capability, gets its engine,
+        and delegates to engine.transcribe_audio(). Returns None if
+        no capable model is configured or transcription fails.
+        """
+        from pathlib import Path
+
+        model_config = self._find_capable_model(ModelCapability.AUDIO_TO_TEXT)
+        if not model_config:
+            return None
+        await self._wait_for_rate_limit(model_config.name)
+        engine = self._select_llm_engine(model_config.name)
+        return await engine.transcribe_audio(Path(file_path), language)
+
     async def generate_image(self, prompt: str, model: str = None, *, ctx: "CallContext", **params) -> BaseMessage:
         """Generate images from a text prompt via the provider's image API.
 
@@ -418,10 +441,9 @@ class AgentCore:
         LLM call to evaluate whether to create a reusable SKILL.md.
         """
         try:
-            from cliver.skill_reviewer import maybe_review_for_skill
-
             # Build a brief summary from the user input + result
             from cliver.media_handler import extract_response_text
+            from cliver.skill_reviewer import maybe_review_for_skill
 
             result_text = extract_response_text(result)[:500]
             task_summary = f"User asked: {user_input[:300]}\nResult: {result_text}"
@@ -620,8 +642,6 @@ class AgentCore:
             llm_engine = self._select_llm_engine(model)
             if hasattr(llm_engine, "config"):
                 capabilities = llm_engine.config.get_capabilities()
-                from cliver.model_capabilities import ModelCapability
-
                 if ModelCapability.FILE_UPLOAD not in capabilities:
                     logger.info("File upload is not supported for this model. Will use content embedding as fallback.")
 
@@ -675,6 +695,45 @@ class AgentCore:
             user_enhanced_messages = await enhance_prompt(user_input, self.mcp_caller)
             messages.extend(user_enhanced_messages)
 
+        # Append media-awareness hint to the system message when media is present
+        if images or audio_files or video_files:
+            media_hints = []
+            if images:
+                media_hints.append(
+                    "The user's message includes inline image(s) embedded as base64. "
+                    "You can see and analyze them directly — do NOT try to fetch, "
+                    "download, or use WebFetch/Read tools to access these images."
+                )
+            if audio_files:
+                media_hints.append("The user's message includes audio file(s).")
+            if video_files:
+                media_hints.append("The user's message includes video file(s).")
+            hint = "# Multimodal Input\n\n" + " ".join(media_hints)
+            system_msg = messages[0]
+            messages[0] = SystemMessage(content=system_msg.content + "\n\n" + hint)
+
+        # Warn if the model lacks required media capabilities
+        if images or audio_files or video_files:
+            model_config = self._get_llm_model(model)
+            if model_config:
+                model_caps = model_config.get_capabilities()
+                if images and ModelCapability.IMAGE_TO_TEXT not in model_caps:
+                    logger.warning(
+                        "Model '%s' does not have IMAGE_TO_TEXT capability — "
+                        "image data will be sent but the model may not be able to process it",
+                        model_config.name,
+                    )
+                if audio_files and ModelCapability.AUDIO_TO_TEXT not in model_caps:
+                    logger.warning(
+                        "Model '%s' does not have AUDIO_TO_TEXT capability",
+                        model_config.name,
+                    )
+                if video_files and ModelCapability.VIDEO_TO_TEXT not in model_caps:
+                    logger.warning(
+                        "Model '%s' does not have VIDEO_TO_TEXT capability",
+                        model_config.name,
+                    )
+
         # Load media files if provided
         media_content = []
 
@@ -713,8 +772,6 @@ class AgentCore:
             model_config = self._get_llm_model(model)
             if model_config:
                 capabilities = model_config.get_capabilities()
-                from cliver.model_capabilities import ModelCapability
-
                 file_upload_supported = ModelCapability.FILE_UPLOAD in capabilities
 
             if not file_upload_supported:

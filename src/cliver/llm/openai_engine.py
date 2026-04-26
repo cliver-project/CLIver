@@ -1,8 +1,10 @@
+import asyncio
 import json
 import logging
+from pathlib import Path
 from typing import Any, AsyncIterator, Dict, List, Optional
 
-from langchain_core.messages import BaseMessage, BaseMessageChunk, HumanMessage
+from langchain_core.messages import BaseMessage, BaseMessageChunk
 from langchain_core.tools import BaseTool
 from langchain_openai import ChatOpenAI
 from openai import OpenAI
@@ -158,46 +160,38 @@ class OpenAICompatibleInferenceEngine(LLMInferenceEngine):
             logger.error(f"Error deleting file {file_id}: {e}")
             return False
 
+    async def transcribe_audio(self, file_path: Path, language: Optional[str] = None) -> Optional[str]:
+        if not self.openai_client:
+            return None
+        return await asyncio.to_thread(self._transcribe_audio_sync, file_path, language)
+
+    def _transcribe_audio_sync(self, file_path: Path, language: Optional[str]) -> Optional[str]:
+        model_name = self.config.name_in_provider or self.config.name
+        try:
+            with open(file_path, "rb") as f:
+                kwargs: Dict[str, Any] = {"model": model_name, "file": f}
+                if language:
+                    kwargs["language"] = language
+                result = self.openai_client.audio.transcriptions.create(**kwargs)
+            text = result.text if hasattr(result, "text") else str(result)
+            if not text or not text.strip():
+                return None
+            logger.info("Transcribed %s via %s: %d chars", file_path.name, model_name, len(text))
+            return text
+        except Exception as e:
+            logger.warning("Transcription failed for %s: %s", file_path.name, e)
+            return None
+
     def convert_messages_to_engine_specific(self, messages: List[BaseMessage]) -> List[BaseMessage]:
+        """Convert messages for OpenAI-compatible providers.
+
+        Merges multiple SystemMessages into one — many providers (MiniMax,
+        GLM, etc.) only accept a single system message.
+
+        Multimodal content (images) is already in OpenAI format
+        (image_url blocks) from AgentCore's message preparation.
         """
-        Convert messages for OpenAI-compatible providers.
-
-        Handles two transformations:
-        1. Merge multiple SystemMessages into one — many providers (MiniMax,
-           GLM, etc.) only accept a single system message.
-        2. Convert multimedia HumanMessages to the OpenAI content-parts format.
-        """
-        # Merge all SystemMessages into a single one
-        messages = _merge_system_messages(messages)
-
-        converted_messages = []
-        for message in messages:
-            if isinstance(message, HumanMessage):
-                # Check if this is a multimedia message with custom media_content attribute
-                if hasattr(message, "media_content") and message.media_content:
-                    # Convert from custom format to OpenAI standard format
-                    content_parts = []
-
-                    # Add text content if present
-                    if message.content:
-                        content_parts.append({"type": "text", "text": message.content})
-
-                    # Add media content using shared utility function
-                    from cliver.media import add_media_content_to_message_parts
-
-                    add_media_content_to_message_parts(content_parts, message.media_content)
-
-                    # Create new message with OpenAI standard format
-                    converted_message = HumanMessage(content=content_parts)
-                    converted_messages.append(converted_message)
-                else:
-                    # Not a multimedia message, keep as is
-                    converted_messages.append(message)
-            else:
-                # Not a human message, keep as is
-                converted_messages.append(message)
-
-        return converted_messages
+        return _merge_system_messages(messages)
 
     def extract_media_from_response(self, response: BaseMessage) -> List[MediaContent]:
         """

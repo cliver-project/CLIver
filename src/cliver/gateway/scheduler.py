@@ -12,7 +12,7 @@ from typing import Any, Callable, Coroutine, List
 
 from croniter import croniter
 
-from cliver.gateway.task_run_store import TaskRunStore
+from cliver.gateway.task_store import TaskStore
 from cliver.task_manager import TaskDefinition, TaskManager
 
 logger = logging.getLogger(__name__)
@@ -23,14 +23,14 @@ RunTaskFn = Callable[[TaskDefinition], Coroutine[Any, Any, None]]
 class CronScheduler:
     """Evaluates cron schedules and dispatches due tasks.
 
-    Uses TaskRunStore to determine when each task last ran —
+    Uses TaskStore to determine when each task last ran —
     no separate state file is needed.
     """
 
     def __init__(
         self,
         task_manager: TaskManager,
-        run_store: TaskRunStore,
+        run_store: TaskStore,
         run_task_fn: RunTaskFn,
     ):
         self.task_manager = task_manager
@@ -157,20 +157,20 @@ class CronScheduler:
                     )
 
     def cleanup_orphan_runs(self) -> int:
-        """Delete run records for tasks whose YAML definition no longer exists.
+        """Delete run records for tasks not registered in the database.
 
         Returns the number of orphan records deleted.
         """
-        defined_names = {t.name for t in self.task_manager.list_tasks()}
+        registered_names = {r["name"] for r in self.run_store.list_registered_tasks()}
         recorded_names = set(self.run_store.get_all_task_names())
-        orphans = recorded_names - defined_names
+        orphans = recorded_names - registered_names
 
         total_deleted = 0
         for name in orphans:
             deleted = self.run_store.delete_runs(name)
             total_deleted += deleted
             logger.info(
-                "Cleaned up %d orphan run record(s) for deleted task '%s'",
+                "Cleaned up %d orphan run record(s) for unregistered task '%s'",
                 deleted,
                 name,
             )

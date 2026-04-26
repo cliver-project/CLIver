@@ -86,10 +86,10 @@ class BrowserActionInput(BaseModel):
 class BrowserActionTool(BaseTool):
     name: str = "Browser"
     description: str = (
-        "Control a headless browser — navigate to URLs, click elements, fill forms, "
-        "take screenshots, extract text, run JavaScript. Use for web interaction, "
-        "testing, and automation that requires a real browser. "
-        "The browser session persists across calls within the same task."
+        "Control a headless browser for interactive web automation — click buttons, "
+        "fill forms, take screenshots, run JavaScript. "
+        "Do NOT use for searching or fetching information — use WebSearch or WebFetch instead. "
+        "Only use this when you need to interact with a web page (login, submit forms, scrape dynamic content)."
     )
     args_schema: Type[BaseModel] = BrowserActionInput
     tags: list = ["browser", "web", "execute"]

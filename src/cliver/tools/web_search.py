@@ -46,6 +46,24 @@ class WebSearchTool(BaseTool):
     args_schema: Type[BaseModel] = WebSearchInput
     tags: list = ["search", "web", "fetch"]
 
+    def _get_configured_engines(self) -> list[str]:
+        """Get search engine order from config, or default to [duckduckgo]."""
+        try:
+            from cliver.agent_profile import get_current_profile
+
+            profile = get_current_profile()
+            if profile:
+                from cliver.config import ConfigManager
+
+                cm = ConfigManager(profile.config_dir)
+                if cm.config.search_engines:
+                    valid = [e for e in cm.config.search_engines if e in SUPPORTED_ENGINES]
+                    if valid:
+                        return valid
+        except Exception:
+            pass
+        return ["duckduckgo"]
+
     def _run(self, query: str, max_results: Optional[int] = None, engine: Optional[str] = None) -> str:
         num_results = max_results or DEFAULT_MAX_RESULTS
 
@@ -57,11 +75,10 @@ class WebSearchTool(BaseTool):
             "baidu": self._baidu_search,
         }
 
-        # If a specific engine is requested, try it first
         if engine and engine.lower() in engines:
-            order = [engine.lower()] + [e for e in engines if e != engine.lower()]
+            order = [engine.lower()]
         else:
-            order = list(engines.keys())
+            order = self._get_configured_engines()
 
         errors = []
         for eng_name in order:
@@ -74,7 +91,7 @@ class WebSearchTool(BaseTool):
                 logger.warning("%s search failed: %s", eng_name, e)
                 errors.append(f"{eng_name}: {e}")
 
-        return f"Error: Web search is currently unavailable. Tried: {', '.join(order)}. Errors: {'; '.join(errors)}"
+        return f"Error: Web search failed. Tried: {', '.join(order)}. Errors: {'; '.join(errors)}"
 
     def _duckduckgo_search(self, query: str, num_results: int) -> str:
         """Search using DuckDuckGo Lite HTML (no API key needed)."""

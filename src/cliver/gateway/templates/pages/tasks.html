@@ -8,7 +8,7 @@
   if (!data) { el.textContent = 'Failed to load data'; el.className = ''; return; }
 
   el.className = '';
-  el.innerHTML = '';
+  while (el.firstChild) el.removeChild(el.firstChild);
 
   if (data.length === 0) {
     el.textContent = 'No tasks defined.';
@@ -34,33 +34,29 @@
     var task = data[i];
     var row = document.createElement('tr');
 
-    var isOrphan = !!task.orphaned;
-    if (isOrphan) row.style.opacity = '0.6';
+    var isBroken = task.task_status === 'yaml_missing' || task.task_status === 'yaml_invalid';
+    if (isBroken) row.style.opacity = '0.6';
 
     // Name
     var tdName = document.createElement('td');
-    if (isOrphan) {
-      var nameSpan = document.createElement('span');
-      nameSpan.textContent = task.name;
-      nameSpan.style.color = 'var(--text-dim)';
-      tdName.appendChild(nameSpan);
+    var link = document.createElement('a');
+    link.href = '/admin/tasks/' + encodeURIComponent(task.name);
+    link.textContent = task.name;
+    if (isBroken) link.style.color = 'var(--text-dim)';
+    tdName.appendChild(link);
+    if (isBroken) {
       var badge = document.createElement('span');
       badge.className = 'pill warn';
-      badge.textContent = 'orphaned';
+      badge.textContent = task.task_status === 'yaml_missing' ? 'missing' : 'invalid';
       badge.style.marginLeft = '6px';
       tdName.appendChild(badge);
-    } else {
-      var link = document.createElement('a');
-      link.href = '/admin/tasks/' + encodeURIComponent(task.name);
-      link.textContent = task.name;
-      tdName.appendChild(link);
     }
     row.appendChild(tdName);
 
     // Description
     var tdDesc = document.createElement('td');
-    if (isOrphan) {
-      tdDesc.textContent = 'YAML file missing';
+    if (isBroken) {
+      tdDesc.textContent = task.task_error || task.task_status;
       tdDesc.style.cssText = 'color:var(--text-dim);font-style:italic';
     } else {
       var descText = task.description || (task.prompt || '');
@@ -78,7 +74,7 @@
       tdSched.textContent = task.run_at;
       tdSched.style.fontSize = '12px';
     } else {
-      tdSched.textContent = isOrphan ? '—' : 'manual';
+      tdSched.textContent = isBroken ? '—' : 'manual';
       tdSched.style.color = 'var(--text-dim)';
     }
     row.appendChild(tdSched);
@@ -133,7 +129,7 @@
 
     // Actions
     var tdActions = document.createElement('td');
-    if (!isOrphan) {
+    if (!isBroken) {
       var runBtn = document.createElement('button');
       runBtn.className = 'btn';
       runBtn.textContent = 'Run';
@@ -165,14 +161,14 @@
 
     var delBtn = document.createElement('button');
     delBtn.className = 'btn danger';
-    delBtn.textContent = isOrphan ? 'Clean Up' : 'Delete';
+    delBtn.textContent = 'Delete';
     delBtn.style.marginLeft = '6px';
-    var delMsg = isOrphan
-      ? 'Clean up all run history for orphaned task "' + task.name + '"?'
+    var delMsg = isBroken
+      ? 'Delete broken task "' + task.name + '" and all its run history?'
       : 'Delete task "' + task.name + '" and all its run history?';
     delBtn.onclick = (function(taskName, msg) {
       return function() {
-        confirmAction(isOrphan ? 'Clean Up' : 'Delete Task', msg, function() {
+        confirmAction('Delete Task', msg, function() {
           apiDelete('/tasks/' + encodeURIComponent(taskName)).then(function(result) {
             if (result && result.status === 'deleted') {
               location.reload();

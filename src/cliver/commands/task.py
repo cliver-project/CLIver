@@ -9,36 +9,50 @@ from typing import Optional
 import click
 
 from cliver.cli import Cliver, pass_cliver
-from cliver.gateway.task_run_store import TaskRunStore
+from cliver.gateway.task_store import TaskStore
 from cliver.task_manager import TaskDefinition, TaskManager, TaskRun
 
 # Business logic (plain functions — no Click, no async)
 
 
-def _get_run_store(cliver: Cliver) -> TaskRunStore:
-    return TaskRunStore(cliver.agent_profile.agent_dir / "gateway.db")
+def _get_store(cliver: Cliver) -> TaskStore:
+    return TaskStore(cliver.agent_profile.agent_dir / "gateway.db")
+
+
+def _get_manager(cliver: Cliver) -> TaskManager:
+    store = _get_store(cliver)
+    return TaskManager(cliver.agent_profile.tasks_dir, store)
 
 
 def _list_tasks(cliver: Cliver) -> int:
-    """List all tasks."""
-    manager = TaskManager(cliver.agent_profile.tasks_dir)
-    tasks = manager.list_tasks()
+    """List all tasks (DB-first, with status)."""
+    manager = _get_manager(cliver)
+    entries = manager.list_task_entries()
 
-    if not tasks:
+    if not entries:
         cliver.output("No tasks defined.")
         return 0
 
-    for t in tasks:
+    store = _get_store(cliver)
+    for entry in entries:
+        if entry.status != "active" or not entry.definition:
+            status_tag = f"  [{entry.status}]"
+            error_info = f"  ({entry.error})" if entry.error else ""
+            cliver.output(f"  {entry.name}:{status_tag}{error_info}")
+            continue
+
+        t = entry.definition
         schedule = f"  schedule: {t.schedule}" if t.schedule else ""
         model = f"  model: {t.model}" if t.model else ""
         workflow = f"  workflow: {t.workflow}" if t.workflow else ""
         skills = f"  skills: {', '.join(t.skills)}" if t.skills else ""
         desc = f"  — {t.description}" if t.description else ""
+        task_origin = store.get_origin(t.name)
         origin = ""
-        if t.origin:
-            origin = f"  origin: {t.origin.source}"
-            if t.origin.channel_id:
-                origin += f" ({t.origin.channel_id})"
+        if task_origin:
+            origin = f"  origin: {task_origin.source}"
+            if task_origin.channel_id:
+                origin += f" ({task_origin.channel_id})"
         cliver.output(f"  {t.name}:{desc}{model}{workflow}{skills}{schedule}{origin}")
 
     return 0
@@ -79,6 +93,9 @@ def _create_task(
             cliver.output("[dim]Use ISO 8601 format, e.g. 2026-04-25T14:30:00[/dim]")
             return 1
 
+    # Capture current CLI session if available
+    session_id = getattr(cliver, "current_session_id", None)
+
     task_def = TaskDefinition(
         name=name,
         description=description,
@@ -89,9 +106,10 @@ def _create_task(
         model=model,
         schedule=schedule,
         run_at=run_at,
+        session_id=session_id,
     )
 
-    manager = TaskManager(cliver.agent_profile.tasks_dir)
+    manager = _get_manager(cliver)
     path = manager.save_task(task_def)
     cliver.output(f"Task '{name}' created: {path}")
     return 0
@@ -99,7 +117,7 @@ def _create_task(
 
 def _run_task(cliver: Cliver, name: str, model: Optional[str] = None) -> int:
     """Run a task by sending its prompt to the LLM."""
-    manager = TaskManager(cliver.agent_profile.tasks_dir)
+    manager = _get_manager(cliver)
     task_def = manager.get_task(name)
     if not task_def:
         cliver.output(f"Task '{name}' not found.")
@@ -108,7 +126,11 @@ def _run_task(cliver: Cliver, name: str, model: Optional[str] = None) -> int:
     execution_id = str(uuid.uuid4())[:8]
     started_at = TaskManager.timestamp_now()
     use_model = model or task_def.model
-    run_store = _get_run_store(cliver)
+    store = _get_store(cliver)
+
+    # Load origin from DB
+    if not task_def.origin:
+        task_def.origin = store.get_origin(name)
 
     cliver.output(f"Running task '{name}'...")
 
@@ -133,8 +155,11 @@ def _run_task(cliver: Cliver, name: str, model: Optional[str] = None) -> int:
             )
         )
 
-        status = "completed" if result else "failed"
-        error = None if result else "No result returned"
+        from cliver.media_handler import extract_response_text
+
+        response_text = extract_response_text(result, fallback=None) if result else None
+        status = "completed" if response_text else "failed"
+        error = None if response_text else "No result returned"
 
         run = TaskRun(
             task_name=name,
@@ -143,8 +168,14 @@ def _run_task(cliver: Cliver, name: str, model: Optional[str] = None) -> int:
             started_at=started_at,
             finished_at=TaskManager.timestamp_now(),
             error=error,
+            result=response_text,
         )
-        run_store.record_run(run)
+        store.record_run(run)
+
+        # Save JSON result for non-IM tasks
+        is_im = task_def.origin and task_def.origin.platform and task_def.origin.channel_id
+        if not is_im:
+            _save_result_json(cliver, name, run)
 
         if status == "completed":
             cliver.output(f"Task '{name}' completed.")
@@ -162,7 +193,8 @@ def _run_task(cliver: Cliver, name: str, model: Optional[str] = None) -> int:
             finished_at=TaskManager.timestamp_now(),
             error=str(e),
         )
-        run_store.record_run(run)
+        store.record_run(run)
+        _save_result_json(cliver, name, run)
         cliver.output(f"Task '{name}' failed: {e}")
         return 1
 
@@ -173,20 +205,19 @@ def _run_task(cliver: Cliver, name: str, model: Optional[str] = None) -> int:
 
 def _task_history(cliver: Cliver, name: str, limit: int = 10) -> int:
     """Show execution history for a task."""
-    manager = TaskManager(cliver.agent_profile.tasks_dir)
-    task_def = manager.get_task(name)
-    run_store = _get_run_store(cliver)
-    runs = run_store.get_runs(name, limit=limit)
+    store = _get_store(cliver)
+    runs = store.get_runs(name, limit=limit)
 
     if not runs:
         cliver.output(f"No run history for task '{name}'.")
         return 0
 
     cliver.output(f"Run history for '{name}' (most recent first):")
-    if task_def and task_def.origin:
-        cliver.output(f"  Origin: {task_def.origin.source}")
-        if task_def.origin.channel_id:
-            cliver.output(f"  Reply-to: {task_def.origin.channel_id} / {task_def.origin.thread_id}")
+    task_origin = store.get_origin(name)
+    if task_origin:
+        cliver.output(f"  Origin: {task_origin.source}")
+        if task_origin.channel_id:
+            cliver.output(f"  Reply-to: {task_origin.channel_id} / {task_origin.thread_id}")
     for run in runs:
         status_icon = "+" if run.status == "completed" else "x"
         error_info = f" — {run.error}" if run.error else ""
@@ -195,12 +226,47 @@ def _task_history(cliver: Cliver, name: str, limit: int = 10) -> int:
     return 0
 
 
+def _save_result_json(cliver: Cliver, task_name: str, run: TaskRun) -> None:
+    """Save execution result as JSON file for non-IM tasks."""
+    import json as json_mod
+
+    task_results_dir = cliver.agent_profile.tasks_dir / task_name
+    task_results_dir.mkdir(parents=True, exist_ok=True)
+
+    filename = f"{task_name}_execution_{run.execution_id}.json"
+    result_path = task_results_dir / filename
+
+    result_data = {
+        "task_name": run.task_name,
+        "execution_id": run.execution_id,
+        "status": run.status,
+        "started_at": run.started_at,
+        "finished_at": run.finished_at,
+        "result": run.result,
+        "error": run.error,
+    }
+
+    result_path.write_text(
+        json_mod.dumps(result_data, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    cliver.output(f"Result saved: {result_path}")
+
+
 def _remove_task(cliver: Cliver, name: str) -> int:
-    """Remove a task and its run history."""
-    manager = TaskManager(cliver.agent_profile.tasks_dir)
+    """Remove a task and its run history, origin, state, and result files."""
+    import shutil
+
+    manager = _get_manager(cliver)
     if manager.remove_task(name):
-        run_store = _get_run_store(cliver)
-        deleted = run_store.delete_runs(name)
+        store = _get_store(cliver)
+        deleted = store.delete_runs(name)
+
+        # Remove per-task result directory
+        results_dir = cliver.agent_profile.tasks_dir / name
+        if results_dir.is_dir():
+            shutil.rmtree(results_dir)
+
         cliver.output(f"Task '{name}' removed ({deleted} run records cleaned up).")
     else:
         cliver.output(f"Task '{name}' not found.")

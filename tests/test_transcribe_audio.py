@@ -1,26 +1,16 @@
 """Tests for transcribe_audio tool and voice message transcription."""
 
 import asyncio
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from cliver.tools.transcribe_audio import TranscribeAudioTool, transcribe_voice_message
 
 
-def _mock_executor_with_audio_model():
-    """Create a mock executor with a model that has AUDIO_TO_TEXT capability."""
-    from cliver.model_capabilities import ModelCapability
-
-    mock_config = MagicMock()
-    mock_config.get_capabilities.return_value = {ModelCapability.AUDIO_TO_TEXT, ModelCapability.TEXT_TO_TEXT}
-    mock_config.get_api_key.return_value = "test-key"
-    mock_config.get_resolved_url.return_value = "https://api.example.com/v1"
-    mock_config.url = "https://api.example.com/v1"
-    mock_config.name_in_provider = "whisper-1"
-    mock_config.name = "whisper"
-
-    mock_executor = MagicMock()
-    mock_executor.llm_models = {"whisper": mock_config}
-    return mock_executor
+def _mock_agent_core(transcribe_result="Hello, this is a test message."):
+    """Create a mock AgentCore with transcribe_audio support."""
+    mock = MagicMock()
+    mock.transcribe_audio = AsyncMock(return_value=transcribe_result)
+    return mock
 
 
 class TestTranscribeAudioTool:
@@ -40,8 +30,7 @@ class TestTranscribeAudioTool:
         result = tool._run(file_path=str(bad_file))
         assert "unsupported" in result.lower()
 
-    def test_no_audio_model_configured(self, tmp_path):
-        """Without a configured audio model, should show helpful error."""
+    def test_no_agent_core(self, tmp_path):
         audio_file = tmp_path / "audio.mp3"
         audio_file.write_bytes(b"fake audio")
 
@@ -49,28 +38,31 @@ class TestTranscribeAudioTool:
             tool = TranscribeAudioTool()
             result = tool._run(file_path=str(audio_file))
 
-        assert "no model" in result.lower() or "audio_to_text" in result.lower()
+        assert "agentcore not available" in result.lower()
+
+    def test_no_audio_model_configured(self, tmp_path):
+        """AgentCore returns None when no audio model is configured."""
+        audio_file = tmp_path / "audio.mp3"
+        audio_file.write_bytes(b"fake audio")
+
+        mock_core = _mock_agent_core(transcribe_result=None)
+        with patch("cliver.tools.transcribe_audio.get_agent_core", return_value=mock_core):
+            tool = TranscribeAudioTool()
+            result = tool._run(file_path=str(audio_file))
+
+        assert "audio_to_text" in result.lower()
 
     def test_successful_transcription(self, tmp_path):
-        """With a configured audio model, should transcribe successfully."""
         audio_file = tmp_path / "audio.mp3"
         audio_file.write_bytes(b"fake audio data")
 
-        mock_executor = _mock_executor_with_audio_model()
-
-        mock_transcript = MagicMock()
-        mock_transcript.text = "Hello, this is a test message."
-        mock_client = MagicMock()
-        mock_client.audio.transcriptions.create.return_value = mock_transcript
-
-        with (
-            patch("cliver.tools.transcribe_audio.get_agent_core", return_value=mock_executor),
-            patch("cliver.tools.transcribe_audio.OpenAI", return_value=mock_client),
-        ):
+        mock_core = _mock_agent_core("Hello, this is a test message.")
+        with patch("cliver.tools.transcribe_audio.get_agent_core", return_value=mock_core):
             tool = TranscribeAudioTool()
             result = tool._run(file_path=str(audio_file))
 
         assert "Hello, this is a test message" in result
+        mock_core.transcribe_audio.assert_called_once()
 
     def test_tool_in_core_toolset(self):
         from cliver.tool_registry import TOOLSETS
@@ -89,8 +81,7 @@ class TestTranscribeVoiceMessage:
         result = asyncio.run(transcribe_voice_message("/nonexistent.ogg"))
         assert result is None
 
-    def test_no_model_returns_none(self, tmp_path):
-        """Without a configured audio model, voice transcription returns None."""
+    def test_no_agent_core_returns_none(self, tmp_path):
         audio_file = tmp_path / "voice.ogg"
         audio_file.write_bytes(b"fake audio")
 
@@ -99,21 +90,23 @@ class TestTranscribeVoiceMessage:
 
         assert result is None
 
+    def test_no_model_returns_none(self, tmp_path):
+        """AgentCore returns None when no audio model configured."""
+        audio_file = tmp_path / "voice.ogg"
+        audio_file.write_bytes(b"fake audio")
+
+        mock_core = _mock_agent_core(transcribe_result=None)
+        with patch("cliver.tools.transcribe_audio.get_agent_core", return_value=mock_core):
+            result = asyncio.run(transcribe_voice_message(str(audio_file)))
+
+        assert result is None
+
     def test_successful_transcription(self, tmp_path):
         audio_file = tmp_path / "voice.ogg"
         audio_file.write_bytes(b"fake audio")
 
-        mock_executor = _mock_executor_with_audio_model()
-
-        mock_transcript = MagicMock()
-        mock_transcript.text = "Transcribed voice message"
-        mock_client = MagicMock()
-        mock_client.audio.transcriptions.create.return_value = mock_transcript
-
-        with (
-            patch("cliver.tools.transcribe_audio.get_agent_core", return_value=mock_executor),
-            patch("cliver.tools.transcribe_audio.OpenAI", return_value=mock_client),
-        ):
+        mock_core = _mock_agent_core("Transcribed voice message")
+        with patch("cliver.tools.transcribe_audio.get_agent_core", return_value=mock_core):
             result = asyncio.run(transcribe_voice_message(str(audio_file)))
 
         assert result == "Transcribed voice message"

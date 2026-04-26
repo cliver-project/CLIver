@@ -73,14 +73,27 @@ _ALWAYS_ENABLED = {"core", "memory", "automation"}
 # Returns True if the toolset's dependencies are available.
 _TOOLSET_CHECKS: Dict[str, callable] = {
     "web": lambda: True,  # web_fetch/web_search always work; browse_web checked per-tool
-    "browser": lambda: _is_importable("playwright"),
+    "browser": lambda: False,  # opt-in only via enabled_toolsets config
     "container": lambda: shutil.which("docker") is not None or shutil.which("podman") is not None,
 }
 
+
 # Per-tool environment checks for tools within enabled toolsets.
 # If a tool's check fails, it's excluded even if its toolset is enabled.
+def _playwright_ready() -> bool:
+    """Check if playwright is installed AND browsers are downloaded."""
+    try:
+        from playwright._impl._driver import compute_driver_executable
+
+        executable = compute_driver_executable()
+        return os.path.isfile(executable)
+    except Exception:
+        return False
+
+
 _TOOL_CHECKS: Dict[str, callable] = {
     "Browse": lambda: bool(os.environ.get("FIRECRAWL_API_KEY")),
+    "Browser": _playwright_ready,
 }
 
 

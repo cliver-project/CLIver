@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from cliver.gateway.scheduler import CronScheduler
-from cliver.gateway.task_run_store import TaskRunStore
+from cliver.gateway.task_store import TaskStore
 from cliver.task_manager import TaskDefinition, TaskManager, TaskRun
 
 
@@ -17,13 +17,13 @@ def tasks_dir(tmp_path):
 
 
 @pytest.fixture
-def task_manager(tasks_dir):
-    return TaskManager(tasks_dir)
+def run_store(tmp_path):
+    return TaskStore(tmp_path / "gateway.db")
 
 
 @pytest.fixture
-def run_store(tmp_path):
-    return TaskRunStore(tmp_path / "gateway.db")
+def task_manager(tasks_dir, run_store):
+    return TaskManager(tasks_dir, run_store)
 
 
 class TestCronScheduler:
@@ -272,7 +272,7 @@ class TestTaskValidation:
 
 class TestOrphanCleanup:
     def test_cleanup_orphan_runs(self, task_manager, run_store):
-        """Runs for deleted tasks should be cleaned up."""
+        """Runs for unregistered tasks should be cleaned up."""
         # Create a task and record runs
         task_manager.save_task(TaskDefinition(name="existing", prompt="still here"))
         run_store.record_run(
@@ -283,7 +283,7 @@ class TestOrphanCleanup:
                 started_at="2026-01-01 09:00:00 UTC",
             )
         )
-        # Record runs for a task that no longer has a YAML file
+        # Record runs for a task that is not registered in DB
         run_store.record_run(
             TaskRun(
                 task_name="deleted-task",
@@ -305,7 +305,7 @@ class TestOrphanCleanup:
         assert len(run_store.get_runs("existing")) == 1
 
     def test_no_orphans_no_deletions(self, task_manager, run_store):
-        """When all runs match existing tasks, nothing is deleted."""
+        """When all runs match registered tasks, nothing is deleted."""
         task_manager.save_task(TaskDefinition(name="t", prompt="p"))
         run_store.record_run(
             TaskRun(

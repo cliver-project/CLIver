@@ -1,5 +1,6 @@
 import logging
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any, AsyncIterator, List, Optional
 
 from langchain_core.language_models import BaseChatModel
@@ -37,6 +38,7 @@ class LLMInferenceEngine(ABC):
         **kwargs: Any,
     ) -> BaseMessage:
         converted_messages = self.convert_messages_to_engine_specific(messages)
+        self._log_message_summary(converted_messages)
         _llm = await self._reconstruct_llm(self.llm, tools)
         response = await _llm.ainvoke(converted_messages, **kwargs)
         return response
@@ -52,10 +54,35 @@ class LLMInferenceEngine(ABC):
     ) -> AsyncIterator[BaseMessageChunk]:
         """Stream responses from the LLM."""
         converted_messages = self.convert_messages_to_engine_specific(messages)
+        self._log_message_summary(converted_messages)
         _llm = await self._reconstruct_llm(self.llm, tools)
         # noinspection PyTypeChecker
         async for chunk in _llm.astream(input=converted_messages, **kwargs):
             yield chunk
+
+    def _log_message_summary(self, messages: List[BaseMessage]) -> None:
+        """Log a summary of message types and content blocks for debugging."""
+        if not logger.isEnabledFor(logging.DEBUG):
+            return
+        for i, msg in enumerate(messages):
+            role = msg.__class__.__name__
+            content = msg.content
+            if isinstance(content, str):
+                logger.debug("  msg[%d] %s: text (%d chars)", i, role, len(content))
+            elif isinstance(content, list):
+                parts = []
+                for block in content:
+                    if isinstance(block, dict):
+                        btype = block.get("type", "?")
+                        if btype == "text":
+                            parts.append(f"text({len(block.get('text', ''))}ch)")
+                        elif btype in ("image_url", "image"):
+                            parts.append(f"{btype}(base64)")
+                        else:
+                            parts.append(btype)
+                    else:
+                        parts.append(type(block).__name__)
+                logger.debug("  msg[%d] %s: [%s]", i, role, ", ".join(parts))
 
     @abstractmethod
     def convert_messages_to_engine_specific(self, messages: List[BaseMessage]) -> List[BaseMessage]:
@@ -77,6 +104,13 @@ class LLMInferenceEngine(ABC):
         # Default implementation returns empty list
         # Specific engines should override this method
         return []
+
+    async def transcribe_audio(self, file_path: Path, language: Optional[str] = None) -> Optional[str]:
+        """Transcribe audio to text. Override in subclasses that support it.
+
+        Returns the transcribed text, or None if not supported by this engine.
+        """
+        return None
 
     def parse_tool_calls(self, response: BaseMessage, model: str) -> list[dict] | None:
         """Parse tool calls from the LLM response.

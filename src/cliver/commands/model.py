@@ -284,6 +284,17 @@ def dispatch(cliver: Cliver, args: str):
     elif sub == "default":
         model_name = rest.strip() if rest else None
         _set_default_model(cliver, model_name)
+    elif sub == "add":
+        _dispatch_add_or_set(cliver, rest, is_add=True)
+    elif sub == "set":
+        _dispatch_add_or_set(cliver, rest, is_add=False)
+    elif sub == "remove":
+        opts = _parse_model_flags(rest)
+        name = opts.get("name")
+        if not name:
+            cliver.output("[yellow]Usage: /model remove --name NAME[/yellow]")
+            return
+        _remove_model(cliver, name)
     elif sub in ("--help", "help"):
         cliver.output("Usage: /model [list|<name>|default|add|set|remove]")
         cliver.output("  list                - List all configured models")
@@ -293,13 +304,89 @@ def dispatch(cliver: Cliver, args: str):
         cliver.output("  set --name NAME ... - Update a model")
         cliver.output("  remove --name NAME  - Remove a model")
     else:
-        # Check if sub is a model name → show detail
         models = cliver.config_manager.list_llm_models()
         if sub in models:
             _show_model_detail(cliver, sub)
         else:
             cliver.output(f"[yellow]Unknown subcommand or model: /model {sub}[/yellow]")
             cliver.output("Run '/model help' for usage.")
+
+
+def _parse_model_flags(rest: str) -> dict:
+    """Parse --flag value pairs from a rest string."""
+    from shlex import split as shlex_split
+
+    try:
+        tokens = shlex_split(rest)
+    except ValueError:
+        tokens = rest.split()
+
+    opts: dict = {}
+    options = []
+    i = 0
+    flag_map = {
+        "--name": "name",
+        "-n": "name",
+        "--provider": "provider",
+        "-p": "provider",
+        "--api-key": "api_key",
+        "-k": "api_key",
+        "--url": "url",
+        "-u": "url",
+        "--name-in-provider": "name_in_provider",
+        "-N": "name_in_provider",
+        "--capabilities": "capabilities",
+        "-c": "capabilities",
+    }
+    while i < len(tokens):
+        if tokens[i] in flag_map and i + 1 < len(tokens):
+            opts[flag_map[tokens[i]]] = tokens[i + 1]
+            i += 2
+        elif tokens[i] in ("--option", "-o") and i + 1 < len(tokens):
+            options.append(tokens[i + 1])
+            i += 2
+        else:
+            i += 1
+    if options:
+        opts["option"] = tuple(options)
+    return opts
+
+
+def _dispatch_add_or_set(cliver: Cliver, rest: str, is_add: bool) -> None:
+    """Handle /model add and /model set from TUI dispatch."""
+    opts = _parse_model_flags(rest)
+    name = opts.get("name")
+    if not name:
+        verb = "add" if is_add else "set"
+        cliver.output(
+            f"[yellow]Usage: /model {verb} --name NAME --provider PROVIDER [--api-key KEY] [--url URL][/yellow]"
+        )
+        return
+    if is_add:
+        if not opts.get("provider"):
+            cliver.output("[yellow]--provider is required for /model add[/yellow]")
+            return
+        _add_model(
+            cliver,
+            name,
+            provider=opts["provider"],
+            api_key=opts.get("api_key"),
+            url=opts.get("url"),
+            option=opts.get("option"),
+            name_in_provider=opts.get("name_in_provider"),
+            capabilities=opts.get("capabilities"),
+        )
+    else:
+        _update_model(
+            cliver,
+            name,
+            provider=opts.get("provider"),
+            api_key=opts.get("api_key"),
+            url=opts.get("url"),
+            option=opts.get("option"),
+            name_in_provider=opts.get("name_in_provider"),
+            capabilities=opts.get("capabilities"),
+        )
 
 
 # ---------------------------------------------------------------------------

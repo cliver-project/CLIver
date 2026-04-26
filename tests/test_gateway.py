@@ -131,6 +131,7 @@ class TestOriginAwareExecution:
         gw._agent_core.process_user_input = AsyncMock(return_value=MagicMock(content="done"))
         gw._run_store = MagicMock()
         gw._run_store.set_task_state = MagicMock()
+        gw._run_store.get_origin = MagicMock(return_value=None)
 
         task = TaskDefinition(name="cli-task", prompt="do x")
         await gw._run_task(task)
@@ -167,7 +168,6 @@ class TestOriginAwareExecution:
             channel_id="C123",
             thread_id="ts456",
             user_id="U789",
-            session_key="slack:C123:ts456",
         )
         task = TaskDefinition(name="im-task", prompt="research AI", origin=origin)
         await gw._run_task(task)

@@ -348,6 +348,12 @@ class AppConfig(BaseModel):
     )
     gateway: Optional[GatewayConfig] = Field(default=None, description="Gateway daemon configuration")
     session: SessionConfig = Field(default_factory=SessionConfig, description="Session storage limits")
+    search_engines: Optional[List[str]] = Field(
+        default=None,
+        description="Ordered list of search engines for WebSearch tool (e.g. [bing, baidu]). "
+        "First engine is tried; others are fallbacks. "
+        "Available: duckduckgo, bing, google, baidu, sogou. Default: [duckduckgo].",
+    )
     timezone: Optional[str] = Field(
         default=None,
         description="IANA timezone (e.g. Asia/Shanghai). Defaults to system local.",

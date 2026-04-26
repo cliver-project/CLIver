@@ -58,6 +58,17 @@ class WebFetchTool(BaseTool):
 
             with urllib.request.urlopen(req, timeout=30) as response:
                 content_type = response.headers.get("Content-Type", "")
+
+                # Reject binary content types — return metadata instead of garbage
+                ct_lower = content_type.lower().split(";")[0].strip()
+                if ct_lower.startswith(("image/", "audio/", "video/", "application/octet-stream")):
+                    content_length = response.headers.get("Content-Length", "unknown")
+                    return (
+                        f"This URL points to a binary file ({ct_lower}, {content_length} bytes), "
+                        f"not readable text. If you already have this image/media embedded in the "
+                        f"conversation, analyze it directly instead of fetching it."
+                    )
+
                 raw = response.read()
 
                 # Determine encoding

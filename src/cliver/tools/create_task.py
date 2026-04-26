@@ -37,9 +37,12 @@ class CreateTaskInput(BaseModel):
 class CreateTaskTool(BaseTool):
     name: str = "CreateTask"
     description: str = (
-        "Create a scheduled or deferred task. ALWAYS use this tool instead of "
-        "shell commands like 'cliver task create'. This tool auto-attaches IM "
-        "origin so task results are delivered back to the conversation."
+        "Create a scheduled or deferred task. "
+        "Required parameters: 'name' (snake_case identifier) and 'prompt' (the instruction text). "
+        "Do NOT use 'content' or 'command' — the field is called 'prompt'. "
+        "Optional: 'schedule' (cron), 'run_at' (ISO 8601 datetime), 'model', 'description'. "
+        "ALWAYS use this tool instead of shell commands like 'cliver task create'. "
+        "This tool auto-attaches IM origin so task results are delivered back to the conversation."
     )
     args_schema: Type[BaseModel] = CreateTaskInput
     tags: list = ["task", "scheduling"]
@@ -80,6 +83,9 @@ class CreateTaskTool(BaseTool):
             except ValueError:
                 return f"Error: invalid run_at '{run_at}'. Use ISO 8601 (e.g. 2026-04-25T14:30:00)."
 
+        # Resolve IM context (origin + session_id) before creating the task
+        im_origin, im_session_id = self._resolve_im_context()
+
         task = TaskDefinition(
             name=name,
             description=description,
@@ -87,12 +93,25 @@ class CreateTaskTool(BaseTool):
             model=model,
             schedule=schedule,
             run_at=run_at,
+            session_id=im_session_id,
         )
 
-        manager = TaskManager(tasks_dir)
+        from cliver.gateway.task_store import TaskStore
+
+        profile = get_current_profile()
+        db_path = profile.agent_dir / "gateway.db" if profile else tasks_dir.parent / "gateway.db"
+        store = TaskStore(db_path)
+        manager = TaskManager(tasks_dir, store)
         path = manager.save_task(task)
 
-        origin_info = f" (reply-back: {task.origin.source})" if task.origin else ""
+        # Save origin to database (not YAML) for IM reply-back
+        origin_info = ""
+        if im_origin:
+            try:
+                store.save_origin(name, im_origin)
+                origin_info = f" (reply-back: {im_origin.source})"
+            except Exception as e:
+                logger.warning("Failed to save task origin to DB: %s", e)
         if schedule:
             schedule_info = f" (schedule: {schedule})"
         elif run_at:
@@ -100,6 +119,30 @@ class CreateTaskTool(BaseTool):
         else:
             schedule_info = " (manual)"
         return f"Task '{name}' created{schedule_info}{origin_info}: {path}"
+
+    @staticmethod
+    def _resolve_im_context():
+        """Auto-detect IM origin and session_id from gateway context.
+
+        Returns (TaskOrigin, session_id) or (None, None).
+        """
+        try:
+            from cliver.gateway.gateway import im_context
+            from cliver.task_manager import TaskOrigin
+
+            ctx = im_context.get()
+            if ctx:
+                origin = TaskOrigin(
+                    source=ctx["platform"],
+                    platform=ctx["platform"],
+                    channel_id=ctx.get("channel_id"),
+                    thread_id=ctx.get("thread_id"),
+                    user_id=ctx.get("user_id"),
+                )
+                return origin, ctx.get("session_id")
+        except ImportError:
+            pass
+        return None, None
 
 
 create_task = CreateTaskTool()

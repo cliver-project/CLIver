@@ -125,61 +125,42 @@ def _render_login_page(context, error=None):
 
 
 def _get_tasks(ctx: dict) -> list:
-    """List tasks from YAML + orphaned DB records.
-
-    Merges YAML-defined tasks with any DB-only (orphaned) tasks whose
-    YAML files have been deleted but still have run history or state.
-    """
+    """List all registered tasks (DB-first) with YAML load status."""
     try:
         from cliver.agent_profile import CliverProfile
-        from cliver.gateway.task_run_store import TaskRunStore
+        from cliver.gateway.task_store import TaskStore
         from cliver.task_manager import TaskManager
 
         config_dir = ctx.get("config_dir")
         if not config_dir:
             return []
         profile = CliverProfile(ctx["agent_name"], config_dir)
-        tm = TaskManager(profile.tasks_dir)
-        tasks = tm.list_tasks()
-
-        db_path = profile.agent_dir / "gateway.db"
-        run_store = None
-        if db_path.exists():
-            run_store = TaskRunStore(db_path)
+        store = TaskStore(profile.agent_dir / "gateway.db")
+        tm = TaskManager(profile.tasks_dir, store)
+        entries = tm.list_task_entries()
 
         result = []
-        yaml_names = set()
-        for task in tasks:
-            yaml_names.add(task.name)
-            entry = task.model_dump(exclude_none=True)
-            if run_store:
-                state = run_store.get_task_state(task.name)
-                if state:
-                    entry["live_status"] = state
-                runs = run_store.get_runs(task.name, limit=1)
-                if runs:
-                    entry["last_run"] = runs[0].model_dump(exclude_none=True)
-            result.append(entry)
+        for entry in entries:
+            if entry.status == "active" and entry.definition:
+                data = entry.definition.model_dump(exclude_none=True)
+            else:
+                data = {"name": entry.name}
+            data["task_status"] = entry.status
+            if entry.error:
+                data["task_error"] = entry.error
+            if entry.created_at:
+                data["created_at"] = entry.created_at
+            if entry.updated_at:
+                data["updated_at"] = entry.updated_at
+            state = store.get_task_state(entry.name)
+            if state:
+                data["live_status"] = state
+            runs = store.get_runs(entry.name, limit=1)
+            if runs:
+                data["last_run"] = runs[0].model_dump(exclude_none=True)
+            result.append(data)
 
-        if run_store:
-            db_names = set(run_store.get_all_task_names())
-            state_names = {
-                s["task_name"]
-                for status in ("completed", "failed", "running", "suspended", "pending")
-                for s in run_store.get_tasks_by_status(status)
-            }
-            orphan_names = (db_names | state_names) - yaml_names
-            for name in sorted(orphan_names):
-                entry = {"name": name, "orphaned": True}
-                state = run_store.get_task_state(name)
-                if state:
-                    entry["live_status"] = state
-                runs = run_store.get_runs(name, limit=1)
-                if runs:
-                    entry["last_run"] = runs[0].model_dump(exclude_none=True)
-                result.append(entry)
-            run_store.close()
-
+        store.close()
         return result
     except Exception as e:
         logger.warning("Failed to get tasks: %s", e)
@@ -190,6 +171,7 @@ async def _run_task(ctx: dict, task_name: str) -> dict:
     """Load and fire a task via the gateway (fire-and-forget)."""
     try:
         from cliver.agent_profile import CliverProfile
+        from cliver.gateway.task_store import TaskStore
         from cliver.task_manager import TaskManager
 
         config_dir = ctx.get("config_dir")
@@ -198,7 +180,8 @@ async def _run_task(ctx: dict, task_name: str) -> dict:
             return {"status": "error", "message": "gateway or config_dir not available"}
 
         profile = CliverProfile(ctx["agent_name"], config_dir)
-        tm = TaskManager(profile.tasks_dir)
+        store = TaskStore(profile.agent_dir / "gateway.db")
+        tm = TaskManager(profile.tasks_dir, store)
         task = tm.get_task(task_name)
         if not task:
             return {"status": "error", "message": f"task '{task_name}' not found"}
@@ -291,28 +274,39 @@ def _get_task_detail(ctx, task_name):
     """Get detailed info for a single task including run history."""
     try:
         from cliver.agent_profile import CliverProfile
-        from cliver.gateway.task_run_store import TaskRunStore
+        from cliver.gateway.task_store import TaskStore
         from cliver.task_manager import TaskManager
 
         config_dir = ctx.get("config_dir")
         if not config_dir:
             return None
         profile = CliverProfile(ctx["agent_name"], config_dir)
-        tm = TaskManager(profile.tasks_dir)
-        task = tm.get_task(task_name)
-        if not task:
+        store = TaskStore(profile.agent_dir / "gateway.db")
+        tm = TaskManager(profile.tasks_dir, store)
+        task_entry = tm.get_task_entry(task_name)
+        if not task_entry:
             return None
-        entry = task.model_dump(exclude_none=True)
-        db_path = profile.agent_dir / "gateway.db"
-        if db_path.exists():
-            rs = TaskRunStore(db_path)
-            state = rs.get_task_state(task_name)
-            if state:
-                entry["live_status"] = state
-            runs = rs.get_runs(task_name, limit=10)
-            entry["runs"] = [r.model_dump(exclude_none=True) for r in runs]
-            rs.close()
-        return entry
+        if task_entry.status == "active" and task_entry.definition:
+            result = task_entry.definition.model_dump(exclude_none=True)
+        else:
+            result = {"name": task_entry.name}
+        result["task_status"] = task_entry.status
+        if task_entry.error:
+            result["task_error"] = task_entry.error
+        if task_entry.created_at:
+            result["created_at"] = task_entry.created_at
+        if task_entry.updated_at:
+            result["updated_at"] = task_entry.updated_at
+        state = store.get_task_state(task_name)
+        if state:
+            result["live_status"] = state
+        runs = store.get_runs(task_name, limit=10)
+        result["runs"] = [r.model_dump(exclude_none=True) for r in runs]
+        origin = store.get_origin(task_name)
+        if origin:
+            result["origin"] = origin.model_dump(exclude_none=True)
+        store.close()
+        return result
     except Exception as e:
         logger.warning("Failed to get task detail: %s", e)
         return None
@@ -657,7 +651,7 @@ def get_admin_routes(
         logger.info("[admin] Task '%s' deleted via admin portal", task_name)
         try:
             from cliver.agent_profile import CliverProfile
-            from cliver.gateway.task_run_store import TaskRunStore
+            from cliver.gateway.task_store import TaskStore
             from cliver.task_manager import TaskManager
 
             config_dir = context.get("config_dir")
@@ -665,18 +659,16 @@ def get_admin_routes(
                 return JSONResponse({"error": "No config dir"}, status_code=500)
 
             profile = CliverProfile(context["agent_name"], config_dir)
-            tm = TaskManager(profile.tasks_dir)
-            yaml_removed = tm.remove_task(task_name)
+            store = TaskStore(profile.agent_dir / "gateway.db")
+            tm = TaskManager(profile.tasks_dir, store)
+            removed = tm.remove_task(task_name)
 
-            db_path = profile.agent_dir / "gateway.db"
             deleted_runs = 0
-            if db_path.exists():
-                run_store = TaskRunStore(db_path)
-                deleted_runs = run_store.delete_runs(task_name)
-                run_store.delete_task_state(task_name)
-                run_store.close()
+            if removed:
+                deleted_runs = store.delete_runs(task_name)
+            store.close()
 
-            if not yaml_removed and deleted_runs == 0:
+            if not removed:
                 return JSONResponse({"error": "Task not found"}, status_code=404)
 
             return JSONResponse(

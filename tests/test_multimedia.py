@@ -66,26 +66,21 @@ class TestOpenAIEngine:
         engine.llm = AsyncMock()
         return engine
 
-    def test_convert_messages_to_openai_format(self, openai_engine):
-        """Test converting messages to OpenAI format."""
-        # Create a human message with media content
-        media = MediaContent(
-            type=MediaType.IMAGE,
-            data="base64image",
-            mime_type="image/jpeg",
-            filename="test.jpg",
+    def test_convert_messages_preserves_multimodal(self, openai_engine):
+        """Multimodal content (already in OpenAI format) passes through."""
+        message = HumanMessage(
+            content=[
+                {"type": "text", "text": "What's in this image?"},
+                {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,base64image"}},
+            ]
         )
-
-        message = HumanMessage(content="What's in this image?")
-        message.media_content = [media]
 
         converted = openai_engine.convert_messages_to_engine_specific([message])
 
         assert len(converted) == 1
         converted_message = converted[0]
-        assert isinstance(converted_message, HumanMessage)
         assert isinstance(converted_message.content, list)
-        assert len(converted_message.content) == 2  # text + image
+        assert len(converted_message.content) == 2
         assert converted_message.content[0]["type"] == "text"
         assert converted_message.content[1]["type"] == "image_url"
 

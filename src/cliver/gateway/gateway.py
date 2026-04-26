@@ -27,7 +27,7 @@ from cliver.gateway.platform_adapter import (
     split_message,
 )
 from cliver.gateway.scheduler import CronScheduler
-from cliver.gateway.task_run_store import TaskRunStore
+from cliver.gateway.task_store import TaskStore
 from cliver.llm import AgentCore
 from cliver.session_manager import SessionManager
 from cliver.task_manager import TaskDefinition, TaskManager, TaskRun
@@ -80,7 +80,7 @@ class Gateway:
         self._pid_file = None
         self._agent_core: Optional[AgentCore] = None
         self._scheduler: Optional[CronScheduler] = None
-        self._run_store: Optional[TaskRunStore] = None
+        self._run_store: Optional[TaskStore] = None
         self._task_manager: Optional[TaskManager] = None
         self._adapter_manager: Optional[AdapterManager] = None
         self._session_manager: Optional[SessionManager] = None
@@ -230,8 +230,8 @@ class Gateway:
         try:
             agent_profile = CliverProfile(self.agent_name, self.config_dir)
             agent_profile.ensure_dirs()
-            self._task_manager = TaskManager(agent_profile.tasks_dir)
-            self._run_store = TaskRunStore(agent_profile.agent_dir / "gateway.db")
+            self._run_store = TaskStore(agent_profile.agent_dir / "gateway.db")
+            self._task_manager = TaskManager(agent_profile.tasks_dir, self._run_store)
 
             self._scheduler = CronScheduler(
                 task_manager=self._task_manager,
@@ -348,6 +348,10 @@ class Gateway:
         execution_id = str(uuid.uuid4())[:8]
         logger.info(f"Running task '{task.name}' (execution: {execution_id})")
 
+        # Load origin from database (not YAML)
+        if not task.origin and self._run_store:
+            task.origin = self._run_store.get_origin(task.name)
+
         if self._run_store:
             self._run_store.set_task_state(task.name, "running")
 
@@ -375,11 +379,15 @@ class Gateway:
             started_at=TaskManager.timestamp_now(),
         )
 
+        # Load session_id from DB if not already on the task
+        if not task.session_id and self._run_store:
+            task.session_id = self._run_store.get_session_id(task.name)
+
         try:
-            # Load conversation history for IM-origin tasks
+            # Load conversation history from linked session
             conversation_history = None
-            if task.origin and task.origin.session_key and self._session_manager:
-                conversation_history = self._load_origin_history(task.origin.session_key)
+            if task.session_id and self._session_manager:
+                conversation_history = self._load_session_history(task.session_id)
 
             if task.workflow:
                 inputs = dict(task.workflow_inputs or {})
@@ -391,11 +399,15 @@ class Gateway:
                 if task.skills:
                     system_appender = self._build_skill_appender(task.skills)
 
+                async def _task_filter_tools(_input, tools):
+                    return [t for t in tools if t.name != "Ask"]
+
                 response = await self._agent_core.process_user_input(
                     user_input=task.prompt,
                     model=task.model,
                     system_message_appender=system_appender,
                     conversation_history=conversation_history,
+                    filter_tools=_task_filter_tools,
                 )
                 from cliver.media_handler import extract_response_text
 
@@ -404,9 +416,11 @@ class Gateway:
             run_record.status = "completed"
             run_record.result = response_text
 
-            # Deliver result to IM origin
+            # Deliver result to IM origin, or save JSON for non-IM tasks
             if task.origin and task.origin.platform and task.origin.channel_id:
                 await self._deliver_to_origin(task, response_text)
+            else:
+                self._save_result_json(task.name, run_record)
 
         except Exception as e:
             run_record.status = "failed"
@@ -432,19 +446,9 @@ class Gateway:
                 self._task_manager.save_task(task)
                 logger.info(f"Cleared run_at for one-shot task '{task.name}'")
 
-    def _load_origin_history(self, session_key: str):
-        """Load conversation history from an IM session for task context."""
+    def _load_session_history(self, session_id: str):
+        """Load conversation history from a linked session for task context."""
         from langchain_core.messages import AIMessage, HumanMessage
-
-        sessions = self._session_manager.list_sessions()
-        session_id = None
-        for s in sessions:
-            if s.get("title") == session_key:
-                session_id = s["id"]
-                break
-
-        if not session_id:
-            return None
 
         turns = self._session_manager.load_turns(session_id)
         if not turns:
@@ -473,23 +477,61 @@ class Gateway:
                 chunk,
                 reply_to=task.origin.thread_id,
             )
+        logger.info(
+            "Task '%s' result delivered to %s (channel=%s, thread=%s, %d chunk(s))",
+            task.name,
+            task.origin.platform,
+            task.origin.channel_id,
+            task.origin.thread_id,
+            len(chunks),
+        )
 
-        # Append synthetic turns to the origin session
-        if self._session_manager and task.origin.session_key:
-            session_id = self._get_or_create_session(
-                self._session_manager,
-                task.origin.session_key,
-            )
+        # Append synthetic turns to the linked session
+        if self._session_manager and task.session_id:
             self._session_manager.append_turn(
-                session_id,
+                task.session_id,
                 "user",
                 f"[Task '{task.name}' executed]",
             )
             self._session_manager.append_turn(
-                session_id,
+                task.session_id,
                 "assistant",
                 response_text,
             )
+            self._session_manager.save_options(
+                task.session_id,
+                {
+                    "task_origin": task.origin.model_dump(exclude_none=True),
+                    "task_name": task.name,
+                },
+            )
+
+    def _save_result_json(self, task_name: str, run_record: TaskRun) -> None:
+        """Save execution result as a JSON file for non-IM tasks."""
+        import json
+
+        agent_profile = CliverProfile(self.agent_name, self.config_dir)
+        task_results_dir = agent_profile.tasks_dir / task_name
+        task_results_dir.mkdir(parents=True, exist_ok=True)
+
+        filename = f"{task_name}_execution_{run_record.execution_id}.json"
+        result_path = task_results_dir / filename
+
+        result_data = {
+            "task_name": run_record.task_name,
+            "execution_id": run_record.execution_id,
+            "status": run_record.status,
+            "started_at": run_record.started_at,
+            "finished_at": run_record.finished_at,
+            "result": run_record.result,
+            "error": run_record.error,
+        }
+
+        result_path.write_text(
+            json.dumps(result_data, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        logger.info("Task result saved to %s", result_path)
 
     def _build_skill_appender(self, skill_names: list) -> callable:
         """Build a system_message_appender that injects pre-activated skills."""
@@ -741,27 +783,42 @@ class Gateway:
                 except Exception as e:
                     logger.warning("History compression failed, using full history: %s", e)
 
+            # Check if this session is linked to a task
+            session_opts = sm.load_options(session_id)
+            linked_task_name = session_opts.get("task_name")
+            linked_origin = session_opts.get("task_origin")
+
             # Record user turn
             sm.append_turn(session_id, "user", event.text)
 
             # Run AgentCore
             logger.info(
-                "Calling AgentCore.process_user_input (model=%s, history=%d turns)",
+                "Calling AgentCore.process_user_input (model=%s, history=%d turns, task=%s)",
                 self._agent_core.default_model,
                 len(conversation_history),
+                linked_task_name or "none",
             )
-            # Set IM context for tools (e.g., create_task) to read
-            im_context.set(
-                {
-                    "platform": event.platform,
-                    "channel_id": event.channel_id,
-                    "thread_id": event.thread_id or event.message_id,
-                    "user_id": event.user_id,
-                    "session_key": session_key,
-                }
-            )
+            # Set IM context for tools (e.g., create_task) to read.
+            # Use linked task origin if available (ensures consistency
+            # for follow-up messages in task threads).
+            im_ctx = {
+                "platform": linked_origin["platform"] if linked_origin else event.platform,
+                "channel_id": linked_origin.get("channel_id") if linked_origin else event.channel_id,
+                "thread_id": linked_origin.get("thread_id") if linked_origin else (event.thread_id or event.message_id),
+                "user_id": event.user_id,
+                "session_id": session_id,
+            }
+            if linked_task_name:
+                im_ctx["task_name"] = linked_task_name
+            im_context.set(im_ctx)
 
             def _im_system_appender() -> str:
+                task_context = ""
+                if linked_task_name:
+                    task_context = (
+                        f"\n\nYou are continuing a conversation from task '{linked_task_name}'. "
+                        "Reply in this same thread. Do not start a new thread."
+                    )
                 return (
                     "# IM Context\n\n"
                     "You are responding in an IM conversation (e.g. Slack, Telegram). "
@@ -775,7 +832,10 @@ class Gateway:
                     "and lose the conversation context.\n\n"
                     "- One-time task: use the `run_at` parameter (ISO datetime)\n"
                     "- Recurring task: use the `schedule` parameter (cron expression)\n"
-                )
+                ) + task_context
+
+            async def _im_filter_tools(user_input, tools):
+                return [t for t in tools if t.name != "Ask"]
 
             try:
                 response = await self._agent_core.process_user_input(
@@ -784,6 +844,7 @@ class Gateway:
                     audio_files=audio_files or None,
                     conversation_history=conversation_history or None,
                     system_message_appender=_im_system_appender,
+                    filter_tools=_im_filter_tools,
                 )
 
                 from cliver.media_handler import MultimediaResponseHandler, extract_response_text
@@ -808,9 +869,17 @@ class Gateway:
             # Reply in-thread: use existing thread_id, or message_id to create a new thread
             reply_to = event.thread_id or event.message_id
 
+            # Strip image URLs from text when media attachments are being sent
+            if multimedia and multimedia.has_media():
+                import re
+
+                response_text = re.sub(r"https?://\S+\.(png|jpg|jpeg|gif|webp|svg)\S*", "", response_text)
+                response_text = re.sub(r"Generated \d+ image\(s\):\s*", "", response_text)
+                response_text = response_text.strip()
+
             # Send text response
-            formatted = adapter.format_message(response_text)
-            chunks = split_message(formatted, adapter.max_message_length())
+            formatted = adapter.format_message(response_text) if response_text else ""
+            chunks = split_message(formatted, adapter.max_message_length()) if formatted else []
             logger.info(
                 "Sending %d chunk(s) to %s channel %s (thread: %s)",
                 len(chunks),
@@ -865,7 +934,7 @@ class Gateway:
             return
 
         agent_profile = CliverProfile(self.agent_name, self.config_dir)
-        task_manager = TaskManager(agent_profile.tasks_dir)
+        task_manager = TaskManager(agent_profile.tasks_dir, self._run_store)
 
         suspended = self._run_store.get_tasks_by_status("suspended")
         for state in suspended:

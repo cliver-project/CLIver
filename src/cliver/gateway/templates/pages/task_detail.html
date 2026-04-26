@@ -15,7 +15,9 @@ var taskName = "{{ITEM_NAME}}";
   }
 
   el.className = '';
-  el.innerHTML = '';
+  while (el.firstChild) el.removeChild(el.firstChild);
+
+  var isBroken = task.task_status === 'yaml_missing' || task.task_status === 'yaml_invalid';
 
   // --- Header ---
   titleEl.textContent = task.name;
@@ -24,6 +26,23 @@ var taskName = "{{ITEM_NAME}}";
     descP.textContent = task.description;
     descP.style.cssText = 'color:var(--text-dim);margin-bottom:20px;margin-top:-12px';
     el.appendChild(descP);
+  }
+
+  // --- Error banner for broken tasks ---
+  if (isBroken) {
+    var banner = document.createElement('div');
+    banner.style.cssText = 'background:var(--red-bg, #3a1a1a);border:1px solid var(--red, #e74c3c);border-radius:6px;padding:12px 16px;margin-bottom:20px';
+    var bannerTitle = document.createElement('strong');
+    bannerTitle.textContent = task.task_status === 'yaml_missing' ? 'YAML file missing' : 'YAML file invalid';
+    bannerTitle.style.color = 'var(--red, #e74c3c)';
+    banner.appendChild(bannerTitle);
+    if (task.task_error) {
+      var bannerMsg = document.createElement('p');
+      bannerMsg.textContent = task.task_error;
+      bannerMsg.style.cssText = 'margin:6px 0 0;color:var(--text-dim);font-size:13px';
+      banner.appendChild(bannerMsg);
+    }
+    el.appendChild(banner);
   }
 
   // --- Metadata section ---
@@ -55,31 +74,44 @@ var taskName = "{{ITEM_NAME}}";
     metaBody.appendChild(tr);
   }
 
-  addMetaRow('Model', task.model || 'default');
-  if (task.schedule) {
-    addMetaRow('Schedule', task.schedule);
+  // Status row
+  var statusPill = document.createElement('span');
+  var pillCls = isBroken ? 'warn' : 'completed';
+  statusPill.className = 'pill ' + pillCls;
+  statusPill.textContent = task.task_status || 'active';
+  addMetaRow('Task Status', statusPill);
+
+  if (!isBroken) {
+    addMetaRow('Model', task.model || 'default');
+    if (task.schedule) {
+      addMetaRow('Schedule', task.schedule);
+    }
+    if (task.run_at) {
+      addMetaRow('Run At', task.run_at);
+    }
+    if (!task.schedule && !task.run_at) {
+      addMetaRow('Schedule', 'manual');
+    }
   }
-  if (task.run_at) {
-    addMetaRow('Run At', task.run_at);
-  }
-  if (!task.schedule && !task.run_at) {
-    addMetaRow('Schedule', 'manual');
-  }
+  if (task.created_at) addMetaRow('Created', task.created_at);
+  if (task.updated_at) addMetaRow('Updated', task.updated_at);
 
   metaTable.appendChild(metaBody);
   metaPanel.appendChild(metaTable);
   el.appendChild(metaPanel);
 
-  // --- Prompt ---
-  var promptHeading = document.createElement('h3');
-  promptHeading.textContent = 'Prompt';
-  promptHeading.style.cssText = 'font-size:14px;font-weight:600;margin-bottom:10px;margin-top:20px';
-  el.appendChild(promptHeading);
+  // --- Prompt (only for active tasks) ---
+  if (!isBroken && task.prompt) {
+    var promptHeading = document.createElement('h3');
+    promptHeading.textContent = 'Prompt';
+    promptHeading.style.cssText = 'font-size:14px;font-weight:600;margin-bottom:10px;margin-top:20px';
+    el.appendChild(promptHeading);
 
-  var promptDiv = document.createElement('div');
-  promptDiv.className = 'md-content';
-  promptDiv.textContent = task.prompt || '';
-  el.appendChild(promptDiv);
+    var promptDiv = document.createElement('div');
+    promptDiv.className = 'md-content';
+    promptDiv.textContent = task.prompt || '';
+    el.appendChild(promptDiv);
+  }
 
   // --- Origin section ---
   var originHeading = document.createElement('h3');
@@ -134,11 +166,11 @@ var taskName = "{{ITEM_NAME}}";
 
     var statusDiv = document.createElement('div');
     statusDiv.className = 'detail-panel';
-    var statusPill = document.createElement('span');
-    var pillCls = String(task.live_status.status || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-    statusPill.className = 'pill ' + pillCls;
-    statusPill.textContent = task.live_status.status;
-    statusDiv.appendChild(statusPill);
+    var liveStatusPill = document.createElement('span');
+    var livePillCls = String(task.live_status.status || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    liveStatusPill.className = 'pill ' + livePillCls;
+    liveStatusPill.textContent = task.live_status.status;
+    statusDiv.appendChild(liveStatusPill);
     el.appendChild(statusDiv);
   }
 
@@ -270,40 +302,58 @@ var taskName = "{{ITEM_NAME}}";
   var actionsDiv = document.createElement('div');
   actionsDiv.className = 'actions';
 
-  // Run Now button
+  // Run Now button (disabled for broken tasks)
   var runNowBtn = document.createElement('button');
   runNowBtn.className = 'btn';
   runNowBtn.textContent = 'Run Now';
-  runNowBtn.onclick = function() {
-    confirmAction('Run Task', 'Run task "' + task.name + '" now?', function() {
-      runNowBtn.disabled = true;
-      runNowBtn.textContent = 'Starting...';
-      apiPost('/tasks/' + encodeURIComponent(task.name) + '/run').then(function(result) {
-        if (result && result.status === 'started') {
-          runNowBtn.textContent = 'Started';
-          runNowBtn.style.color = 'var(--accent)';
+  if (isBroken) {
+    runNowBtn.disabled = true;
+    runNowBtn.style.cssText = 'opacity:0.4;cursor:not-allowed';
+    runNowBtn.title = 'Cannot run: ' + (task.task_error || task.task_status);
+  } else {
+    runNowBtn.onclick = function() {
+      confirmAction('Run Task', 'Run task "' + task.name + '" now?', function() {
+        runNowBtn.disabled = true;
+        runNowBtn.textContent = 'Starting...';
+        apiPost('/tasks/' + encodeURIComponent(task.name) + '/run').then(function(result) {
+          if (result && result.status === 'started') {
+            runNowBtn.textContent = 'Started';
+            runNowBtn.style.color = 'var(--accent)';
+          } else {
+            runNowBtn.textContent = 'Error';
+            runNowBtn.style.color = 'var(--red)';
+            alertMessage('Error', 'Failed: ' + (result ? result.message || 'unknown error' : 'no response'));
+          }
+          setTimeout(function() {
+            runNowBtn.disabled = false;
+            runNowBtn.textContent = 'Run Now';
+            runNowBtn.style.color = '';
+          }, 3000);
+        });
+      });
+    };
+  }
+  actionsDiv.appendChild(runNowBtn);
+
+  // Delete button
+  var delBtn = document.createElement('button');
+  delBtn.className = 'btn danger';
+  delBtn.textContent = 'Delete';
+  delBtn.onclick = function() {
+    var msg = isBroken
+      ? 'Delete broken task "' + task.name + '" and all its run history?'
+      : 'Delete task "' + task.name + '" and all its run history?';
+    confirmAction('Delete Task', msg, function() {
+      apiDelete('/tasks/' + encodeURIComponent(task.name)).then(function(result) {
+        if (result && result.status === 'deleted') {
+          window.location.href = '/admin/tasks';
         } else {
-          runNowBtn.textContent = 'Error';
-          runNowBtn.style.color = 'var(--red)';
-          alertMessage('Error', 'Failed: ' + (result ? result.message || 'unknown error' : 'no response'));
+          alertMessage('Error', 'Failed: ' + (result ? result.error || 'unknown error' : 'no response'));
         }
-        setTimeout(function() {
-          runNowBtn.disabled = false;
-          runNowBtn.textContent = 'Run Now';
-          runNowBtn.style.color = '';
-        }, 3000);
       });
     });
   };
-  actionsDiv.appendChild(runNowBtn);
-
-  // Edit button (disabled placeholder)
-  var editBtn = document.createElement('button');
-  editBtn.className = 'btn';
-  editBtn.disabled = true;
-  editBtn.style.cssText = 'opacity:0.4;cursor:not-allowed';
-  editBtn.textContent = 'Edit';
-  actionsDiv.appendChild(editBtn);
+  actionsDiv.appendChild(delBtn);
 
   el.appendChild(actionsDiv);
 })();

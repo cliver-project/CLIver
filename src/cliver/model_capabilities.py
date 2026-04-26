@@ -155,9 +155,12 @@ MODEL_CAPABILITIES = {
         ModelCapability.JSON_MODE,
         ModelCapability.THINK_MODE,
     },
-    # DeepSeek (generic fallback, e.g. deepseek-chat)
+    # DeepSeek (generic fallback, e.g. deepseek-chat, deepseek-v4)
     "deepseek*": {
         ModelCapability.TEXT_TO_TEXT,
+        ModelCapability.IMAGE_TO_TEXT,
+        ModelCapability.AUDIO_TO_TEXT,
+        ModelCapability.TEXT_TO_IMAGE,
         ModelCapability.TOOL_CALLING,
         ModelCapability.JSON_MODE,
     },
@@ -192,6 +195,9 @@ MODEL_CAPABILITIES = {
     # MiniMax models
     "minimax*": {
         ModelCapability.TEXT_TO_TEXT,
+        ModelCapability.IMAGE_TO_TEXT,
+        ModelCapability.AUDIO_TO_TEXT,
+        ModelCapability.TEXT_TO_IMAGE,
         ModelCapability.TOOL_CALLING,
         ModelCapability.JSON_MODE,
         ModelCapability.THINK_MODE,

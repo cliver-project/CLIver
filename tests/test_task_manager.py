@@ -1,13 +1,19 @@
-"""Tests for TaskManager — task CRUD."""
+"""Tests for TaskManager — DB-first task CRUD."""
 
 import pytest
 
+from cliver.gateway.task_store import TaskStore
 from cliver.task_manager import TaskDefinition, TaskManager, TaskOrigin
 
 
 @pytest.fixture
-def manager(tmp_path):
-    return TaskManager(tmp_path / "tasks")
+def store(tmp_path):
+    return TaskStore(tmp_path / "gateway.db")
+
+
+@pytest.fixture
+def manager(tmp_path, store):
+    return TaskManager(tmp_path / "tasks", store)
 
 
 # ---------------------------------------------------------------------------
@@ -87,6 +93,90 @@ class TestCRUD:
 
 
 # ---------------------------------------------------------------------------
+# DB-first behavior
+# ---------------------------------------------------------------------------
+
+
+class TestDBFirst:
+    def test_yaml_only_not_recognised(self, manager):
+        """A YAML file without a DB registration is not a valid task."""
+        import yaml
+
+        manager._ensure_dir()
+        yaml_path = manager.tasks_dir / "stray.yaml"
+        yaml_path.write_text(
+            yaml.dump({"name": "stray", "prompt": "hello"}),
+            encoding="utf-8",
+        )
+        assert manager.get_task("stray") is None
+        assert all(t.name != "stray" for t in manager.list_tasks())
+
+    def test_yaml_missing_shows_in_entries(self, manager, store):
+        """A DB-registered task with missing YAML shows in entries."""
+        store.register_task("ghost", "ghost.yaml")
+        entries = manager.list_task_entries()
+        assert len(entries) == 1
+        assert entries[0].name == "ghost"
+        assert entries[0].status == "yaml_missing"
+
+    def test_yaml_invalid_shows_in_entries(self, manager, store):
+        """A DB-registered task with invalid YAML shows in entries."""
+        manager._ensure_dir()
+        (manager.tasks_dir / "bad.yaml").write_text("not: valid: yaml: {{", encoding="utf-8")
+        store.register_task("bad", "bad.yaml")
+        entries = manager.list_task_entries()
+        assert len(entries) == 1
+        assert entries[0].name == "bad"
+        assert entries[0].status == "yaml_invalid"
+
+    def test_active_task_in_entries(self, manager):
+        """A properly saved task shows as active in entries."""
+        manager.save_task(TaskDefinition(name="ok", prompt="hello"))
+        entries = manager.list_task_entries()
+        assert len(entries) == 1
+        assert entries[0].status == "active"
+        assert entries[0].definition is not None
+        assert entries[0].definition.prompt == "hello"
+
+    def test_get_task_entry_missing_yaml(self, manager, store):
+        store.register_task("missing", "missing.yaml")
+        entry = manager.get_task_entry("missing")
+        assert entry is not None
+        assert entry.status == "yaml_missing"
+        assert entry.definition is None
+
+    def test_get_task_entry_active(self, manager):
+        manager.save_task(TaskDefinition(name="active", prompt="test"))
+        entry = manager.get_task_entry("active")
+        assert entry is not None
+        assert entry.status == "active"
+        assert entry.definition.prompt == "test"
+
+    def test_get_task_entry_nonexistent(self, manager):
+        assert manager.get_task_entry("nope") is None
+
+    def test_save_registers_in_db(self, manager, store):
+        """save_task writes YAML and registers in DB."""
+        manager.save_task(TaskDefinition(name="db-test", prompt="p"))
+        row = store.get_registered_task("db-test")
+        assert row is not None
+        assert row["yaml_path"] == "db-test.yaml"
+
+    def test_remove_unregisters_from_db(self, manager, store):
+        """remove_task removes from DB and deletes YAML."""
+        manager.save_task(TaskDefinition(name="rm-test", prompt="p"))
+        assert manager.remove_task("rm-test") is True
+        assert store.get_registered_task("rm-test") is None
+        assert not (manager.tasks_dir / "rm-test.yaml").exists()
+
+    def test_remove_missing_yaml_still_works(self, manager, store):
+        """remove_task works even if YAML was already deleted."""
+        store.register_task("no-yaml", "no-yaml.yaml")
+        assert manager.remove_task("no-yaml") is True
+        assert store.get_registered_task("no-yaml") is None
+
+
+# ---------------------------------------------------------------------------
 # Task with schedule
 # ---------------------------------------------------------------------------
 
@@ -128,12 +218,11 @@ class TestTaskOrigin:
             channel_id="C12345",
             thread_id="1234567890.123456",
             user_id="U67890",
-            session_key="slack:C12345:1234567890.123456",
         )
         t = TaskDefinition(name="t", prompt="research AI", origin=origin)
         assert t.origin.source == "slack"
         assert t.origin.channel_id == "C12345"
-        assert t.origin.session_key == "slack:C12345:1234567890.123456"
+        assert t.origin.thread_id == "1234567890.123456"
 
     def test_origin_cli(self):
         origin = TaskOrigin(source="cli")
@@ -142,25 +231,20 @@ class TestTaskOrigin:
         assert t.origin.platform is None
         assert t.origin.channel_id is None
 
-    def test_origin_round_trip_yaml(self, manager):
+    def test_origin_excluded_from_yaml(self, manager):
+        """Origin is stored in DB (origin columns on tasks table), not YAML."""
         origin = TaskOrigin(
             source="telegram",
             platform="telegram",
             channel_id="chat_123",
             thread_id="msg_456",
             user_id="user_789",
-            session_key="telegram:chat_123:msg_456",
         )
         task = TaskDefinition(name="origin-task", prompt="do x", origin=origin)
         manager.save_task(task)
 
         loaded = manager.get_task("origin-task")
-        assert loaded.origin is not None
-        assert loaded.origin.source == "telegram"
-        assert loaded.origin.platform == "telegram"
-        assert loaded.origin.channel_id == "chat_123"
-        assert loaded.origin.thread_id == "msg_456"
-        assert loaded.origin.session_key == "telegram:chat_123:msg_456"
+        assert loaded.origin is None
 
     def test_origin_omitted_in_yaml_when_none(self, manager):
         task = TaskDefinition(name="no-origin", prompt="do x")
