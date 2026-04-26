@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from langchain_core.messages import AIMessage
 
-from cliver.config import ModelConfig, ModelOptions
+from cliver.config import ModelConfig, ModelOptions, ProviderConfig
 from cliver.llm.base import LLMInferenceEngine
 from cliver.llm.llm import AgentCore
 from cliver.model_capabilities import ModelCapability
@@ -19,16 +19,15 @@ class TestFileEmbeddingFallback:
     @pytest.fixture
     def mock_engine(self):
         """Create a mock LLM engine without file upload support."""
+        prov = ProviderConfig(name="test", type="openai", api_url="http://test")
         config = ModelConfig(
-            name="test-model",
+            name="test/test-model",
             provider="test",
-            name_in_provider="test-model",
-            url="http://test",
-            api_key=None,
             options=ModelOptions(
                 temperature=0.5,
             ),
         )
+        config._provider_config = prov
 
         # Create a mock engine
         engine = Mock(spec=LLMInferenceEngine)
@@ -52,10 +51,10 @@ class TestFileEmbeddingFallback:
     @pytest.fixture
     def agent_core(self, mock_engine):
         """Create a mock AgentCore."""
-        llm_models = {"test-model": mock_engine.config}
+        llm_models = {"test/test-model": mock_engine.config}
         mcp_servers = {}
         executor = AgentCore(llm_models, mcp_servers)
-        executor.llm_engines["test-model"] = mock_engine
+        executor.llm_engines["test/test-model"] = mock_engine
         return executor
 
     def test_process_user_input_with_files_fallback(self, agent_core, mock_engine):
@@ -77,7 +76,7 @@ class TestFileEmbeddingFallback:
             response = agent_core.process_user_input_sync(
                 user_input="Analyze this file",
                 files=[test_file_path],
-                model="test-model",
+                model="test/test-model",
             )
 
             # Verify the response
@@ -124,7 +123,7 @@ class TestFileEmbeddingFallback:
 
             # Process user input with multiple files (should use embedding fallback)
             response = agent_core.process_user_input_sync(
-                user_input="Analyze these files", files=test_files, model="test-model"
+                user_input="Analyze these files", files=test_files, model="test/test-model"
             )
 
             # Verify the response

@@ -1,4 +1,8 @@
+from contextvars import ContextVar
 from dataclasses import dataclass, field
+from typing import Optional
+
+_current_call_context: ContextVar[Optional["CallContext"]] = ContextVar("_current_call_context", default=None)
 
 
 @dataclass
@@ -7,6 +11,9 @@ class CallContext:
 
     Each call to process_user_input() or stream_user_input() creates a fresh
     instance so concurrent conversations do not share mutable state.
+
+    Use ``get_current()`` from builtin tools to access the active context
+    (e.g. so ImageGenerateTool can accumulate media on the outer loop's context).
     """
 
     tool_call_count: int = 0
@@ -17,3 +24,12 @@ class CallContext:
 
     tool_result_cache: dict[str, list] = field(default_factory=dict)
     """Dedup cache: maps (tool_name, args) hash to cached result list."""
+
+    def activate(self) -> None:
+        """Set this context as the current one (via ContextVar)."""
+        _current_call_context.set(self)
+
+    @staticmethod
+    def get_current() -> Optional["CallContext"]:
+        """Return the active CallContext, or None if outside a Re-Act loop."""
+        return _current_call_context.get()

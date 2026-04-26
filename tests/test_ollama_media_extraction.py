@@ -21,10 +21,9 @@ class TestOllamaSpecificMediaExtraction:
     def ollama_engine(self):
         """Create a mock Ollama engine."""
         config = Mock(spec=ModelConfig)
-        config.name = "llava"
+        config.name = "ollama/llava"
         config.provider = "ollama"
-        config.name_in_provider = "llava"
-        config.url = "http://localhost:11434"
+        config.api_model_name = "llava"
         config.get_resolved_url = Mock(return_value="http://localhost:11434")
         config.options = None  # Add the missing options attribute
         config.model_dump = Mock(return_value={})

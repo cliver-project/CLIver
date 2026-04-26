@@ -22,11 +22,9 @@ class TestE2EMultimedia:
         """Test processing user input with an image."""
         # Create a mock OpenAI engine
         config = Mock(spec=ModelConfig)
-        config.name = "gpt-4-vision"
+        config.name = "openai/gpt-4-vision"
         config.provider = "openai"
-        config.name_in_provider = "gpt-4-vision"
-        config.url = "https://api.openai.com/v1"
-        config.api_key = "test-key"
+        config.api_model_name = "gpt-4-vision"
         config.get_api_key = Mock(return_value="test-key")
         config.get_resolved_url = Mock(return_value="https://api.openai.com/v1")
         config.options = None
@@ -49,10 +47,10 @@ class TestE2EMultimedia:
         engine.infer = AsyncMock(return_value=mock_response)
 
         # Create a AgentCore with mock OpenAI engine
-        llm_models = {"gpt-4-vision": config}
+        llm_models = {"openai/gpt-4-vision": config}
         mcp_servers = {}
         executor = AgentCore(llm_models, mcp_servers, config)
-        executor.llm_engines["gpt-4-vision"] = engine
+        executor.llm_engines["openai/gpt-4-vision"] = engine
 
         # Create mock media content
         image_files = ["test_image.jpg"]
@@ -70,7 +68,7 @@ class TestE2EMultimedia:
                 executor.process_user_input(
                     user_input="What's in this image?",
                     images=image_files,
-                    model="gpt-4-vision",
+                    model="openai/gpt-4-vision",
                 )
             )
 
@@ -83,11 +81,9 @@ class TestE2EMultimedia:
         """Test streaming user input with an image."""
         # Create a mock OpenAI engine
         config = Mock(spec=ModelConfig)
-        config.name = "gpt-4-vision"
+        config.name = "openai/gpt-4-vision"
         config.provider = "openai"
-        config.name_in_provider = "gpt-4-vision"
-        config.url = "https://api.openai.com/v1"
-        config.api_key = "test-key"
+        config.api_model_name = "gpt-4-vision"
         config.get_api_key = Mock(return_value="test-key")
         config.get_resolved_url = Mock(return_value="https://api.openai.com/v1")
         config.options = None
@@ -122,10 +118,10 @@ class TestE2EMultimedia:
         engine.stream = mock_stream
 
         # Create a AgentCore with mock OpenAI engine
-        llm_models = {"gpt-4-vision": config}
+        llm_models = {"openai/gpt-4-vision": config}
         mcp_servers = {}
         executor = AgentCore(llm_models, mcp_servers, config)
-        executor.llm_engines["gpt-4-vision"] = engine
+        executor.llm_engines["openai/gpt-4-vision"] = engine
 
         # Create mock media content
         image_files = ["test_image.jpg"]
@@ -145,7 +141,7 @@ class TestE2EMultimedia:
                 async for chunk in executor.stream_user_input(
                     user_input="What's in this image?",
                     images=image_files,
-                    model="gpt-4-vision",
+                    model="openai/gpt-4-vision",
                 ):
                     chunks.append(chunk)
 

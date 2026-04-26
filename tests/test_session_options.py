@@ -35,7 +35,7 @@ def _setup(runner, load_cliver):
             "model",
             "add",
             "--name",
-            "test-model",
+            "ollama/llama3.2:latest",
             "--provider",
             "ollama",
             "--url",
@@ -71,7 +71,7 @@ def test_set_options(load_cliver, init_config, simple_llm_model):
             "option",
             "set",
             "--model",
-            "test-model",
+            "ollama/llama3.2:latest",
             "--temperature",
             "0.8",
             "--stream",
@@ -85,7 +85,7 @@ def test_set_options(load_cliver, init_config, simple_llm_model):
     # Verify by displaying
     result = runner.invoke(load_cliver, ["session", "option"], obj=cliver_instance)
     assert result.exit_code == 0
-    assert "test-model" in result.output
+    assert "ollama/llama3.2:latest" in result.output
 
 
 def test_reset_subcommand(load_cliver, init_config, simple_llm_model):
@@ -96,7 +96,7 @@ def test_reset_subcommand(load_cliver, init_config, simple_llm_model):
     # Set some values first
     runner.invoke(
         load_cliver,
-        ["session", "option", "set", "--model", "test-model", "--temperature", "0.8", "--stream"],
+        ["session", "option", "set", "--model", "ollama/llama3.2:latest", "--temperature", "0.8", "--stream"],
         obj=cliver_instance,
     )
 
@@ -112,7 +112,7 @@ def test_individual_set_options(load_cliver, init_config, simple_llm_model):
     cliver_instance = _setup(runner, load_cliver)
 
     tests = [
-        (["--model", "test-model"], "Set model to 'test-model'"),
+        (["--model", "ollama/llama3.2:latest"], "Set model to 'ollama/llama3.2:latest'"),
         (["--temperature", "0.8"], "Set temperature to 0.8"),
         (["--max-tokens", "1024"], "Set max_tokens to 1024"),
         (["--top-p", "0.9"], "Set top_p to 0.9"),

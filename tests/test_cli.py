@@ -72,55 +72,22 @@ def test_list_llm_simple(load_cliver, simple_llm_model):
     assert "ollama" in result.output
 
 
-def test_add_llm_simple(load_cliver, init_config):
-    # add it
+def test_add_llm_simple(load_cliver, init_config, config_manager):
+    config_manager.add_or_update_provider("ollama", "ollama", "http://localhost:11434")
+
     result = CliRunner().invoke(
         load_cliver,
-        [
-            "model",
-            "add",
-            "--name",
-            "deepseek",
-            "--name-in-provider",
-            "deepseek-coder:6.7b",
-            "--provider",
-            "ollama",
-            "--url",
-            "https://localhost:11434",
-        ],
+        ["model", "add", "--name", "deepseek-coder", "--provider", "ollama"],
     )
     assert result.exit_code == 0
-    assert "Added LLM Model: deepseek" in result.output
+    assert "Added LLM Model: ollama/deepseek-coder" in result.output
     result = CliRunner().invoke(load_cliver, ["model", "list"])
     assert result.exit_code == 0
-    assert "deepseek" in result.output
-    assert "ollama" in result.output
+    assert "ollama/deepseek" in result.output
 
-    # update it
-    result = CliRunner().invoke(
-        load_cliver,
-        [
-            "model",
-            "set",
-            "--name",
-            "deepseek",
-            "--name-in-provider",
-            "deepseek-coder:6.7b",
-            "--provider",
-            "vllm",
-        ],
-    )
+    result = CliRunner().invoke(load_cliver, ["model", "remove", "ollama/deepseek-coder"])
     assert result.exit_code == 0
-    assert "LLM Model: deepseek updated" in result.output
-    result = CliRunner().invoke(load_cliver, ["model", "list"])
-    assert result.exit_code == 0
-    assert "deepseek" in result.output
-    assert "vllm" in result.output
-
-    # remove it
-    result = CliRunner().invoke(load_cliver, ["model", "remove", "--name", "deepseek"])
-    assert result.exit_code == 0
-    assert "Removed LLM Model: deepseek" in result.output
+    assert "Removed LLM Model: ollama/deepseek-coder" in result.output
     result = CliRunner().invoke(load_cliver, ["model", "list"])
     assert result.exit_code == 0
     assert "No LLM Models configured." in result.output

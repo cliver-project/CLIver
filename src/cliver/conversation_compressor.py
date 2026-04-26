@@ -55,7 +55,7 @@ def get_context_window(config: ModelConfig) -> int:
     if config.context_window:
         return config.context_window
 
-    name = (config.name_in_provider or config.name).lower()
+    name = config.api_model_name.lower()
     for pattern, size in _CONTEXT_WINDOW_DEFAULTS.items():
         if pattern in name:
             return size

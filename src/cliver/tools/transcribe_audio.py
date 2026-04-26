@@ -61,13 +61,14 @@ class TranscribeAudioTool(BaseTool):
         if result is None:
             return (
                 "Error: No model with audio_to_text capability configured.\n"
-                "Add one to config.yaml, e.g.:\n"
-                "  whisper:\n"
-                "    provider: openai\n"
-                "    url: https://api.openai.com/v1\n"
+                "Add one under a provider in config.yaml, e.g.:\n"
+                "  openai:\n"
+                "    type: openai\n"
+                "    api_url: https://api.openai.com/v1\n"
                 "    api_key: '{{ env.OPENAI_API_KEY }}'\n"
-                "    name_in_provider: whisper-1\n"
-                "    capabilities: [audio_to_text]"
+                "    models:\n"
+                "    - name: whisper-1\n"
+                "      capabilities: [audio_to_text]"
             )
 
         if not result or not result.strip():

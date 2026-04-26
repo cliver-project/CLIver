@@ -20,11 +20,9 @@ class TestFileUpload:
     def openai_engine(self):
         """Create a mock OpenAI engine with file upload support."""
         config = Mock(spec=ModelConfig)
-        config.name = "gpt-4"
+        config.name = "openai/gpt-4"
         config.provider = "openai"
-        config.name_in_provider = "gpt-4"
-        config.url = "https://api.openai.com/v1"
-        config.api_key = "test-key"
+        config.api_model_name = "gpt-4"
         config.get_api_key = Mock(return_value="test-key")
         config.get_resolved_url = Mock(return_value="https://api.openai.com/v1")
         config.options = None
@@ -44,10 +42,10 @@ class TestFileUpload:
     @pytest.fixture
     def agent_core(self, openai_engine):
         """Create a mock AgentCore."""
-        llm_models = {"gpt-4": openai_engine.config}
+        llm_models = {"openai/gpt-4": openai_engine.config}
         mcp_servers = {}
         executor = AgentCore(llm_models, mcp_servers)
-        executor.llm_engines["gpt-4"] = openai_engine
+        executor.llm_engines["openai/gpt-4"] = openai_engine
         return executor
 
     def test_process_user_input_with_files(self, agent_core, openai_engine):
@@ -63,7 +61,7 @@ class TestFileUpload:
         response = agent_core.process_user_input_sync(
             user_input="Analyze these files",
             files=["test.txt", "data.csv"],
-            model="gpt-4",
+            model="openai/gpt-4",
         )
 
         # Verify the response

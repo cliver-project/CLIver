@@ -202,21 +202,18 @@ def test_mcp_server_invalid_header_format(load_cliver, init_config):
     assert "Warning: Invalid option format 'INVALID_FORMAT'" in result.output
 
 
-def test_llm_model_add_with_options(load_cliver, init_config):
+def test_llm_model_add_with_options(load_cliver, init_config, config_manager):
     """Test adding LLM model with options."""
+    config_manager.add_or_update_provider("ollama", "ollama", "http://localhost:11434")
     result = CliRunner().invoke(
         load_cliver,
         [
             "model",
             "add",
             "--name",
-            "test_model",
+            "llama3.2",
             "--provider",
             "ollama",
-            "--url",
-            "http://localhost:11434",
-            "--name-in-provider",
-            "llama3.2:latest",
             "--option",
             "temperature=0.7",
             "--option",
@@ -224,40 +221,27 @@ def test_llm_model_add_with_options(load_cliver, init_config):
         ],
     )
     assert result.exit_code == 0
-    assert "Added LLM Model: test_model" in result.output
+    assert "Added LLM Model: ollama/llama3.2" in result.output
 
-    # Verify the model list command works
     result = CliRunner().invoke(load_cliver, ["model", "list"])
     assert result.exit_code == 0
 
 
-def test_llm_model_set_options(load_cliver, init_config):
+def test_llm_model_set_options(load_cliver, init_config, config_manager):
     """Test updating LLM model options."""
-    # First add model
+    config_manager.add_or_update_provider("ollama", "ollama", "http://localhost:11434")
     CliRunner().invoke(
         load_cliver,
-        [
-            "model",
-            "add",
-            "--name",
-            "test_model",
-            "--provider",
-            "ollama",
-            "--url",
-            "http://localhost:11434",
-            "--name-in-provider",
-            "llama3.2:latest",
-        ],
+        ["model", "add", "--name", "llama3.2", "--provider", "ollama"],
     )
 
-    # Update model options
     result = CliRunner().invoke(
         load_cliver,
         [
             "model",
             "set",
             "--name",
-            "test_model",
+            "ollama/llama3.2",
             "--option",
             "temperature=0.8",
             "--option",
@@ -265,9 +249,8 @@ def test_llm_model_set_options(load_cliver, init_config):
         ],
     )
     assert result.exit_code == 0
-    assert "LLM Model: test_model updated" in result.output
+    assert "LLM Model: ollama/llama3.2 updated" in result.output
 
-    # Verify updates
     result = CliRunner().invoke(load_cliver, ["model", "list"])
     assert result.exit_code == 0
 
@@ -307,22 +290,6 @@ def test_config_file_format(load_cliver, init_config):
         ],
     )
 
-    CliRunner().invoke(
-        load_cliver,
-        [
-            "model",
-            "add",
-            "--name",
-            "test_model",
-            "--provider",
-            "ollama",
-            "--url",
-            "http://localhost:11434",
-            "--name-in-provider",
-            "llama3.2:latest",
-        ],
-    )
-
     # Check the config file format
     config_file = init_config / "config.yaml"
     with open(config_file, "r") as f:
@@ -335,9 +302,6 @@ def test_config_file_format(load_cliver, init_config):
     assert "test_streamable" in config_data["mcpServers"]
     assert "name" not in config_data["mcpServers"]["test_streamable"]
 
-    assert "test_model" in config_data["models"]
-    assert "name" not in config_data["models"]["test_model"]
-
     # Verify no null values
     mcp_server = config_data["mcpServers"]["test_stdio"]
     assert None not in mcp_server.values()
@@ -345,8 +309,8 @@ def test_config_file_format(load_cliver, init_config):
     streamable_server = config_data["mcpServers"]["test_streamable"]
     assert None not in streamable_server.values()
 
-    model = config_data["models"]["test_model"]
-    assert None not in model.values()
+    # Verify no top-level models section (models are nested in providers)
+    assert "models" not in config_data
 
     # Verify secrets is not in config if None
     assert "secrets" not in config_data
@@ -385,34 +349,22 @@ def test_mcp_server_remove(load_cliver, init_config):
     assert "test_server" not in result.output
 
 
-def test_llm_model_remove(load_cliver, init_config):
+def test_llm_model_remove(load_cliver, init_config, config_manager):
     """Test removing LLM models."""
-    # Add a model first
+    config_manager.add_or_update_provider("ollama", "ollama", "http://localhost:11434")
     CliRunner().invoke(
         load_cliver,
-        [
-            "model",
-            "add",
-            "--name",
-            "test_model",
-            "--provider",
-            "ollama",
-            "--url",
-            "http://localhost:11434",
-        ],
+        ["model", "add", "--name", "test_model", "--provider", "ollama"],
     )
 
-    # Verify it exists
     result = CliRunner().invoke(load_cliver, ["model", "list"])
     assert result.exit_code == 0
     assert "test_model" in result.output
 
-    # Remove it
-    result = CliRunner().invoke(load_cliver, ["model", "remove", "--name", "test_model"])
+    result = CliRunner().invoke(load_cliver, ["model", "remove", "ollama/test_model"])
     assert result.exit_code == 0
-    assert "Removed LLM Model: test_model" in result.output
+    assert "Removed LLM Model: ollama/test_model" in result.output
 
-    # Verify it's gone
     result = CliRunner().invoke(load_cliver, ["model", "list"])
     assert result.exit_code == 0
     assert "test_model" not in result.output

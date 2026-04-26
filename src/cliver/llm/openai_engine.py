@@ -32,7 +32,7 @@ class OpenAICompatibleInferenceEngine(LLMInferenceEngine):
             self.options = self.config.options.model_dump(exclude_unset=True)
 
         # Sanitize options for provider-specific restrictions
-        self._model_name_lower = (self.config.name_in_provider or self.config.name).lower()
+        self._model_name_lower = (self.config.api_model_name).lower()
         self.options = _sanitize_options(self._model_name_lower, self.options)
 
         default_headers = {"User-Agent": user_agent} if user_agent else None
@@ -55,7 +55,7 @@ class OpenAICompatibleInferenceEngine(LLMInferenceEngine):
         self.uploaded_files = {}
 
         self.llm = ChatOpenAI(
-            model=self.config.name_in_provider or self.config.name,
+            model=self.config.api_model_name,
             base_url=resolved_url,
             api_key=resolved_api_key,
             default_headers=default_headers,
@@ -166,7 +166,7 @@ class OpenAICompatibleInferenceEngine(LLMInferenceEngine):
         return await asyncio.to_thread(self._transcribe_audio_sync, file_path, language)
 
     def _transcribe_audio_sync(self, file_path: Path, language: Optional[str]) -> Optional[str]:
-        model_name = self.config.name_in_provider or self.config.name
+        model_name = self.config.api_model_name
         try:
             with open(file_path, "rb") as f:
                 kwargs: Dict[str, Any] = {"model": model_name, "file": f}

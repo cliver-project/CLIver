@@ -1,8 +1,8 @@
 """Built-in tool for generating images from text descriptions.
 
-Uses whatever configured provider has image_url set, or a model
-with TEXT_TO_IMAGE capability. Provider-specific API differences
-are handled by generation helpers in llm/media_generation/.
+Uses the provider that has image_url and image_model configured.
+Provider-specific API differences are handled by generation
+helpers in llm/media_generation/.
 """
 
 import asyncio
@@ -64,7 +64,8 @@ class ImageGenerateTool(BaseTool):
         try:
             from cliver.llm.call_context import CallContext
 
-            result = _run_async(executor.generate_image(prompt, model, ctx=CallContext()))
+            ctx = CallContext.get_current() or CallContext()
+            result = _run_async(executor.generate_image(prompt, model, ctx=ctx))
             return result.content
         except Exception as e:
             logger.warning("Image generation failed: %s", e)

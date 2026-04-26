@@ -21,11 +21,9 @@ class TestOpenAISpecificMediaExtraction:
     def openai_engine(self):
         """Create a mock OpenAI engine."""
         config = Mock(spec=ModelConfig)
-        config.name = "gpt-4-vision"
+        config.name = "openai/gpt-4-vision"
         config.provider = "openai"
-        config.name_in_provider = "gpt-4-vision"
-        config.url = "https://api.openai.com/v1"
-        config.api_key = "test-key"
+        config.api_model_name = "gpt-4-vision"
         config.get_api_key = Mock(return_value="test-key")
         config.get_resolved_url = Mock(return_value="https://api.openai.com/v1")
         config.options = None

@@ -34,7 +34,7 @@ class AnthropicInferenceEngine(LLMInferenceEngine):
 
         # ChatAnthropic constructor kwargs
         llm_kwargs: Dict[str, Any] = {
-            "model": self.config.name_in_provider or self.config.name,
+            "model": self.config.api_model_name,
             "anthropic_api_key": resolved_api_key,
             "default_headers": default_headers,
         }

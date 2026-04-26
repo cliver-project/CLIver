@@ -59,7 +59,7 @@ def create_llm_engine(
         return OllamaLlamaInferenceEngine(model, user_agent=user_agent, agent_name=agent_name)
     elif provider_type == "openai":
         # Route to model-specific engines for providers with API quirks
-        name = (model.name_in_provider or model.name).lower()
+        name = model.api_model_name.lower()
         if name.startswith("deepseek"):
             return DeepSeekInferenceEngine(model, user_agent=user_agent, agent_name=agent_name)
         return OpenAICompatibleInferenceEngine(model, user_agent=user_agent, agent_name=agent_name)
@@ -236,12 +236,8 @@ class AgentCore:
         """Generate images from a text prompt via the provider's image API.
 
         All HTTP calls are made here — helpers only format requests and parse
-        responses. This keeps all external API calls centralized in AgentCore.
-
-        Resolution order:
-        1. If model specified → use its provider's image_url
-        2. Scan llm_models for TEXT_TO_IMAGE capability
-        3. Scan providers for any with image_url set
+        responses. The model name sent to the API comes from
+        ProviderConfig.image_model.
         """
         provider_config, model_name = self._resolve_image_provider(model)
         if not provider_config or not getattr(provider_config, "image_url", None):
@@ -292,34 +288,29 @@ class AgentCore:
     def _resolve_image_provider(self, model: str = None):
         """Resolve which provider and model name to use for image generation.
 
-        Returns (ProviderConfig, model_name) or (None, None).
-        The model_name is only set for dedicated image models (those whose
-        sole capability is TEXT_TO_IMAGE). For chat models that also happen
-        to have TEXT_TO_IMAGE, model_name is None so the provider-specific
-        helper can use its own default (e.g. MiniMax's "image-01").
-        """
+        Returns (ProviderConfig, image_model) or (None, None).
+        The image_model comes from ProviderConfig.image_model — the
+        provider-facing model name for image generation.
+        If not set, helpers fall back to their own defaults.
 
-        # 1. Explicit model
+        Resolution order:
+        1. If model specified → use its provider's image config
+        2. Scan providers for any with image_url set
+        """
         if model:
             mc = self._get_llm_model(model)
             if mc:
                 prov = getattr(mc, "_provider_config", None)
                 if prov and getattr(prov, "image_url", None):
-                    return prov, mc.name_in_provider or mc.name
+                    return prov, prov.image_model
 
-        # 2. Scan for a dedicated image model (TEXT_TO_IMAGE only, no TEXT_TO_TEXT)
-        for _name, mc in self.llm_models.items():
-            caps = mc.get_capabilities()
-            if ModelCapability.TEXT_TO_IMAGE in caps and ModelCapability.TEXT_TO_TEXT not in caps:
-                prov = getattr(mc, "_provider_config", None)
-                if prov and getattr(prov, "image_url", None):
-                    return prov, mc.name_in_provider or mc.name
-
-        # 3. Scan for any provider with image_url (model_name=None → helper default)
-        for _name, mc in self.llm_models.items():
+        seen = set()
+        for mc in self.llm_models.values():
             prov = getattr(mc, "_provider_config", None)
-            if prov and getattr(prov, "image_url", None):
-                return prov, None
+            if prov and prov.name not in seen:
+                seen.add(prov.name)
+                if getattr(prov, "image_url", None):
+                    return prov, prov.image_model
 
         return None, None
 
@@ -352,12 +343,18 @@ class AgentCore:
         return llm_engine
 
     def _get_llm_model(self, model: str | None) -> ModelConfig:
-        _model = None
-        if model:
-            _model = self.llm_models.get(model)
-        elif self.default_model:
-            _model = self.llm_models.get(self.default_model)
-        return _model
+        name = model or self.default_model
+        if not name:
+            return None
+        return self._resolve_model(name)
+
+    def _resolve_model(self, name: str) -> Optional[ModelConfig]:
+        """Resolve model name — exact match first, then short-form."""
+        if name in self.llm_models:
+            return self.llm_models[name]
+        suffix = f"/{name}"
+        matches = [mc for key, mc in self.llm_models.items() if key.endswith(suffix)]
+        return matches[0] if len(matches) == 1 else None
 
     def get_llm_engine(self, model: str = None) -> LLMInferenceEngine:
         """
@@ -589,6 +586,7 @@ class AgentCore:
         )
 
         ctx = CallContext()
+        ctx.activate()
 
         required_caps = self._compute_required_capabilities(
             images,
@@ -933,6 +931,7 @@ class AgentCore:
         )
 
         ctx = CallContext()
+        ctx.activate()
 
         required_caps = self._compute_required_capabilities(
             images,

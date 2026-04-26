@@ -38,7 +38,12 @@ class PricingConfig(BaseModel):
 
 
 class ProviderConfig(BaseModel):
-    """Configuration for an LLM provider (API endpoint + credentials + rate limit)."""
+    """Configuration for an LLM provider (API endpoint + credentials + rate limit).
+
+    Models are listed under the provider in config.yaml and flattened into
+    AppConfig.models during loading.  The ``models`` field here is only used
+    during YAML load/save — at runtime, look at AppConfig.models instead.
+    """
 
     name: str
     type: str = Field(description="Provider type: openai, ollama, anthropic")
@@ -46,8 +51,11 @@ class ProviderConfig(BaseModel):
     api_key: Optional[str] = Field(default=None, description="API key (supports Jinja2 templates)")
     rate_limit: Optional[RateLimitConfig] = Field(default=None, description="Rate limit for API calls")
     image_url: Optional[str] = Field(default=None, description="Full URL for image generation endpoint")
+    image_model: Optional[str] = Field(default=None, description="Model name for image generation API requests")
     audio_url: Optional[str] = Field(default=None, description="Full URL for audio generation endpoint")
+    audio_model: Optional[str] = Field(default=None, description="Model name for audio generation API requests")
     pricing: Optional[PricingConfig] = Field(default=None, description="Token pricing for cost tracking")
+    models: Optional[List] = Field(default=None, description="Models served by this provider (YAML load/save only)")
 
     model_config = {"extra": "allow"}
 
@@ -59,6 +67,7 @@ class ProviderConfig(BaseModel):
     def model_dump(self, **kwargs):
         data = super().model_dump(**kwargs)
         data.pop("name", None)
+        data.pop("models", None)
         return {k: v for k, v in data.items() if v is not None}
 
 
@@ -72,11 +81,15 @@ class ModelOptions(BaseModel):
 
 
 class ModelConfig(BaseModel):
+    """Configuration for a single LLM model.
+
+    The ``name`` field uses canonical ``provider/model_name`` format
+    (e.g. ``deepseek/deepseek-reasoner``).  The part after the slash
+    is the API-facing model name, accessible via ``api_model_name``.
+    """
+
     name: str
     provider: str
-    url: Optional[str] = Field(default=None, description="API URL for the model (overrides provider)")
-    name_in_provider: Optional[str] = Field(default=None, description="Internal name used by provider")
-    api_key: Optional[str] = Field(default=None, description="API key for the model")
     options: Optional[ModelOptions] = Field(default=None, description="Options for model")
     capabilities: Optional[Set[ModelCapability]] = Field(default=None, description="Model capabilities")
     think_mode: Optional[bool] = Field(
@@ -94,25 +107,24 @@ class ModelConfig(BaseModel):
     # Internal: set during config loading, not serialized
     _provider_config: Optional["ProviderConfig"] = None
 
-    def get_provider_type(self) -> str:
-        """Return the provider type.
+    @property
+    def api_model_name(self) -> str:
+        """The model name as sent to the provider API."""
+        return self.name.split("/", 1)[1] if "/" in self.name else self.name
 
-        If a ProviderConfig is linked, returns its type; otherwise falls back
-        to the legacy ``provider`` field (which doubles as type).
-        """
+    def get_provider_type(self) -> str:
         if self._provider_config is not None:
             return self._provider_config.type
         return self.provider
 
     def get_resolved_url(self) -> Optional[str]:
-        """Return the effective API URL.
-
-        Priority: model-level ``url`` > linked ProviderConfig ``api_url`` > None.
-        """
-        if self.url is not None:
-            return self.url
         if self._provider_config is not None:
             return self._provider_config.api_url
+        return None
+
+    def get_api_key(self) -> Optional[str]:
+        if self._provider_config is not None:
+            return self._provider_config.get_api_key()
         return None
 
     def get_resolved_pricing(self) -> Optional[tuple]:
@@ -126,7 +138,6 @@ class ModelConfig(BaseModel):
         output_price = None
         cached_price = None
 
-        # Provider-level base
         if self._provider_config is not None and self._provider_config.pricing is not None:
             pp = self._provider_config.pricing
             currency = pp.currency
@@ -134,7 +145,6 @@ class ModelConfig(BaseModel):
             output_price = pp.output
             cached_price = pp.cached_input
 
-        # Model-level overrides
         if self.pricing is not None:
             mp = self.pricing
             if mp.currency is not None:
@@ -157,19 +167,11 @@ class ModelConfig(BaseModel):
         return (input_price, output_price, cached_price, currency)
 
     def get_capabilities(self) -> Set[ModelCapability]:
-        """
-        Get the model's capabilities. If not explicitly set, detect based on
-        provider and model name. Applies think_mode override if configured.
-
-        Returns:
-            Set of ModelCapability enums representing the model's capabilities
-        """
         if self.capabilities is not None:
             caps = set(self.capabilities)
         else:
             caps = set(self.get_model_capabilities().capabilities)
 
-        # Apply think_mode override from config
         if self.think_mode is True:
             caps.add(ModelCapability.THINK_MODE)
         elif self.think_mode is False:
@@ -177,43 +179,19 @@ class ModelConfig(BaseModel):
 
         return caps
 
-    def get_api_key(self) -> Optional[str]:
-        """
-        Resolve the API key, supporting Jinja2 template expressions.
-
-        Returns the resolved API key:
-        - Plain text: returned as-is
-        - "{{ keyring('service', 'key') }}": resolved from system keyring
-        - "{{ env.VARIABLE }}": resolved from environment variable
-        - Falls back to linked ProviderConfig's api_key if model-level key is not set
-        - None: if not configured or resolution fails
-        """
-        if self.api_key is not None:
-            return render_template_if_needed(self.api_key)
-        if self._provider_config is not None:
-            return self._provider_config.get_api_key()
-        return None
-
     def get_model_capabilities(self) -> ModelCapabilities:
         detector = ModelCapabilityDetector()
-        capabilities = detector.detect_capabilities(self.get_provider_type(), self.name)
-        return capabilities
+        return detector.detect_capabilities(self.get_provider_type(), self.api_model_name)
 
-    # we need to override this for persistence purpose to skip null values on saving
-    # as we already have the name as the key, we don't want to persistent the name to the config json
     def model_dump(self, **kwargs):
-        """Override to exclude name field, null values, and internal attributes."""
+        """Override to exclude internal fields and null values."""
         data = super().model_dump(**kwargs)
-        # Remove name field since it's redundant (key in models dict)
         data.pop("name", None)
-        # Remove internal provider config (not serialized)
+        data.pop("provider", None)
         data.pop("_provider_config", None)
-        # Remove null values
         result = {k: v for k, v in data.items() if v is not None}
 
-        # Handle capabilities serialization
         if "capabilities" in result and result["capabilities"]:
-            # Convert set of ModelCapability enums to list of strings
             result["capabilities"] = [cap.value for cap in result["capabilities"]]
 
         return result
@@ -460,25 +438,37 @@ class ConfigManager:
             if "agent_name" in config_data and "default_agent_name" not in config_data:
                 config_data["default_agent_name"] = config_data.pop("agent_name")
 
-            # Ensure each ModelConfig has its name set from the key
-            if "models" in config_data and isinstance(config_data["models"], dict):
-                for name, model in config_data["models"].items():
-                    if isinstance(model, dict):
-                        model["name"] = name
-                        # Handle capabilities deserialization
-                        if "capabilities" in model and model["capabilities"]:
-                            try:
-                                model["capabilities"] = {ModelCapability(cap) for cap in model["capabilities"]}
-                            except ValueError as e:
-                                logger.warning(f"Warning: Invalid capability in model {name}: {e}")
-                                model["capabilities"] = None
-
-            # Parse providers section
+            # Parse providers and flatten their nested models
+            flat_models: Dict[str, ModelConfig] = {}
             if "providers" in config_data and isinstance(config_data["providers"], dict):
                 for pname, pdata in config_data["providers"].items():
                     if isinstance(pdata, dict):
+                        model_entries = pdata.pop("models", None) or []
                         pdata["name"] = pname
-                        config_data["providers"][pname] = ProviderConfig(**pdata)
+                        prov = ProviderConfig(**pdata)
+                        config_data["providers"][pname] = prov
+
+                        for entry in model_entries:
+                            if isinstance(entry, str):
+                                model_name = entry
+                                mc = ModelConfig(name=f"{pname}/{model_name}", provider=pname)
+                            elif isinstance(entry, dict):
+                                model_name = entry.pop("name")
+                                if "capabilities" in entry and entry["capabilities"]:
+                                    try:
+                                        entry["capabilities"] = {
+                                            ModelCapability(cap) for cap in entry["capabilities"]
+                                        }
+                                    except ValueError as e:
+                                        logger.warning("Invalid capability in %s/%s: %s", pname, model_name, e)
+                                        entry.pop("capabilities", None)
+                                mc = ModelConfig(name=f"{pname}/{model_name}", provider=pname, **entry)
+                            else:
+                                continue
+                            mc._provider_config = prov
+                            flat_models[mc.name] = mc
+
+            config_data["models"] = flat_models
 
             mcp_servers_data = config_data.get("mcpServers")
             if mcp_servers_data and isinstance(mcp_servers_data, dict):
@@ -501,76 +491,52 @@ class ConfigManager:
                             raise ValueError(f"Unknown transport {transport}")
                 config_data["mcpServers"] = converted_servers
 
-            app_config = AppConfig(**config_data)
-            self._link_models_to_providers(app_config)
-            return app_config
+            return AppConfig(**config_data)
         except Exception as e:
             logger.error("Error loading configuration: %s", e, stack_info=True, exc_info=True)
             raise e
 
-    def _link_models_to_providers(self, config: AppConfig) -> None:
-        """Link models to their provider configs.
-
-        For models whose ``provider`` field matches a key in ``config.providers``,
-        sets the internal ``_provider_config`` reference.  For legacy models that
-        have an inline ``url`` but no matching provider, creates synthetic
-        ``ProviderConfig`` objects in memory (not persisted) so that the
-        resolution helpers work uniformly.
-        """
-        # Phase 1: link models to explicitly-declared providers
-        if config.providers:
-            for model in config.models.values():
-                if model.provider in config.providers:
-                    model._provider_config = config.providers[model.provider]
-
-        # Phase 2: create synthetic providers for legacy inline-url models
-        synthetic: dict[str, ProviderConfig] = {}
-        for model in config.models.values():
-            if model._provider_config is not None:
-                continue
-            if not model.url:
-                continue
-            key = f"{model.provider}|{model.url}|{model.api_key or ''}"
-            if key not in synthetic:
-                synthetic[key] = ProviderConfig(
-                    name=f"_auto_{len(synthetic)}",
-                    type=model.provider,
-                    api_url=model.url,
-                    api_key=model.api_key,
-                )
-            model._provider_config = synthetic[key]
-
     def _save_config(self) -> None:
-        """Save configuration to YAML file."""
+        """Save configuration to YAML file.
+
+        Models are nested back into their provider's ``models`` list.
+        Simple models (no overrides) are serialized as plain strings;
+        models with overrides become objects with a ``name`` key.
+        """
         try:
             if not self.config_dir.exists():
                 self.config_dir.mkdir(parents=True, exist_ok=True)
 
             config_data = self.config.model_dump()
 
-            # Handle providers serialization
-            if "providers" in config_data:
-                serialized_providers = {}
-                for name, prov in self.config.providers.items():
-                    serialized_providers[name] = prov.model_dump()
-                config_data["providers"] = serialized_providers
+            # Nest models back into providers
+            provider_models: Dict[str, list] = {name: [] for name in self.config.providers}
+            for model in self.config.models.values():
+                overrides = model.model_dump()
+                if overrides:
+                    overrides["name"] = model.api_model_name
+                    provider_models.setdefault(model.provider, []).append(overrides)
+                else:
+                    provider_models.setdefault(model.provider, []).append(model.api_model_name)
 
-            # Handle MCP servers serialization — use each server's model_dump
-            # to exclude redundant name field
+            serialized_providers = {}
+            for name, prov in self.config.providers.items():
+                prov_data = prov.model_dump()
+                models_list = provider_models.get(name, [])
+                if models_list:
+                    prov_data["models"] = models_list
+                serialized_providers[name] = prov_data
+            config_data["providers"] = serialized_providers
+
+            # Remove flat models from output (they're nested in providers now)
+            config_data.pop("models", None)
+
             if "mcpServers" in config_data:
                 serialized_servers = {}
                 for name, server in self.config.mcpServers.items():
                     serialized_servers[name] = server.model_dump()
                 config_data["mcpServers"] = serialized_servers
 
-            # Handle models serialization — exclude redundant name field
-            if "models" in config_data:
-                serialized_models = {}
-                for name, model in self.config.models.items():
-                    serialized_models[name] = model.model_dump()
-                config_data["models"] = serialized_models
-
-            # Handle workflow configuration serialization
             if "workflow" in config_data and self.config.workflow:
                 config_data["workflow"] = self.config.workflow.model_dump()
 
@@ -747,93 +713,72 @@ class ConfigManager:
 
     def add_or_update_llm_model(
         self,
-        name: str,
         provider: str,
-        api_key: str,
-        url: str,
-        options: Dict[str, Any],
-        name_in_provider: str,
+        model_name: str,
+        options: Dict[str, Any] = None,
         capabilities: str = None,
     ) -> None:
+        """Add or update a model under a provider.
+
+        Args:
+            provider: Provider name (must exist in config.providers)
+            model_name: API model name (e.g. 'deepseek-reasoner')
+            options: Optional model options dict
+            capabilities: Optional comma-separated capability strings
+        """
+        if provider not in self.config.providers:
+            raise ValueError(f"Provider '{provider}' not found. Add it first with /provider add.")
+
+        key = f"{provider}/{model_name}"
         if not self.config.models:
             self.config.models = {}
-        if name in self.config.models:
-            # update as it is already in the config
-            llm = self.config.models[name]
-            if provider:
-                llm.provider = provider
-            if url:
-                llm.url = url
-            if name_in_provider:
-                llm.name_in_provider = name_in_provider
-        else:
-            # create a new config for LLM
-            llm = ModelConfig(name=name, provider=provider, url=url)
-            self.config.models[name] = llm
-            if self.config.default_model is None:
-                self.config.default_model = name
-            if name_in_provider:
-                llm.name_in_provider = name_in_provider
-            else:
-                llm.name_in_provider = name
 
-        if api_key:
-            llm.api_key = api_key
-        if options and len(options) > 0:
+        if key in self.config.models:
+            llm = self.config.models[key]
+        else:
+            llm = ModelConfig(name=key, provider=provider)
+            llm._provider_config = self.config.providers[provider]
+            self.config.models[key] = llm
+            if self.config.default_model is None:
+                self.config.default_model = key
+
+        if options:
             llm.options = ModelOptions(**options)
 
-        # Handle capabilities
         if capabilities:
-            # Parse comma-separated capabilities into a set of ModelCapability enums
             try:
                 capability_list = [cap.strip() for cap in capabilities.split(",") if cap.strip()]
-                capability_set = set()
-                for cap_str in capability_list:
-                    # Convert string to ModelCapability enum
-                    capability_set.add(ModelCapability(cap_str))
-                llm.capabilities = capability_set
+                llm.capabilities = {ModelCapability(cap) for cap in capability_list}
             except ValueError as e:
-                # we don't tolerate this because it is saving.
-                logger.error(
-                    "Warning: Invalid capability specified: %s, exception: %s",
-                    capabilities,
-                    e,
-                )
+                logger.error("Invalid capability specified: %s, exception: %s", capabilities, e)
                 raise e
 
         self._save_config()
 
     def remove_llm_model(self, name: str) -> bool:
-        if name in self.config.models:
-            # Remove model
-            self.config.models.pop(name)
+        """Remove a model. Accepts canonical (provider/model) or short-form."""
+        mc = self._resolve_model_name(name)
+        if not mc:
+            return False
 
-            # Update default model if needed
-            if self.config.default_model == name:
-                self.config.default_model = next(iter(self.config.models)) if self.config.models else None
+        self.config.models.pop(mc.name)
 
-            # Save config
-            self._save_config()
-            return True
+        if self.config.default_model == mc.name:
+            self.config.default_model = next(iter(self.config.models)) if self.config.models else None
 
-        return False
+        self._save_config()
+        return True
 
     def set_default_model(self, name: str) -> bool:
-        """Set the default LLM model.
-
-        Args:
-            name: Model name
-
-        Returns:
-            True if default model was set, False otherwise
-        """
-        if name in self.config.models:
-            if self.config.default_model == name:
-                return True
-            self.config.default_model = name
-            self._save_config()
+        """Set the default LLM model. Accepts canonical or short-form."""
+        mc = self._resolve_model_name(name)
+        if not mc:
+            return False
+        if self.config.default_model == mc.name:
             return True
-        return False
+        self.config.default_model = mc.name
+        self._save_config()
+        return True
 
     def set_default_agent_name(self, name: str) -> None:
         """Set the default agent name."""
@@ -853,7 +798,9 @@ class ConfigManager:
         api_key: Optional[str] = None,
         rate_limit: Optional[RateLimitConfig] = None,
         image_url: Optional[str] = None,
+        image_model: Optional[str] = None,
         audio_url: Optional[str] = None,
+        audio_model: Optional[str] = None,
     ) -> None:
         prov = self.config.providers.get(name)
         if prov:
@@ -865,8 +812,12 @@ class ConfigManager:
                 prov.rate_limit = rate_limit
             if image_url is not None:
                 prov.image_url = image_url
+            if image_model is not None:
+                prov.image_model = image_model
             if audio_url is not None:
                 prov.audio_url = audio_url
+            if audio_model is not None:
+                prov.audio_model = audio_model
         else:
             self.config.providers[name] = ProviderConfig(
                 name=name,
@@ -875,7 +826,9 @@ class ConfigManager:
                 api_key=api_key,
                 rate_limit=rate_limit,
                 image_url=image_url,
+                image_model=image_model,
                 audio_url=audio_url,
+                audio_model=audio_model,
             )
         # Re-link models referencing this provider
         for model in self.config.models.values():
@@ -908,6 +861,19 @@ class ConfigManager:
     def get_llm_model(self, name: Optional[str] = None) -> Optional[ModelConfig]:
         if not name:
             name = self.config.default_model
-        if self.config.models:
-            return self.config.models.get(name)
+        if not name or not self.config.models:
+            return None
+        return self._resolve_model_name(name)
+
+    def _resolve_model_name(self, name: str) -> Optional[ModelConfig]:
+        """Resolve a model name to a ModelConfig.
+
+        Tries exact match first, then short-form (model name without provider prefix).
+        """
+        if name in self.config.models:
+            return self.config.models[name]
+        suffix = f"/{name}"
+        matches = [mc for key, mc in self.config.models.items() if key.endswith(suffix)]
+        if len(matches) == 1:
+            return matches[0]
         return None

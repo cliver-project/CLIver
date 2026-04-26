@@ -113,7 +113,7 @@ class TestOpenAIImageHelper:
 
 
 class TestAgentCoreGenerateImage:
-    def _make_provider(self, image_url="https://api.minimaxi.com/v1/image_generation"):
+    def _make_provider(self, image_url="https://api.minimaxi.com/v1/image_generation", image_model="image-01"):
         from cliver.config import ProviderConfig
 
         return ProviderConfig(
@@ -122,22 +122,13 @@ class TestAgentCoreGenerateImage:
             api_url="http://x",
             api_key="sk-test",
             image_url=image_url,
+            image_model=image_model,
         )
-
-    def _make_image_model(self, provider_name="mm"):
-        from cliver.config import ModelConfig
-        from cliver.model_capabilities import ModelCapability
-
-        mc = ModelConfig(name="img", provider=provider_name, name_in_provider="image-01")
-        mc.capabilities = {ModelCapability.TEXT_TO_IMAGE}
-        return mc
 
     def _make_chat_model(self, provider_name="mm"):
         from cliver.config import ModelConfig
-        from cliver.model_capabilities import ModelCapability
 
-        mc = ModelConfig(name="chat", provider=provider_name, url="http://x")
-        mc.capabilities = {ModelCapability.TEXT_TO_TEXT, ModelCapability.TOOL_CALLING}
+        mc = ModelConfig(name=f"{provider_name}/chat", provider=provider_name)
         return mc
 
     @pytest.mark.asyncio
@@ -148,10 +139,10 @@ class TestAgentCoreGenerateImage:
         from cliver.llm.llm import AgentCore
 
         prov = self._make_provider()
-        img_model = self._make_image_model()
-        img_model._provider_config = prov
+        chat_model = self._make_chat_model()
+        chat_model._provider_config = prov
 
-        executor = AgentCore(llm_models={"img": img_model}, mcp_servers={})
+        executor = AgentCore(llm_models={"mm/chat": chat_model}, mcp_servers={})
 
         mock_api_response = {
             "base_resp": {"status_code": 0, "status_msg": "success"},
@@ -159,12 +150,34 @@ class TestAgentCoreGenerateImage:
         }
         with patch.object(executor, "_call_generation_api", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = mock_api_response
-            result = await executor.generate_image("a sunset", model="img", ctx=CallContext())
+            result = await executor.generate_image("a sunset", model="mm/chat", ctx=CallContext())
 
             assert isinstance(result, AIMessage)
             assert "media_content" in result.additional_kwargs
             assert len(result.additional_kwargs["media_content"]) == 1
             mock_call.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_generate_uses_provider_image_model(self):
+        from cliver.llm.call_context import CallContext
+        from cliver.llm.llm import AgentCore
+
+        prov = self._make_provider(image_model="image-02")
+        chat_model = self._make_chat_model()
+        chat_model._provider_config = prov
+
+        executor = AgentCore(llm_models={"mm/chat": chat_model}, mcp_servers={})
+
+        mock_api_response = {
+            "base_resp": {"status_code": 0, "status_msg": "success"},
+            "data": {"image_urls": ["https://img.png"]},
+        }
+        with patch.object(executor, "_call_generation_api", new_callable=AsyncMock) as mock_call:
+            mock_call.return_value = mock_api_response
+            await executor.generate_image("a cat", ctx=CallContext())
+
+            request_body = mock_call.call_args[0][2]
+            assert request_body["model"] == "image-02"
 
     @pytest.mark.asyncio
     async def test_generate_discovers_provider_with_image_url(self):
@@ -177,7 +190,7 @@ class TestAgentCoreGenerateImage:
         chat_model = self._make_chat_model()
         chat_model._provider_config = prov
 
-        executor = AgentCore(llm_models={"chat": chat_model}, mcp_servers={})
+        executor = AgentCore(llm_models={"mm/chat": chat_model}, mcp_servers={})
 
         mock_api_response = {
             "base_resp": {"status_code": 0, "status_msg": "success"},
@@ -198,8 +211,8 @@ class TestAgentCoreGenerateImage:
         from cliver.llm.call_context import CallContext
         from cliver.llm.llm import AgentCore
 
-        chat_model = ModelConfig(name="chat", provider="openai", url="http://x")
-        executor = AgentCore(llm_models={"chat": chat_model}, mcp_servers={})
+        chat_model = ModelConfig(name="openai/chat", provider="openai")
+        executor = AgentCore(llm_models={"openai/chat": chat_model}, mcp_servers={})
 
         result = await executor.generate_image("a cat", ctx=CallContext())
         assert isinstance(result, AIMessage)
@@ -221,12 +234,13 @@ class TestCapabilityRouting:
             api_url="http://x",
             api_key="sk-test",
             image_url="https://api.minimaxi.com/v1/image_generation",
+            image_model="image-01",
         )
-        img_model = ModelConfig(name="img", provider="mm", name_in_provider="image-01")
+        img_model = ModelConfig(name="mm/image-01", provider="mm")
         img_model.capabilities = {ModelCapability.TEXT_TO_IMAGE}
         img_model._provider_config = prov
 
-        executor = AgentCore(llm_models={"img": img_model}, mcp_servers={})
+        executor = AgentCore(llm_models={"mm/image-01": img_model}, mcp_servers={})
 
         mock_api_response = {
             "base_resp": {"status_code": 0, "status_msg": "success"},
@@ -234,7 +248,7 @@ class TestCapabilityRouting:
         }
         with patch.object(executor, "_call_generation_api", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = mock_api_response
-            result = await executor.process_user_input("a sunset", model="img")
+            result = await executor.process_user_input("a sunset", model="mm/image-01")
 
             assert isinstance(result, AIMessage)
             assert "media_content" in result.additional_kwargs
@@ -254,7 +268,7 @@ class TestCapabilityRouting:
             api_url="http://x",
             api_key="sk-test",
         )
-        multi_model = ModelConfig(name="multi", provider="mm", name_in_provider="mm-2.7")
+        multi_model = ModelConfig(name="mm/mm-2.7", provider="mm")
         multi_model.capabilities = {
             ModelCapability.TEXT_TO_TEXT,
             ModelCapability.TEXT_TO_IMAGE,
@@ -262,7 +276,7 @@ class TestCapabilityRouting:
         }
         multi_model._provider_config = prov
 
-        executor = AgentCore(llm_models={"multi": multi_model}, mcp_servers={})
+        executor = AgentCore(llm_models={"mm/mm-2.7": multi_model}, mcp_servers={})
 
         mock_engine = Mock()
         mock_response = AIMessage(content="Here is your image")
@@ -271,9 +285,9 @@ class TestCapabilityRouting:
         mock_engine.system_message.return_value = "system"
         mock_engine.supports_capability.return_value = False
         mock_engine.config = multi_model
-        executor.llm_engines["multi"] = mock_engine
+        executor.llm_engines["mm/mm-2.7"] = mock_engine
 
         with patch.object(executor, "_prepare_messages_and_tools", new_callable=AsyncMock) as mock_prep:
             mock_prep.return_value = (mock_engine, [], [])
-            await executor.process_user_input("describe a sunset", model="multi")
+            await executor.process_user_input("describe a sunset", model="mm/mm-2.7")
             mock_engine.infer.assert_called_once()

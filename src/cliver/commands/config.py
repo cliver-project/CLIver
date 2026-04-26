@@ -106,11 +106,9 @@ def _show_config(cliver: Cliver):
                 t.add_column("Value")
 
                 t.add_row("Provider", f"[magenta]{model.provider}[/magenta]")
-                t.add_row("URL", f"[blue]{model.url}[/blue]")
-                if model.name_in_provider:
-                    t.add_row("Provider Name", model.name_in_provider)
-                if model.api_key:
-                    t.add_row("API Key", _mask_value(model.api_key))
+                url = model.get_resolved_url()
+                if url:
+                    t.add_row("URL", f"[blue]{url}[/blue]")
                 if model.think_mode is not None:
                     t.add_row("Think Mode", "[green]on[/green]" if model.think_mode else "[red]off[/red]")
                 if model.context_window:

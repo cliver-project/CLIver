@@ -463,23 +463,24 @@ def _get_config(ctx: dict) -> dict:
 
         cm = ConfigManager(config_dir)
 
-        # Models
-        models = {}
-        for name, mc in cm.config.models.items():
-            models[name] = {
-                "provider": mc.provider,
-                "api_url": mc.get_resolved_url() or "",
-                "model_id": mc.name_in_provider or name,
-            }
-
-        # Providers
+        # Providers with nested models
         providers = {}
         for name, pc in cm.config.providers.items():
+            provider_models = [
+                mc.api_model_name
+                for mc in cm.config.models.values()
+                if mc.provider == name
+            ]
             providers[name] = {
                 "type": pc.type,
                 "api_url": pc.api_url,
                 "api_key": _mask_secret(pc.api_key),
+                "models": provider_models,
             }
+            if pc.image_url:
+                providers[name]["image_url"] = pc.image_url
+            if pc.image_model:
+                providers[name]["image_model"] = pc.image_model
 
         # MCP servers
         mcp_servers = {}
@@ -492,13 +493,12 @@ def _get_config(ctx: dict) -> dict:
             mcp_servers[name] = entry
 
         return {
-            "models": models,
             "providers": providers,
             "mcp_servers": mcp_servers,
         }
     except Exception as e:
         logger.warning("Failed to get config: %s", e)
-        return {"models": {}, "providers": {}, "mcp_servers": {}}
+        return {"providers": {}, "mcp_servers": {}}
 
 
 # ---------------------------------------------------------------------------

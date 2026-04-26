@@ -8,9 +8,8 @@
   if (!data) { el.textContent = 'Failed to load data'; el.className = ''; return; }
 
   el.className = '';
-  el.innerHTML = '';
+  while (el.firstChild) el.removeChild(el.firstChild);
 
-  // Helper: create a config section with heading
   function makeSection(title) {
     var section = document.createElement('div');
     section.className = 'config-section';
@@ -20,7 +19,6 @@
     return section;
   }
 
-  // Helper: build a table from rows of data
   function makeTable(headers, rows) {
     var table = document.createElement('table');
     var thead = document.createElement('thead');
@@ -55,23 +53,7 @@
     return p;
   }
 
-  // --- Models section ---
-  var modelsSection = makeSection('Models');
-  var modelKeys = Object.keys(data.models || {});
-  if (modelKeys.length === 0) {
-    modelsSection.appendChild(emptyMsg('None configured'));
-  } else {
-    var modelRows = [];
-    for (var i = 0; i < modelKeys.length; i++) {
-      var mk = modelKeys[i];
-      var m = data.models[mk];
-      modelRows.push([mk, m.provider || '', m.model_id || '', m.api_url || '']);
-    }
-    modelsSection.appendChild(makeTable(['Name', 'Provider', 'Model ID', 'API URL'], modelRows));
-  }
-  el.appendChild(modelsSection);
-
-  // --- Providers section ---
+  // --- Providers section (with nested models) ---
   var providersSection = makeSection('Providers');
   var providerKeys = Object.keys(data.providers || {});
   if (providerKeys.length === 0) {
@@ -81,9 +63,12 @@
     for (var j = 0; j < providerKeys.length; j++) {
       var pk = providerKeys[j];
       var p = data.providers[pk];
-      providerRows.push([pk, p.type || '', p.api_url || '', p.api_key || '']);
+      var models = (p.models || []).join(', ') || '-';
+      var extras = '';
+      if (p.image_model) extras += 'img:' + p.image_model;
+      providerRows.push([pk, p.type || '', p.api_url || '', p.api_key || '', models, extras]);
     }
-    providersSection.appendChild(makeTable(['Name', 'Type', 'API URL', 'API Key'], providerRows));
+    providersSection.appendChild(makeTable(['Name', 'Type', 'API URL', 'API Key', 'Models', 'Media'], providerRows));
   }
   el.appendChild(providersSection);
 

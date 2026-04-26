@@ -95,7 +95,7 @@ class DeepSeekInferenceEngine(OpenAICompatibleInferenceEngine):
         default_headers = {"User-Agent": user_agent} if user_agent else None
         resolved_api_key = self.config.get_api_key()
         self.llm = ChatDeepSeek(
-            model=self.config.name_in_provider or self.config.name,
+            model=self.config.api_model_name,
             base_url=self.config.get_resolved_url(),
             api_key=resolved_api_key,
             default_headers=default_headers,

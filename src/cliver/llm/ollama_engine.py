@@ -24,7 +24,7 @@ class OllamaLlamaInferenceEngine(LLMInferenceEngine):
         client_kwargs = {"headers": {"User-Agent": user_agent}} if user_agent else {}
 
         self.llm = Ollama(
-            model=self.config.name_in_provider or self.config.name,
+            model=self.config.api_model_name,
             base_url=self.config.get_resolved_url(),
             client_kwargs=client_kwargs,
             **self.options,

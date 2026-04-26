@@ -60,9 +60,8 @@ class TestTokenEstimation:
 class TestGetContextWindow:
     def _model(self, name, context_window=None):
         return ModelConfig(
-            name=name,
+            name=f"openai/{name}",
             provider="openai",
-            url="http://localhost",
             context_window=context_window,
         )
 
@@ -90,12 +89,10 @@ class TestGetContextWindow:
         m = self._model("unknown-model-xyz")
         assert get_context_window(m) == 32768
 
-    def test_name_in_provider_used(self):
+    def test_api_model_name_used(self):
         m = ModelConfig(
-            name="my-alias",
+            name="openai/qwen-2.5-coder",
             provider="openai",
-            url="http://localhost",
-            name_in_provider="qwen-2.5-coder",
         )
         assert get_context_window(m) == 131072
 
@@ -258,9 +255,8 @@ class TestAgentCoreConversationHistory:
 
         # Create a minimal AgentCore with mocked dependencies
         model_config = ModelConfig(
-            name="test-model",
+            name="openai/test-model",
             provider="openai",
-            url="http://localhost:8080",
         )
 
         with patch("cliver.llm.llm.MCPServersCaller") as mock_mcp:
@@ -269,16 +265,16 @@ class TestAgentCoreConversationHistory:
             mock_mcp.return_value = mock_mcp_instance
 
             executor = AgentCore(
-                llm_models={"test-model": model_config},
+                llm_models={"openai/test-model": model_config},
                 mcp_servers={},
-                default_model="test-model",
+                default_model="openai/test-model",
             )
 
             # Mock the LLM engine
             mock_engine = MagicMock()
             mock_engine.system_message.return_value = "System prompt"
             mock_engine.config = model_config
-            executor.llm_engines["test-model"] = mock_engine
+            executor.llm_engines["openai/test-model"] = mock_engine
 
             conv_history = [
                 HumanMessage(content="previous question"),
@@ -313,9 +309,8 @@ class TestAgentCoreConversationHistory:
         from cliver.llm.llm import AgentCore
 
         model_config = ModelConfig(
-            name="test-model",
+            name="openai/test-model",
             provider="openai",
-            url="http://localhost:8080",
         )
 
         with patch("cliver.llm.llm.MCPServersCaller") as mock_mcp:
@@ -324,15 +319,15 @@ class TestAgentCoreConversationHistory:
             mock_mcp.return_value = mock_mcp_instance
 
             executor = AgentCore(
-                llm_models={"test-model": model_config},
+                llm_models={"openai/test-model": model_config},
                 mcp_servers={},
-                default_model="test-model",
+                default_model="openai/test-model",
             )
 
             mock_engine = MagicMock()
             mock_engine.system_message.return_value = "System prompt"
             mock_engine.config = model_config
-            executor.llm_engines["test-model"] = mock_engine
+            executor.llm_engines["openai/test-model"] = mock_engine
 
             with patch("cliver.llm.llm.default_enhance_prompt", new_callable=AsyncMock, return_value=[]):
                 _, _, messages = await executor._prepare_messages_and_tools(
