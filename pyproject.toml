@@ -1,6 +1,6 @@
 [project]
 name = "cliver"
-version = "0.1.2"
+version = "0.1.3"
 description = "General-purpose AI agent for your terminal — safe, controlled, and adaptable to any domain."
 readme = "README.md"
 license = { file = "LICENSE" }
