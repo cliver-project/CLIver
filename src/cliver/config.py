@@ -337,6 +337,10 @@ class AppConfig(BaseModel):
         description="IANA timezone (e.g. Asia/Shanghai). Defaults to system local.",
     )
     theme: Optional[str] = Field(default=None, description="UI theme: dark (default), light, dracula")
+    skill_auto_learn: bool = Field(
+        default=False,
+        description="Enable autonomous skill creation after complex tasks (default: off).",
+    )
 
     def resolve_secrets(self) -> None:
         """Resolve all Jinja2 template strings in the config tree.

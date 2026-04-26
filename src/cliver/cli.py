@@ -144,6 +144,7 @@ class Cliver:
             permission_manager=self.permission_manager,
             on_permission_prompt=_create_permission_prompt(self.console, self),
             enabled_toolsets=self.config_manager.config.enabled_toolsets,
+            skill_auto_learn=self.config_manager.config.skill_auto_learn,
         )
         self.agent_core.configure_rate_limits(self.config_manager.config.providers)
 

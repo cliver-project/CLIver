@@ -597,6 +597,7 @@ class Gateway:
             agent_profile=agent_profile,
             enabled_toolsets=config_manager.config.enabled_toolsets,
             on_tool_event=tool_handler,
+            skill_auto_learn=config_manager.config.skill_auto_learn,
         )
         executor.configure_rate_limits(config_manager.config.providers)
         return executor

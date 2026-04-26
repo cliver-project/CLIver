@@ -138,6 +138,7 @@ class AgentCore:
         permission_manager: Optional[PermissionManager] = None,
         on_permission_prompt: Optional[Callable[[str, dict], str]] = None,
         enabled_toolsets: Optional[List[str]] = None,
+        skill_auto_learn: bool = False,
     ):
         self.llm_models = llm_models
         self.default_model = default_model
@@ -148,6 +149,7 @@ class AgentCore:
         self.token_tracker = token_tracker  # TokenTracker for usage auditing
         self.permission_manager = permission_manager
         self.on_permission_prompt = on_permission_prompt
+        self.skill_auto_learn = skill_auto_learn
         self.mcp_caller = MCPServersCaller(mcp_servers=mcp_servers)
         self.llm_engines: Dict[str, LLMInferenceEngine] = {}
 
@@ -439,7 +441,10 @@ class AgentCore:
 
         Runs asynchronously after the main task completes. Uses a low-iteration
         LLM call to evaluate whether to create a reusable SKILL.md.
+        Gated by ``self.skill_auto_learn`` (config: ``skill_auto_learn``).
         """
+        if not self.skill_auto_learn:
+            return
         try:
             # Build a brief summary from the user input + result
             from cliver.media_handler import extract_response_text
