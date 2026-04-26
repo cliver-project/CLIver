@@ -245,9 +245,7 @@ def _update_model(
     if option:
         options_dict = parse_key_value_options(option, cliver.console)
 
-    cliver.config_manager.add_or_update_llm_model(
-        mc.provider, mc.api_model_name, options_dict or None, capabilities
-    )
+    cliver.config_manager.add_or_update_llm_model(mc.provider, mc.api_model_name, options_dict or None, capabilities)
     cliver.output(f"LLM Model: {mc.name} updated")
 
 

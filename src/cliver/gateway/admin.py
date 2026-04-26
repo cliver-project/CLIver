@@ -466,11 +466,7 @@ def _get_config(ctx: dict) -> dict:
         # Providers with nested models
         providers = {}
         for name, pc in cm.config.providers.items():
-            provider_models = [
-                mc.api_model_name
-                for mc in cm.config.models.values()
-                if mc.provider == name
-            ]
+            provider_models = [mc.api_model_name for mc in cm.config.models.values() if mc.provider == name]
             providers[name] = {
                 "type": pc.type,
                 "api_url": pc.api_url,

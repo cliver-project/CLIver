@@ -456,9 +456,7 @@ class ConfigManager:
                                 model_name = entry.pop("name")
                                 if "capabilities" in entry and entry["capabilities"]:
                                     try:
-                                        entry["capabilities"] = {
-                                            ModelCapability(cap) for cap in entry["capabilities"]
-                                        }
+                                        entry["capabilities"] = {ModelCapability(cap) for cap in entry["capabilities"]}
                                     except ValueError as e:
                                         logger.warning("Invalid capability in %s/%s: %s", pname, model_name, e)
                                         entry.pop("capabilities", None)
