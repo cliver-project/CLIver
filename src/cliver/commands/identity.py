@@ -13,7 +13,7 @@ from cliver.cli import Cliver, pass_cliver
 
 @click.group(
     name="identity",
-    help="Manage the agent identity profile",
+    help="Manage the agent's identity profile (persona, user preferences, communication style)",
     invoke_without_command=True,
 )
 @pass_cliver
@@ -69,10 +69,23 @@ def dispatch(cliver: Cliver, args: str):
     elif sub == "clear":
         _clear_identity(cliver)
     elif sub in ("--help", "help"):
+        cliver.output("Manage the agent's identity profile (persona and user preferences).")
+        cliver.output("")
         cliver.output("Usage: /identity [show|chat|clear]")
-        cliver.output("  show  - Display the current identity profile")
-        cliver.output("  chat  - Update identity through guided conversation")
-        cliver.output("  clear - Clear the identity profile")
+        cliver.output("")
+        cliver.output("Subcommands:")
+        cliver.output("  show   — Display the current identity profile as markdown. No parameters.")
+        cliver.output("  chat   — Start a guided LLM conversation to create or update the identity")
+        cliver.output("           profile. The LLM will ask questions and save the result using the")
+        cliver.output("           Identity tool. No parameters.")
+        cliver.output("  clear  — Delete the entire identity profile. No confirmation prompt. No parameters.")
+        cliver.output("")
+        cliver.output("Default subcommand: show (when /identity is called with no arguments)")
+        cliver.output("")
+        cliver.output("Examples:")
+        cliver.output("  /identity             — show current profile")
+        cliver.output("  /identity chat        — start guided identity setup")
+        cliver.output("  /identity clear       — remove all identity data")
     else:
         cliver.output(f"[yellow]Unknown subcommand: /identity {sub}[/yellow]")
         cliver.output("Run '/identity help' for usage.")
@@ -83,14 +96,14 @@ def dispatch(cliver: Cliver, args: str):
 # ---------------------------------------------------------------------------
 
 
-@identity.command(name="show", help="Show the current identity profile")
+@identity.command(name="show", help="Display the current identity profile as markdown text")
 @pass_cliver
 def show_identity(cliver: Cliver):
     """Display the current identity document."""
     _show_identity(cliver)
 
 
-@identity.command(name="chat", help="Update identity through a guided conversation")
+@identity.command(name="chat", help="Start a guided LLM conversation to create or update the identity profile")
 @pass_cliver
 def chat_identity(cliver: Cliver):
     """Start a guided conversation to build or update the identity profile.
@@ -101,7 +114,7 @@ def chat_identity(cliver: Cliver):
     _chat_identity(cliver)
 
 
-@identity.command(name="clear", help="Clear the identity profile")
+@identity.command(name="clear", help="Delete the entire identity profile permanently (no confirmation)")
 @pass_cliver
 def clear_identity(cliver: Cliver):
     """Clear the identity profile."""

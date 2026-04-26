@@ -33,14 +33,34 @@ _STATIC_TOPICS = {
 }
 
 
+_COMMAND_SUMMARIES = {
+    "agent": "Manage agent instances (list, create, switch, rename, delete)",
+    "config": "Manage CLIver configuration (show, validate, set, theme, rate-limit)",
+    "cost": "View token usage and cost statistics (session or all-time)",
+    "gateway": "Manage the gateway daemon (start, stop, status, platform adapters)",
+    "identity": "Manage the agent's identity profile (show, chat, clear)",
+    "mcp": "Manage MCP server connections (list, add, set, remove)",
+    "model": "Manage LLM model configurations (list, add, set, default, remove)",
+    "permissions": "Manage persistent permission rules (rules, mode, add, remove)",
+    "provider": "Manage LLM provider endpoints (list, add, set, remove)",
+    "session": "Manage conversation sessions (list, load, search, compress, options, permissions)",
+    "skill": "Activate a skill by name and inject its instructions into the conversation",
+    "skills": "Manage agent skills — SKILL.md files (list, show, create, update)",
+    "task": "Manage and run agent tasks — named prompts with optional cron schedule",
+    "workflow": "Manage and execute multi-step workflows (list, show, run, resume, delete)",
+}
+
+
 def _list_commands() -> str:
-    """Dynamically list all registered commands."""
-    names = sorted(HANDLERS.keys())
-    return (
-        "Available CLIver commands:\n"
-        "  " + ", ".join(names) + "\n\n"
-        "Use CliverHelp(topic='<command>') for details on any command."
-    )
+    """Dynamically list all registered commands with one-line descriptions."""
+    lines = ["Available CLIver commands:\n"]
+    for name in sorted(HANDLERS.keys()):
+        summary = _COMMAND_SUMMARIES.get(name, "(no description)")
+        lines.append(f"  /{name:14s} — {summary}")
+    lines.append("")
+    lines.append("Use CliverHelp(topic='<command>') for full details on any command.")
+    lines.append("Use CliverHelp(topic='config_file') for config.yaml reference.")
+    return "\n".join(lines)
 
 
 def _get_command_help(command_name: str) -> str:
@@ -68,40 +88,32 @@ def _get_command_help(command_name: str) -> str:
         return f"/{command_name} — error loading help: {e}"
 
 
-def _filter_task_create_help(help_text: str) -> str:
-    """Remove task creation syntax from help output.
-
-    The LLM should use the CreateTask tool instead of shell commands.
-    Keep list/run/history/remove but strip the create subcommand line
-    and remove 'create' from the usage summary.
-    """
-    filtered_lines = []
-    for line in help_text.splitlines():
-        if "create" in line.lower() and ("create <name>" in line.lower() or "--prompt" in line.lower()):
-            continue
-        line = line.replace("|create|", "|").replace("create|", "").replace("|create", "")
-        filtered_lines.append(line)
-    filtered_lines.append("\nTo create tasks, use the CreateTask tool (not shell commands).")
-    return "\n".join(filtered_lines)
-
-
 class CliverHelpInput(BaseModel):
     topic: str = Field(
-        description="What to look up. Use 'commands' for an overview, "
-        "or a specific command name like 'model', 'gateway', 'task'. "
-        "Also supports: 'config_file'.",
+        description=(
+            "The topic to look up. Valid values:\n"
+            "  'commands'    — List all available CLIver commands with one-line descriptions.\n"
+            "  'config_file' — Show config.yaml structure and key sections.\n"
+            "  '<command>'   — Show full help for a specific command including all subcommands,\n"
+            "                  parameters (with types, required/optional, defaults), and examples.\n"
+            "                  Valid command names: agent, config, cost, gateway, identity, mcp,\n"
+            "                  model, permissions, provider, session, skill, skills, task, workflow."
+        ),
     )
 
 
 class CliverHelpTool(BaseTool):
-    """Look up CLIver command syntax and configuration reference."""
+    """Look up CLIver command syntax, parameters, and configuration reference."""
 
     name: str = "CliverHelp"
     description: str = (
-        "Look up CLIver's own commands and configuration. "
-        "Use when you need specific syntax for a CLIver command, "
-        "want to know how config.yaml is structured, "
-        "or need details about tasks, skills, or the gateway."
+        "Look up CLIver's own slash commands and configuration reference. "
+        "Returns precise syntax with parameter types, required/optional status, "
+        "valid values, defaults, and examples. "
+        "Use topic='commands' to list all available commands, "
+        "or topic='<command_name>' (e.g. 'task', 'model', 'session') for full "
+        "command documentation including all subcommands and parameters. "
+        "Use topic='config_file' for config.yaml structure."
     )
     args_schema: Type[BaseModel] = CliverHelpInput
     tags: list = ["admin", "help"]
@@ -119,8 +131,6 @@ class CliverHelpTool(BaseTool):
         resolved = _ALIASES.get(topic, topic)
         if resolved in HANDLERS:
             help_text = _get_command_help(resolved)
-            if resolved == "task":
-                help_text = _filter_task_create_help(help_text)
             return help_text
 
         available = sorted({"commands", "config_file"} | set(HANDLERS.keys()))

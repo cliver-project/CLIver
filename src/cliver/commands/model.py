@@ -7,7 +7,7 @@ from cliver.model_capabilities import ModelCapability
 from cliver.util import parse_key_value_options
 
 
-@click.group(name="model", help="Manage LLM Models")
+@click.group(name="model", help="Manage LLM model configurations (list, add, update, set default, remove)")
 @click.pass_context
 def model(ctx: click.Context):
     if ctx.invoked_subcommand is None:
@@ -276,13 +276,39 @@ def dispatch(cliver: Cliver, args: str):
             return
         _remove_model(cliver, name)
     elif sub in ("--help", "help"):
-        cliver.output("Usage: /model [list|<name>|default|add|set|remove]")
-        cliver.output("  list                                  - List all configured models")
-        cliver.output("  <name>                                - Show detailed info for a model")
-        cliver.output("  default [name]                        - Show or set default model")
-        cliver.output("  add --provider P --name N [--option K=V] [--capabilities C]")
-        cliver.output("  set --name N [--option K=V] [--capabilities C]")
-        cliver.output("  remove <name>                         - Remove a model")
+        cliver.output("Manage LLM model configurations. Models are grouped under providers.")
+        cliver.output("")
+        cliver.output("Usage: /model [list|<name>|default|add|set|remove] [options]")
+        cliver.output("")
+        cliver.output("Subcommands:")
+        cliver.output("  list              — List all configured models with provider, modalities,")
+        cliver.output("                      and active status. No parameters.")
+        cliver.output("  <name>            — Show detailed info for a specific model (capabilities,")
+        cliver.output("                      pricing, options, context window).")
+        cliver.output("    name  STRING — Model name, either canonical (provider/model) or short-form.")
+        cliver.output("    Example: /model deepseek/deepseek-chat")
+        cliver.output("  default [name]    — Show or set the default model for new sessions.")
+        cliver.output("    name  STRING (optional) — Model name to set as default.")
+        cliver.output("      If omitted, displays the current default. Must match a name from '/model list'.")
+        cliver.output("    Example: /model default qwen/qwen3-coder")
+        cliver.output("  add               — Register a new model under an existing provider.")
+        cliver.output("    --provider, -p    STRING (required) — Provider name. Must exist in '/provider list'.")
+        cliver.output("    --name, -n        STRING (required) — Model API name (e.g. 'deepseek-chat').")
+        cliver.output("    --option, -o      STRING (optional, repeatable) — Model option as key=value")
+        cliver.output("                        (e.g. -o temperature=0.7 -o max_tokens=4096).")
+        cliver.output("    --capabilities, -c STRING (optional) — Comma-separated capability list")
+        cliver.output("                        (e.g. 'text_to_text,tool_calling,think_mode').")
+        cliver.output("    Example: /model add --provider deepseek --name deepseek-chat -o temperature=0.7")
+        cliver.output("  set               — Update options or capabilities of an existing model.")
+        cliver.output("    --name, -n        STRING (required) — Model name (canonical or short-form).")
+        cliver.output("    --option, -o      STRING (optional, repeatable) — Option as key=value to update.")
+        cliver.output("    --capabilities, -c STRING (optional) — New comma-separated capability list.")
+        cliver.output("    Example: /model set --name qwen/qwen3-coder -o temperature=0.5")
+        cliver.output("  remove <name>     — Remove a model configuration permanently.")
+        cliver.output("    name  STRING (required) — Model name to remove.")
+        cliver.output("    Example: /model remove deepseek/old-model")
+        cliver.output("")
+        cliver.output("Default subcommand: list (when /model is called with no arguments)")
     else:
         mc = cliver.config_manager.get_llm_model(sub)
         if mc:
@@ -353,14 +379,14 @@ def _dispatch_set(cliver: Cliver, rest: str) -> None:
 
 
 # noinspection PyUnresolvedReferences
-@model.command(name="list", help="List LLM Models")
+@model.command(name="list", help="List all configured models with provider, modalities, and active status")
 @pass_cliver
 def list_llm_models(cliver: Cliver):
     _list_models(cliver)
 
 
 # noinspection PyUnresolvedReferences
-@model.command(name="default", help="Set the default LLM model")
+@model.command(name="default", help="Show or set the default LLM model for new sessions")
 @click.argument("name", type=ModelNameType(), required=False)
 @pass_cliver
 def set_default_model(cliver: Cliver, name: str):
@@ -369,7 +395,7 @@ def set_default_model(cliver: Cliver, name: str):
 
 
 # noinspection PyUnresolvedReferences
-@model.command(name="remove", help="Remove a LLM Model")
+@model.command(name="remove", help="Remove a model configuration permanently by name")
 @click.argument("name", type=str)
 @pass_cliver
 def remove_llm_model(cliver: Cliver, name: str):
@@ -377,21 +403,56 @@ def remove_llm_model(cliver: Cliver, name: str):
 
 
 # noinspection PyUnresolvedReferences
-@model.command(name="add", help="Add a LLM Model")
-@click.option("--name", "-n", type=str, required=True, help="Model name (API name)")
-@click.option("--provider", "-p", type=str, required=True, help="Provider name")
-@click.option("--option", "-o", multiple=True, type=str, help="Model options in key=value format")
-@click.option("--capabilities", "-c", type=str, help="Comma-separated capabilities")
+@model.command(name="add", help="Register a new model under an existing provider")
+@click.option(
+    "--name",
+    "-n",
+    type=str,
+    required=True,
+    help="Model API name as used by the provider (e.g. 'deepseek-chat')",
+)
+@click.option(
+    "--provider",
+    "-p",
+    type=str,
+    required=True,
+    help="Provider name. Must exist in 'provider list' (e.g. 'deepseek')",
+)
+@click.option(
+    "--option",
+    "-o",
+    multiple=True,
+    type=str,
+    help="Model option as key=value (repeatable, e.g. -o temperature=0.7)",
+)
+@click.option(
+    "--capabilities",
+    "-c",
+    type=str,
+    help="Comma-separated capabilities (e.g. 'text_to_text,tool_calling')",
+)
 @pass_cliver
 def add_llm_model(cliver: Cliver, name: str, provider: str, option: tuple, capabilities: str):
     _add_model(cliver, provider, name, option, capabilities)
 
 
 # noinspection PyUnresolvedReferences
-@model.command(name="set", help="Update a LLM Model")
-@click.option("--name", "-n", type=str, required=True, help="Model name (canonical or short-form)")
-@click.option("--option", "-o", multiple=True, type=str, help="Model options in key=value format")
-@click.option("--capabilities", "-c", type=str, help="Comma-separated capabilities")
+@model.command(name="set", help="Update options or capabilities of an existing model")
+@click.option(
+    "--name",
+    "-n",
+    type=str,
+    required=True,
+    help="Model name in canonical (provider/model) or short form",
+)
+@click.option(
+    "--option",
+    "-o",
+    multiple=True,
+    type=str,
+    help="Option as key=value to update (repeatable, e.g. -o temperature=0.5)",
+)
+@click.option("--capabilities", "-c", type=str, help="New comma-separated capability list (replaces existing)")
 @pass_cliver
 def update_llm_model(cliver: Cliver, name: str, option: tuple, capabilities: str):
     _update_model(cliver, name, option, capabilities)

@@ -43,7 +43,7 @@ class TestKnownCommandsStillWork:
     def test_help_subcommand(self, load_cliver, init_config):
         result = CliRunner().invoke(load_cliver, ["help", "model"])
         assert result.exit_code == 0
-        assert "Manage LLM Models" in result.output
+        assert "Manage LLM model configurations" in result.output
 
 
 class TestFlagsStillWork:

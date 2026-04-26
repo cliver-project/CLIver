@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 @click.group(
     name="skills",
-    help="Manage agent skills",
+    help="Manage agent skills (SKILL.md files that guide LLM behavior for specific tasks)",
     invoke_without_command=True,
 )
 @pass_cliver
@@ -159,11 +159,34 @@ def dispatch(cliver: Cliver, args: str):
             return
         _update_skill(cliver, skill_name, instructions)
     elif sub in ("--help", "help"):
-        cliver.output("Usage: /skills [list|create|show|update]")
-        cliver.output("  list                          - List all skills")
-        cliver.output("  show <name>                   - Show skill content")
-        cliver.output("  create <name> <description>   - Create new skill via LLM")
-        cliver.output("  update <name> <instructions>  - Update skill via LLM")
+        cliver.output("Manage agent skills (SKILL.md files). Skills are instruction sets that guide")
+        cliver.output("LLM behavior for specific tasks like brainstorming or planning.")
+        cliver.output("")
+        cliver.output("Usage: /skills [list|show|create|update] [arguments]")
+        cliver.output("")
+        cliver.output("Subcommands:")
+        cliver.output("  list                         — List all discovered skills with name, description,")
+        cliver.output("                                  and source (builtin/global/project). No parameters.")
+        cliver.output("  show <name>                  — Display the full SKILL.md content of a skill.")
+        cliver.output("    name  STRING (required) — Skill name. Must match a name from '/skills list'.")
+        cliver.output("  create <name> <description>  — Generate a new SKILL.md file using the LLM.")
+        cliver.output("    name         STRING (required) — Skill name. Lowercase, hyphens allowed.")
+        cliver.output("                   Must not already exist.")
+        cliver.output("    description  STRING (required) — What the skill does (remaining words joined).")
+        cliver.output("    --global     FLAG (optional) — Save to global skills directory (~/.config/cliver/skills/)")
+        cliver.output("                   instead of project-local .cliver/skills/. Default: project-local.")
+        cliver.output("  update <name> <instructions>  — Improve an existing skill's SKILL.md using the LLM.")
+        cliver.output("    name          STRING (required) — Skill name to update. Must exist.")
+        cliver.output("    instructions  STRING (required) — How to improve the skill (remaining words joined).")
+        cliver.output("")
+        cliver.output("Default subcommand: list (when /skills is called with no arguments)")
+        cliver.output("")
+        cliver.output("Examples:")
+        cliver.output("  /skills                                     — list all skills")
+        cliver.output("  /skills show brainstorm                     — view brainstorm skill content")
+        cliver.output("  /skills create code-review review code for quality issues")
+        cliver.output("  /skills create my-skill some description --global")
+        cliver.output("  /skills update brainstorm add a section about architecture decisions")
     else:
         cliver.output(f"[yellow]Unknown subcommand: /skills {sub}[/yellow]")
         cliver.output("Run '/skills help' for usage.")
@@ -174,14 +197,14 @@ def dispatch(cliver: Cliver, args: str):
 # ---------------------------------------------------------------------------
 
 
-@skills.command(name="list", help="List all discovered skills")
+@skills.command(name="list", help="List all discovered skills with name, description, and source location")
 @pass_cliver
 def list_skills(cliver: Cliver):
     """List all discovered skills with their source locations."""
     _list_skills(cliver)
 
 
-@skills.command(name="create", help="Create a new skill using LLM generation")
+@skills.command(name="create", help="Generate a new SKILL.md file using the LLM from a name and description")
 @click.argument("name", type=str)
 @click.argument("description", nargs=-1, required=True)
 @click.option(
@@ -189,7 +212,7 @@ def list_skills(cliver: Cliver):
     "save_global",
     is_flag=True,
     default=False,
-    help="Save to global skills directory instead of project-local .cliver/skills/",
+    help="Save to global skills directory (~/.config/cliver/skills/) instead of project-local .cliver/skills/",
 )
 @pass_cliver
 def create_skill(cliver: Cliver, name: str, description: tuple, save_global: bool):
@@ -202,7 +225,7 @@ def create_skill(cliver: Cliver, name: str, description: tuple, save_global: boo
     _create_skill(cliver, name, desc_text, save_global)
 
 
-@skills.command(name="show", help="Show the full content of a skill")
+@skills.command(name="show", help="Display the full SKILL.md content, metadata, and source location of a skill")
 @click.argument("name", type=str)
 @pass_cliver
 def show_skill(cliver: Cliver, name: str):
@@ -210,7 +233,7 @@ def show_skill(cliver: Cliver, name: str):
     _show_skill(cliver, name)
 
 
-@skills.command(name="update", help="Update a skill using LLM generation")
+@skills.command(name="update", help="Improve an existing SKILL.md using the LLM with natural-language instructions")
 @click.argument("name", type=str)
 @click.argument("instructions", nargs=-1, required=True)
 @pass_cliver

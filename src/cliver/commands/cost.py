@@ -11,7 +11,11 @@ from cliver.cli import Cliver, pass_cliver
 from cliver.token_tracker import TokenUsage, format_tokens
 
 
-@click.group(name="cost", help="View token usage statistics", invoke_without_command=True)
+@click.group(
+    name="cost",
+    help="View token usage and cost statistics for the current session or all-time",
+    invoke_without_command=True,
+)
 @pass_cliver
 @click.pass_context
 def cost(ctx, cliver: Cliver):
@@ -75,13 +79,33 @@ def dispatch(cliver: Cliver, args: str):
 
         _show_total_cost(cliver, model_name, agent_name, date_from, date_to)
     elif sub in ("--help", "help"):
-        cliver.output("Usage: /cost [session|total]")
-        cliver.output("  session                  - Show current session token usage")
-        cliver.output("  total [--model M] [...]  - Show total usage from audit logs")
-        cliver.output("    --model, -m   Filter by model name")
-        cliver.output("    --agent, -a   Filter by agent name")
-        cliver.output("    --from DATE   Start date (YYYY-MM-DD)")
-        cliver.output("    --to DATE     End date (YYYY-MM-DD)")
+        cliver.output("View token usage and cost statistics.")
+        cliver.output("")
+        cliver.output("Usage: /cost [session|total] [options]")
+        cliver.output("")
+        cliver.output("Subcommands:")
+        cliver.output("  session  — Show token usage (input/output/cached) for the current session,")
+        cliver.output("             grouped by model. No parameters.")
+        cliver.output("  total    — Show aggregated token usage from audit logs across all sessions.")
+        cliver.output("")
+        cliver.output("Options for 'total':")
+        cliver.output("  --model, -m  STRING (optional) — Filter results to a specific model name.")
+        cliver.output("               When set, shows per-agent breakdown for that model.")
+        cliver.output("               Example: --model deepseek/deepseek-chat")
+        cliver.output("  --agent, -a  STRING (optional) — Filter results to a specific agent name.")
+        cliver.output("               Example: --agent default")
+        cliver.output("  --from       STRING (optional) — Start date in YYYY-MM-DD format (inclusive).")
+        cliver.output("               Example: --from 2026-04-01")
+        cliver.output("  --to         STRING (optional) — End date in YYYY-MM-DD format (inclusive).")
+        cliver.output("               Example: --to 2026-04-25")
+        cliver.output("")
+        cliver.output("Default subcommand: session (when /cost is called with no arguments)")
+        cliver.output("")
+        cliver.output("Examples:")
+        cliver.output("  /cost                                  — show current session usage")
+        cliver.output("  /cost total                            — show all-time usage by model")
+        cliver.output("  /cost total --model qwen/qwen3-coder   — usage for a specific model")
+        cliver.output("  /cost total --from 2026-04-01 --to 2026-04-25  — usage in date range")
     else:
         cliver.output(f"[yellow]Unknown subcommand: /cost {sub}[/yellow]")
         cliver.output("Run '/cost help' for usage.")
@@ -135,18 +159,36 @@ def _show_total_cost(
 # ---------------------------------------------------------------------------
 
 
-@cost.command(name="session", help="Show token usage for the current session")
+@cost.command(name="session", help="Show token usage (input/output/cached) for the current session, grouped by model")
 @pass_cliver
 def cost_session(cliver: Cliver):
     """Show in-memory session totals by model."""
     _show_session_summary(cliver)
 
 
-@cost.command(name="total", help="Show total token usage from audit logs")
-@click.option("--model", "-m", default=None, help="Filter by model name")
-@click.option("--agent", "-a", default=None, help="Filter by agent name")
-@click.option("--from", "date_from", default=None, help="Start date (YYYY-MM-DD)")
-@click.option("--to", "date_to", default=None, help="End date (YYYY-MM-DD)")
+@cost.command(
+    name="total",
+    help="Show aggregated token usage from audit logs across all sessions",
+)
+@click.option(
+    "--model",
+    "-m",
+    default=None,
+    help="Filter to a specific model name (e.g. 'deepseek/deepseek-chat'). Shows per-agent breakdown when set",
+)
+@click.option("--agent", "-a", default=None, help="Filter to a specific agent name (e.g. 'default')")
+@click.option(
+    "--from",
+    "date_from",
+    default=None,
+    help="Start date in YYYY-MM-DD format, inclusive (e.g. '2026-04-01')",
+)
+@click.option(
+    "--to",
+    "date_to",
+    default=None,
+    help="End date in YYYY-MM-DD format, inclusive (e.g. '2026-04-25')",
+)
 @pass_cliver
 def cost_total(
     cliver: Cliver,

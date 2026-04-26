@@ -21,7 +21,7 @@ def _parse_rate_limit(value: str) -> RateLimitConfig:
     return RateLimitConfig(requests=requests, period=period)
 
 
-@click.group(name="provider", help="Manage LLM providers")
+@click.group(name="provider", help="Manage LLM provider endpoints (API URLs, keys, rate limits)")
 @click.pass_context
 def provider(ctx: click.Context):
     if ctx.invoked_subcommand is None:
@@ -112,11 +112,36 @@ def dispatch(cliver: Cliver, args: str):
     if sub == "list":
         _list_providers(cliver)
     elif sub in ("--help", "help"):
-        cliver.output("Usage: /provider [list|add|set|remove]")
-        cliver.output("  list                 - List all providers")
-        cliver.output("  add --name N ...     - Add a new provider")
-        cliver.output("  set --name N ...     - Update a provider")
-        cliver.output("  remove --name N      - Remove a provider")
+        cliver.output("Manage LLM providers (API endpoints). Providers host one or more models.")
+        cliver.output("")
+        cliver.output("Usage: /provider [list|add|set|remove] [options]")
+        cliver.output("")
+        cliver.output("Subcommands:")
+        cliver.output("  list    — List all configured providers with type, URL, and rate limit.")
+        cliver.output("            No parameters.")
+        cliver.output("")
+        cliver.output("  add     — Add a new provider endpoint.")
+        cliver.output("    --name, -n       STRING (required) — Unique provider name (e.g. 'deepseek').")
+        cliver.output("    --type, -t       CHOICE (required) — Provider type (e.g. openai, ollama, vllm).")
+        cliver.output("    --api-url, -u    STRING (required) — API base URL (e.g. 'https://api.deepseek.com').")
+        cliver.output("    --api-key, -k    STRING (optional) — API key. Supports Jinja2 templates:")
+        cliver.output("                       {{ env.DEEPSEEK_API_KEY }} or {{ keyring('cliver','key') }}.")
+        cliver.output("    --rate-limit, -r STRING (optional) — Rate limit as 'requests/period'")
+        cliver.output("                       (e.g. '5000/5h', '100/1m').")
+        cliver.output("    --image-url      STRING (optional) — Image generation endpoint URL.")
+        cliver.output("    --audio-url      STRING (optional) — Audio generation endpoint URL.")
+        cliver.output("    Example: /provider add --name deepseek --type openai --api-url https://api.deepseek.com")
+        cliver.output("")
+        cliver.output("  set     — Update an existing provider (only provided values are changed).")
+        cliver.output("    --name, -n  STRING (required) — Provider name to update. Must exist.")
+        cliver.output("    (same options as 'add', all optional)")
+        cliver.output("    Example: /provider set --name deepseek --rate-limit 5000/5h")
+        cliver.output("")
+        cliver.output("  remove  — Remove a provider. Fails if models still reference it.")
+        cliver.output("    --name, -n  STRING (required) — Provider name to remove.")
+        cliver.output("    Example: /provider remove --name old-provider")
+        cliver.output("")
+        cliver.output("Default subcommand: list (when /provider is called with no arguments)")
     else:
         cliver.output(f"[yellow]Unknown subcommand: /provider {sub}[/yellow]")
         cliver.output("Run '/provider help' for usage.")
@@ -127,33 +152,51 @@ def dispatch(cliver: Cliver, args: str):
 # ---------------------------------------------------------------------------
 
 
-@provider.command(name="list", help="List configured providers")
+@provider.command(name="list", help="List all configured providers with type, API URL, and rate limit")
 @pass_cliver
 def list_providers(cliver: Cliver):
     _list_providers(cliver)
 
 
-@provider.command(name="add", help="Add a provider")
-@click.option("--name", "-n", type=str, required=True, help="Provider name")
+@provider.command(name="add", help="Add a new LLM provider endpoint with API URL and credentials")
+@click.option(
+    "--name",
+    "-n",
+    type=str,
+    required=True,
+    help="Unique provider name (e.g. 'deepseek', 'ollama'). Must not exist",
+)
 @click.option(
     "--type",
     "-t",
     "ptype",
     type=click.Choice([p.value for p in ProviderEnum]),
     required=True,
-    help="Provider type",
+    help="Provider type (determines API protocol)",
 )
-@click.option("--api-url", "-u", type=str, required=True, help="API base URL")
-@click.option("--api-key", "-k", type=str, default=None, help="API key")
+@click.option(
+    "--api-url",
+    "-u",
+    type=str,
+    required=True,
+    help="API base URL (e.g. 'https://api.deepseek.com')",
+)
+@click.option(
+    "--api-key",
+    "-k",
+    type=str,
+    default=None,
+    help="API key. Supports templates: {{ env.VAR }} or {{ keyring() }}",
+)
 @click.option(
     "--rate-limit",
     "-r",
     type=str,
     default=None,
-    help="Rate limit as 'requests/period' (e.g. '5000/5h')",
+    help="Rate limit as 'requests/period' (e.g. '5000/5h', '100/1m')",
 )
-@click.option("--image-url", type=str, default=None, help="Image generation endpoint URL")
-@click.option("--audio-url", type=str, default=None, help="Audio generation endpoint URL")
+@click.option("--image-url", type=str, default=None, help="Separate image generation endpoint URL (optional)")
+@click.option("--audio-url", type=str, default=None, help="Separate audio generation endpoint URL (optional)")
 @pass_cliver
 def add_provider(
     cliver: Cliver, name: str, ptype: str, api_url: str, api_key: str, rate_limit: str, image_url: str, audio_url: str
@@ -161,27 +204,39 @@ def add_provider(
     _add_provider(cliver, name, ptype, api_url, api_key, rate_limit, image_url, audio_url)
 
 
-@provider.command(name="set", help="Update a provider")
-@click.option("--name", "-n", type=str, required=True, help="Provider name")
+@provider.command(name="set", help="Update an existing provider (only provided values are changed)")
+@click.option(
+    "--name",
+    "-n",
+    type=str,
+    required=True,
+    help="Provider name to update. Must match an existing provider",
+)
 @click.option(
     "--type",
     "-t",
     "ptype",
     type=click.Choice([p.value for p in ProviderEnum]),
     default=None,
-    help="Provider type",
+    help="New provider type (changes API protocol)",
 )
-@click.option("--api-url", "-u", type=str, default=None, help="API base URL")
-@click.option("--api-key", "-k", type=str, default=None, help="API key")
+@click.option("--api-url", "-u", type=str, default=None, help="New API base URL")
+@click.option(
+    "--api-key",
+    "-k",
+    type=str,
+    default=None,
+    help="New API key. Supports templates: {{ env.VAR }} or {{ keyring() }}",
+)
 @click.option(
     "--rate-limit",
     "-r",
     type=str,
     default=None,
-    help="Rate limit as 'requests/period' (e.g. '5000/5h')",
+    help="New rate limit as 'requests/period' (e.g. '5000/5h')",
 )
-@click.option("--image-url", type=str, default=None, help="Image generation endpoint URL")
-@click.option("--audio-url", type=str, default=None, help="Audio generation endpoint URL")
+@click.option("--image-url", type=str, default=None, help="New image generation endpoint URL")
+@click.option("--audio-url", type=str, default=None, help="New audio generation endpoint URL")
 @pass_cliver
 def set_provider(
     cliver: Cliver, name: str, ptype: str, api_url: str, api_key: str, rate_limit: str, image_url: str, audio_url: str
@@ -189,8 +244,14 @@ def set_provider(
     _set_provider(cliver, name, ptype, api_url, api_key, rate_limit, image_url, audio_url)
 
 
-@provider.command(name="remove", help="Remove a provider")
-@click.option("--name", "-n", type=str, required=True, help="Provider name")
+@provider.command(name="remove", help="Remove a provider (fails if models still reference it)")
+@click.option(
+    "--name",
+    "-n",
+    type=str,
+    required=True,
+    help="Provider name to remove. Must not have models referencing it",
+)
 @pass_cliver
 def remove_provider(cliver: Cliver, name: str):
     _remove_provider(cliver, name)

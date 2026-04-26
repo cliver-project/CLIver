@@ -161,11 +161,35 @@ def dispatch(cliver: Cliver, args: str):
         except ValueError:
             cliver.output("[red]Index must be a number[/red]")
     elif sub in ("--help", "help"):
-        cliver.output("Usage: /permissions [rules|mode|add|remove] ...")
-        cliver.output("  rules              — show all permission rules")
-        cliver.output("  mode [mode]        — show or set mode (default|auto-edit|yolo)")
-        cliver.output("  add                — add a permission rule interactively")
-        cliver.output("  remove <index>     — remove a rule by index")
+        cliver.output("Manage persistent permission rules that control which tools can execute.")
+        cliver.output("Rules are saved to cliver-settings.yaml (global or local).")
+        cliver.output("For session-only grants, use '/session permission' instead.")
+        cliver.output("")
+        cliver.output("Usage: /permissions [rules|mode|add|remove] [arguments]")
+        cliver.output("")
+        cliver.output("Subcommands:")
+        cliver.output("  rules           — Display all loaded permission rules with their source file")
+        cliver.output("                    (global or local) and current permission mode. No parameters.")
+        cliver.output("  mode [mode]     — Show or set the permission mode.")
+        cliver.output("    mode  CHOICE(default|auto-edit|yolo) (optional)")
+        cliver.output("      default:   safe tools auto-allow; all others require confirmation")
+        cliver.output("      auto-edit: safe + read + write auto-allow; execute/fetch require confirmation")
+        cliver.output("      yolo:      all tools auto-allow (no confirmations)")
+        cliver.output("    If omitted, displays the current mode. Prompts to save to global or local.")
+        cliver.output("  add             — Start an interactive wizard to create a new permission rule.")
+        cliver.output("                    Prompts for: tool pattern (regex), resource constraint")
+        cliver.output("                    (fnmatch glob), action (allow/deny), save target (global/local).")
+        cliver.output("  remove <index>  — Remove a permission rule by its index number.")
+        cliver.output("    index  INT (required) — Index shown in '/permissions rules' output (0-based).")
+        cliver.output("                    Requires confirmation before deletion.")
+        cliver.output("")
+        cliver.output("Default subcommand: rules (when /permissions is called with no arguments)")
+        cliver.output("")
+        cliver.output("Examples:")
+        cliver.output("  /permissions               — show all rules and current mode")
+        cliver.output("  /permissions mode yolo      — set mode to yolo (prompts for global/local)")
+        cliver.output("  /permissions add            — start interactive rule builder")
+        cliver.output("  /permissions remove 2       — remove rule at index 2")
     else:
         cliver.output(f"[yellow]Unknown: /permissions {sub}[/yellow]")
 
@@ -214,7 +238,11 @@ def _shorten_path(path: str) -> str:
 # Click wrappers (thin — just call logic functions)
 
 
-@click.group(name="permissions", help="Manage persistent permission rules", invoke_without_command=True)
+@click.group(
+    name="permissions",
+    help="Manage persistent permission rules saved to cliver-settings.yaml",
+    invoke_without_command=True,
+)
 @pass_cliver
 @click.pass_context
 def permissions(ctx, cliver: Cliver):
@@ -224,26 +252,29 @@ def permissions(ctx, cliver: Cliver):
         _show_rules(cliver)
 
 
-@permissions.command(name="rules", help="Show all loaded permission rules")
+@permissions.command(name="rules", help="Display all loaded permission rules with source file and current mode")
 @pass_cliver
 def show_rules(cliver: Cliver):
     _show_rules(cliver)
 
 
-@permissions.command(name="mode", help="Show or set permission mode")
+@permissions.command(name="mode", help="Show or set permission mode (default, auto-edit, or yolo)")
 @click.argument("new_mode", required=False, type=click.Choice(["default", "auto-edit", "yolo"]))
 @pass_cliver
 def set_mode(cliver: Cliver, new_mode: str):
     _set_mode(cliver, new_mode)
 
 
-@permissions.command(name="add", help="Add a permission rule interactively")
+@permissions.command(
+    name="add",
+    help="Start interactive wizard to create a permission rule (tool, resource, action)",
+)
 @pass_cliver
 def add_rule(cliver: Cliver):
     _add_rule(cliver)
 
 
-@permissions.command(name="remove", help="Remove a permission rule by index")
+@permissions.command(name="remove", help="Remove a permission rule by its 0-based index (shown in 'permissions rules')")
 @click.argument("index", type=int)
 @pass_cliver
 def remove_rule(cliver: Cliver, index: int):

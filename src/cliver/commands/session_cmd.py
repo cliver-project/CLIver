@@ -18,7 +18,11 @@ from cliver.permissions import PermissionAction, PermissionMode
 from cliver.util import parse_key_value_options
 
 
-@click.group(name="session", help="Manage conversation sessions", invoke_without_command=True)
+@click.group(
+    name="session",
+    help="Manage conversation sessions (list, load, search, compress, options, permissions)",
+    invoke_without_command=True,
+)
 @pass_cliver
 @click.pass_context
 def session_cmd(ctx, cliver: Cliver):
@@ -294,7 +298,11 @@ def _display_options(cliver: Cliver) -> None:
         cliver.output(f"\n  excluded models:   {', '.join(sorted(excluded))}")
 
 
-@session_cmd.group(name="option", help="Manage inference options for this session", invoke_without_command=True)
+@session_cmd.group(
+    name="option",
+    help="Manage session-scoped inference options (model, temperature, streaming, etc.)",
+    invoke_without_command=True,
+)
 @pass_cliver
 @click.pass_context
 def session_option(ctx, cliver: Cliver):
@@ -303,18 +311,35 @@ def session_option(ctx, cliver: Cliver):
         _display_options(cliver)
 
 
-@session_option.command(name="set", help="Set inference options for this session")
-@click.option("--model", "-m", type=str, help="LLM model to use")
-@click.option("--temperature", type=float, help="Temperature parameter")
-@click.option("--max-tokens", type=int, help="Maximum number of tokens")
-@click.option("--top-p", type=float, help="Top-p parameter")
-@click.option("--frequency-penalty", type=float, help="Frequency penalty")
-@click.option("--stream", "-s", is_flag=True, default=None, help="Enable streaming")
-@click.option("--no-stream", is_flag=True, default=None, help="Disable streaming")
-@click.option("--save-media", "-sm", is_flag=True, default=None, help="Enable media saving")
-@click.option("--no-save-media", is_flag=True, default=None, help="Disable media saving")
-@click.option("--media-dir", "-md", type=str, help="Directory for media files")
-@click.option("--option", multiple=True, type=str, help="Additional options (key=value)")
+@session_option.command(name="set", help="Set one or more inference options for the current session")
+@click.option("--model", "-m", type=str, help="LLM model to use for this session. Must match a name from 'model list'")
+@click.option("--temperature", type=float, help="Sampling temperature (0.0 = deterministic, higher = more creative)")
+@click.option("--max-tokens", type=int, help="Maximum number of tokens in the LLM response")
+@click.option("--top-p", type=float, help="Top-p (nucleus) sampling parameter (0.0-1.0)")
+@click.option("--frequency-penalty", type=float, help="Frequency penalty to reduce repetition (0.0-2.0)")
+@click.option(
+    "--stream",
+    "-s",
+    is_flag=True,
+    default=None,
+    help="Enable streaming output (tokens displayed as generated)",
+)
+@click.option("--no-stream", is_flag=True, default=None, help="Disable streaming (wait for full response)")
+@click.option(
+    "--save-media",
+    "-sm",
+    is_flag=True,
+    default=None,
+    help="Enable saving generated media (images, audio) to disk",
+)
+@click.option("--no-save-media", is_flag=True, default=None, help="Disable saving generated media to disk")
+@click.option("--media-dir", "-md", type=str, help="Directory path for saved media files (default: current directory)")
+@click.option(
+    "--option",
+    multiple=True,
+    type=str,
+    help="Additional option as key=value (repeatable, e.g. --option seed=42)",
+)
 @pass_cliver
 def set_options(
     cliver: Cliver,
@@ -405,7 +430,10 @@ def set_options(
     return 0
 
 
-@session_option.command(name="reset", help="Reset all session options to defaults")
+@session_option.command(
+    name="reset",
+    help="Reset all session options to their default values and clear model exclusions",
+)
 @pass_cliver
 def reset_options(cliver: Cliver):
     """Reset all session options to their defaults."""
@@ -427,7 +455,7 @@ def reset_options(cliver: Cliver):
     return 0
 
 
-@session_option.command(name="exclude", help="Exclude a model from fallback for this session")
+@session_option.command(name="exclude", help="Exclude a model from being used as a fallback target for this session")
 @click.argument("model_name")
 @pass_cliver
 def option_model_exclude(cliver: Cliver, model_name: str):
@@ -439,7 +467,7 @@ def option_model_exclude(cliver: Cliver, model_name: str):
     cliver.output(f"Excluded '{model_name}' from fallback for this session.")
 
 
-@session_option.command(name="include", help="Re-include an excluded model for fallback")
+@session_option.command(name="include", help="Re-include a previously excluded model for fallback")
 @click.argument("model_name")
 @pass_cliver
 def option_model_include(cliver: Cliver, model_name: str):
@@ -494,7 +522,22 @@ def _dispatch_option(cliver: Cliver, args: str):
         else:
             cliver.output("[yellow]Usage: /session option include <model>[/yellow]")
     elif sub in ("--help", "help"):
-        cliver.output("Usage: /session option [show|set|reset|exclude|include]")
+        cliver.output("Manage inference options for the current session only.")
+        cliver.output("")
+        cliver.output("Usage: /session option [show|set|reset|exclude|include] [arguments]")
+        cliver.output("")
+        cliver.output("Subcommands:")
+        cliver.output("  show                — Display current session options (model, temperature, etc.).")
+        cliver.output("  set <key>=<value>   — Set one or more options. Supported keys:")
+        cliver.output("    model=STRING, temperature=FLOAT, max_tokens=INT, top_p=FLOAT,")
+        cliver.output("    frequency_penalty=FLOAT, or any custom key=value.")
+        cliver.output("    Example: /session option set model=qwen/qwen3-coder")
+        cliver.output("    Example: /session option set temperature=0.7")
+        cliver.output("  reset               — Reset all session options to defaults.")
+        cliver.output("  exclude <model>     — Exclude a model from being used as fallback.")
+        cliver.output("    model  STRING (required) — Model name from '/model list'.")
+        cliver.output("  include <model>     — Re-include a previously excluded model.")
+        cliver.output("    model  STRING (required) — Model name to re-include.")
     else:
         cliver.output(f"[yellow]Unknown: /session option {sub}[/yellow]")
 
@@ -542,7 +585,19 @@ def _dispatch_permission(cliver: Cliver, args: str):
         pm.clear_session_grants()
         cliver.output("All session permission grants cleared.")
     elif sub in ("--help", "help"):
-        cliver.output("Usage: /session permission [show|mode|grant|deny|clear]")
+        cliver.output("Manage session-scoped permission grants (not saved to file).")
+        cliver.output("")
+        cliver.output("Usage: /session permission [show|mode|grant|deny|clear] [arguments]")
+        cliver.output("")
+        cliver.output("Subcommands:")
+        cliver.output("  show              — Show active session grants and effective permission mode.")
+        cliver.output("  mode <mode>       — Override permission mode for this session only.")
+        cliver.output("    mode  CHOICE(default|auto-edit|yolo) (required)")
+        cliver.output("  grant <tool>      — Allow a tool for the rest of this session.")
+        cliver.output("    tool  STRING (required) — Tool name or regex pattern (e.g. 'Bash', 'github#.*').")
+        cliver.output("  deny <tool>       — Deny a tool for the rest of this session.")
+        cliver.output("    tool  STRING (required) — Tool name or regex pattern.")
+        cliver.output("  clear             — Remove all session permission grants.")
     else:
         cliver.output(f"[yellow]Unknown: /session permission {sub}[/yellow]")
 
@@ -584,16 +639,43 @@ def dispatch(cliver: Cliver, args: str):
     elif sub == "permission":
         _dispatch_permission(cliver, rest)
     elif sub in ("--help", "help"):
-        cliver.output("Usage: /session [list|search|load|new|delete|compress|option|permission]")
-        cliver.output("  (default)               - Show current session info")
-        cliver.output("  list                    - List all sessions")
-        cliver.output("  search <query>          - Search sessions by content")
-        cliver.output("  load <id>               - Load a session")
-        cliver.output("  new                     - Start a new session")
-        cliver.output("  delete <id>             - Delete a session")
-        cliver.output("  compress                - Compress current conversation")
-        cliver.output("  option [set|reset]      - Manage session options")
-        cliver.output("  permission [mode|grant] - Manage session permissions")
+        cliver.output("Manage conversation sessions. Sessions store chat history and can be")
+        cliver.output("saved, loaded, searched, and compressed.")
+        cliver.output("")
+        cliver.output("Usage: /session [list|search|load|new|delete|compress|option|permission] [arguments]")
+        cliver.output("")
+        cliver.output("Subcommands:")
+        cliver.output("  (no args)            — Show current session info (ID, title, turn count, dates).")
+        cliver.output("  list                 — List all saved sessions (most recent first) with ID,")
+        cliver.output("                         title, turn count, and last update time.")
+        cliver.output("  search <query>       — Full-text search across all past sessions.")
+        cliver.output("    query  STRING (required) — Search term to find in conversation content.")
+        cliver.output("    Example: /session search 'authentication bug'")
+        cliver.output("  load <id>            — Load a previous session's conversation history so you")
+        cliver.output("                         can continue chatting. Auto-compresses if too long.")
+        cliver.output("    id  STRING (required) — Session ID from '/session list'.")
+        cliver.output("    Example: /session load abc123")
+        cliver.output("  new                  — Start a fresh session (clears current conversation).")
+        cliver.output("  delete <id>          — Delete a session and its conversation history.")
+        cliver.output("    id  STRING (required) — Session ID to delete.")
+        cliver.output("  compress             — Force-compress the current conversation history to")
+        cliver.output("                         reduce token usage. Uses the LLM to summarize.")
+        cliver.output("")
+        cliver.output("Sub-groups:")
+        cliver.output("  option               — Manage session-scoped inference options.")
+        cliver.output("    /session option                          — show current options")
+        cliver.output("    /session option set <key>=<value> ...    — set option(s)")
+        cliver.output("    /session option reset                    — reset all to defaults")
+        cliver.output("    /session option exclude <model>          — exclude model from fallback")
+        cliver.output("    /session option include <model>          — re-include excluded model")
+        cliver.output("  permission           — Manage session-scoped permission grants.")
+        cliver.output("    /session permission                      — show grants and mode")
+        cliver.output("    /session permission mode <default|auto-edit|yolo>  — override mode")
+        cliver.output("    /session permission grant <tool>         — allow tool this session")
+        cliver.output("    /session permission deny <tool>          — deny tool this session")
+        cliver.output("    /session permission clear                — clear all session grants")
+        cliver.output("")
+        cliver.output("Default subcommand: (show current session info)")
     else:
         cliver.output(f"[yellow]Unknown subcommand: /session {sub}[/yellow]")
         cliver.output("Run '/session help' for usage.")
@@ -604,7 +686,11 @@ def dispatch(cliver: Cliver, args: str):
 # ---------------------------------------------------------------------------
 
 
-@session_cmd.group(name="permission", help="Manage session-scoped permission grants", invoke_without_command=True)
+@session_cmd.group(
+    name="permission",
+    help="Manage session-scoped permission grants (not saved to file, cleared on session end)",
+    invoke_without_command=True,
+)
 @pass_cliver
 @click.pass_context
 def session_permission(ctx, cliver: Cliver):
@@ -631,7 +717,7 @@ def show_session_permissions(cliver: Cliver):
             cliver.output(f"  {marker} {tool}: {action.value}")
 
 
-@session_permission.command(name="mode", help="Override permission mode for this session")
+@session_permission.command(name="mode", help="Override permission mode for this session only (not saved to file)")
 @click.argument("new_mode", type=click.Choice(["default", "auto-edit", "yolo"]))
 @pass_cliver
 def session_set_mode(cliver: Cliver, new_mode: str):
@@ -641,7 +727,7 @@ def session_set_mode(cliver: Cliver, new_mode: str):
     cliver.output(f"Session permission mode set to '{new_mode}' (not saved to file).")
 
 
-@session_permission.command(name="grant", help="Allow a tool for this session")
+@session_permission.command(name="grant", help="Allow a tool (or tool regex pattern) for the rest of this session")
 @click.argument("tool")
 @pass_cliver
 def session_grant(cliver: Cliver, tool: str):
@@ -650,7 +736,7 @@ def session_grant(cliver: Cliver, tool: str):
     cliver.output(f"Granted: {tool} is allowed for this session.")
 
 
-@session_permission.command(name="deny", help="Deny a tool for this session")
+@session_permission.command(name="deny", help="Deny a tool (or tool regex pattern) for the rest of this session")
 @click.argument("tool")
 @pass_cliver
 def session_deny(cliver: Cliver, tool: str):
@@ -659,7 +745,7 @@ def session_deny(cliver: Cliver, tool: str):
     cliver.output(f"Denied: {tool} is blocked for this session.")
 
 
-@session_permission.command(name="clear", help="Clear all session grants")
+@session_permission.command(name="clear", help="Remove all session permission grants, reverting to persistent rules")
 @pass_cliver
 def session_clear(cliver: Cliver):
     """Clear all session grants, reverting to persistent rules."""
@@ -672,23 +758,32 @@ def session_clear(cliver: Cliver):
 # ---------------------------------------------------------------------------
 
 
-@session_cmd.command(name="search", help="Search past sessions by content")
+@session_cmd.command(name="search", help="Full-text search across all past conversation sessions")
 @click.argument("query")
-@click.option("--limit", "-n", type=int, default=10, help="Max results to show")
+@click.option(
+    "--limit",
+    "-n",
+    type=int,
+    default=10,
+    help="Maximum number of matching sessions to display (default: 10)",
+)
 @pass_cliver
 def search_sessions(cliver: Cliver, query: str, limit: int):
     """Full-text search across all past conversation sessions."""
     _search_sessions(cliver, query, limit)
 
 
-@session_cmd.command(name="list", help="List all saved sessions")
+@session_cmd.command(name="list", help="List all saved sessions (most recent first) with ID, title, turn count")
 @pass_cliver
 def list_sessions(cliver: Cliver):
     """List all sessions, most recent first."""
     _list_sessions(cliver)
 
 
-@session_cmd.command(name="load", help="Load a previous session to continue the conversation")
+@session_cmd.command(
+    name="load",
+    help="Load a previous session's history to continue the conversation (auto-compresses if needed)",
+)
 @click.argument("session_id")
 @pass_cliver
 def load_session(cliver: Cliver, session_id: str):
@@ -696,14 +791,14 @@ def load_session(cliver: Cliver, session_id: str):
     _load_session(cliver, session_id)
 
 
-@session_cmd.command(name="new", help="Start a new session")
+@session_cmd.command(name="new", help="Start a fresh session (clears current conversation history)")
 @pass_cliver
 def new_session(cliver: Cliver):
     """Create a new empty session and set it as current."""
     _new_session(cliver)
 
 
-@session_cmd.command(name="delete", help="Delete a saved session")
+@session_cmd.command(name="delete", help="Delete a session and its entire conversation history permanently")
 @click.argument("session_id")
 @pass_cliver
 def delete_session(cliver: Cliver, session_id: str):
@@ -711,7 +806,10 @@ def delete_session(cliver: Cliver, session_id: str):
     _delete_session(cliver, session_id)
 
 
-@session_cmd.command(name="compress", help="Compress current conversation history")
+@session_cmd.command(
+    name="compress",
+    help="Force-compress current conversation history via LLM summarization to save tokens",
+)
 @pass_cliver
 def compress_session(cliver: Cliver):
     """Force-compress the current conversation history to save tokens."""

@@ -12,7 +12,7 @@ from cliver.config import (
 from cliver.util import parse_key_value_options
 
 
-@click.group(name="mcp", help="Manage MCP Servers")
+@click.group(name="mcp", help="Manage MCP (Model Context Protocol) server connections that provide tools to the agent")
 @click.pass_context
 def mcp(ctx: click.Context):
     if ctx.invoked_subcommand is None:
@@ -171,11 +171,39 @@ def dispatch(cliver: Cliver, args: str):
     if sub == "list":
         _list_mcp_servers(cliver)
     elif sub in ("--help", "help"):
-        cliver.output("Usage: /mcp [list|add|set|remove]")
-        cliver.output("  list                  - List all MCP servers")
-        cliver.output("  add --name N ...      - Add a new MCP server")
-        cliver.output("  set --name N ...      - Update an MCP server")
-        cliver.output("  remove --name N       - Remove an MCP server")
+        cliver.output("Manage MCP (Model Context Protocol) server connections.")
+        cliver.output("MCP servers provide additional tools to the LLM agent.")
+        cliver.output("")
+        cliver.output("Usage: /mcp [list|add|set|remove] [options]")
+        cliver.output("")
+        cliver.output("Subcommands:")
+        cliver.output("  list   — List all configured MCP servers with name, transport, and connection info.")
+        cliver.output("           No parameters.")
+        cliver.output("")
+        cliver.output("  add    — Add a new MCP server connection.")
+        cliver.output("    --name, -n       STRING (required) — Unique server name (e.g. 'github', 'jira').")
+        cliver.output("    --transport, -t  CHOICE(stdio|sse|streamable|websocket) (optional, default: stdio)")
+        cliver.output("                     Transport protocol. 'sse' is deprecated, use 'streamable' instead.")
+        cliver.output("    For stdio transport:")
+        cliver.output("      --command, -c  STRING (required for stdio) — Executable command (e.g. 'npx').")
+        cliver.output("      --args, -a     STRING (optional) — Comma-separated arguments for the command.")
+        cliver.output("      --env, -e      STRING (optional, repeatable) — Env var as KEY=VALUE.")
+        cliver.output("    For sse/streamable/websocket transport:")
+        cliver.output("      --url, -u      STRING (required) — Server URL (e.g. 'http://localhost:3000/mcp').")
+        cliver.output("      --header, -H   STRING (optional, repeatable) — HTTP header as KEY=VALUE.")
+        cliver.output("    Example: /mcp add --name github --command npx --args -y,@modelcontextprotocol/server-github")
+        cliver.output("    Example: /mcp add --name api --transport streamable --url http://localhost:3000/mcp")
+        cliver.output("")
+        cliver.output("  set    — Update an existing MCP server's configuration.")
+        cliver.output("    --name, -n  STRING (required) — Name of the server to update.")
+        cliver.output("    (same transport-specific options as 'add', only provided values are changed)")
+        cliver.output("    Example: /mcp set --name github --env GITHUB_TOKEN=ghp_xxx")
+        cliver.output("")
+        cliver.output("  remove — Remove an MCP server connection.")
+        cliver.output("    --name, -n  STRING (required) — Name of the server to remove.")
+        cliver.output("    Example: /mcp remove --name github")
+        cliver.output("")
+        cliver.output("Default subcommand: list (when /mcp is called with no arguments)")
     else:
         cliver.output(f"[yellow]Unknown subcommand: /mcp {sub}[/yellow]")
         cliver.output("Run '/mcp help' for usage.")
@@ -187,52 +215,52 @@ def dispatch(cliver: Cliver, args: str):
 
 
 # noinspection PyUnresolvedReferences
-@mcp.command(name="list", help="List MCP servers")
+@mcp.command(name="list", help="List all configured MCP servers with name, transport type, and connection info")
 @pass_cliver
 def list_mcp_servers(cliver: Cliver):
     _list_mcp_servers(cliver)
 
 
 # noinspection PyUnresolvedReferences
-@mcp.command(name="set", help="Update the MCP server")
+@mcp.command(name="set", help="Update an existing MCP server's configuration (only provided values are changed)")
 @click.option(
     "--name",
     "-n",
     type=str,
     required=True,
-    help="Name of the MCP server",
+    help="Name of the MCP server to update. Must match an existing server from 'mcp list'",
 )
 @click.option(
     "--command",
     "-c",
     type=str,
-    help="Command of the stdio MCP server",
+    help="Executable command for stdio transport (e.g. 'npx', 'uvx')",
 )
 @click.option(
     "--args",
     "-a",
     type=str,
-    help="Comma separated arguments for the stdio MCP server",
+    help="Comma-separated arguments for the stdio command (e.g. '-y,@modelcontextprotocol/server-github')",
 )
 @click.option(
     "--env",
     "-e",
     multiple=True,
     type=str,
-    help="Environment variables in key=value format (can be specified multiple times)",
+    help="Environment variable as KEY=VALUE (repeatable, e.g. -e GITHUB_TOKEN=ghp_xxx)",
 )
 @click.option(
     "--url",
     "-u",
     type=str,
-    help="The URL for the sse MCP server",
+    help="Server URL for sse/streamable/websocket transport (e.g. 'http://localhost:3000/mcp')",
 )
 @click.option(
     "--header",
     "-H",
     multiple=True,
     type=str,
-    help="HTTP headers in key=value format (can be specified multiple times)",
+    help="HTTP header as KEY=VALUE for sse/streamable/websocket (repeatable, e.g. -H Authorization=Bearer...)",
 )
 @pass_cliver
 def set_mcp_server(
@@ -248,52 +276,52 @@ def set_mcp_server(
 
 
 # noinspection PyUnresolvedReferences
-@mcp.command(name="add", help="Add a MCP server")
+@mcp.command(name="add", help="Add a new MCP server connection with transport-specific configuration")
 @click.option(
     "--transport",
     "-t",
     type=click.Choice(["stdio", "sse", "streamable", "websocket"]),
     default="stdio",
-    help="Transport of the MCP server (sse is deprecated, use streamable instead)",
+    help="Transport protocol (default: stdio). 'sse' is deprecated, use 'streamable' instead",
 )
 @click.option(
     "--name",
     "-n",
     type=str,
     required=True,
-    help="Name of the MCP server",
+    help="Unique server name used as identifier (e.g. 'github', 'jira'). Must not already exist",
 )
 @click.option(
     "--command",
     "-c",
     type=str,
-    help="Command of the stdio MCP server",
+    help="Executable command for stdio transport (required for stdio, e.g. 'npx', 'uvx')",
 )
 @click.option(
     "--args",
     "-a",
     type=str,
-    help="Comma separated arguments for the stdio MCP server",
+    help="Comma-separated arguments for the stdio command (e.g. '-y,@modelcontextprotocol/server-github')",
 )
 @click.option(
     "--env",
     "-e",
     multiple=True,
     type=str,
-    help="Environment variables in key=value format (can be specified multiple times)",
+    help="Environment variable as KEY=VALUE for stdio (repeatable, e.g. -e GITHUB_TOKEN=ghp_xxx)",
 )
 @click.option(
     "--url",
     "-u",
     type=str,
-    help="The URL for the sse MCP server",
+    help="Server URL for sse/streamable/websocket transport (required for non-stdio, e.g. 'http://localhost:3000/mcp')",
 )
 @click.option(
     "--header",
     "-H",
     multiple=True,
     type=str,
-    help="HTTP headers in key=value format (can be specified multiple times)",
+    help="HTTP header as KEY=VALUE for sse/streamable/websocket (repeatable, e.g. -H Authorization=Bearer...)",
 )
 @pass_cliver
 def add_mcp_server(
@@ -310,13 +338,13 @@ def add_mcp_server(
 
 
 # noinspection PyUnresolvedReferences
-@mcp.command(name="remove", help="Remove a MCP server")
+@mcp.command(name="remove", help="Remove an MCP server connection by name")
 @click.option(
     "--name",
     "-n",
     type=str,
     required=True,
-    help="Name of the MCP server",
+    help="Name of the MCP server to remove. Must match an existing server from 'mcp list'",
 )
 @pass_cliver
 def remove_mcp_server(cliver: Cliver, name: str):

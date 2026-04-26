@@ -221,24 +221,54 @@ def dispatch(cliver: Cliver, args: str):
             return
         _delete_workflow(cliver, rest.strip())
     elif sub in ("--help", "help"):
-        cliver.output("Usage: /workflow [list|show|run|resume|delete] ...")
+        cliver.output("Manage and execute LangGraph-powered multi-step workflows with subagent")
+        cliver.output("isolation and SQLite checkpointing.")
+        cliver.output("")
+        cliver.output("Usage: /workflow [list|show|run|resume|delete] [arguments]")
+        cliver.output("")
+        cliver.output("Subcommands:")
+        cliver.output("  list              — List all saved workflows with name, description, step count,")
+        cliver.output("                      and agent count. No parameters.")
+        cliver.output("  show <name>       — Display a workflow definition as YAML.")
+        cliver.output("    name  STRING (required) — Workflow name. Must match a name from '/workflow list'.")
+        cliver.output("  run <name>        — Execute a workflow from the beginning.")
+        cliver.output("    name  STRING (required) — Workflow name to execute.")
+        cliver.output("    --input, -i  STRING (optional, repeatable) — Input variables as key=value pairs.")
+        cliver.output("                   Can be specified multiple times for multiple inputs.")
+        cliver.output("    Example: /workflow run my-flow --input topic=auth --input lang=python")
+        cliver.output("  resume <name>     — Resume a previously paused workflow from a checkpoint.")
+        cliver.output("    name  STRING (required) — Workflow name to resume.")
+        cliver.output("    --thread, -t  STRING (required) — Checkpoint thread ID from the paused execution.")
+        cliver.output("    --answer, -a  STRING (optional) — Answer for a human-input step that caused the pause.")
+        cliver.output("    Example: /workflow resume my-flow --thread abc123 --answer 'yes proceed'")
+        cliver.output("  delete <name>     — Delete a workflow definition permanently.")
+        cliver.output("    name  STRING (required) — Workflow name to delete.")
+        cliver.output("")
+        cliver.output("Default subcommand: list (when /workflow is called with no arguments)")
+        cliver.output("")
+        cliver.output("Examples:")
+        cliver.output("  /workflow                                   — list all workflows")
+        cliver.output("  /workflow show deploy-pipeline               — view workflow YAML")
+        cliver.output("  /workflow run deploy-pipeline --input env=staging")
+        cliver.output("  /workflow resume deploy-pipeline --thread t1 --answer approved")
+        cliver.output("  /workflow delete old-workflow                — remove a workflow")
     else:
         cliver.output(f"[yellow]Unknown: /workflow {sub}[/yellow]")
 
 
-@click.group(name="workflow", help="Manage and execute workflows")
+@click.group(name="workflow", help="Manage and execute LangGraph-powered multi-step workflows with checkpointing")
 def workflow_cmd():
     pass
 
 
-@workflow_cmd.command(name="list", help="List all saved workflows")
+@workflow_cmd.command(name="list", help="List all saved workflows with name, description, step and agent counts")
 @pass_cliver
 def list_workflows(cliver: Cliver):
     """List all saved workflows."""
     _list_workflows(cliver)
 
 
-@workflow_cmd.command(name="show", help="Show a workflow definition")
+@workflow_cmd.command(name="show", help="Display a workflow definition as YAML")
 @click.argument("name")
 @pass_cliver
 def show_workflow(cliver: Cliver, name: str):
@@ -246,26 +276,45 @@ def show_workflow(cliver: Cliver, name: str):
     _show_workflow(cliver, name)
 
 
-@workflow_cmd.command(name="run", help="Execute a workflow")
+@workflow_cmd.command(name="run", help="Execute a workflow from the beginning with optional input variables")
 @click.argument("name")
-@click.option("--input", "-i", "inputs", multiple=True, type=str, help="Input key=value pairs")
+@click.option(
+    "--input",
+    "-i",
+    "inputs",
+    multiple=True,
+    type=str,
+    help="Input variable as key=value pair (repeatable, e.g. --input topic=auth)",
+)
 @pass_cliver
 def run_workflow(cliver: Cliver, name: str, inputs: tuple):
     """Execute a workflow."""
     _run_workflow(cliver, name, inputs)
 
 
-@workflow_cmd.command(name="resume", help="Resume a paused workflow")
+@workflow_cmd.command(name="resume", help="Resume a previously paused workflow from a checkpoint")
 @click.argument("name")
-@click.option("--thread", "-t", type=str, required=True, help="Checkpoint thread ID")
-@click.option("--answer", "-a", type=str, default=None, help="Answer for human input step")
+@click.option(
+    "--thread",
+    "-t",
+    type=str,
+    required=True,
+    help="Checkpoint thread ID from the paused execution (required)",
+)
+@click.option(
+    "--answer",
+    "-a",
+    type=str,
+    default=None,
+    help="Answer for a human-input step that caused the pause (optional)",
+)
 @pass_cliver
 def resume_workflow(cliver: Cliver, name: str, thread: str, answer: str | None):
     """Resume a paused workflow."""
     _resume_workflow(cliver, name, thread, answer)
 
 
-@workflow_cmd.command(name="delete", help="Delete a workflow")
+@workflow_cmd.command(name="delete", help="Delete a workflow definition permanently")
 @click.argument("name")
 @pass_cliver
 def delete_workflow(cliver: Cliver, name: str):

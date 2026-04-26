@@ -123,9 +123,20 @@ def dispatch(cliver: Cliver, args: str):
     message = parts[1] if len(parts) > 1 else ""
 
     if skill_name in ("--help", "help"):
-        cliver.output("Usage: /skill <name> [message]")
-        cliver.output("  Activate a skill and optionally provide an initial message")
-        cliver.output("  Example: /skill brainstorm design a new feature")
+        cliver.output("Activate a skill by name and inject its instructions into the conversation.")
+        cliver.output("")
+        cliver.output("Usage: /skill <name> [message...]")
+        cliver.output("")
+        cliver.output("Parameters:")
+        cliver.output("  name     STRING (required) — Skill name to activate. Must match a name from")
+        cliver.output("           '/skills list'. Case-sensitive, lowercase with hyphens.")
+        cliver.output("  message  STRING (optional) — Initial message to send along with the skill.")
+        cliver.output("           If omitted, the LLM will explain the skill and ask what to do.")
+        cliver.output("")
+        cliver.output("Examples:")
+        cliver.output("  /skill brainstorm                     — activate brainstorm, LLM asks for input")
+        cliver.output("  /skill brainstorm design a login page  — activate with an initial task")
+        cliver.output("  /skill write-plan                     — activate the write-plan skill")
         return
 
     _activate_skill(cliver, skill_name, message)
@@ -136,7 +147,7 @@ def dispatch(cliver: Cliver, args: str):
 # ---------------------------------------------------------------------------
 
 
-@click.command(name="skill", help="Activate a skill by name")
+@click.command(name="skill", help="Activate a skill by name and inject its instructions into the conversation")
 @click.argument("name", type=str)
 @click.argument("message", nargs=-1)
 @pass_cliver

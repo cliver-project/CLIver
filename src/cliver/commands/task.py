@@ -419,14 +419,51 @@ def dispatch(cliver: Cliver, args: str):
             reply_to=reply_to,
         )
     elif sub in ("--help", "help"):
-        cliver.output("Usage: /task [list|create|run|history|remove] ...")
-        cliver.output("  list                — list all tasks")
-        cliver.output("  create <name> [--prompt P] [--model M] [--schedule S] [--run-at DATETIME]")
-        cliver.output("  run <name>          — run a task")
-        cliver.output("  history <name>      — show run history")
-        cliver.output("  remove <name>       — remove a task")
+        cliver.output("Manage and run agent tasks. Tasks are named prompts that can be executed")
+        cliver.output("on-demand or scheduled via the gateway daemon's cron scheduler.")
         cliver.output("")
-        cliver.output("Note: To create tasks programmatically, use the CreateTask tool directly.")
+        cliver.output("Usage: /task [list|create|run|history|remove] [arguments]")
+        cliver.output("")
+        cliver.output("Subcommands:")
+        cliver.output("  list                — List all tasks for the current agent with status,")
+        cliver.output("                        schedule, model, and origin info. No parameters.")
+        cliver.output("")
+        cliver.output("  create <name>       — Create a new task definition.")
+        cliver.output("    name       STRING (required) — Task name (identifier, no spaces).")
+        cliver.output("    --prompt   STRING (required) — Prompt text to send to the LLM when the task runs.")
+        cliver.output("                 If omitted, you will be prompted to enter it interactively.")
+        cliver.output("    --model    STRING (optional) — Override the default model for this task.")
+        cliver.output("                 Must match a name from '/model list'.")
+        cliver.output("    --schedule STRING (optional) — Cron expression for recurring execution")
+        cliver.output("                 (e.g. '0 9 * * 1-5' for weekdays at 9am). Requires gateway daemon.")
+        cliver.output("    --run-at   STRING (optional) — ISO 8601 datetime for one-shot execution")
+        cliver.output("                 (e.g. '2026-04-25T14:30:00'). Requires gateway daemon.")
+        cliver.output("    --workflow STRING (optional) — Workflow name to execute instead of chat.")
+        cliver.output("    --skills   STRING (optional, repeatable) — Skills to pre-activate.")
+        cliver.output("                 Comma-separated (e.g. 'brainstorm,write-plan').")
+        cliver.output("    --reply-to STRING (optional) — IM origin for result delivery, format:")
+        cliver.output("                 platform:channel[:thread] (e.g. 'slack:C012345:T067890').")
+        cliver.output("    Example: /task create daily-report --prompt 'summarize today work' --schedule '0 18 * * *'")
+        cliver.output("    Example: /task create check-ci --prompt 'check CI status' --model qwen/qwen3-coder")
+        cliver.output("")
+        cliver.output("  run <name>          — Execute a task immediately by sending its prompt to the LLM.")
+        cliver.output("    name    STRING (required) — Task name. Must match a task from '/task list'.")
+        cliver.output("    --model STRING (optional) — Override the task's model for this run only.")
+        cliver.output("    Example: /task run daily-report")
+        cliver.output("    Example: /task run daily-report --model deepseek/deepseek-chat")
+        cliver.output("")
+        cliver.output("  history <name>      — Show execution history for a task (most recent first).")
+        cliver.output("    name    STRING (required) — Task name.")
+        cliver.output("    --limit, -n  INT (optional, default: 10) — Max number of runs to show.")
+        cliver.output("    Example: /task history daily-report --limit 5")
+        cliver.output("")
+        cliver.output("  remove <name>       — Remove a task, its run history, origin, and result files.")
+        cliver.output("    name  STRING (required) — Task name to remove.")
+        cliver.output("    Example: /task remove old-task")
+        cliver.output("")
+        cliver.output("Default subcommand: list (when /task is called with no arguments)")
+        cliver.output("")
+        cliver.output("Note: To create tasks programmatically from the LLM, use the CreateTask tool.")
     else:
         cliver.output(f"[yellow]Unknown: /task {sub}[/yellow]")
 
@@ -434,29 +471,76 @@ def dispatch(cliver: Cliver, args: str):
 # Click wrappers (thin — just call logic functions)
 
 
-@click.group(name="task", help="Manage and run agent tasks")
+@click.group(
+    name="task",
+    help="Manage and run agent tasks (named prompts, optionally scheduled via gateway cron)",
+)
 def task():
     """Task management commands."""
     pass
 
 
-@task.command(name="list", help="List all tasks for the current agent")
+@task.command(
+    name="list",
+    help="List all tasks for the current agent with status, schedule, model, and origin",
+)
 @pass_cliver
 def list_tasks(cliver: Cliver):
     _list_tasks(cliver)
 
 
-@task.command(name="create", help="Create a new task")
+@task.command(name="create", help="Create a new task definition with prompt and optional schedule")
 @click.argument("name")
-@click.option("--prompt", "-p", required=True, help="Prompt to send to the LLM")
-@click.option("--description", "-d", default=None, help="Task description")
-@click.option("--model", "-m", default=None, help="Model override for this task")
-@click.option("--schedule", "-s", default=None, help="Cron expression for recurring execution")
-@click.option("--run-at", default=None, help="ISO 8601 datetime for one-shot execution (e.g. 2026-04-25T14:30:00)")
-@click.option("--workflow", "-w", default=None, help="Workflow name to execute (runs workflow instead of chat)")
-@click.option("--workflow-inputs", default=None, help="Workflow inputs as JSON string")
-@click.option("--skills", multiple=True, help="Skills to pre-activate (can be specified multiple times)")
-@click.option("--reply-to", default=None, help="IM origin as platform:channel[:thread] for result delivery")
+@click.option(
+    "--prompt",
+    "-p",
+    required=True,
+    help="Prompt text to send to the LLM when the task runs (required)",
+)
+@click.option(
+    "--description",
+    "-d",
+    default=None,
+    help="Human-readable task description (optional, for display only)",
+)
+@click.option(
+    "--model",
+    "-m",
+    default=None,
+    help="Model override for this task. Must match a name from 'model list'",
+)
+@click.option(
+    "--schedule",
+    "-s",
+    default=None,
+    help="Cron expression for recurring execution (e.g. '0 9 * * 1-5'). Requires gateway daemon",
+)
+@click.option(
+    "--run-at",
+    default=None,
+    help="ISO 8601 datetime for one-shot execution (e.g. '2026-04-25T14:30:00')",
+)
+@click.option(
+    "--workflow",
+    "-w",
+    default=None,
+    help="Workflow name to execute instead of chat. Must match a name from 'workflow list'",
+)
+@click.option(
+    "--workflow-inputs",
+    default=None,
+    help='Workflow input variables as JSON (e.g. \'{"env":"staging"}\')',
+)
+@click.option(
+    "--skills",
+    multiple=True,
+    help="Skill to pre-activate (repeatable, e.g. --skills brainstorm --skills write-plan)",
+)
+@click.option(
+    "--reply-to",
+    default=None,
+    help="IM origin for result delivery as platform:channel[:thread]",
+)
 @pass_cliver
 def create_task(
     cliver: Cliver,
@@ -486,23 +570,28 @@ def create_task(
     )
 
 
-@task.command(name="run", help="Run a task")
+@task.command(name="run", help="Execute a task immediately by sending its prompt to the LLM")
 @click.argument("name")
-@click.option("--model", "-m", default=None, help="Override the task's model")
+@click.option(
+    "--model",
+    "-m",
+    default=None,
+    help="Override the task's model for this run only (e.g. 'deepseek/deepseek-chat')",
+)
 @pass_cliver
 def run_task(cliver: Cliver, name: str, model: Optional[str]):
     _run_task(cliver, name, model)
 
 
-@task.command(name="history", help="Show run history for a task")
+@task.command(name="history", help="Show execution history for a task, most recent first")
 @click.argument("name")
-@click.option("--limit", "-n", default=10, help="Number of recent runs to show")
+@click.option("--limit", "-n", default=10, help="Maximum number of recent runs to display (default: 10)")
 @pass_cliver
 def task_history(cliver: Cliver, name: str, limit: int):
     _task_history(cliver, name, limit)
 
 
-@task.command(name="remove", help="Remove a task")
+@task.command(name="remove", help="Remove a task, its run history, origin, and result files permanently")
 @click.argument("name")
 @pass_cliver
 def remove_task(cliver: Cliver, name: str):

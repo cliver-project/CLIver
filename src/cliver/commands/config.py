@@ -294,7 +294,33 @@ def dispatch(cliver: Cliver, args: str):
         theme_name = rest.strip() if rest.strip() else None
         _set_theme(cliver, theme_name)
     elif sub in ("--help", "help"):
-        cliver.output("Usage: /config [show|validate|set|rate-limit|path|theme] ...")
+        cliver.output("Manage CLIver configuration settings stored in config.yaml.")
+        cliver.output("")
+        cliver.output("Usage: /config [show|validate|set|rate-limit|path|theme] [arguments]")
+        cliver.output("")
+        cliver.output("Subcommands:")
+        cliver.output("  show       — Display the full configuration: general settings, providers,")
+        cliver.output("               models, MCP servers. Sensitive values (API keys) are masked.")
+        cliver.output("               No parameters.")
+        cliver.output("  validate   — Check if the configuration file is valid and parseable.")
+        cliver.output("               No parameters.")
+        cliver.output("  set        — Update general configuration settings.")
+        cliver.output("    --user-agent, -u  STRING (required) — Set the User-Agent header sent with")
+        cliver.output("                        all LLM provider HTTP requests.")
+        cliver.output("    Example: /config set --user-agent 'CLIver/1.0'")
+        cliver.output("  rate-limit — Show or set the rate limit for a specific provider.")
+        cliver.output("    <provider>  STRING (required) — Provider name. Must match '/provider list'.")
+        cliver.output("    [limit]     STRING (optional) — Rate limit as 'requests/period'")
+        cliver.output("                  (e.g. '5000/5h'). If omitted, shows current limit.")
+        cliver.output("    Example: /config rate-limit deepseek 5000/5h")
+        cliver.output("    Example: /config rate-limit deepseek          — show current limit")
+        cliver.output("  path       — Display the file path to config.yaml. No parameters.")
+        cliver.output("  theme      — Show or set the UI color theme.")
+        cliver.output("    [name]  CHOICE(dark|light|dracula) (optional) — Theme name to apply.")
+        cliver.output("            If omitted, shows the current theme and available options.")
+        cliver.output("    Example: /config theme dracula")
+        cliver.output("")
+        cliver.output("Default subcommand: show (when /config is called with no arguments)")
     else:
         cliver.output(f"[yellow]Unknown: /config {sub}[/yellow]")
 
@@ -302,7 +328,7 @@ def dispatch(cliver: Cliver, args: str):
 # ── Click Group ──
 
 
-@click.group(name="config", help="Manage configuration settings.")
+@click.group(name="config", help="Manage CLIver configuration settings (show, validate, set, theme)")
 @click.pass_context
 def config(ctx: click.Context):
     """
@@ -319,7 +345,7 @@ def post_group():
 
 
 # noinspection PyUnresolvedReferences
-@config.command(name="validate", help="Validate configuration")
+@config.command(name="validate", help="Check if the configuration file is valid and parseable")
 @pass_cliver
 def validate_config(cliver: Cliver):
     """Validate the current configuration."""
@@ -327,8 +353,8 @@ def validate_config(cliver: Cliver):
 
 
 # noinspection PyUnresolvedReferences
-@config.command(name="set", help="Update general configuration settings")
-@click.option("--user-agent", "-u", type=str, help="Set the User-Agent header for LLM provider requests")
+@config.command(name="set", help="Update general configuration settings (currently supports user-agent)")
+@click.option("--user-agent", "-u", type=str, help="Set the User-Agent header sent with all LLM provider HTTP requests")
 @pass_cliver
 def set_config(cliver: Cliver, user_agent: str):
     """Update general configuration settings."""
@@ -336,7 +362,10 @@ def set_config(cliver: Cliver, user_agent: str):
 
 
 # noinspection PyUnresolvedReferences
-@config.command(name="show", help="Show current configuration")
+@config.command(
+    name="show",
+    help="Display the full configuration: providers, models, MCP servers (sensitive values masked)",
+)
 @pass_cliver
 def show_config(cliver: Cliver):
     """Show the current configuration with sensitive values masked."""
@@ -378,7 +407,7 @@ def _mask_secrets(data, keys_to_mask=("api_key",)):
 
 
 # noinspection PyUnresolvedReferences
-@config.command(name="rate-limit", help="Set or show rate limit for a provider")
+@config.command(name="rate-limit", help="Show or set the rate limit for a specific provider")
 @click.argument("provider_name")
 @click.argument("limit", required=False)
 @pass_cliver
@@ -393,14 +422,14 @@ def config_rate_limit(cliver: Cliver, provider_name: str, limit: str):
 
 
 # noinspection PyUnresolvedReferences
-@config.command(name="path", help="Show configuration file path")
+@config.command(name="path", help="Display the absolute file path to the config.yaml file")
 @pass_cliver
 def show_config_path(cliver: Cliver):
     """Show the path to the configuration file."""
     _show_config_path(cliver)
 
 
-@config.command(name="theme", help="Show or set the UI theme")
+@config.command(name="theme", help="Show or set the UI color theme (dark, light, or dracula)")
 @click.argument("name", required=False)
 @pass_cliver
 def set_theme_cmd(cliver: Cliver, name: str = None):
