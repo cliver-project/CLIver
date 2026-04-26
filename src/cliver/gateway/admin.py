@@ -158,6 +158,9 @@ def _get_tasks(ctx: dict) -> list:
             runs = store.get_runs(entry.name, limit=1)
             if runs:
                 data["last_run"] = runs[0].model_dump(exclude_none=True)
+            origin = store.get_origin(entry.name)
+            if origin:
+                data["origin"] = origin.model_dump(exclude_none=True)
             result.append(data)
 
         store.close()
