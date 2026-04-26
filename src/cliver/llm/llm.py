@@ -293,8 +293,11 @@ class AgentCore:
         """Resolve which provider and model name to use for image generation.
 
         Returns (ProviderConfig, model_name) or (None, None).
+        The model_name is only set for dedicated image models (those whose
+        sole capability is TEXT_TO_IMAGE). For chat models that also happen
+        to have TEXT_TO_IMAGE, model_name is None so the provider-specific
+        helper can use its own default (e.g. MiniMax's "image-01").
         """
-        from cliver.model_capabilities import ModelCapability
 
         # 1. Explicit model
         if model:
@@ -304,15 +307,15 @@ class AgentCore:
                 if prov and getattr(prov, "image_url", None):
                     return prov, mc.name_in_provider or mc.name
 
-        # 2. Scan for model with TEXT_TO_IMAGE capability
+        # 2. Scan for a dedicated image model (TEXT_TO_IMAGE only, no TEXT_TO_TEXT)
         for _name, mc in self.llm_models.items():
             caps = mc.get_capabilities()
-            if ModelCapability.TEXT_TO_IMAGE in caps:
+            if ModelCapability.TEXT_TO_IMAGE in caps and ModelCapability.TEXT_TO_TEXT not in caps:
                 prov = getattr(mc, "_provider_config", None)
                 if prov and getattr(prov, "image_url", None):
                     return prov, mc.name_in_provider or mc.name
 
-        # 3. Scan all models' providers for any with image_url
+        # 3. Scan for any provider with image_url (model_name=None → helper default)
         for _name, mc in self.llm_models.items():
             prov = getattr(mc, "_provider_config", None)
             if prov and getattr(prov, "image_url", None):
