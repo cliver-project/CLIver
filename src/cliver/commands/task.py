@@ -3,7 +3,6 @@ Task management commands for CLIver CLI.
 """
 
 import asyncio
-import logging
 import uuid
 from typing import Optional
 
@@ -12,8 +11,6 @@ import click
 from cliver.cli import Cliver, pass_cliver
 from cliver.gateway.task_store import TaskStore
 from cliver.task_manager import TaskDefinition, TaskManager, TaskRun
-
-logger = logging.getLogger(__name__)
 
 # Business logic (plain functions — no Click, no async)
 
@@ -114,43 +111,8 @@ def _create_task(
 
     manager = _get_manager(cliver)
     path = manager.save_task(task_def)
-
-    # Auto-attach IM origin if running inside a gateway IM context
-    origin_info = _save_im_origin(cliver, name)
-
-    cliver.output(f"Task '{name}' created: {path}{origin_info}")
+    cliver.output(f"Task '{name}' created: {path}")
     return 0
-
-
-def _save_im_origin(cliver: Cliver, task_name: str) -> str:
-    """If running inside a gateway IM context, save origin so results reply back."""
-    try:
-        from cliver.gateway.gateway import im_context
-        from cliver.task_manager import TaskOrigin
-
-        ctx = im_context.get()
-        if not ctx:
-            return ""
-
-        origin = TaskOrigin(
-            source=ctx["platform"],
-            platform=ctx["platform"],
-            channel_id=ctx.get("channel_id"),
-            thread_id=ctx.get("thread_id"),
-            user_id=ctx.get("user_id"),
-        )
-
-        from cliver.gateway.task_store import TaskStore
-
-        profile = cliver.agent_profile
-        store = TaskStore(profile.agent_dir / "gateway.db")
-        store.save_origin(task_name, origin)
-        return f" (reply-back: {origin.source})"
-    except ImportError:
-        return ""
-    except Exception as e:
-        logger.warning("Failed to save IM origin for task '%s': %s", task_name, e)
-        return ""
 
 
 def _run_task(cliver: Cliver, name: str, model: Optional[str] = None) -> int:
