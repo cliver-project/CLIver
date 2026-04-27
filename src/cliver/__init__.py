@@ -7,7 +7,8 @@ from dotenv import load_dotenv
 from cliver.llm import AgentCore
 from cliver.media_handler import MultimediaResponse, MultimediaResponseHandler
 
-load_dotenv()
+load_dotenv(pathlib.Path.home() / ".env")
+load_dotenv(override=True)
 
 # Export for public API
 AgentCore = AgentCore
