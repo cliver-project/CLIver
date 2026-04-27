@@ -598,6 +598,7 @@ class Gateway:
             enabled_toolsets=config_manager.config.enabled_toolsets,
             on_tool_event=tool_handler,
             skill_auto_learn=config_manager.config.skill_auto_learn,
+            model_auto_fallback=config_manager.config.model_auto_fallback,
         )
         executor.configure_rate_limits(config_manager.config.providers)
         return executor

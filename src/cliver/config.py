@@ -341,6 +341,10 @@ class AppConfig(BaseModel):
         default=False,
         description="Enable autonomous skill creation after complex tasks (default: off).",
     )
+    model_auto_fallback: bool = Field(
+        default=True,
+        description="Automatically fall back to another model when the current one fails (default: on).",
+    )
 
     def resolve_secrets(self) -> None:
         """Resolve all Jinja2 template strings in the config tree.

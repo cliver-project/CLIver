@@ -139,6 +139,7 @@ class AgentCore:
         on_permission_prompt: Optional[Callable[[str, dict], str]] = None,
         enabled_toolsets: Optional[List[str]] = None,
         skill_auto_learn: bool = False,
+        model_auto_fallback: bool = True,
     ):
         self.llm_models = llm_models
         self.default_model = default_model
@@ -150,6 +151,7 @@ class AgentCore:
         self.permission_manager = permission_manager
         self.on_permission_prompt = on_permission_prompt
         self.skill_auto_learn = skill_auto_learn
+        self.model_auto_fallback = model_auto_fallback
         self.mcp_caller = MCPServersCaller(mcp_servers=mcp_servers)
         self.llm_engines: Dict[str, LLMInferenceEngine] = {}
 
@@ -490,7 +492,7 @@ class AgentCore:
         options: Dict[str, Any] = None,
         conversation_history: Optional[List[BaseMessage]] = None,
         timeout_s: Optional[int] = None,
-        auto_fallback: bool = True,
+        auto_fallback: Optional[bool] = None,
         on_pending_input: Optional[Callable[[], Optional[str]]] = None,
     ) -> BaseMessage:
         return asyncio.run(
@@ -536,7 +538,7 @@ class AgentCore:
         options: Dict[str, Any] = None,
         conversation_history: Optional[List[BaseMessage]] = None,
         timeout_s: Optional[int] = None,
-        auto_fallback: bool = True,
+        auto_fallback: Optional[bool] = None,
         on_pending_input: Optional[Callable[[], Optional[str]]] = None,
     ) -> AsyncIterator[BaseMessageChunk]:
         """
@@ -561,6 +563,8 @@ class AgentCore:
             params: Parameters for templates.
             options: Dictionary of additional options to override LLM configurations.
         """
+        if auto_fallback is None:
+            auto_fallback = self.model_auto_fallback
 
         # Route generation-only models directly (skip Re-Act loop)
         _model_config = self._get_llm_model(model)
@@ -883,7 +887,7 @@ class AgentCore:
         options: Dict[str, Any] = None,
         conversation_history: Optional[List[BaseMessage]] = None,
         timeout_s: Optional[int] = None,
-        auto_fallback: bool = True,
+        auto_fallback: Optional[bool] = None,
         on_pending_input: Optional[Callable[[], Optional[str]]] = None,
     ) -> BaseMessage:
         """
@@ -908,6 +912,8 @@ class AgentCore:
             params: Parameters for templates.
             options: Additional options for LLM inference that can override what the ModelConfig is defined.
         """
+        if auto_fallback is None:
+            auto_fallback = self.model_auto_fallback
 
         # Route generation-only models directly (skip Re-Act loop)
         _model_config = self._get_llm_model(model)

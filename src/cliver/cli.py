@@ -145,6 +145,7 @@ class Cliver:
             on_permission_prompt=_create_permission_prompt(self.console, self),
             enabled_toolsets=self.config_manager.config.enabled_toolsets,
             skill_auto_learn=self.config_manager.config.skill_auto_learn,
+            model_auto_fallback=self.config_manager.config.model_auto_fallback,
         )
         self.agent_core.configure_rate_limits(self.config_manager.config.providers)
 

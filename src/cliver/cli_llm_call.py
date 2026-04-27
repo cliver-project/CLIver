@@ -73,7 +73,7 @@ class LLMCallOptions:
     conversation_history: Optional[List[BaseMessage]] = None
     on_response: Optional[Callable[[str], None]] = None
     timeout_s: Optional[int] = None
-    auto_fallback: bool = True
+    auto_fallback: Optional[bool] = None
     on_pending_input: Optional[Callable[[], Optional[str]]] = None
 
 
