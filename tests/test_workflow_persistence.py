@@ -58,6 +58,60 @@ class TestWorkflowCRUD:
     def test_delete_nonexistent(self, store):
         assert store.delete_workflow("nope") is False
 
+    def test_load_from_sub_workflows(self, store, sample_workflow):
+        """load_workflow finds workflows in sub-workflows/ directory."""
+        sub_dir = store.workflows_dir / "sub-workflows"
+        sub_dir.mkdir(parents=True)
+
+        import yaml
+
+        wf_data = {
+            "name": "design-phase",
+            "steps": [{"id": "s1", "type": "llm", "name": "S1", "prompt": "Hi"}],
+        }
+        with open(sub_dir / "design-phase.yaml", "w") as f:
+            yaml.dump(wf_data, f)
+
+        loaded = store.load_workflow("design-phase")
+        assert loaded is not None
+        assert loaded.name == "design-phase"
+
+    def test_top_level_takes_priority_over_sub_workflows(self, store):
+        """Top-level workflow takes priority over same-named sub-workflow."""
+        import yaml
+
+        store._ensure_dir()
+        sub_dir = store.workflows_dir / "sub-workflows"
+        sub_dir.mkdir(parents=True)
+
+        top_data = {"name": "shared", "description": "top-level", "steps": []}
+        sub_data = {"name": "shared", "description": "sub-workflow", "steps": []}
+
+        with open(store.workflows_dir / "shared.yaml", "w") as f:
+            yaml.dump(top_data, f)
+        with open(sub_dir / "shared.yaml", "w") as f:
+            yaml.dump(sub_data, f)
+
+        loaded = store.load_workflow("shared")
+        assert loaded is not None
+        assert loaded.description == "top-level"
+
+    def test_list_includes_sub_workflows(self, store, sample_workflow):
+        """list_workflows includes workflows from sub-workflows/ directory."""
+        import yaml
+
+        store.save_workflow(sample_workflow)
+        sub_dir = store.workflows_dir / "sub-workflows"
+        sub_dir.mkdir(parents=True)
+
+        sub_data = {"name": "design-phase", "steps": []}
+        with open(sub_dir / "design-phase.yaml", "w") as f:
+            yaml.dump(sub_data, f)
+
+        names = store.list_workflows()
+        assert "test-wf" in names
+        assert "design-phase" in names
+
 
 class TestLoadFromFile:
     def test_load_workflow_from_file(self, tmp_path):

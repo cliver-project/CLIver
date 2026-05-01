@@ -3,6 +3,7 @@ from rich import box
 from rich.table import Table
 
 from cliver.cli import Cliver, pass_cliver
+from cliver.commands import click_help, wants_help
 from cliver.config import RateLimitConfig
 from cliver.model_capabilities import ProviderEnum
 
@@ -108,40 +109,18 @@ def dispatch(cliver: Cliver, args: str):
     """Manage LLM providers — list, add, set, remove."""
     parts = args.strip().split(None, 1) if args.strip() else []
     sub = parts[0] if parts else "list"
+    rest = parts[1] if len(parts) > 1 else ""
+
+    if sub in ("--help", "-h", "help"):
+        cliver.output(click_help(provider, "/provider"))
+        return
+
+    if sub in _SUBCOMMANDS and wants_help(rest):
+        cliver.output(click_help(_SUBCOMMANDS[sub], f"/provider {sub}"))
+        return
 
     if sub == "list":
         _list_providers(cliver)
-    elif sub in ("--help", "help"):
-        cliver.output("Manage LLM providers (API endpoints). Providers host one or more models.")
-        cliver.output("")
-        cliver.output("Usage: /provider [list|add|set|remove] [options]")
-        cliver.output("")
-        cliver.output("Subcommands:")
-        cliver.output("  list    — List all configured providers with type, URL, and rate limit.")
-        cliver.output("            No parameters.")
-        cliver.output("")
-        cliver.output("  add     — Add a new provider endpoint.")
-        cliver.output("    --name, -n       STRING (required) — Unique provider name (e.g. 'deepseek').")
-        cliver.output("    --type, -t       CHOICE (required) — Provider type (e.g. openai, ollama, vllm).")
-        cliver.output("    --api-url, -u    STRING (required) — API base URL (e.g. 'https://api.deepseek.com').")
-        cliver.output("    --api-key, -k    STRING (optional) — API key. Supports Jinja2 templates:")
-        cliver.output("                       {{ env.DEEPSEEK_API_KEY }} or {{ keyring('cliver','key') }}.")
-        cliver.output("    --rate-limit, -r STRING (optional) — Rate limit as 'requests/period'")
-        cliver.output("                       (e.g. '5000/5h', '100/1m').")
-        cliver.output("    --image-url      STRING (optional) — Image generation endpoint URL.")
-        cliver.output("    --audio-url      STRING (optional) — Audio generation endpoint URL.")
-        cliver.output("    Example: /provider add --name deepseek --type openai --api-url https://api.deepseek.com")
-        cliver.output("")
-        cliver.output("  set     — Update an existing provider (only provided values are changed).")
-        cliver.output("    --name, -n  STRING (required) — Provider name to update. Must exist.")
-        cliver.output("    (same options as 'add', all optional)")
-        cliver.output("    Example: /provider set --name deepseek --rate-limit 5000/5h")
-        cliver.output("")
-        cliver.output("  remove  — Remove a provider. Fails if models still reference it.")
-        cliver.output("    --name, -n  STRING (required) — Provider name to remove.")
-        cliver.output("    Example: /provider remove --name old-provider")
-        cliver.output("")
-        cliver.output("Default subcommand: list (when /provider is called with no arguments)")
     else:
         cliver.output(f"[yellow]Unknown subcommand: /provider {sub}[/yellow]")
         cliver.output("Run '/provider help' for usage.")
@@ -255,3 +234,12 @@ def set_provider(
 @pass_cliver
 def remove_provider(cliver: Cliver, name: str):
     _remove_provider(cliver, name)
+
+
+# Subcommand lookup for dispatch help
+_SUBCOMMANDS = {
+    "list": list_providers,
+    "add": add_provider,
+    "set": set_provider,
+    "remove": remove_provider,
+}

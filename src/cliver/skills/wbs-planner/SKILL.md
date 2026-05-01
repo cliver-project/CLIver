@@ -11,13 +11,46 @@ Decompose user requirements into a hierarchical Work Breakdown Structure (WBS) a
 executable workflow YAML files. Each actionable task becomes an LLM step. Complex work packages
 become sub-workflows linked via `workflow_file`.
 
+## Interactive vs Non-Interactive Mode
+
+This skill works in two contexts:
+
+**Interactive (CLI):** The `Ask` tool is available. Use it to gather requirements
+and confirm decisions before proceeding.
+
+**Non-interactive (IM / gateway):** The `Ask` tool is NOT available (filtered out).
+In this mode:
+- Do NOT attempt to call `Ask` — it will fail.
+- When you need user input, reply with a clear text message listing what you need
+  and **stop**. Wait for the user's next message before continuing.
+- When you need confirmation, present your proposal in a text reply and ask the
+  user to approve or suggest changes. Stop and wait for their response.
+- When you must choose between options and no user input is possible, pick the
+  most reasonable default, state what you chose, and proceed.
+
+**How to detect:** Check whether `Ask` is in your available tools. If the system
+prompt says "Ask is NOT available" or the tool is absent, you are in non-interactive
+mode.
+
 ## 1. Analyze Requirements
 
-Ask the user clarifying questions one at a time using `Ask`:
-- What is the overall goal or deliverable?
-- What are the major phases or milestones?
-- Are there external dependencies, constraints, or deadlines?
-- What is the expected scope — small (5-10 tasks), medium (10-20), or large (20+)?
+The user's original message is the **prompt** — it describes the purpose of the
+workflow. Extract as much as you can from it before asking follow-up questions.
+
+You need the following information. Skip any item the user already provided:
+- **Workflow name**: a short, lowercase, hyphenated slug the user will type in
+  `cliver workflow run <name>` (e.g., `user-auth`, `data-pipeline`).
+- **Goal**: the overall goal or deliverable.
+- **Phases**: the major phases or milestones.
+- **Dependencies**: external dependencies, constraints, or deadlines.
+- **Scope**: small (5-10 tasks), medium (10-20), or large (20+).
+
+Only ask about **missing** items — do not re-ask what the user already stated.
+
+**Interactive:** Ask missing questions one at a time using `Ask`.
+**Non-interactive:** Reply with all missing questions in a single text message and
+stop. Wait for the user's response before proceeding to Step 2.
+If the user provided everything, confirm your understanding and proceed.
 
 If the user references an existing WBS or workflow, read it first with `Read` and
 propose modifications rather than starting from scratch (see Step 7).
@@ -30,7 +63,11 @@ Create a hierarchical breakdown with three levels:
 - **Level 2: Work Packages** — deliverable-scoped groups within each phase
 - **Level 3: Tasks** — individual actionable items (each becomes an LLM step)
 
-Present the WBS tree to the user as a numbered outline and confirm before proceeding:
+Present the WBS tree to the user as a numbered outline and get confirmation before proceeding.
+
+**Interactive:** Use `Ask` to confirm.
+**Non-interactive:** Present the tree in a text reply and ask the user to approve
+or suggest changes. Stop and wait for their response.
 
 ```
 1. Design Phase
@@ -57,7 +94,9 @@ Based on the WBS complexity, choose a structure:
 - Sub-workflow YAML files per work package, linked via `workflow_file`
 - Sub-workflows stored in a `sub-workflows/` subdirectory
 
-Present the proposed structure to the user via `Ask` and get confirmation.
+**Interactive:** Present the proposed structure via `Ask` and get confirmation.
+**Non-interactive:** Present the proposed structure in a text reply and ask the
+user to confirm. Stop and wait for their response.
 
 ## 4. Generate Workflow YAML
 
@@ -99,6 +138,8 @@ Fix any reported errors and re-validate until all pass.
 
 ## 6. Save Workflow Files
 
+Use the workflow name chosen in Step 1 as the file name.
+
 Save the main workflow:
 ```
 Write(path='{workflows_dir}/{name}.yaml', content='...')
@@ -111,7 +152,7 @@ Write(path='{workflows_dir}/sub-workflows/{package}.yaml', content='...')
 
 Tell the user the workflow is saved and how to run it:
 ```
-cliver workflow run {workflow-name}
+cliver workflow run {name}
 ```
 
 ## 7. Iterative Updates
@@ -124,7 +165,7 @@ When the user provides changed or additional requirements:
    - Steps to add, remove, or modify
    - Dependencies to update
    - Sub-workflows affected
-4. Get user confirmation via `Ask`
+4. Get user confirmation (**Interactive:** via `Ask`; **Non-interactive:** text reply, then stop and wait)
 5. Modify only the affected workflows — preserve unchanged step IDs
 6. Re-validate all modified workflows with `WorkflowValidate`
 7. Save updated files with `Write`

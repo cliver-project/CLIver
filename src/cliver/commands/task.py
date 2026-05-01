@@ -9,6 +9,7 @@ from typing import Optional
 import click
 
 from cliver.cli import Cliver, pass_cliver
+from cliver.commands import click_help, wants_help
 from cliver.gateway.task_store import TaskStore
 from cliver.task_manager import TaskDefinition, TaskManager, TaskRun
 
@@ -315,11 +316,19 @@ def dispatch(cliver: Cliver, args: str):
     sub = parts[0] if parts else "list"  # default subcommand
     rest = parts[1] if len(parts) > 1 else ""
 
+    if sub in ("--help", "-h", "help"):
+        cliver.output(click_help(task, "/task"))
+        return
+
+    if sub in _SUBCOMMANDS and wants_help(rest):
+        cliver.output(click_help(_SUBCOMMANDS[sub], f"/task {sub}"))
+        return
+
     if sub == "list":
         _list_tasks(cliver)
     elif sub == "run":
         if not rest:
-            cliver.output("[yellow]Usage: /task run <name> [--model <model>][/yellow]")
+            cliver.output(click_help(_SUBCOMMANDS["run"], "/task run"))
             return
         # Parse name and optional --model
         task_name = rest.split()[0]
@@ -333,7 +342,7 @@ def dispatch(cliver: Cliver, args: str):
         _run_task(cliver, task_name, model)
     elif sub == "history":
         if not rest:
-            cliver.output("[yellow]Usage: /task history <name> [--limit <n>][/yellow]")
+            cliver.output(click_help(_SUBCOMMANDS["history"], "/task history"))
             return
         # Parse name and optional --limit
         task_name = rest.split()[0]
@@ -350,15 +359,13 @@ def dispatch(cliver: Cliver, args: str):
         _task_history(cliver, task_name, limit)
     elif sub == "remove":
         if not rest:
-            cliver.output("[yellow]Usage: /task remove <name>[/yellow]")
+            cliver.output(click_help(_SUBCOMMANDS["remove"], "/task remove"))
             return
         task_name = rest.strip()
         _remove_task(cliver, task_name)
     elif sub == "create":
         if not rest:
-            cliver.output(
-                "[yellow]Usage: /task create <name> [--prompt P] [--schedule CRON] [--run-at DATETIME][/yellow]"
-            )
+            cliver.output(click_help(_SUBCOMMANDS["create"], "/task create"))
             return
         from shlex import split as shlex_split
 
@@ -418,52 +425,6 @@ def dispatch(cliver: Cliver, args: str):
             skills=skills,
             reply_to=reply_to,
         )
-    elif sub in ("--help", "help"):
-        cliver.output("Manage and run agent tasks. Tasks are named prompts that can be executed")
-        cliver.output("on-demand or scheduled via the gateway daemon's cron scheduler.")
-        cliver.output("")
-        cliver.output("Usage: /task [list|create|run|history|remove] [arguments]")
-        cliver.output("")
-        cliver.output("Subcommands:")
-        cliver.output("  list                — List all tasks for the current agent with status,")
-        cliver.output("                        schedule, model, and origin info. No parameters.")
-        cliver.output("")
-        cliver.output("  create <name>       — Create a new task definition.")
-        cliver.output("    name       STRING (required) — Task name (identifier, no spaces).")
-        cliver.output("    --prompt   STRING (required) — Prompt text to send to the LLM when the task runs.")
-        cliver.output("                 If omitted, you will be prompted to enter it interactively.")
-        cliver.output("    --model    STRING (optional) — Override the default model for this task.")
-        cliver.output("                 Must match a name from '/model list'.")
-        cliver.output("    --schedule STRING (optional) — Cron expression for recurring execution")
-        cliver.output("                 (e.g. '0 9 * * 1-5' for weekdays at 9am). Requires gateway daemon.")
-        cliver.output("    --run-at   STRING (optional) — ISO 8601 datetime for one-shot execution")
-        cliver.output("                 (e.g. '2026-04-25T14:30:00'). Requires gateway daemon.")
-        cliver.output("    --workflow STRING (optional) — Workflow name to execute instead of chat.")
-        cliver.output("    --skills   STRING (optional, repeatable) — Skills to pre-activate.")
-        cliver.output("                 Comma-separated (e.g. 'brainstorm,write-plan').")
-        cliver.output("    --reply-to STRING (optional) — IM origin for result delivery, format:")
-        cliver.output("                 platform:channel[:thread] (e.g. 'slack:C012345:T067890').")
-        cliver.output("    Example: /task create daily-report --prompt 'summarize today work' --schedule '0 18 * * *'")
-        cliver.output("    Example: /task create check-ci --prompt 'check CI status' --model qwen/qwen3-coder")
-        cliver.output("")
-        cliver.output("  run <name>          — Execute a task immediately by sending its prompt to the LLM.")
-        cliver.output("    name    STRING (required) — Task name. Must match a task from '/task list'.")
-        cliver.output("    --model STRING (optional) — Override the task's model for this run only.")
-        cliver.output("    Example: /task run daily-report")
-        cliver.output("    Example: /task run daily-report --model deepseek/deepseek-chat")
-        cliver.output("")
-        cliver.output("  history <name>      — Show execution history for a task (most recent first).")
-        cliver.output("    name    STRING (required) — Task name.")
-        cliver.output("    --limit, -n  INT (optional, default: 10) — Max number of runs to show.")
-        cliver.output("    Example: /task history daily-report --limit 5")
-        cliver.output("")
-        cliver.output("  remove <name>       — Remove a task, its run history, origin, and result files.")
-        cliver.output("    name  STRING (required) — Task name to remove.")
-        cliver.output("    Example: /task remove old-task")
-        cliver.output("")
-        cliver.output("Default subcommand: list (when /task is called with no arguments)")
-        cliver.output("")
-        cliver.output("Note: To create tasks programmatically from the LLM, use the CreateTask tool.")
     else:
         cliver.output(f"[yellow]Unknown: /task {sub}[/yellow]")
 
@@ -596,3 +557,13 @@ def task_history(cliver: Cliver, name: str, limit: int):
 @pass_cliver
 def remove_task(cliver: Cliver, name: str):
     _remove_task(cliver, name)
+
+
+# Subcommand lookup for dispatch help
+_SUBCOMMANDS = {
+    "list": list_tasks,
+    "create": create_task,
+    "run": run_task,
+    "history": task_history,
+    "remove": remove_task,
+}

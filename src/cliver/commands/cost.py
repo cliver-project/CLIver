@@ -8,6 +8,7 @@ from typing import Optional
 import click
 
 from cliver.cli import Cliver, pass_cliver
+from cliver.commands import click_help, wants_help
 from cliver.token_tracker import TokenUsage, format_tokens
 
 
@@ -29,10 +30,22 @@ def cost(ctx, cliver: Cliver):
 # ---------------------------------------------------------------------------
 
 
+_SUBCOMMANDS: dict[str, click.Command] = {}
+
+
 def dispatch(cliver: Cliver, args: str):
     """Show token usage and cost — session, total, per-model."""
     parts = args.strip().split() if args.strip() else []
     sub = parts[0] if parts else "session"
+    rest = " ".join(parts[1:]) if len(parts) > 1 else ""
+
+    if sub in ("--help", "-h", "help"):
+        cliver.output(click_help(cost, "/cost"))
+        return
+
+    if sub in _SUBCOMMANDS and wants_help(rest):
+        cliver.output(click_help(_SUBCOMMANDS[sub], f"/cost {sub}"))
+        return
 
     if sub == "session":
         _show_session_summary(cliver)
@@ -78,34 +91,6 @@ def dispatch(cliver: Cliver, args: str):
                 return
 
         _show_total_cost(cliver, model_name, agent_name, date_from, date_to)
-    elif sub in ("--help", "help"):
-        cliver.output("View token usage and cost statistics.")
-        cliver.output("")
-        cliver.output("Usage: /cost [session|total] [options]")
-        cliver.output("")
-        cliver.output("Subcommands:")
-        cliver.output("  session  — Show token usage (input/output/cached) for the current session,")
-        cliver.output("             grouped by model. No parameters.")
-        cliver.output("  total    — Show aggregated token usage from audit logs across all sessions.")
-        cliver.output("")
-        cliver.output("Options for 'total':")
-        cliver.output("  --model, -m  STRING (optional) — Filter results to a specific model name.")
-        cliver.output("               When set, shows per-agent breakdown for that model.")
-        cliver.output("               Example: --model deepseek/deepseek-chat")
-        cliver.output("  --agent, -a  STRING (optional) — Filter results to a specific agent name.")
-        cliver.output("               Example: --agent default")
-        cliver.output("  --from       STRING (optional) — Start date in YYYY-MM-DD format (inclusive).")
-        cliver.output("               Example: --from 2026-04-01")
-        cliver.output("  --to         STRING (optional) — End date in YYYY-MM-DD format (inclusive).")
-        cliver.output("               Example: --to 2026-04-25")
-        cliver.output("")
-        cliver.output("Default subcommand: session (when /cost is called with no arguments)")
-        cliver.output("")
-        cliver.output("Examples:")
-        cliver.output("  /cost                                  — show current session usage")
-        cliver.output("  /cost total                            — show all-time usage by model")
-        cliver.output("  /cost total --model qwen/qwen3-coder   — usage for a specific model")
-        cliver.output("  /cost total --from 2026-04-01 --to 2026-04-25  — usage in date range")
     else:
         cliver.output(f"[yellow]Unknown subcommand: /cost {sub}[/yellow]")
         cliver.output("Run '/cost help' for usage.")
@@ -199,6 +184,15 @@ def cost_total(
 ):
     """Show aggregated token usage from audit logs with optional filters."""
     _show_total_cost(cliver, model, agent, date_from, date_to)
+
+
+# Populate subcommand map for dispatch help generation.
+_SUBCOMMANDS.update(
+    {
+        "session": cost_session,
+        "total": cost_total,
+    }
+)
 
 
 # ---------------------------------------------------------------------------

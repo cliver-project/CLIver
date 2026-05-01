@@ -3,6 +3,7 @@ from rich import box
 from rich.table import Table
 
 from cliver.cli import Cliver, pass_cliver
+from cliver.commands import click_help, wants_help
 from cliver.model_capabilities import ModelCapability
 from cliver.util import parse_key_value_options
 
@@ -253,12 +254,22 @@ def _update_model(
 # Dispatch function
 # ---------------------------------------------------------------------------
 
+_SUBCOMMANDS: dict[str, click.Command] = {}
+
 
 def dispatch(cliver: Cliver, args: str):
     """Manage LLM models — list, add, set, remove, default."""
     parts = args.strip().split(None, 1) if args.strip() else []
     sub = parts[0] if parts else "list"
     rest = parts[1] if len(parts) > 1 else ""
+
+    if sub in ("--help", "-h", "help"):
+        cliver.output(click_help(model, "/model"))
+        return
+
+    if sub in _SUBCOMMANDS and wants_help(rest):
+        cliver.output(click_help(_SUBCOMMANDS[sub], f"/model {sub}"))
+        return
 
     if sub == "list":
         _list_models(cliver)
@@ -272,43 +283,9 @@ def dispatch(cliver: Cliver, args: str):
     elif sub == "remove":
         name = rest.strip()
         if not name:
-            cliver.output("[yellow]Usage: /model remove <name>[/yellow]")
+            cliver.output(click_help(_SUBCOMMANDS["remove"], "/model remove"))
             return
         _remove_model(cliver, name)
-    elif sub in ("--help", "help"):
-        cliver.output("Manage LLM model configurations. Models are grouped under providers.")
-        cliver.output("")
-        cliver.output("Usage: /model [list|<name>|default|add|set|remove] [options]")
-        cliver.output("")
-        cliver.output("Subcommands:")
-        cliver.output("  list              — List all configured models with provider, modalities,")
-        cliver.output("                      and active status. No parameters.")
-        cliver.output("  <name>            — Show detailed info for a specific model (capabilities,")
-        cliver.output("                      pricing, options, context window).")
-        cliver.output("    name  STRING — Model name, either canonical (provider/model) or short-form.")
-        cliver.output("    Example: /model deepseek/deepseek-chat")
-        cliver.output("  default [name]    — Show or set the default model for new sessions.")
-        cliver.output("    name  STRING (optional) — Model name to set as default.")
-        cliver.output("      If omitted, displays the current default. Must match a name from '/model list'.")
-        cliver.output("    Example: /model default qwen/qwen3-coder")
-        cliver.output("  add               — Register a new model under an existing provider.")
-        cliver.output("    --provider, -p    STRING (required) — Provider name. Must exist in '/provider list'.")
-        cliver.output("    --name, -n        STRING (required) — Model API name (e.g. 'deepseek-chat').")
-        cliver.output("    --option, -o      STRING (optional, repeatable) — Model option as key=value")
-        cliver.output("                        (e.g. -o temperature=0.7 -o max_tokens=4096).")
-        cliver.output("    --capabilities, -c STRING (optional) — Comma-separated capability list")
-        cliver.output("                        (e.g. 'text_to_text,tool_calling,think_mode').")
-        cliver.output("    Example: /model add --provider deepseek --name deepseek-chat -o temperature=0.7")
-        cliver.output("  set               — Update options or capabilities of an existing model.")
-        cliver.output("    --name, -n        STRING (required) — Model name (canonical or short-form).")
-        cliver.output("    --option, -o      STRING (optional, repeatable) — Option as key=value to update.")
-        cliver.output("    --capabilities, -c STRING (optional) — New comma-separated capability list.")
-        cliver.output("    Example: /model set --name qwen/qwen3-coder -o temperature=0.5")
-        cliver.output("  remove <name>     — Remove a model configuration permanently.")
-        cliver.output("    name  STRING (required) — Model name to remove.")
-        cliver.output("    Example: /model remove deepseek/old-model")
-        cliver.output("")
-        cliver.output("Default subcommand: list (when /model is called with no arguments)")
     else:
         mc = cliver.config_manager.get_llm_model(sub)
         if mc:
@@ -456,3 +433,15 @@ def add_llm_model(cliver: Cliver, name: str, provider: str, option: tuple, capab
 @pass_cliver
 def update_llm_model(cliver: Cliver, name: str, option: tuple, capabilities: str):
     _update_model(cliver, name, option, capabilities)
+
+
+# Populate subcommand map for dispatch help generation.
+_SUBCOMMANDS.update(
+    {
+        "list": list_llm_models,
+        "default": set_default_model,
+        "add": add_llm_model,
+        "set": update_llm_model,
+        "remove": remove_llm_model,
+    }
+)

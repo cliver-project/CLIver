@@ -14,6 +14,7 @@ from rich import box
 from rich.table import Table
 
 from cliver.cli import Cliver, pass_cliver
+from cliver.commands import click_help, wants_help
 from cliver.skill_manager import SkillManager, validate_skill_name
 from cliver.util import get_config_dir
 
@@ -139,6 +140,27 @@ def _compress_if_needed(cliver, agent_core, model_config, model_name, new_input)
     cliver.output(f"\\[Compressed conversation: ~{before_tokens} → ~{after_tokens} tokens]")
 
 
+def _resolve_prompt(cliver: Cliver, inline_prompt: str, prompt_file: str | None) -> str | None:
+    """Build the user prompt from inline text and/or a file.
+
+    Returns the combined prompt string, or None on error.
+    """
+    parts = []
+    if prompt_file:
+        p = Path(prompt_file).expanduser()
+        if not p.is_file():
+            cliver.output(f"[red]Prompt file not found: {p}[/red]")
+            return None
+        try:
+            parts.append(p.read_text(encoding="utf-8").strip())
+        except Exception as e:
+            cliver.output(f"[red]Failed to read prompt file: {e}[/red]")
+            return None
+    if inline_prompt:
+        parts.append(inline_prompt)
+    return "\n\n".join(parts) if parts else ""
+
+
 def _run_skill(cliver: Cliver, name: str, message: str = ""):
     """Activate a skill and run it through LLM inference."""
     manager = SkillManager()
@@ -200,91 +222,79 @@ def _run_skill(cliver: Cliver, name: str, message: str = ""):
 # ---------------------------------------------------------------------------
 
 
+_SUBCOMMANDS: dict[str, click.Command] = {}
+
+
 def dispatch(cliver: Cliver, args: str):
     """List and manage skills — list, show, run, create, update."""
     parts = args.strip().split(None, 1) if args.strip() else []
     sub = parts[0] if parts else "list"
     rest = parts[1] if len(parts) > 1 else ""
 
+    if sub in ("--help", "-h", "help"):
+        cliver.output(click_help(skills, "/skills"))
+        return
+
+    if sub in _SUBCOMMANDS and wants_help(rest):
+        cliver.output(click_help(_SUBCOMMANDS[sub], f"/skills {sub}"))
+        return
+
     if sub == "list":
         _list_skills(cliver)
     elif sub == "show":
         if not rest:
-            cliver.output("[red]Missing skill name[/red]")
+            cliver.output(click_help(_SUBCOMMANDS["show"], "/skills show"))
             return
         _show_skill(cliver, rest.strip())
     elif sub == "run":
-        run_parts = rest.split(None, 1) if rest else []
-        if not run_parts:
-            cliver.output("[red]Missing skill name[/red]")
-            cliver.output("Usage: /skills run <name> [message]")
+        if not rest:
+            cliver.output(click_help(_SUBCOMMANDS["run"], "/skills run"))
             return
+        run_parts = rest.split()
         skill_name = run_parts[0]
-        message = run_parts[1] if len(run_parts) > 1 else ""
+        prompt_file = None
+        prompt_parts = []
+        i = 1
+        while i < len(run_parts):
+            if run_parts[i] in ("-f", "--prompt-file"):
+                if i + 1 < len(run_parts):
+                    prompt_file = run_parts[i + 1]
+                    i += 2
+                else:
+                    cliver.output("[red]Missing file path after -f/--prompt-file[/red]")
+                    return
+            else:
+                prompt_parts.append(run_parts[i])
+                i += 1
+        message = _resolve_prompt(cliver, " ".join(prompt_parts), prompt_file)
+        if message is None:
+            return
         _run_skill(cliver, skill_name, message)
     elif sub == "create":
-        # Parse: create <name> <description...>
-        create_parts = rest.split(None, 1) if rest else []
-        if not create_parts:
-            cliver.output("[red]Missing skill name and description[/red]")
+        if not rest:
+            cliver.output(click_help(_SUBCOMMANDS["create"], "/skills create"))
             return
+        create_parts = rest.split(None, 1)
         skill_name = create_parts[0]
         desc = create_parts[1] if len(create_parts) > 1 else ""
         if not desc:
             cliver.output("[red]Missing description[/red]")
             return
-        # Check for --global flag
         save_global = "--global" in desc
         if save_global:
             desc = desc.replace("--global", "").strip()
         _create_skill(cliver, skill_name, desc, save_global)
     elif sub == "update":
-        # Parse: update <name> <instructions...>
-        update_parts = rest.split(None, 1) if rest else []
-        if not update_parts:
-            cliver.output("[red]Missing skill name and instructions[/red]")
+        if not rest:
+            cliver.output(click_help(_SUBCOMMANDS["update"], "/skills update"))
             return
+        update_parts = rest.split(None, 1)
         skill_name = update_parts[0]
         instructions = update_parts[1] if len(update_parts) > 1 else ""
         if not instructions:
             cliver.output("[red]Missing update instructions[/red]")
             return
         _update_skill(cliver, skill_name, instructions)
-    elif sub in ("--help", "help"):
-        cliver.output("Manage agent skills (SKILL.md files). Skills are instruction sets that guide")
-        cliver.output("LLM behavior for specific tasks like brainstorming or planning.")
-        cliver.output("")
-        cliver.output("Usage: /skills [list|show|run|create|update] [arguments]")
-        cliver.output("")
-        cliver.output("Subcommands:")
-        cliver.output("  list                         — List all discovered skills with name, description,")
-        cliver.output("                                  and source (builtin/global/project). No parameters.")
-        cliver.output("  show <name>                  — Display the full SKILL.md content of a skill.")
-        cliver.output("    name  STRING (required) — Skill name. Must match a name from '/skills list'.")
-        cliver.output("  run <name> [message]         — Activate a skill and run it through LLM inference.")
-        cliver.output("    name     STRING (required) — Skill name to activate.")
-        cliver.output("    message  STRING (optional) — Initial message to send with the skill.")
-        cliver.output("             If omitted, the LLM will explain the skill and ask what to do.")
-        cliver.output("  create <name> <description>  — Generate a new SKILL.md file using the LLM.")
-        cliver.output("    name         STRING (required) — Skill name. Lowercase, hyphens allowed.")
-        cliver.output("                   Must not already exist.")
-        cliver.output("    description  STRING (required) — What the skill does (remaining words joined).")
-        cliver.output("    --global     FLAG (optional) — Save to global skills directory (~/.config/cliver/skills/)")
-        cliver.output("                   instead of project-local .cliver/skills/. Default: project-local.")
-        cliver.output("  update <name> <instructions>  — Improve an existing skill's SKILL.md using the LLM.")
-        cliver.output("    name          STRING (required) — Skill name to update. Must exist.")
-        cliver.output("    instructions  STRING (required) — How to improve the skill (remaining words joined).")
-        cliver.output("")
-        cliver.output("Default subcommand: list (when /skills is called with no arguments)")
-        cliver.output("")
-        cliver.output("Examples:")
-        cliver.output("  /skills                                     — list all skills")
-        cliver.output("  /skills show brainstorm                     — view brainstorm skill content")
-        cliver.output("  /skills run brainstorm                      — activate brainstorm, LLM asks for input")
-        cliver.output("  /skills run brainstorm design a login page  — activate with an initial task")
-        cliver.output("  /skills create code-review review code for quality issues")
-        cliver.output("  /skills create my-skill some description --global")
-        cliver.output("  /skills update brainstorm add a section about architecture decisions")
     else:
         cliver.output(f"[yellow]Unknown subcommand: /skills {sub}[/yellow]")
         cliver.output("Run '/skills help' for usage.")
@@ -302,17 +312,27 @@ def list_skills(cliver: Cliver):
     _list_skills(cliver)
 
 
-@skills.command(name="run", help="Activate a skill and run it through LLM inference with optional initial message")
+@skills.command(name="run", help="Activate a skill and run it through LLM inference with optional initial prompt")
 @click.argument("name", type=str)
 @click.argument("message", nargs=-1)
+@click.option(
+    "-f",
+    "--prompt-file",
+    type=click.Path(exists=True),
+    default=None,
+    help="Read the prompt from a file",
+)
 @pass_cliver
-def run_skill(cliver: Cliver, name: str, message: tuple):
+def run_skill(cliver: Cliver, name: str, message: tuple, prompt_file: str | None):
     """Activate a skill and run it through LLM inference.
 
     NAME is the skill name to activate.
-    MESSAGE (optional) is the initial message to send along with the skill.
+    MESSAGE (optional) is the initial prompt to send along with the skill.
     """
-    user_message = " ".join(message) if message else ""
+    inline = " ".join(message) if message else ""
+    user_message = _resolve_prompt(cliver, inline, prompt_file)
+    if user_message is None:
+        return
     _run_skill(cliver, name, user_message)
 
 
@@ -357,6 +377,18 @@ def update_skill(cliver: Cliver, name: str, instructions: tuple):
     """
     improvement_text = " ".join(instructions)
     _update_skill(cliver, name, improvement_text)
+
+
+# Populate subcommand map for dispatch help generation.
+_SUBCOMMANDS.update(
+    {
+        "list": list_skills,
+        "run": run_skill,
+        "show": show_skill,
+        "create": create_skill,
+        "update": update_skill,
+    }
+)
 
 
 # ---------------------------------------------------------------------------

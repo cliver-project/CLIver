@@ -10,6 +10,7 @@ from rich import box
 from rich.table import Table
 
 from cliver.cli import Cliver, pass_cliver
+from cliver.commands import click_help, wants_help
 from cliver.permissions import PermissionAction, PermissionMode, PermissionRule
 
 # Business logic (plain functions — no Click, no async)
@@ -142,6 +143,14 @@ def dispatch(cliver: Cliver, args: str):
     sub = parts[0] if parts else "rules"  # default subcommand
     rest = parts[1] if len(parts) > 1 else ""
 
+    if sub in ("--help", "-h", "help"):
+        cliver.output(click_help(permissions, "/permissions"))
+        return
+
+    if sub in _SUBCOMMANDS and wants_help(rest):
+        cliver.output(click_help(_SUBCOMMANDS[sub], f"/permissions {sub}"))
+        return
+
     if sub == "rules":
         _show_rules(cliver)
     elif sub == "mode":
@@ -153,43 +162,13 @@ def dispatch(cliver: Cliver, args: str):
         _add_rule(cliver)
     elif sub == "remove":
         if not rest:
-            cliver.output("[yellow]Usage: /permissions remove <index>[/yellow]")
+            cliver.output(click_help(_SUBCOMMANDS["remove"], "/permissions remove"))
             return
         try:
             index = int(rest.strip())
             _remove_rule(cliver, index)
         except ValueError:
             cliver.output("[red]Index must be a number[/red]")
-    elif sub in ("--help", "help"):
-        cliver.output("Manage persistent permission rules that control which tools can execute.")
-        cliver.output("Rules are saved to cliver-settings.yaml (global or local).")
-        cliver.output("For session-only grants, use '/session permission' instead.")
-        cliver.output("")
-        cliver.output("Usage: /permissions [rules|mode|add|remove] [arguments]")
-        cliver.output("")
-        cliver.output("Subcommands:")
-        cliver.output("  rules           — Display all loaded permission rules with their source file")
-        cliver.output("                    (global or local) and current permission mode. No parameters.")
-        cliver.output("  mode [mode]     — Show or set the permission mode.")
-        cliver.output("    mode  CHOICE(default|auto-edit|yolo) (optional)")
-        cliver.output("      default:   safe tools auto-allow; all others require confirmation")
-        cliver.output("      auto-edit: safe + read + write auto-allow; execute/fetch require confirmation")
-        cliver.output("      yolo:      all tools auto-allow (no confirmations)")
-        cliver.output("    If omitted, displays the current mode. Prompts to save to global or local.")
-        cliver.output("  add             — Start an interactive wizard to create a new permission rule.")
-        cliver.output("                    Prompts for: tool pattern (regex), resource constraint")
-        cliver.output("                    (fnmatch glob), action (allow/deny), save target (global/local).")
-        cliver.output("  remove <index>  — Remove a permission rule by its index number.")
-        cliver.output("    index  INT (required) — Index shown in '/permissions rules' output (0-based).")
-        cliver.output("                    Requires confirmation before deletion.")
-        cliver.output("")
-        cliver.output("Default subcommand: rules (when /permissions is called with no arguments)")
-        cliver.output("")
-        cliver.output("Examples:")
-        cliver.output("  /permissions               — show all rules and current mode")
-        cliver.output("  /permissions mode yolo      — set mode to yolo (prompts for global/local)")
-        cliver.output("  /permissions add            — start interactive rule builder")
-        cliver.output("  /permissions remove 2       — remove rule at index 2")
     else:
         cliver.output(f"[yellow]Unknown: /permissions {sub}[/yellow]")
 
@@ -279,3 +258,12 @@ def add_rule(cliver: Cliver):
 @pass_cliver
 def remove_rule(cliver: Cliver, index: int):
     _remove_rule(cliver, index)
+
+
+# Subcommand lookup for dispatch help
+_SUBCOMMANDS = {
+    "rules": show_rules,
+    "mode": set_mode,
+    "add": add_rule,
+    "remove": remove_rule,
+}

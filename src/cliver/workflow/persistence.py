@@ -57,8 +57,15 @@ class WorkflowStore:
             yaml.dump(data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
 
     def load_workflow(self, name: str) -> Optional[Workflow]:
-        """Load a workflow definition from YAML."""
+        """Load a workflow definition from YAML.
+
+        Search order:
+        1. {workflows_dir}/{name}.yaml
+        2. {workflows_dir}/sub-workflows/{name}.yaml
+        """
         path = self.workflows_dir / f"{name}.yaml"
+        if not path.exists():
+            path = self.workflows_dir / "sub-workflows" / f"{name}.yaml"
         if not path.exists():
             return None
         try:
@@ -103,10 +110,19 @@ class WorkflowStore:
         return None
 
     def list_workflows(self) -> List[str]:
-        """List all saved workflow names."""
+        """List all saved workflow names, including sub-workflows."""
         if not self.workflows_dir.is_dir():
             return []
-        return sorted(p.stem for p in self.workflows_dir.glob("*.yaml") if not p.stem.endswith(".state"))
+        names = set()
+        for p in self.workflows_dir.glob("*.yaml"):
+            if not p.stem.endswith(".state"):
+                names.add(p.stem)
+        sub_dir = self.workflows_dir / "sub-workflows"
+        if sub_dir.is_dir():
+            for p in sub_dir.glob("*.yaml"):
+                if not p.stem.endswith(".state"):
+                    names.add(p.stem)
+        return sorted(names)
 
     def delete_workflow(self, name: str, checkpointer=None, db_path: Optional[Path] = None) -> bool:
         """Delete a workflow YAML and all its execution data."""

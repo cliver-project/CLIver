@@ -9,6 +9,7 @@ import click
 
 from cliver.agent_profile import CliverProfile
 from cliver.cli import Cliver, pass_cliver
+from cliver.commands import click_help, wants_help
 
 # Business logic (plain functions — no Click, no async)
 
@@ -162,62 +163,45 @@ def _delete_agent(cliver: Cliver, name: str):
 # TUI dispatch entry point
 
 
+_SUBCOMMANDS: dict[str, click.Command] = {}
+
+
 def dispatch(cliver: Cliver, args: str):
     """Manage agent instances — list, switch, create, delete."""
     parts = args.strip().split(None, 1) if args.strip() else []
     sub = parts[0] if parts else "list"  # default subcommand
     rest = parts[1] if len(parts) > 1 else ""
 
+    if sub in ("--help", "-h", "help"):
+        cliver.output(click_help(agent, "/agent"))
+        return
+
+    if sub in _SUBCOMMANDS and wants_help(rest):
+        cliver.output(click_help(_SUBCOMMANDS[sub], f"/agent {sub}"))
+        return
+
     if sub == "list":
         _show_agents(cliver)
     elif sub == "switch":
         if not rest:
-            cliver.output("[yellow]Usage: /agent switch <name>[/yellow]")
+            cliver.output(click_help(_SUBCOMMANDS["switch"], "/agent switch"))
             return
         _switch_agent(cliver, rest.strip())
     elif sub == "create":
         if not rest:
-            cliver.output("[yellow]Usage: /agent create <name>[/yellow]")
+            cliver.output(click_help(_SUBCOMMANDS["create"], "/agent create"))
             return
         _create_agent(cliver, rest.strip())
     elif sub == "rename":
         if not rest:
-            cliver.output("[yellow]Usage: /agent rename <new_name>[/yellow]")
+            cliver.output(click_help(_SUBCOMMANDS["rename"], "/agent rename"))
             return
         _rename_agent(cliver, rest.strip())
     elif sub == "delete":
         if not rest:
-            cliver.output("[yellow]Usage: /agent delete <name>[/yellow]")
+            cliver.output(click_help(_SUBCOMMANDS["delete"], "/agent delete"))
             return
         _delete_agent(cliver, rest.strip())
-    elif sub in ("--help", "help"):
-        cliver.output("Manage agent instances. Each agent has its own memory, identity, sessions, and tasks.")
-        cliver.output("")
-        cliver.output("Usage: /agent [list|switch|create|rename|delete] <arguments>")
-        cliver.output("")
-        cliver.output("Subcommands:")
-        cliver.output("  list               — List all agent instances with the active one highlighted.")
-        cliver.output("                       No parameters.")
-        cliver.output("  switch <name>      — Switch to a different agent instance. Creates it if it")
-        cliver.output("                       does not exist.")
-        cliver.output("    name  STRING (required) — Name of the agent to switch to.")
-        cliver.output("  create <name>      — Create a new agent with an interactive identity setup.")
-        cliver.output("                       Prompts for persona style, focus area, user name, etc.")
-        cliver.output("    name  STRING (required) — Name for the new agent. Must not already exist.")
-        cliver.output("  rename <new_name>  — Rename the currently active agent, moving all its data.")
-        cliver.output("    new_name  STRING (required) — New name. Must not conflict with existing agents.")
-        cliver.output("  delete <name>      — Delete an agent and all its data (memory, sessions, tasks).")
-        cliver.output("                       Cannot delete the currently active agent. Requires confirmation.")
-        cliver.output("    name  STRING (required) — Name of the agent to delete.")
-        cliver.output("")
-        cliver.output("Default subcommand: list (when /agent is called with no arguments)")
-        cliver.output("")
-        cliver.output("Examples:")
-        cliver.output("  /agent                  — list all agents")
-        cliver.output("  /agent switch research  — switch to 'research' agent")
-        cliver.output("  /agent create devops    — create a new 'devops' agent with identity setup")
-        cliver.output("  /agent rename assistant — rename current agent to 'assistant'")
-        cliver.output("  /agent delete old-agent — delete 'old-agent' (requires confirmation)")
     else:
         cliver.output(f"[yellow]Unknown: /agent {sub}[/yellow]")
 
@@ -274,3 +258,15 @@ def rename_agent(cliver: Cliver, new_name: str):
 @pass_cliver
 def delete_agent(cliver: Cliver, name: str):
     _delete_agent(cliver, name)
+
+
+# Populate subcommand map for dispatch help generation.
+_SUBCOMMANDS.update(
+    {
+        "list": list_agents,
+        "switch": switch_agent,
+        "create": create_agent,
+        "rename": rename_agent,
+        "delete": delete_agent,
+    }
+)

@@ -8,6 +8,7 @@ import click
 import yaml
 
 from cliver.cli import Cliver, pass_cliver
+from cliver.commands import click_help, wants_help
 
 logger = logging.getLogger(__name__)
 
@@ -258,17 +259,25 @@ def dispatch(cliver: Cliver, args: str):
     sub = parts[0] if parts else "list"
     rest = parts[1] if len(parts) > 1 else ""
 
+    if sub in ("--help", "-h", "help"):
+        cliver.output(click_help(workflow_cmd, "/workflow"))
+        return
+
+    if sub in _SUBCOMMANDS and wants_help(rest):
+        cliver.output(click_help(_SUBCOMMANDS[sub], f"/workflow {sub}"))
+        return
+
     if sub == "list":
         _list_workflows(cliver)
     elif sub == "show":
         if not rest:
-            cliver.output("[dim]Usage: workflow show NAME[/dim]")
+            cliver.output(click_help(_SUBCOMMANDS["show"], "/workflow show"))
             return
         _show_workflow(cliver, rest.strip())
     elif sub == "run":
         run_parts = rest.split()
         if not run_parts:
-            cliver.output("[dim]Usage: workflow run NAME [--input key=value ...][/dim]")
+            cliver.output(click_help(_SUBCOMMANDS["run"], "/workflow run"))
             return
         name = run_parts[0]
         inputs = []
@@ -282,13 +291,13 @@ def dispatch(cliver: Cliver, args: str):
         _run_workflow(cliver, name, tuple(inputs))
     elif sub == "history":
         if not rest:
-            cliver.output("[dim]Usage: workflow history NAME[/dim]")
+            cliver.output(click_help(_SUBCOMMANDS["history"], "/workflow history"))
             return
         _history_workflow(cliver, rest.strip())
     elif sub == "status":
         status_parts = rest.split()
         if not status_parts:
-            cliver.output("[dim]Usage: workflow status NAME --thread THREAD[/dim]")
+            cliver.output(click_help(_SUBCOMMANDS["status"], "/workflow status"))
             return
         name = status_parts[0]
         thread = None
@@ -300,13 +309,13 @@ def dispatch(cliver: Cliver, args: str):
             else:
                 i += 1
         if not thread:
-            cliver.output("[dim]Usage: workflow status NAME --thread THREAD[/dim]")
+            cliver.output(click_help(_SUBCOMMANDS["status"], "/workflow status"))
             return
         _status_workflow(cliver, name, thread)
     elif sub == "resume":
         resume_parts = rest.split()
         if not resume_parts:
-            cliver.output("[dim]Usage: workflow resume NAME --thread THREAD [--step STEP | --answer ANSWER][/dim]")
+            cliver.output(click_help(_SUBCOMMANDS["resume"], "/workflow resume"))
             return
         name = resume_parts[0]
         thread = None
@@ -326,17 +335,17 @@ def dispatch(cliver: Cliver, args: str):
             else:
                 i += 1
         if not thread:
-            cliver.output("[dim]Usage: workflow resume NAME --thread THREAD [--step STEP | --answer ANSWER][/dim]")
+            cliver.output(click_help(_SUBCOMMANDS["resume"], "/workflow resume"))
             return
         _resume_workflow(cliver, name, thread, answer, step)
     elif sub == "delete":
         if not rest:
-            cliver.output("[dim]Usage: workflow delete NAME[/dim]")
+            cliver.output(click_help(_SUBCOMMANDS["delete"], "/workflow delete"))
             return
         _delete_workflow(cliver, rest.strip())
     elif sub == "delete-execution":
         if not rest:
-            cliver.output("[dim]Usage: workflow delete-execution THREAD_ID[/dim]")
+            cliver.output(click_help(_SUBCOMMANDS["delete-execution"], "/workflow delete-execution"))
             return
         _delete_execution(cliver, rest.strip())
     elif sub == "prune":
@@ -348,34 +357,6 @@ def dispatch(cliver: Cliver, args: str):
                 cliver.output("[red]Invalid number of days.[/red]")
                 return
         _prune_workflow(cliver, days)
-    elif sub in ("--help", "help"):
-        cliver.output("Manage and execute LangGraph-powered multi-step workflows with subagent")
-        cliver.output("isolation and SQLite checkpointing.")
-        cliver.output("")
-        cliver.output("Usage: /workflow [list|show|run|history|status|resume|delete|prune] [arguments]")
-        cliver.output("")
-        cliver.output("Subcommands:")
-        cliver.output("  list                    — List all saved workflows")
-        cliver.output("  show <name>             — Display a workflow definition as YAML")
-        cliver.output("  run <name>              — Execute a workflow from the beginning")
-        cliver.output("    --input, -i KEY=VALUE — Input variable (repeatable)")
-        cliver.output("  history <name>          — Show execution history for a workflow")
-        cliver.output("  status <name>           — Show step-by-step status of an execution")
-        cliver.output("    --thread, -t THREAD   — Thread ID (required)")
-        cliver.output("  resume <name>           — Resume or replay a workflow execution")
-        cliver.output("    --thread, -t THREAD   — Thread ID (required)")
-        cliver.output("    --step, -s STEP       — Replay from this step forward")
-        cliver.output("    --answer, -a ANSWER   — Answer for a paused human step")
-        cliver.output("  delete <name>           — Delete a workflow and all its checkpoints")
-        cliver.output("  delete-execution THREAD — Delete checkpoints for a single execution")
-        cliver.output("  prune [DAYS]            — Delete checkpoints older than DAYS (default: 300)")
-        cliver.output("")
-        cliver.output("Examples:")
-        cliver.output("  /workflow history my-pipeline")
-        cliver.output("  /workflow status my-pipeline --thread my-pipeline_abc123")
-        cliver.output("  /workflow resume my-pipeline --thread my-pipeline_abc123 --step implement")
-        cliver.output("  /workflow delete-execution my-pipeline_abc123")
-        cliver.output("  /workflow prune 90")
     else:
         cliver.output(f"[yellow]Unknown: /workflow {sub}[/yellow]")
 
@@ -466,3 +447,17 @@ def delete_execution(cliver: Cliver, thread_id: str):
 def prune_checkpoints(cliver: Cliver, days: int):
     """Prune old checkpoints."""
     _prune_workflow(cliver, days)
+
+
+# Subcommand lookup for dispatch help
+_SUBCOMMANDS = {
+    "list": list_workflows,
+    "show": show_workflow,
+    "run": run_workflow,
+    "history": history_workflow,
+    "status": status_workflow,
+    "resume": resume_workflow,
+    "delete": delete_workflow,
+    "delete-execution": delete_execution,
+    "prune": prune_checkpoints,
+}

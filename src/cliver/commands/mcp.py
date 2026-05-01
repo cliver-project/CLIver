@@ -3,6 +3,7 @@ from rich import box
 from rich.table import Table
 
 from cliver.cli import Cliver, pass_cliver
+from cliver.commands import click_help, wants_help
 from cliver.config import (
     SSEMCPServerConfig,
     StdioMCPServerConfig,
@@ -162,48 +163,25 @@ def _remove_mcp_server(cliver: Cliver, name: str):
 # Dispatch function
 # ---------------------------------------------------------------------------
 
+_SUBCOMMANDS: dict[str, click.Command] = {}
+
 
 def dispatch(cliver: Cliver, args: str):
     """Manage MCP server connections — list, add, set, remove."""
     parts = args.strip().split(None, 1) if args.strip() else []
     sub = parts[0] if parts else "list"
+    rest = parts[1] if len(parts) > 1 else ""
+
+    if sub in ("--help", "-h", "help"):
+        cliver.output(click_help(mcp, "/mcp"))
+        return
+
+    if sub in _SUBCOMMANDS and wants_help(rest):
+        cliver.output(click_help(_SUBCOMMANDS[sub], f"/mcp {sub}"))
+        return
 
     if sub == "list":
         _list_mcp_servers(cliver)
-    elif sub in ("--help", "help"):
-        cliver.output("Manage MCP (Model Context Protocol) server connections.")
-        cliver.output("MCP servers provide additional tools to the LLM agent.")
-        cliver.output("")
-        cliver.output("Usage: /mcp [list|add|set|remove] [options]")
-        cliver.output("")
-        cliver.output("Subcommands:")
-        cliver.output("  list   — List all configured MCP servers with name, transport, and connection info.")
-        cliver.output("           No parameters.")
-        cliver.output("")
-        cliver.output("  add    — Add a new MCP server connection.")
-        cliver.output("    --name, -n       STRING (required) — Unique server name (e.g. 'github', 'jira').")
-        cliver.output("    --transport, -t  CHOICE(stdio|sse|streamable|websocket) (optional, default: stdio)")
-        cliver.output("                     Transport protocol. 'sse' is deprecated, use 'streamable' instead.")
-        cliver.output("    For stdio transport:")
-        cliver.output("      --command, -c  STRING (required for stdio) — Executable command (e.g. 'npx').")
-        cliver.output("      --args, -a     STRING (optional) — Comma-separated arguments for the command.")
-        cliver.output("      --env, -e      STRING (optional, repeatable) — Env var as KEY=VALUE.")
-        cliver.output("    For sse/streamable/websocket transport:")
-        cliver.output("      --url, -u      STRING (required) — Server URL (e.g. 'http://localhost:3000/mcp').")
-        cliver.output("      --header, -H   STRING (optional, repeatable) — HTTP header as KEY=VALUE.")
-        cliver.output("    Example: /mcp add --name github --command npx --args -y,@modelcontextprotocol/server-github")
-        cliver.output("    Example: /mcp add --name api --transport streamable --url http://localhost:3000/mcp")
-        cliver.output("")
-        cliver.output("  set    — Update an existing MCP server's configuration.")
-        cliver.output("    --name, -n  STRING (required) — Name of the server to update.")
-        cliver.output("    (same transport-specific options as 'add', only provided values are changed)")
-        cliver.output("    Example: /mcp set --name github --env GITHUB_TOKEN=ghp_xxx")
-        cliver.output("")
-        cliver.output("  remove — Remove an MCP server connection.")
-        cliver.output("    --name, -n  STRING (required) — Name of the server to remove.")
-        cliver.output("    Example: /mcp remove --name github")
-        cliver.output("")
-        cliver.output("Default subcommand: list (when /mcp is called with no arguments)")
     else:
         cliver.output(f"[yellow]Unknown subcommand: /mcp {sub}[/yellow]")
         cliver.output("Run '/mcp help' for usage.")
@@ -349,3 +327,14 @@ def add_mcp_server(
 @pass_cliver
 def remove_mcp_server(cliver: Cliver, name: str):
     _remove_mcp_server(cliver, name)
+
+
+# Populate subcommand map for dispatch help generation.
+_SUBCOMMANDS.update(
+    {
+        "list": list_mcp_servers,
+        "add": add_mcp_server,
+        "set": set_mcp_server,
+        "remove": remove_mcp_server,
+    }
+)

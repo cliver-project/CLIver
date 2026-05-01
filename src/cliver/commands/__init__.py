@@ -64,3 +64,19 @@ def _load_commands_from_dir(
 
 def list_commands_names(group: click.Group) -> List[str]:
     return [name for name, _ in group.commands.items()]
+
+
+# ---------------------------------------------------------------------------
+# Shared dispatch help utilities
+# ---------------------------------------------------------------------------
+
+
+def wants_help(text: str) -> bool:
+    """Return True if the argument string contains a help flag at any position."""
+    return any(t in ("--help", "-h") for t in text.split())
+
+
+def click_help(cmd: click.Command, info_name: str) -> str:
+    """Generate help text from a Click command, reusing its metadata."""
+    ctx = click.Context(cmd, info_name=info_name)
+    return cmd.get_help(ctx)

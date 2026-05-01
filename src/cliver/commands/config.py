@@ -6,6 +6,7 @@ from rich.table import Table
 from rich.text import Text
 
 from cliver.cli import Cliver, pass_cliver
+from cliver.commands import click_help, wants_help
 
 # ── Logic Functions ──
 
@@ -256,12 +257,22 @@ def _set_theme(cliver: Cliver, name: str | None):
 
 # ── Dispatch ──
 
+_SUBCOMMANDS: dict[str, click.Command] = {}
+
 
 def dispatch(cliver: Cliver, args: str):
     """Manage configuration — show, set, validate, theme."""
     parts = args.strip().split(None, 1) if args.strip() else []
     sub = parts[0] if parts else "show"
     rest = parts[1] if len(parts) > 1 else ""
+
+    if sub in ("--help", "-h", "help"):
+        cliver.output(click_help(config, "/config"))
+        return
+
+    if sub in _SUBCOMMANDS and wants_help(rest):
+        cliver.output(click_help(_SUBCOMMANDS[sub], f"/config {sub}"))
+        return
 
     if sub == "show":
         _show_config(cliver)
@@ -278,7 +289,7 @@ def dispatch(cliver: Cliver, args: str):
                     break
             _set_config(cliver, user_agent or "")
         else:
-            cliver.output("[dim]Usage: config set --user-agent VALUE[/dim]")
+            cliver.output(click_help(_SUBCOMMANDS["set"], "/config set"))
     elif sub == "rate-limit":
         # Parse provider and optional limit
         rate_parts = rest.split(None, 1)
@@ -287,40 +298,12 @@ def dispatch(cliver: Cliver, args: str):
             limit = rate_parts[1] if len(rate_parts) > 1 else None
             _config_rate_limit(cliver, provider_name, limit)
         else:
-            cliver.output("[dim]Usage: config rate-limit PROVIDER [LIMIT][/dim]")
+            cliver.output(click_help(_SUBCOMMANDS["rate-limit"], "/config rate-limit"))
     elif sub == "path":
         _show_config_path(cliver)
     elif sub == "theme":
         theme_name = rest.strip() if rest.strip() else None
         _set_theme(cliver, theme_name)
-    elif sub in ("--help", "help"):
-        cliver.output("Manage CLIver configuration settings stored in config.yaml.")
-        cliver.output("")
-        cliver.output("Usage: /config [show|validate|set|rate-limit|path|theme] [arguments]")
-        cliver.output("")
-        cliver.output("Subcommands:")
-        cliver.output("  show       — Display the full configuration: general settings, providers,")
-        cliver.output("               models, MCP servers. Sensitive values (API keys) are masked.")
-        cliver.output("               No parameters.")
-        cliver.output("  validate   — Check if the configuration file is valid and parseable.")
-        cliver.output("               No parameters.")
-        cliver.output("  set        — Update general configuration settings.")
-        cliver.output("    --user-agent, -u  STRING (required) — Set the User-Agent header sent with")
-        cliver.output("                        all LLM provider HTTP requests.")
-        cliver.output("    Example: /config set --user-agent 'CLIver/1.0'")
-        cliver.output("  rate-limit — Show or set the rate limit for a specific provider.")
-        cliver.output("    <provider>  STRING (required) — Provider name. Must match '/provider list'.")
-        cliver.output("    [limit]     STRING (optional) — Rate limit as 'requests/period'")
-        cliver.output("                  (e.g. '5000/5h'). If omitted, shows current limit.")
-        cliver.output("    Example: /config rate-limit deepseek 5000/5h")
-        cliver.output("    Example: /config rate-limit deepseek          — show current limit")
-        cliver.output("  path       — Display the file path to config.yaml. No parameters.")
-        cliver.output("  theme      — Show or set the UI color theme.")
-        cliver.output("    [name]  CHOICE(dark|light|dracula) (optional) — Theme name to apply.")
-        cliver.output("            If omitted, shows the current theme and available options.")
-        cliver.output("    Example: /config theme dracula")
-        cliver.output("")
-        cliver.output("Default subcommand: show (when /config is called with no arguments)")
     else:
         cliver.output(f"[yellow]Unknown: /config {sub}[/yellow]")
 
@@ -435,3 +418,16 @@ def show_config_path(cliver: Cliver):
 def set_theme_cmd(cliver: Cliver, name: str = None):
     """Show or set the UI theme. Available: dark, light, dracula."""
     _set_theme(cliver, name)
+
+
+# Populate subcommand map for dispatch help generation.
+_SUBCOMMANDS.update(
+    {
+        "show": show_config,
+        "validate": validate_config,
+        "set": set_config,
+        "rate-limit": config_rate_limit,
+        "path": show_config_path,
+        "theme": set_theme_cmd,
+    }
+)

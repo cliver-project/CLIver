@@ -11,6 +11,7 @@ import time
 import click
 
 from cliver.cli import Cliver, pass_cliver
+from cliver.commands import click_help, wants_help
 from cliver.util import get_config_dir
 
 logger = logging.getLogger(__name__)
@@ -552,6 +553,14 @@ def dispatch(cliver: Cliver, args: str):
     sub = parts[0] if parts else "status"
     rest = parts[1] if len(parts) > 1 else ""
 
+    if sub in ("--help", "-h", "help"):
+        cliver.output(click_help(gateway_cmd, "/gateway"))
+        return
+
+    if sub in _SUBCOMMANDS and wants_help(rest):
+        cliver.output(click_help(_SUBCOMMANDS[sub], f"/gateway {sub}"))
+        return
+
     if sub == "start":
         _start_gateway(cliver)
     elif sub == "stop":
@@ -562,32 +571,6 @@ def dispatch(cliver: Cliver, args: str):
         _status_gateway(cliver)
     elif sub == "platform":
         _dispatch_platform(cliver, rest)
-    elif sub in ("--help", "help"):
-        cliver.output("Manage the gateway daemon. The gateway runs as a background process that")
-        cliver.output("handles cron-scheduled tasks and platform adapters (Slack, Telegram, etc.).")
-        cliver.output("")
-        cliver.output("Usage: /gateway [start|stop|restart|status|platform] [arguments]")
-        cliver.output("")
-        cliver.output("Subcommands:")
-        cliver.output("  start     — Start the gateway daemon as a background subprocess.")
-        cliver.output("              Checks for existing PID file and port conflicts before starting.")
-        cliver.output("              No parameters.")
-        cliver.output("  stop      — Stop the running gateway daemon via SIGTERM.")
-        cliver.output("              No parameters.")
-        cliver.output("  restart   — Stop and then start the gateway daemon.")
-        cliver.output("              No parameters.")
-        cliver.output("  status    — Show gateway daemon status: PID, uptime, tasks run, adapter states.")
-        cliver.output("              Checks both PID file and HTTP /health endpoint.")
-        cliver.output("              No parameters.")
-        cliver.output("  platform  — Manage messaging platform adapters (Slack, Telegram, Discord, Feishu).")
-        cliver.output("              See '/gateway platform help' for subcommands.")
-        cliver.output("")
-        cliver.output("Default subcommand: status (when /gateway is called with no arguments)")
-        cliver.output("")
-        cliver.output("Examples:")
-        cliver.output("  /gateway start    — start the daemon")
-        cliver.output("  /gateway status   — check if running and show health info")
-        cliver.output("  /gateway restart  — restart after config changes")
     else:
         cliver.output(f"[yellow]Unknown: /gateway {sub}[/yellow]")
 
@@ -597,6 +580,14 @@ def _dispatch_platform(cliver: Cliver, args: str):
     parts = args.strip().split(None, 1) if args.strip() else []
     sub = parts[0] if parts else "list"
     rest = parts[1] if len(parts) > 1 else ""
+
+    if sub in ("--help", "-h", "help"):
+        cliver.output(click_help(platform_cmd, "/gateway platform"))
+        return
+
+    if sub in _PLATFORM_SUBCOMMANDS and wants_help(rest):
+        cliver.output(click_help(_PLATFORM_SUBCOMMANDS[sub], f"/gateway platform {sub}"))
+        return
 
     if sub == "list":
         _list_platforms(cliver)
@@ -637,30 +628,6 @@ def _dispatch_platform(cliver: Cliver, args: str):
             cliver.output("[yellow]Usage: /gateway platform remove <name>[/yellow]")
             return
         _remove_platform(cliver, rest.strip())
-    elif sub in ("--help", "help"):
-        cliver.output("Manage messaging platform adapters that connect CLIver to Slack, Telegram, etc.")
-        cliver.output("")
-        cliver.output("Usage: /gateway platform [list|setup|set|remove] [arguments]")
-        cliver.output("")
-        cliver.output("Subcommands:")
-        cliver.output("  list              — List configured platforms with name, type, connection status,")
-        cliver.output("                      and home channel. Shows live status if gateway is running.")
-        cliver.output("  setup             — Start an interactive wizard to add or reconfigure a platform.")
-        cliver.output("                      Guides through: platform type, adapter name, credentials,")
-        cliver.output("                      home channel, and allowed users.")
-        cliver.output("  set <name>        — Update specific fields of an existing platform adapter.")
-        cliver.output("    name  STRING (required) — Platform adapter name from '/gateway platform list'.")
-        cliver.output("    --token         STRING (optional) — New bot token.")
-        cliver.output("    --app-token     STRING (optional) — New app-level token (Slack Socket Mode).")
-        cliver.output("    --home-channel  STRING (optional) — New default output channel ID.")
-        cliver.output("    --allowed-users STRING (optional) — Comma-separated user IDs (empty = all).")
-        cliver.output("    Example: /gateway platform set slack --home-channel C012345")
-        cliver.output("  remove <name>     — Remove a platform adapter (requires confirmation).")
-        cliver.output("    name  STRING (required) — Platform adapter name to remove.")
-        cliver.output("")
-        cliver.output("Default subcommand: list")
-        cliver.output("")
-        cliver.output("Note: Restart the gateway after any platform changes to apply them.")
     else:
         cliver.output(f"[yellow]Unknown: /gateway platform {sub}[/yellow]")
 
@@ -703,3 +670,86 @@ def restart(cliver: Cliver):
 def status(cliver: Cliver):
     """Show gateway status."""
     return _status_gateway(cliver)
+
+
+# ── Platform subgroup (Click definitions for help generation) ──
+
+
+@gateway_cmd.group(
+    name="platform",
+    help="Manage messaging platform adapters (Slack, Telegram, Discord, Feishu)",
+)
+def platform_cmd():
+    """Platform adapter management."""
+    pass
+
+
+@platform_cmd.command(
+    name="list",
+    help="List configured platforms with name, type, connection status, and home channel",
+)
+@pass_cliver
+def platform_list(cliver: Cliver):
+    """List platforms."""
+    _list_platforms(cliver)
+
+
+@platform_cmd.command(
+    name="setup",
+    help="Interactive wizard to add or reconfigure a platform adapter",
+)
+@pass_cliver
+def platform_setup(cliver: Cliver):
+    """Run the platform setup wizard."""
+    _setup_platform(cliver)
+
+
+@platform_cmd.command(
+    name="set",
+    help="Update specific fields of an existing platform adapter",
+)
+@click.argument("name")
+@click.option("--token", type=str, default=None, help="New bot token")
+@click.option("--app-token", type=str, default=None, help="New app-level token (Slack Socket Mode)")
+@click.option("--home-channel", type=str, default=None, help="New default output channel ID")
+@click.option(
+    "--allowed-users",
+    type=str,
+    default=None,
+    help="Comma-separated user IDs (empty = all)",
+)
+@pass_cliver
+def platform_set(cliver: Cliver, name: str, token: str, app_token: str, home_channel: str, allowed_users: str):
+    """Update a platform."""
+    _set_platform(
+        cliver, name, token=token, app_token=app_token, home_channel=home_channel, allowed_users=allowed_users
+    )
+
+
+@platform_cmd.command(
+    name="remove",
+    help="Remove a platform adapter (requires confirmation)",
+)
+@click.argument("name")
+@pass_cliver
+def platform_remove(cliver: Cliver, name: str):
+    """Remove a platform."""
+    _remove_platform(cliver, name)
+
+
+# Subcommand lookups for dispatch help
+_SUBCOMMANDS = {
+    "start": start,
+    "stop": stop,
+    "restart": restart,
+    "status": status,
+    "platform": platform_cmd,
+}
+
+_PLATFORM_SUBCOMMANDS = {
+    "list": platform_list,
+    "setup": platform_setup,
+    "add": platform_setup,
+    "set": platform_set,
+    "remove": platform_remove,
+}
