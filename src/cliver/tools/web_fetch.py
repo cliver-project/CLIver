@@ -8,6 +8,8 @@ from typing import Optional, Type
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
+from cliver.util import url_request
+
 logger = logging.getLogger(__name__)
 
 MAX_CONTENT_LENGTH = 100000  # characters
@@ -48,10 +50,9 @@ class WebFetchTool(BaseTool):
             if not url.startswith(("http://", "https://")):
                 return "Error: URL must start with http:// or https://"
 
-            req = urllib.request.Request(
+            req = url_request(
                 url,
                 headers={
-                    "User-Agent": "CLIver/1.0 (compatible; bot)",
                     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.7",
                 },
             )

@@ -49,6 +49,57 @@ def format_datetime(dt: datetime | None = None, fmt: str = "%Y-%m-%d %H:%M") -> 
 # -- Config directory ---------------------------------------------------------
 
 
+BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
+
+
+def _get_app_user_agent() -> str:
+    """Read user_agent from app config, falling back to 'CLIver'."""
+    try:
+        from cliver.agent_profile import get_current_profile
+
+        profile = get_current_profile()
+        if profile:
+            from cliver.config import ConfigManager
+
+            cm = ConfigManager(profile.config_dir)
+            if cm.config.user_agent:
+                return cm.config.user_agent
+    except Exception:
+        pass
+    return "CLIver"
+
+
+def url_request(
+    url: str,
+    *,
+    data: bytes | None = None,
+    headers: dict[str, str] | None = None,
+    user_agent: str | None = None,
+    timeout: int = 30,
+):
+    """Build a ``urllib.request.Request`` with the app-configured User-Agent.
+
+    Args:
+        url: Target URL.
+        data: Optional POST body (makes the request a POST).
+        headers: Extra headers merged on top of defaults.
+        user_agent: Override User-Agent (default: ``config.user_agent``).
+        timeout: Not set on the Request itself — pass to ``urlopen(req, timeout=...)``.
+
+    Returns:
+        A ready-to-use ``urllib.request.Request``.
+    """
+    import urllib.request as _ur
+
+    ua = user_agent or _get_app_user_agent()
+    merged: dict[str, str] = {"User-Agent": ua}
+    if headers:
+        merged.update(headers)
+    return _ur.Request(url, data=data, headers=merged)
+
+
 def get_config_dir() -> Path:
     """
     Returns the config directory for CLiver.

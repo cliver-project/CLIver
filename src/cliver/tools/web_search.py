@@ -8,6 +8,8 @@ from typing import Optional, Type
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, Field
 
+from cliver.util import BROWSER_USER_AGENT, url_request
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_MAX_RESULTS = 5
@@ -97,13 +99,10 @@ class WebSearchTool(BaseTool):
         """Search using DuckDuckGo Lite HTML (no API key needed)."""
         url = "https://lite.duckduckgo.com/lite/"
         data = urllib.parse.urlencode({"q": query}).encode("utf-8")
-        req = urllib.request.Request(
+        req = url_request(
             url,
             data=data,
-            headers={
-                "User-Agent": "CLIver/1.0",
-                "Content-Type": "application/x-www-form-urlencoded",
-            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
 
         with urllib.request.urlopen(req, timeout=15) as response:
@@ -162,7 +161,7 @@ class WebSearchTool(BaseTool):
     def _bing_search(self, query: str, num_results: int) -> str:
         """Search using Bing HTML (no API key needed)."""
         url = f"https://www.bing.com/search?q={urllib.parse.quote(query)}&count={num_results}"
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (compatible; CLIver/1.0)"})
+        req = url_request(url)
 
         with urllib.request.urlopen(req, timeout=15) as response:
             html = response.read().decode("utf-8", errors="replace")
@@ -198,13 +197,7 @@ class WebSearchTool(BaseTool):
     def _google_search(self, query: str, num_results: int) -> str:
         """Search using Google HTML (no API key needed)."""
         url = f"https://www.google.com/search?q={urllib.parse.quote(query)}&num={num_results}"
-        req = urllib.request.Request(
-            url,
-            headers={
-                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            },
-        )
+        req = url_request(url, user_agent=BROWSER_USER_AGENT)
 
         with urllib.request.urlopen(req, timeout=15) as response:
             html = response.read().decode("utf-8", errors="replace")
@@ -251,7 +244,7 @@ class WebSearchTool(BaseTool):
     def _sogou_search(self, query: str, num_results: int) -> str:
         """Search using Sogou (Chinese search engine, no API key needed)."""
         url = f"https://www.sogou.com/web?query={urllib.parse.quote(query)}"
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (compatible; CLIver/1.0)"})
+        req = url_request(url)
 
         with urllib.request.urlopen(req, timeout=15) as response:
             html = response.read().decode("utf-8", errors="replace")
@@ -287,13 +280,7 @@ class WebSearchTool(BaseTool):
     def _baidu_search(self, query: str, num_results: int) -> str:
         """Search using Baidu (Chinese search engine, no API key needed)."""
         url = f"https://www.baidu.com/s?wd={urllib.parse.quote(query)}&rn={num_results}"
-        req = urllib.request.Request(
-            url,
-            headers={
-                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            },
-        )
+        req = url_request(url, user_agent=BROWSER_USER_AGENT)
 
         with urllib.request.urlopen(req, timeout=15) as response:
             html = response.read().decode("utf-8", errors="replace")
