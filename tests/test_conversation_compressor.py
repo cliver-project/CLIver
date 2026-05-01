@@ -1,15 +1,17 @@
 """Tests for ConversationCompressor — conversation history compression."""
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from cliver.config import ModelConfig  # noqa: I001
 from cliver.conversation_compressor import (
     SUMMARY_PREFIX,
+    TOOL_PRUNE_MIN_CHARS,
     ConversationCompressor,
     estimate_tokens,
     estimate_tokens_str,
     get_context_window,
+    prune_stale_tool_results,
 )
 
 # ---------------------------------------------------------------------------
@@ -343,3 +345,105 @@ class TestAgentCoreConversationHistory:
             human_msgs = [m for m in messages if isinstance(m, HumanMessage)]
             assert len(human_msgs) == 1
             assert human_msgs[0].content == "a question"
+
+
+# ---------------------------------------------------------------------------
+# prune_stale_tool_results
+# ---------------------------------------------------------------------------
+
+
+class TestPruneStaleToolResults:
+    def test_empty_list(self):
+        assert prune_stale_tool_results([]) == []
+
+    def test_no_tool_messages(self):
+        msgs = [HumanMessage(content="Q"), AIMessage(content="A")]
+        result = prune_stale_tool_results(msgs)
+        assert len(result) == 2
+        assert result[0].content == "Q"
+        assert result[1].content == "A"
+
+    def test_stale_large_tool_result_pruned(self):
+        big_content = "x" * 500
+        msgs = [
+            HumanMessage(content="Q"),
+            AIMessage(content="", additional_kwargs={"tool_calls": [{"id": "tc1"}]}),
+            ToolMessage(content=big_content, tool_call_id="tc1"),
+            AIMessage(content="Got it"),
+        ]
+        result = prune_stale_tool_results(msgs)
+        assert "Tool result pruned" in result[2].content
+        assert "500 chars" in result[2].content
+        assert result[2].tool_call_id == "tc1"
+
+    def test_current_iteration_tool_result_preserved(self):
+        big_content = "x" * 500
+        msgs = [
+            HumanMessage(content="Q"),
+            AIMessage(content="", additional_kwargs={"tool_calls": [{"id": "tc1"}]}),
+            ToolMessage(content=big_content, tool_call_id="tc1"),
+            # No AIMessage after — this is the current iteration
+        ]
+        result = prune_stale_tool_results(msgs)
+        assert result[2].content == big_content
+
+    def test_short_tool_result_preserved(self):
+        short_content = "ok"
+        msgs = [
+            HumanMessage(content="Q"),
+            AIMessage(content="", additional_kwargs={"tool_calls": [{"id": "tc1"}]}),
+            ToolMessage(content=short_content, tool_call_id="tc1"),
+            AIMessage(content="Got it"),
+        ]
+        result = prune_stale_tool_results(msgs)
+        assert result[2].content == short_content
+
+    def test_system_messages_untouched(self):
+        msgs = [
+            SystemMessage(content="system prompt"),
+            HumanMessage(content="Q"),
+            AIMessage(content="A"),
+        ]
+        result = prune_stale_tool_results(msgs)
+        assert isinstance(result[0], SystemMessage)
+        assert result[0].content == "system prompt"
+
+    def test_multiple_iterations_only_stale_pruned(self):
+        msgs = [
+            HumanMessage(content="Q1"),
+            AIMessage(content="", additional_kwargs={"tool_calls": [{"id": "tc1"}]}),
+            ToolMessage(content="a" * 300, tool_call_id="tc1"),
+            AIMessage(content="result 1"),
+            HumanMessage(content="Q2"),
+            AIMessage(content="", additional_kwargs={"tool_calls": [{"id": "tc2"}]}),
+            ToolMessage(content="b" * 300, tool_call_id="tc2"),
+            # tc2 is current iteration — no AI response yet
+        ]
+        result = prune_stale_tool_results(msgs)
+        # tc1 is stale (AIMessage at index 3 comes after it)
+        assert "pruned" in result[2].content
+        # tc2 is current iteration (last AI is at index 5, tc2 is at index 6)
+        assert result[6].content == "b" * 300
+
+    def test_original_list_not_mutated(self):
+        big_content = "x" * 500
+        tool_msg = ToolMessage(content=big_content, tool_call_id="tc1")
+        msgs = [
+            HumanMessage(content="Q"),
+            AIMessage(content="", additional_kwargs={"tool_calls": [{"id": "tc1"}]}),
+            tool_msg,
+            AIMessage(content="Got it"),
+        ]
+        prune_stale_tool_results(msgs)
+        assert tool_msg.content == big_content
+
+    def test_threshold_boundary(self):
+        exactly_threshold = "x" * TOOL_PRUNE_MIN_CHARS
+        msgs = [
+            AIMessage(content="", additional_kwargs={"tool_calls": [{"id": "tc1"}]}),
+            ToolMessage(content=exactly_threshold, tool_call_id="tc1"),
+            AIMessage(content="done"),
+        ]
+        result = prune_stale_tool_results(msgs)
+        # Exactly at threshold — not pruned (> not >=)
+        assert result[1].content == exactly_threshold

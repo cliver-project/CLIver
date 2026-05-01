@@ -1,15 +1,15 @@
 """
 Conversation Compressor — manages conversation history size within context window limits.
 
-When conversation history grows too large for the model's context window, this module
-compresses older turns into a concise LLM-generated summary while keeping recent turns
-verbatim. Falls back to simple truncation if the compression LLM call fails.
+Two-tier compression:
+  Tier 1 — prune stale tool results (cheap, no LLM call, triggers at 50% context)
+  Tier 2 — LLM-generated summary of older turns (triggers at 70%+ context)
 """
 
 import logging
 from typing import List
 
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.messages.base import BaseMessage
 
 from cliver.config import ModelConfig
@@ -90,16 +90,62 @@ def _is_summary_message(msg: BaseMessage) -> bool:
     return isinstance(msg, HumanMessage) and isinstance(msg.content, str) and msg.content.startswith(SUMMARY_PREFIX)
 
 
+TOOL_PRUNE_MIN_CHARS = 200
+
+
+def prune_stale_tool_results(messages: List[BaseMessage]) -> List[BaseMessage]:
+    """Replace large, already-processed ToolMessage contents with a short stub.
+
+    A ToolMessage is "stale" when an AIMessage appears after it — the LLM has
+    already seen and acted on the result.  ToolMessages from the current
+    (unfinished) Re-Act iteration are left intact.
+
+    Returns a new list; the original is not mutated.
+    """
+    if not messages:
+        return []
+
+    last_ai_idx = -1
+    for i in range(len(messages) - 1, -1, -1):
+        if isinstance(messages[i], AIMessage):
+            last_ai_idx = i
+            break
+
+    result: list[BaseMessage] = []
+    for i, msg in enumerate(messages):
+        if (
+            isinstance(msg, ToolMessage)
+            and i < last_ai_idx
+            and isinstance(msg.content, str)
+            and len(msg.content) > TOOL_PRUNE_MIN_CHARS
+        ):
+            stub = (
+                f"[Tool result pruned for context efficiency — "
+                f"original was {len(msg.content):,} chars. "
+                f"You already processed this result in your following response. "
+                f"Refer to that response for the details.]"
+            )
+            result.append(ToolMessage(content=stub, tool_call_id=msg.tool_call_id))
+        else:
+            result.append(msg)
+
+    return result
+
+
 def _format_turns_for_compression(messages: List[BaseMessage]) -> str:
     """Format message list into readable text for the compression prompt."""
     lines = []
     for msg in messages:
-        if isinstance(msg, HumanMessage):
+        if _is_summary_message(msg):
+            role = "Previous Summary"
+        elif isinstance(msg, HumanMessage):
             role = "User"
         elif isinstance(msg, AIMessage):
             role = "Assistant"
-        elif _is_summary_message(msg):
-            role = "Previous Summary"
+        elif isinstance(msg, ToolMessage):
+            content = msg.content if isinstance(msg.content, str) else str(msg.content)
+            lines.append(f"Tool result: {content[:200]}" if len(content) > 200 else f"Tool result: {content}")
+            continue
         else:
             continue
 

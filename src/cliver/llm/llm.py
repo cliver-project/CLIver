@@ -424,7 +424,11 @@ class AgentCore:
         Separates system messages from conversation, compresses the conversation,
         then reassembles. Used when context overflow is detected.
         """
-        from cliver.conversation_compressor import ConversationCompressor, get_context_window
+        from cliver.conversation_compressor import (
+            ConversationCompressor,
+            get_context_window,
+            prune_stale_tool_results,
+        )
 
         context_window = get_context_window(model_config)
         compressor = ConversationCompressor(context_window)
@@ -435,6 +439,7 @@ class AgentCore:
         if not conv_msgs:
             return messages
 
+        conv_msgs = prune_stale_tool_results(conv_msgs)
         compressed_conv = await compressor.compress(conv_msgs, llm_engine)
         return system_msgs + compressed_conv
 
@@ -1031,15 +1036,26 @@ class AgentCore:
                 # Drain any pending user input
                 _drain_pending_input(messages, on_pending_input)
 
-                # Proactive context overflow check
+                # Proactive context overflow check — two tiers
                 if current_model not in compressed_for:
                     try:
-                        from cliver.conversation_compressor import estimate_tokens, get_context_window
+                        from cliver.conversation_compressor import (
+                            estimate_tokens,
+                            get_context_window,
+                            prune_stale_tool_results,
+                        )
 
                         model_config = self._get_llm_model(current_model)
                         if model_config:
                             context_window = get_context_window(model_config)
                             approx_tokens = estimate_tokens(messages)
+
+                            # Tier 1: prune stale tool results (cheap, no LLM)
+                            if approx_tokens > context_window * 0.5:
+                                messages = prune_stale_tool_results(messages)
+                                approx_tokens = estimate_tokens(messages)
+
+                            # Tier 2: LLM-based summary compression
                             if approx_tokens > context_window * 0.9:
                                 logger.warning(
                                     "Context approaching limit (%d/%d tokens), compressing",
@@ -1525,15 +1541,26 @@ class AgentCore:
                 # Drain any pending user input
                 _drain_pending_input(messages, on_pending_input)
 
-                # Proactive context overflow check
+                # Proactive context overflow check — two tiers
                 if current_model not in compressed_for:
                     try:
-                        from cliver.conversation_compressor import estimate_tokens, get_context_window
+                        from cliver.conversation_compressor import (
+                            estimate_tokens,
+                            get_context_window,
+                            prune_stale_tool_results,
+                        )
 
                         model_config = self._get_llm_model(current_model)
                         if model_config:
                             context_window = get_context_window(model_config)
                             approx_tokens = estimate_tokens(messages)
+
+                            # Tier 1: prune stale tool results (cheap, no LLM)
+                            if approx_tokens > context_window * 0.5:
+                                messages = prune_stale_tool_results(messages)
+                                approx_tokens = estimate_tokens(messages)
+
+                            # Tier 2: LLM-based summary compression
                             if approx_tokens > context_window * 0.9:
                                 logger.warning(
                                     "Context approaching limit (%d/%d tokens), compressing",
