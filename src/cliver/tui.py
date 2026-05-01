@@ -74,7 +74,7 @@ class ClickCompleter(Completer):
     """prompt_toolkit completer that walks the Click command tree.
 
     Provides completions for commands, subcommands, options, and
-    special forms like /skill:<name>.
+    skill names for ``/skills run <name>``.
     """
 
     def __init__(self, group: click.Group):
@@ -83,19 +83,15 @@ class ClickCompleter(Completer):
     def get_completions(self, document, complete_event):
         text = document.text_before_cursor
 
-        # Only complete slash commands (lines starting with /)
         if not text.startswith("/"):
             return
 
-        # Strip the leading / for matching against Click commands
         stripped = text[1:]
         parts = stripped.split()
 
-        # If cursor is right after a space, we're completing the next token
         at_new_token = stripped.endswith(" ") if stripped else True
 
         if not parts or (len(parts) == 1 and not at_new_token):
-            # Completing the first word (command name) — include / in completion
             prefix = parts[0].lower() if parts else ""
             for name, cmd in sorted(self._group.commands.items()):
                 if cmd.hidden:
@@ -108,13 +104,6 @@ class ClickCompleter(Completer):
                         start_position=-len(text),
                         display_meta=help_text,
                     )
-            # Also offer /skill:<name> completions
-            if "skill".startswith(prefix) or prefix.startswith("skill:"):
-                yield from self._skill_completions(prefix, text)
-            return
-
-        # skill:xxx is a complete command — no further completions
-        if parts and ":" in parts[0]:
             return
 
         # Walk the command tree to find the current group/command
@@ -125,7 +114,7 @@ class ClickCompleter(Completer):
                 break
             sub = cmd.get_command(None, part.lower())
             if sub is None:
-                return  # unrecognized command — no completions
+                return
             cmd = sub
             consumed = i + 1
 
@@ -135,7 +124,11 @@ class ClickCompleter(Completer):
         if not at_new_token and remaining:
             current_prefix = remaining[-1].lower()
 
-        # If the resolved command is a group, suggest subcommands
+        # /skills run <name> — offer skill name completions
+        if self._is_skills_run(parts, consumed, at_new_token):
+            yield from self._skill_name_completions(current_prefix)
+            return
+
         if isinstance(cmd, click.Group):
             for name, sub in sorted(cmd.commands.items()):
                 if sub.hidden:
@@ -148,9 +141,7 @@ class ClickCompleter(Completer):
                         display_meta=help_text,
                     )
 
-        # Suggest options for the resolved command
         if isinstance(cmd, (click.Command, click.Group)):
-            # Collect already-used options
             used = {p.lower() for p in parts[consumed:] if p.startswith("-")}
             for param in cmd.params:
                 if isinstance(param, click.Option):
@@ -165,18 +156,36 @@ class ClickCompleter(Completer):
                                 display_meta=help_text[:50],
                             )
 
-    def _skill_completions(self, prefix: str, full_text: str):
-        """Yield /skill:<name> completions."""
+    @staticmethod
+    def _is_skills_run(parts: list[str], consumed: int, at_new_token: bool) -> bool:
+        """True when cursor is at the skill-name position of ``/skills run``."""
+        if len(parts) < 2:
+            return False
+        if parts[0].lower() != "skills" or parts[1].lower() != "run":
+            return False
+        remaining = len(parts) - consumed
+        if at_new_token and remaining == 0:
+            return True
+        if not at_new_token and remaining == 1:
+            return True
+        return False
+
+    @staticmethod
+    def _skill_name_completions(prefix: str):
+        """Yield skill name completions for /skills run."""
         try:
             from cliver.skill_manager import SkillManager
 
-            names = SkillManager().get_skill_names()
+            mgr = SkillManager()
+            for skill in mgr.list_skills():
+                if skill.name.startswith(prefix):
+                    yield Completion(
+                        skill.name,
+                        start_position=-len(prefix),
+                        display_meta=skill.description[:50] if skill.description else "",
+                    )
         except Exception:
             return
-        for name in sorted(names):
-            full = f"/skill:{name}"
-            if full[1:].startswith(prefix):  # match without /
-                yield Completion(full, start_position=-len(full_text))
 
 
 # ─── TUI helper functions ───────────────────────────────────────────────────

@@ -9,7 +9,7 @@ To start using CLIver, we recommend following these steps:
 1. [Overview](overview.md) - Introduction to CLIver and its design goals
 2. [Installation Guide](installation.md) - How to install and set up CLIver
 3. [Configuration](configuration.md) - Configure CLIver for LLM providers and MCP servers
-4. [Chat Command Usage](chat.md) - Learn how to use the `cliver chat` command
+4. [Chat Usage](chat.md) - Learn how to use CLIver for interactive chat
 5. [Skills](skills.md) - LLM-driven skill activation for specialized tasks
 6. [Memory & Identity](memory-identity.md) - Agent memory, identity profiles, and multi-agent isolation
 7. [Session Management](session-management.md) - Conversation sessions, history, and compression

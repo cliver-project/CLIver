@@ -1,13 +1,15 @@
 """
 Skills management commands.
 
-List, create, and activate agent skills (SKILL.md files).
+List, show, create, update, and run agent skills (SKILL.md files).
 """
 
+import asyncio
 import logging
 from pathlib import Path
 
 import click
+from langchain_core.messages import AIMessage, HumanMessage
 from rich import box
 from rich.table import Table
 
@@ -112,13 +114,94 @@ def _update_skill(cliver: Cliver, name: str, instructions: str):
     cliver.output(f"Updated skill at: [green]{skill_file}[/green]")
 
 
+def _compress_if_needed(cliver, agent_core, model_config, model_name, new_input):
+    """Check and compress conversation history if it exceeds context window budget."""
+    from cliver.conversation_compressor import ConversationCompressor, estimate_tokens, get_context_window
+
+    context_window = get_context_window(model_config)
+    compressor = ConversationCompressor(context_window)
+
+    if not compressor.needs_compression([], cliver.conversation_messages, new_input):
+        return
+
+    before_tokens = estimate_tokens(cliver.conversation_messages)
+    llm_engine = agent_core.get_llm_engine(model_name)
+
+    try:
+        compressed = asyncio.get_event_loop().run_until_complete(
+            compressor.compress(cliver.conversation_messages, llm_engine)
+        )
+    except RuntimeError:
+        compressed = asyncio.run(compressor.compress(cliver.conversation_messages, llm_engine))
+
+    cliver.conversation_messages = compressed
+    after_tokens = estimate_tokens(cliver.conversation_messages)
+    cliver.output(f"\\[Compressed conversation: ~{before_tokens} → ~{after_tokens} tokens]")
+
+
+def _run_skill(cliver: Cliver, name: str, message: str = ""):
+    """Activate a skill and run it through LLM inference."""
+    manager = SkillManager()
+    skill_obj = manager.get_skill(name)
+    if not skill_obj:
+        cliver.output(f"[red]Skill '{name}' not found.[/red]")
+        _suggest_available(cliver, manager)
+        return
+
+    cliver.output(f"Activating skill '[green]{name}[/green]' ...")
+
+    skill_content = manager.activate_skill(name)
+    skill_system_msg = f"The user has activated the '{name}' skill. Follow these skill instructions:\n\n{skill_content}"
+
+    def skill_appender():
+        return skill_system_msg
+
+    user_message = message if message else ""
+    if not user_message:
+        user_message = (
+            f"I want to use the '{name}' skill. Please explain what this skill does and ask me what I'd like to do."
+        )
+
+    from cliver.cli_llm_call import LLMCallOptions, llm_call
+
+    session_options = cliver.session_options or {}
+    use_model = session_options.get("model", None)
+    use_stream = session_options.get("stream", True)
+    agent_core = cliver.agent_core
+
+    cliver.record_turn("user", user_message)
+
+    model_config = agent_core._get_llm_model(use_model)
+    if model_config and cliver.conversation_messages:
+        _compress_if_needed(cliver, agent_core, model_config, use_model, user_message)
+
+    conv_history = list(cliver.conversation_messages) if cliver.conversation_messages else None
+    cliver.conversation_messages.append(HumanMessage(content=user_message))
+
+    def on_response(text: str):
+        cliver.record_turn("assistant", text)
+        cliver.conversation_messages.append(AIMessage(content=text))
+
+    llm_call(
+        cliver,
+        LLMCallOptions(
+            user_input=user_message,
+            model=use_model,
+            stream=use_stream,
+            system_message_appender=skill_appender,
+            conversation_history=conv_history,
+            on_response=on_response,
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Dispatch function
 # ---------------------------------------------------------------------------
 
 
 def dispatch(cliver: Cliver, args: str):
-    """List and manage skills — list, show, search, create."""
+    """List and manage skills — list, show, run, create, update."""
     parts = args.strip().split(None, 1) if args.strip() else []
     sub = parts[0] if parts else "list"
     rest = parts[1] if len(parts) > 1 else ""
@@ -130,6 +213,15 @@ def dispatch(cliver: Cliver, args: str):
             cliver.output("[red]Missing skill name[/red]")
             return
         _show_skill(cliver, rest.strip())
+    elif sub == "run":
+        run_parts = rest.split(None, 1) if rest else []
+        if not run_parts:
+            cliver.output("[red]Missing skill name[/red]")
+            cliver.output("Usage: /skills run <name> [message]")
+            return
+        skill_name = run_parts[0]
+        message = run_parts[1] if len(run_parts) > 1 else ""
+        _run_skill(cliver, skill_name, message)
     elif sub == "create":
         # Parse: create <name> <description...>
         create_parts = rest.split(None, 1) if rest else []
@@ -162,13 +254,17 @@ def dispatch(cliver: Cliver, args: str):
         cliver.output("Manage agent skills (SKILL.md files). Skills are instruction sets that guide")
         cliver.output("LLM behavior for specific tasks like brainstorming or planning.")
         cliver.output("")
-        cliver.output("Usage: /skills [list|show|create|update] [arguments]")
+        cliver.output("Usage: /skills [list|show|run|create|update] [arguments]")
         cliver.output("")
         cliver.output("Subcommands:")
         cliver.output("  list                         — List all discovered skills with name, description,")
         cliver.output("                                  and source (builtin/global/project). No parameters.")
         cliver.output("  show <name>                  — Display the full SKILL.md content of a skill.")
         cliver.output("    name  STRING (required) — Skill name. Must match a name from '/skills list'.")
+        cliver.output("  run <name> [message]         — Activate a skill and run it through LLM inference.")
+        cliver.output("    name     STRING (required) — Skill name to activate.")
+        cliver.output("    message  STRING (optional) — Initial message to send with the skill.")
+        cliver.output("             If omitted, the LLM will explain the skill and ask what to do.")
         cliver.output("  create <name> <description>  — Generate a new SKILL.md file using the LLM.")
         cliver.output("    name         STRING (required) — Skill name. Lowercase, hyphens allowed.")
         cliver.output("                   Must not already exist.")
@@ -184,6 +280,8 @@ def dispatch(cliver: Cliver, args: str):
         cliver.output("Examples:")
         cliver.output("  /skills                                     — list all skills")
         cliver.output("  /skills show brainstorm                     — view brainstorm skill content")
+        cliver.output("  /skills run brainstorm                      — activate brainstorm, LLM asks for input")
+        cliver.output("  /skills run brainstorm design a login page  — activate with an initial task")
         cliver.output("  /skills create code-review review code for quality issues")
         cliver.output("  /skills create my-skill some description --global")
         cliver.output("  /skills update brainstorm add a section about architecture decisions")
@@ -202,6 +300,20 @@ def dispatch(cliver: Cliver, args: str):
 def list_skills(cliver: Cliver):
     """List all discovered skills with their source locations."""
     _list_skills(cliver)
+
+
+@skills.command(name="run", help="Activate a skill and run it through LLM inference with optional initial message")
+@click.argument("name", type=str)
+@click.argument("message", nargs=-1)
+@pass_cliver
+def run_skill(cliver: Cliver, name: str, message: tuple):
+    """Activate a skill and run it through LLM inference.
+
+    NAME is the skill name to activate.
+    MESSAGE (optional) is the initial message to send along with the skill.
+    """
+    user_message = " ".join(message) if message else ""
+    _run_skill(cliver, name, user_message)
 
 
 @skills.command(name="create", help="Generate a new SKILL.md file using the LLM from a name and description")

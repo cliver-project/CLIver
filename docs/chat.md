@@ -1,23 +1,23 @@
 ---
-title: Chat Command
-description: Learn how to use the cliver chat command to interact with different LLMs
+title: Chat
+description: Learn how to use CLIver to interact with different LLMs
 ---
 
-# Chat Command Usage
+# Chat Usage
 
-The `cliver chat` command provides an interactive interface for communicating with various large language models. This guide covers all the features and options available when using the chat functionality.
+CLIver provides an interactive interface for communicating with various large language models. Chat is the default mode — no subcommand needed. This guide covers all the features and options available.
 
 ## Basic Usage
 
-To start a simple chat session with the default model:
+To start an interactive session with the default model:
 
 ```bash
-cliver chat
+cliver
 ```
 
 This will open an interactive session using your configured default LLM provider.
 
-You can also pass a query directly (CLIver routes bare text to `chat` automatically):
+You can also pass a query directly:
 
 ```bash
 cliver "What is the capital of China?"
@@ -31,7 +31,7 @@ To chat with DeepSeek models:
 
 ```bash
 # Use DeepSeek-R1, note that you need to configure the model first
-cliver chat --model deepseek-r1
+cliver --model deepseek-r1
 ```
 
 ### QWen3 Models
@@ -40,7 +40,7 @@ To chat with QWen3 coder model:
 
 ```bash
 # Use Qwen3-Coder, note that you need to configure the model first
-cliver chat --model qwen3-coder
+cliver --model qwen3-coder
 ```
 
 ## Chat Configuration Options
@@ -53,19 +53,19 @@ Without `query` specified, it starts an interactive session with the options spe
 
 ```bash
 # More creative responses (higher temperature)
-cliver chat --model deepseek-r1 --temperature 0.9
+cliver --model deepseek-r1 --temperature 0.9
 
 # More deterministic responses (lower temperature)
-cliver chat --model deepseek-r1 --temperature 0.2
+cliver --model deepseek-r1 --temperature 0.2
 
 # Set max tokens for response
-cliver chat --max-tokens 1024
+cliver --max-tokens 1024
 
 # Set top_p parameter for sampling
-cliver chat --top-p 0.9
+cliver --top-p 0.9
 
 # Set frequency penalty
-cliver chat --frequency-penalty 0.5
+cliver --frequency-penalty 0.5
 ```
 
 ### System Prompt
@@ -75,7 +75,7 @@ Set a system prompt to guide the model's behavior:
 > NOTE: the system message will be appended to the builtin system message if specified.
 
 ```bash
-cliver chat --system-message "You are a helpful assistant that responds in a professional manner."
+cliver --system-message "You are a helpful assistant that responds in a professional manner."
 ```
 
 ## Advanced Chat Features
@@ -87,12 +87,18 @@ As long as MCP servers are configured, all tools will be included by default.
 You can filter the tools using `--included-tools` option:
 
 ```bash
-cliver chat --included-tools "*time"
+cliver --included-tools "*time"
 ```
 
 ### Using Skills
 
-CLIver has an LLM-driven skill system. During a chat session, the LLM can discover and activate skills using the builtin `skill` tool. Skills are defined as SKILL.md files in `.cliver/skills/` (project) or `~/.config/cliver/skills/` (global).
+CLIver has an LLM-driven skill system. During a chat session, the LLM can discover and activate skills automatically using the builtin `skill` tool, or you can activate them manually:
+
+```
+/skills run brainstorm design a login page
+```
+
+Skills are defined as SKILL.md files discovered from `.cliver/skills/` (project), `~/.config/cliver/skills/` (global), and other compatible directories.
 
 See [Skills](skills.md) for details on creating and using skills.
 
@@ -102,17 +108,17 @@ Work with files directly in the chat:
 
 ```bash
 # Include a file in your message
-cliver chat "Can you summarize this document?" --file /path/to/document.txt
+cliver "Can you summarize this document?" --file /path/to/document.txt
 
 # Process multiple files
-cliver chat "Compare these two files" --file /path/to/file1.txt --file /path/to/file2.txt
+cliver "Compare these two files" --file /path/to/file1.txt --file /path/to/file2.txt
 ```
 
 ## Examples
 
 ### Example 1: Professional Assistant Session
 ```bash
-cliver chat \
+cliver \
   --model qwen3-coder \
   --system-message "You are a professional technical assistant. Provide concise, accurate answers with examples when possible." \
   --temperature 0.3
@@ -120,7 +126,7 @@ cliver chat \
 
 ### Example 2: Creative Writing Assistant
 ```bash
-cliver chat \
+cliver \
   --model deepseek-r1 \
   --system-message "Help me brainstorm creative writing ideas. Be imaginative and provide detailed suggestions." \
   --temperature 0.8
@@ -128,7 +134,7 @@ cliver chat \
 
 ### Example 3: Code Review Session
 ```bash
-cliver chat \
+cliver \
   --model qwen3-coder \
   --system-message "Review this code for best practices, security issues, and potential improvements." \
   --file /path/to/code.py

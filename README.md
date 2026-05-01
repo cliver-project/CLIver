@@ -15,10 +15,10 @@ docker run --rm -it --user $UID:0 -v ~/.cliver:/home/cliver/.cliver \
   -e OPENAI_API_KEY ghcr.io/cliver-project/cliver
 
 # Start chatting
-cliver chat "What time is it in Beijing and London?"
+cliver "What time is it in Beijing and London?"
 
 # Interactive mode
-cliver chat
+cliver
 ```
 
 ## Key Features

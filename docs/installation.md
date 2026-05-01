@@ -61,8 +61,8 @@ cliver
 # Check available commands
 cliver --help
 
-# Get help for a specific command
-cliver chat --help
+# Get help for available options
+cliver --help
 ```
 
 ## Docker
@@ -73,10 +73,10 @@ CLIver is also available as a Docker image from GitHub Container Registry.
 
 ```bash
 # Latest version
-docker run --rm -it -v ~/.cliver:/home/cliver/.cliver ghcr.io/cliver-project/cliver chat
+docker run --rm -it -v ~/.cliver:/home/cliver/.cliver ghcr.io/cliver-project/cliver
 
 # Specific version
-docker run --rm -it -v ~/.cliver:/home/cliver/.cliver ghcr.io/cliver-project/cliver:0.0.3 chat
+docker run --rm -it -v ~/.cliver:/home/cliver/.cliver ghcr.io/cliver-project/cliver:0.0.3
 ```
 
 ### Volume mount
@@ -105,7 +105,7 @@ docker run --rm -it \
   -v ~/.cliver:/home/cliver/.cliver \
   -v $(pwd):/workspace \
   -w /workspace \
-  ghcr.io/cliver-project/cliver chat
+  ghcr.io/cliver-project/cliver
 ```
 
 ### Environment variables
@@ -116,7 +116,7 @@ Pass API keys and other environment variables with `-e`:
 docker run --rm -it \
   -v ~/.cliver:/home/cliver/.cliver \
   -e OPENAI_API_KEY \
-  ghcr.io/cliver-project/cliver chat
+  ghcr.io/cliver-project/cliver
 ```
 
 > **Note:** The container runs as user `cliver` (UID 1001). Files created in mounted volumes will be owned by UID 1001. If this doesn't match your host user, adjust with `--user $(id -u):$(id -g)`.

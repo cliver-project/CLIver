@@ -200,7 +200,7 @@ class LLMInferenceEngine(ABC):
             f"- Tasks: `{config_dir}/agents/*/tasks/` — YAML task definitions with cron schedules\n\n"
             "## Commands\n\n"
             "Slash commands: model, config, gateway, session, permissions, "
-            "mcp, skill, skills, identity, agent, cost, provider, task, workflow. "
+            "mcp, skills, identity, agent, cost, provider, task, workflow. "
             "Use the CliverHelp tool for syntax."
         )
 

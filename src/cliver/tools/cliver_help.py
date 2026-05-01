@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from cliver.command_router import HANDLERS
 from cliver.util import get_config_dir
 
-_ALIASES = {"tasks": "task", "skills": "skill"}
+_ALIASES = {"tasks": "task", "skill": "skills"}
 
 
 def _config_file_help() -> str:
@@ -44,8 +44,7 @@ _COMMAND_SUMMARIES = {
     "permissions": "Manage persistent permission rules (rules, mode, add, remove)",
     "provider": "Manage LLM provider endpoints (list, add, set, remove)",
     "session": "Manage conversation sessions (list, load, search, compress, options, permissions)",
-    "skill": "Activate a skill by name and inject its instructions into the conversation",
-    "skills": "Manage agent skills — SKILL.md files (list, show, create, update)",
+    "skills": "Manage agent skills — SKILL.md files (list, show, run, create, update)",
     "task": "Manage and run agent tasks — named prompts with optional cron schedule",
     "workflow": "Manage and execute multi-step workflows (list, show, run, resume, delete)",
 }
@@ -97,7 +96,7 @@ class CliverHelpInput(BaseModel):
             "  '<command>'   — Show full help for a specific command including all subcommands,\n"
             "                  parameters (with types, required/optional, defaults), and examples.\n"
             "                  Valid command names: agent, config, cost, gateway, identity, mcp,\n"
-            "                  model, permissions, provider, session, skill, skills, task, workflow."
+            "                  model, permissions, provider, session, skills, task, workflow."
         ),
     )
 

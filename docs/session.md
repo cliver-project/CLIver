@@ -83,13 +83,13 @@ CLIver> session-option set --temperature 0.8
 CLIver> session-option reset
 ```
 
-## Integration with Chat Command
+## Integration with CLI Options
 
-Options specified directly in `cliver chat` override session options for that command only:
+Options specified directly on the `cliver` command line override session options for that invocation only:
 
 ```bash
-# Uses session model, but overrides temperature for this command only
-cliver chat --temperature 0.9 "Be more creative"
+# Uses session model, but overrides temperature for this invocation only
+cliver --temperature 0.9 "Be more creative"
 
 # Session temperature remains unchanged after this command
 ```

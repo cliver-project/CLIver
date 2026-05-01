@@ -29,7 +29,6 @@ HANDLERS: dict[str, str] = {
     "gateway": "cliver.commands.gateway_cmd",
     "session": "cliver.commands.session_cmd",
     "permissions": "cliver.commands.permissions",
-    "skill": "cliver.commands.skill_cmd",
     "skills": "cliver.commands.skills",
     "identity": "cliver.commands.identity",
     "agent": "cliver.commands.agent",
