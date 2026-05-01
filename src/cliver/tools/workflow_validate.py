@@ -185,8 +185,10 @@ def _format_schema() -> str:
 - default (str, optional): Fallback step ID if no branch matches
 
 ## Workflow step (type: workflow)
-- workflow (str, required): Name of another workflow to execute
+- workflow (str, optional): Name of another workflow to execute (from store)
+- workflow_file (str, optional): Path to a workflow YAML file to execute
 - workflow_inputs (dict, optional): Inputs to pass to the sub-workflow
+NOTE: At least one must be set. If both are set, name is tried first, file is the fallback.
 
 ## Jinja2 template variables
 - {{ inputs.param_name }} — workflow input parameters

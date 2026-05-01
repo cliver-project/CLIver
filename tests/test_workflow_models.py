@@ -1,5 +1,8 @@
 """Tests for workflow model definitions."""
 
+import pytest
+from pydantic import ValidationError
+
 from cliver.workflow.workflow_models import (
     Branch,
     DecisionStep,
@@ -138,6 +141,36 @@ class TestWorkflowExecutionState:
         assert state.status == "paused"
 
 
+class TestWorkflowStepFile:
+    def test_workflow_step_with_name(self):
+        step = WorkflowStep(id="s1", name="Sub", workflow="deploy")
+        assert step.workflow == "deploy"
+        assert step.workflow_file is None
+
+    def test_workflow_step_with_file(self):
+        step = WorkflowStep(id="s1", name="Sub", workflow_file="sub-workflows/deploy.yaml")
+        assert step.workflow_file == "sub-workflows/deploy.yaml"
+        assert step.workflow is None
+
+    def test_workflow_step_both_allowed(self):
+        step = WorkflowStep(id="s1", name="Sub", workflow="deploy", workflow_file="deploy.yaml")
+        assert step.workflow == "deploy"
+        assert step.workflow_file == "deploy.yaml"
+
+    def test_workflow_step_neither_raises(self):
+        with pytest.raises(ValidationError, match="At least one"):
+            WorkflowStep(id="s1", name="Sub")
+
+    def test_workflow_step_with_inputs(self):
+        step = WorkflowStep(
+            id="s1",
+            name="Sub",
+            workflow_file="sub.yaml",
+            workflow_inputs={"key": "{{ inputs.value }}"},
+        )
+        assert step.workflow_inputs == {"key": "{{ inputs.value }}"}
+
+
 class TestWorkflowCreateSkill:
     def test_skill_exists(self):
         from cliver.skill_manager import SkillManager
@@ -153,3 +186,30 @@ class TestWorkflowCreateSkill:
         skill = manager.get_skill("workflow-create")
         assert skill is not None
         assert skill.body and len(skill.body) > 100
+
+
+class TestWBSPlannerSkill:
+    def test_skill_exists(self):
+        from cliver.skill_manager import SkillManager
+
+        manager = SkillManager()
+        names = manager.get_skill_names()
+        assert "wbs-planner" in names
+
+    def test_skill_has_content(self):
+        from cliver.skill_manager import SkillManager
+
+        manager = SkillManager()
+        skill = manager.get_skill("wbs-planner")
+        assert skill is not None
+        assert skill.body and len(skill.body) > 100
+
+    def test_skill_allowed_tools(self):
+        from cliver.skill_manager import SkillManager
+
+        manager = SkillManager()
+        skill = manager.get_skill("wbs-planner")
+        assert skill is not None
+        assert "WorkflowValidate" in skill.allowed_tools
+        assert "Write" in skill.allowed_tools
+        assert "Ask" in skill.allowed_tools

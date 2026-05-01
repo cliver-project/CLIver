@@ -563,7 +563,7 @@ class Gateway:
 
         agent_profile = CliverProfile(self.agent_name, self.config_dir)
         store = WorkflowStore(agent_profile.workflows_dir)
-        db_path = agent_profile.agent_dir / "workflow-checkpoints.db"
+        db_path = agent_profile.workflow_checkpoints_db
 
         config_manager = self._get_config_manager()
         executor = WorkflowExecutor(

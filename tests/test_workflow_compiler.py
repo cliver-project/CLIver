@@ -9,6 +9,7 @@ from cliver.workflow.workflow_models import (
     HumanStep,
     LLMStep,
     Workflow,
+    WorkflowStep,
 )
 
 
@@ -120,6 +121,69 @@ class TestCompileFunction:
             name="test",
             steps=[
                 FunctionStep(id="f1", name="Func", function="os.getcwd"),
+            ],
+        )
+        compiler = WorkflowCompiler()
+        graph = compiler.compile(wf)
+        assert graph is not None
+
+
+class TestCompileWorkflowFile:
+    def test_compile_workflow_step_with_file(self, tmp_path):
+        import yaml
+
+        child_data = {
+            "name": "deploy",
+            "steps": [{"id": "d1", "type": "llm", "name": "Deploy", "prompt": "Deploy it"}],
+        }
+        sub_dir = tmp_path / "sub-workflows"
+        sub_dir.mkdir()
+        with open(sub_dir / "deploy.yaml", "w") as f:
+            yaml.dump(child_data, f)
+
+        wf = Workflow(
+            name="test",
+            steps=[
+                WorkflowStep(
+                    id="sub",
+                    name="Sub workflow",
+                    workflow_file="sub-workflows/deploy.yaml",
+                ),
+            ],
+        )
+        compiler = WorkflowCompiler()
+        graph = compiler.compile(wf, base_dir=str(tmp_path))
+        assert graph is not None
+
+    def test_compile_workflow_step_with_name(self, tmp_path):
+        from cliver.workflow.persistence import WorkflowStore
+
+        child_wf = Workflow(
+            name="deploy",
+            steps=[LLMStep(id="d1", name="Deploy", prompt="Deploy it")],
+        )
+        store = WorkflowStore(tmp_path / "workflows")
+        store.save_workflow(child_wf)
+
+        wf = Workflow(
+            name="test",
+            steps=[
+                WorkflowStep(id="sub", name="Sub workflow", workflow="deploy"),
+            ],
+        )
+        compiler = WorkflowCompiler()
+        graph = compiler.compile(wf, store=store)
+        assert graph is not None
+
+
+class TestLLMStepIsolation:
+    def test_compile_llm_step_without_agent(self):
+        """LLM step without agent= should still compile (isolation via factory at runtime)."""
+        wf = Workflow(
+            name="test",
+            steps=[
+                LLMStep(id="s1", name="S1", prompt="Do task A"),
+                LLMStep(id="s2", name="S2", prompt="Do task B", depends_on=["s1"]),
             ],
         )
         compiler = WorkflowCompiler()

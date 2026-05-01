@@ -82,8 +82,15 @@ def _load_overview(workflow: Workflow) -> Optional[str]:
 class WorkflowCompiler:
     """Compiles a CLIver Workflow YAML model into a LangGraph CompiledStateGraph."""
 
-    def compile(self, workflow: Workflow, checkpointer=None):
-        """Compile a workflow definition into an executable LangGraph graph."""
+    def compile(self, workflow: Workflow, checkpointer=None, store=None, base_dir=None):
+        """Compile a workflow definition into an executable LangGraph graph.
+
+        Args:
+            workflow: The workflow definition to compile.
+            checkpointer: LangGraph checkpointer for persistence.
+            store: WorkflowStore for resolving child workflows by name.
+            base_dir: Base directory for resolving relative workflow_file paths.
+        """
         builder = StateGraph(WorkflowState)
         agents = workflow.agents or {}
         overview = _load_overview(workflow)
@@ -101,7 +108,9 @@ class WorkflowCompiler:
             elif isinstance(step, FunctionStep):
                 builder.add_node(step.id, self._make_function_node(step))
             elif isinstance(step, WorkflowStep):
-                builder.add_node(step.id, self._make_workflow_node(step))
+                child_wf, child_base = self._resolve_child_workflow(step, store, base_dir)
+                child_graph = self.compile(child_wf, checkpointer=checkpointer, store=store, base_dir=child_base)
+                builder.add_node(step.id, self._make_workflow_node(step, child_wf, child_graph))
 
         # Add edges based on depends_on
         for step in workflow.steps:
@@ -140,6 +149,40 @@ class WorkflowCompiler:
         return builder.compile(checkpointer=checkpointer)
 
     @staticmethod
+    def _resolve_child_workflow(step: WorkflowStep, store, base_dir):
+        """Load and validate a child workflow at compile time.
+
+        Returns (child_workflow, child_base_dir).
+        """
+        from cliver.workflow.persistence import WorkflowStore as _WFStore
+
+        child_wf = None
+        child_base = base_dir
+
+        if step.workflow and store:
+            child_wf = store.load_workflow(step.workflow)
+            if child_wf:
+                child_base = str(store.workflows_dir)
+
+        if not child_wf and step.workflow_file:
+            file_path = Path(step.workflow_file)
+            if not file_path.is_absolute() and base_dir:
+                file_path = Path(base_dir) / file_path
+            child_wf = _WFStore.load_workflow_from_file(file_path)
+            if child_wf:
+                child_base = str(file_path.parent.resolve())
+
+        if not child_wf:
+            tried = []
+            if step.workflow:
+                tried.append(f"name '{step.workflow}'")
+            if step.workflow_file:
+                tried.append(f"file '{step.workflow_file}'")
+            raise ValueError(f"Workflow not found at compile time (tried {', '.join(tried)})")
+
+        return child_wf, child_base
+
+    @staticmethod
     def _make_passthrough_node(step: DecisionStep):
         async def node(state):
             return {"steps": {step.id: {"outputs": {"status": "decided"}, "status": "completed"}}}
@@ -153,8 +196,9 @@ class WorkflowCompiler:
             context = _state_to_execution_context(state)
             rendered_prompt = render_template(step.prompt, context)
 
-            if factory and agent_config:
-                subagent = factory.create(agent_config)
+            if factory:
+                effective_config = agent_config or AgentConfig(model=step.model)
+                subagent = factory.create(effective_config)
             else:
                 subagent = config["configurable"]["agent_core"]
 
@@ -166,11 +210,13 @@ class WorkflowCompiler:
                     parts.append(agent_config.system_message)
                 return "\n\n".join(parts) if parts else ""
 
+            effective_model = (agent_config.model if agent_config else None) or step.model
+
             start = time.time()
             try:
                 response = await subagent.process_user_input(
                     user_input=rendered_prompt,
-                    model=agent_config.model if agent_config else step.model,
+                    model=effective_model,
                     system_message_appender=system_appender,
                     images=render_template(step.images, context) if step.images else None,
                     audio_files=render_template(step.audio_files, context) if step.audio_files else None,
@@ -272,28 +318,44 @@ class WorkflowCompiler:
         return node
 
     @staticmethod
-    def _make_workflow_node(step: WorkflowStep):
+    def _make_workflow_node(step: WorkflowStep, child_workflow: Workflow, child_graph):
+        """Create a node that invokes a pre-compiled child workflow graph.
+
+        The child graph shares the parent's checkpointer (passed at compile time)
+        and gets a derived thread_id for its own checkpoint chain.
+        """
+
         async def node(state, config):
             context = _state_to_execution_context(state)
             start = time.time()
 
             try:
-                store = config["configurable"].get("workflow_store")
-                if not store:
-                    raise ValueError("No workflow_store in config for nested workflow")
-
-                from cliver.workflow.workflow_executor import WorkflowExecutor
-
-                sub_executor = WorkflowExecutor(
-                    agent_core=config["configurable"]["agent_core"],
-                    store=store,
-                    db_path=config["configurable"].get("db_path"),
-                    app_config=config["configurable"].get("app_config"),
-                    skill_manager=config["configurable"].get("skill_manager"),
-                )
-
                 rendered_inputs = render_template(step.workflow_inputs, context) if step.workflow_inputs else None
-                sub_result = await sub_executor.execute_workflow(step.workflow, inputs=rendered_inputs)
+
+                child_state = {
+                    "inputs": child_workflow.get_initial_inputs(rendered_inputs),
+                    "steps": {},
+                    "outputs_dir": str(Path(state["outputs_dir"]) / step.id),
+                    "workflow_name": child_workflow.name,
+                    "execution_id": state["execution_id"],
+                    "error": None,
+                }
+
+                parent_thread = config["configurable"]["thread_id"]
+                child_config = {
+                    "configurable": {
+                        "thread_id": f"{parent_thread}:{step.id}",
+                        "agent_core": config["configurable"].get("agent_core"),
+                        "subagent_factory": config["configurable"].get("subagent_factory"),
+                        "workflow_store": config["configurable"].get("workflow_store"),
+                        "db_path": config["configurable"].get("db_path"),
+                        "app_config": config["configurable"].get("app_config"),
+                        "skill_manager": config["configurable"].get("skill_manager"),
+                        "workflow_base_dir": config["configurable"].get("workflow_base_dir"),
+                    }
+                }
+
+                sub_result = await child_graph.ainvoke(child_state, child_config)
 
                 return {
                     "steps": {

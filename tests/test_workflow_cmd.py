@@ -23,3 +23,13 @@ class TestWorkflowCommands:
         assert "list" in result.output
         assert "run" in result.output
         assert "show" in result.output
+
+    def test_workflow_history_subcommand(self, load_cliver, init_config):
+        result = CliRunner().invoke(load_cliver, ["workflow", "history", "nonexistent"])
+        assert result.exit_code == 0
+        assert "no executions" in result.output.lower() or "nonexistent" in result.output.lower()
+
+    def test_workflow_status_subcommand(self, load_cliver, init_config):
+        result = CliRunner().invoke(load_cliver, ["workflow", "status", "nope", "--thread", "t1"])
+        assert result.exit_code == 0
+        assert "no execution" in result.output.lower() or "not found" in result.output.lower()

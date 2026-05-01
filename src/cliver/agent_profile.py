@@ -125,6 +125,7 @@ class CliverProfile:
         self.tasks_dir = self.agent_dir / "tasks"
         self.sessions_dir = self.agent_dir / "sessions"
         self.workflows_dir = self.agent_dir / "workflows"
+        self.workflow_checkpoints_db = self.agent_dir / "workflow-checkpoints.db"
 
         # Global-scoped paths
         self.global_memory_file = self.config_dir / "memory.md"

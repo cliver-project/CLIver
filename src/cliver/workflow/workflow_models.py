@@ -12,7 +12,7 @@ Model hierarchy:
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class AgentConfig(BaseModel):
@@ -85,8 +85,15 @@ class HumanStep(BaseStep):
 
 class WorkflowStep(BaseStep):
     type: StepType = StepType.WORKFLOW
-    workflow: str = Field(..., description="Workflow name to execute")
+    workflow: Optional[str] = Field(None, description="Workflow name to execute (from store)")
+    workflow_file: Optional[str] = Field(None, description="Path to workflow YAML file to execute")
     workflow_inputs: Optional[Dict[str, Any]] = Field(None, description="Inputs for sub-workflow")
+
+    @model_validator(mode="after")
+    def check_workflow_or_file(self):
+        if not self.workflow and not self.workflow_file:
+            raise ValueError("At least one of 'workflow' or 'workflow_file' must be set")
+        return self
 
 
 class Branch(BaseModel):
