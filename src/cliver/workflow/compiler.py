@@ -67,6 +67,49 @@ def _save_step_output(outputs_dir: str, step_id: str, content: str, fmt: str) ->
     logger.info("Saved step output: %s/%s", outputs_dir, filename)
 
 
+def _save_step_media(outputs_dir: str, step_id: str, response, agent_core, model: str) -> list[str]:
+    """Extract and save media files from an LLM response.
+
+    Returns list of saved file paths (empty if no media).
+    """
+    if not outputs_dir:
+        return []
+
+    from cliver.media import MediaContent, get_file_extension
+
+    media_list: list[MediaContent] = []
+
+    if hasattr(response, "additional_kwargs"):
+        media_list = response.additional_kwargs.get("media_content", [])
+
+    if not media_list:
+        try:
+            llm_engine = agent_core.get_llm_engine(model)
+            media_list = llm_engine.extract_media_from_response(response)
+        except Exception as e:
+            logger.warning("Could not extract media from LLM response: %s", e)
+
+    if not media_list:
+        return []
+
+    dir_path = Path(outputs_dir)
+    dir_path.mkdir(parents=True, exist_ok=True)
+
+    saved: list[str] = []
+    for i, media in enumerate(media_list):
+        ext = get_file_extension(media.mime_type)
+        filename = f"{step_id}_media_{i}{ext}"
+        file_path = dir_path / filename
+        try:
+            media.save(file_path)
+            saved.append(str(file_path))
+            logger.info("Saved step media: %s", file_path)
+        except Exception as e:
+            logger.error("Failed to save media %s: %s", filename, e)
+
+    return saved
+
+
 def _load_overview(workflow: Workflow) -> Optional[str]:
     """Load the workflow overview from inline text or file."""
     if workflow.overview:
@@ -228,7 +271,11 @@ class WorkflowCompiler:
                 result_text = extract_response_text(response)
                 _save_step_output(state["outputs_dir"], step.id, result_text, step.output_format)
 
+                media_files = _save_step_media(state["outputs_dir"], step.id, response, subagent, effective_model)
+
                 outputs = {"result": result_text}
+                if media_files:
+                    outputs["media_files"] = media_files
                 if step.outputs:
                     for name in step.outputs:
                         outputs[name] = result_text
