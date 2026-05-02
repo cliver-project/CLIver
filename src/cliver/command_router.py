@@ -103,6 +103,10 @@ class CommandRouter:
             return self._pending_input.pop(0)
         return None
 
+    def promote_to_query(self) -> None:
+        """Mark the current command as a query session so follow-up input is accepted."""
+        self._is_query = True
+
     # -- State ----------------------------------------------------
 
     @property

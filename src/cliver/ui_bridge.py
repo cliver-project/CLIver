@@ -31,10 +31,30 @@ PERMISSION_CHOICES = {
 }
 
 
+def _parse_permission_input(text: str) -> tuple[str, str]:
+    """Parse permission input like 'y', 'n, because it touches prod', 'a only for reads'.
+
+    Returns (permission_key, extra_context). The permission_key is the raw
+    choice (e.g. 'y', 'n') to be looked up in PERMISSION_CHOICES.
+    """
+    text = text.strip()
+    if not text:
+        return "", ""
+
+    import re
+
+    m = re.match(r"^(\S+?)(?:\s*[,，]\s*|\s+)(.*)", text)
+    if m:
+        key = m.group(1).lower()
+        if key in PERMISSION_CHOICES:
+            return key, m.group(2).strip()
+    return text.lower(), ""
+
+
 @runtime_checkable
 class UIBridge(Protocol):
     def output(self, text: str, style: str = "") -> None: ...
-    def ask_permission(self, tool_name: str, args: dict, meta: dict) -> str: ...
+    def ask_permission(self, tool_name: str, args: dict, meta: dict) -> tuple[str, str]: ...
     def ask_input(self, prompt: str, choices: list[str] | None = None) -> str: ...
     def ask_fields(self, fields: list[FieldSpec]) -> dict | None: ...
     def show_tool_event(self, event) -> None: ...
@@ -78,14 +98,15 @@ class CLIBridge:
     def output(self, text: str, style: str = "") -> None:
         print(text)
 
-    def ask_permission(self, tool_name: str, args: dict, meta: dict) -> str:
+    def ask_permission(self, tool_name: str, args: dict, meta: dict) -> tuple[str, str]:
         args_summary = ", ".join(f"{k}={v}" for k, v in list(args.items())[:3])
         print(f"  Tool: {tool_name}({args_summary})", file=sys.stderr)
         try:
-            response = input("  Allow? [y/n/a/d] > ").strip().lower()
+            response = input("  Allow? [y/n/a/d] > ").strip()
         except (EOFError, KeyboardInterrupt):
-            return "deny"
-        return PERMISSION_CHOICES.get(response, "deny")
+            return "deny", ""
+        key, extra = _parse_permission_input(response)
+        return PERMISSION_CHOICES.get(key, "deny"), extra
 
     def ask_input(self, prompt: str, choices: list[str] | None = None) -> str:
         while True:
@@ -119,14 +140,16 @@ class TUIBridge:
         self._pending: Optional[threading.Event] = None
         self._response: Optional[str] = None
         self._valid_choices: Optional[list[str]] = None
+        self._allow_extra_context: bool = False
 
     def output(self, text: str, style: str = "") -> None:
         print(text)
 
-    def ask_permission(self, tool_name: str, args: dict, meta: dict) -> str:
+    def ask_permission(self, tool_name: str, args: dict, meta: dict) -> tuple[str, str]:
         args_summary = ", ".join(f"{k}={v}" for k, v in list(args.items())[:3])
         self.output(f"  Tool: {tool_name}({args_summary})")
         self._valid_choices = list(PERMISSION_CHOICES.keys())
+        self._allow_extra_context = True
         event = threading.Event()
         self._response = None
         self._pending = event
@@ -134,7 +157,9 @@ class TUIBridge:
         self._pending = None
         raw = self._response or ""
         self._valid_choices = None
-        return PERMISSION_CHOICES.get(raw.lower(), "deny")
+        self._allow_extra_context = False
+        key, extra = _parse_permission_input(raw)
+        return PERMISSION_CHOICES.get(key, "deny"), extra
 
     def ask_input(self, prompt: str, choices: list[str] | None = None) -> str:
         self.output(prompt)
@@ -167,7 +192,11 @@ class TUIBridge:
         Returns True if accepted, False if rejected (invalid choice).
         """
         if self._valid_choices:
-            if text.lower() not in self._valid_choices:
+            if getattr(self, "_allow_extra_context", False):
+                key, _ = _parse_permission_input(text)
+                if key not in self._valid_choices:
+                    return False
+            elif text.lower() not in self._valid_choices:
                 return False
         self._response = text
         if self._pending:

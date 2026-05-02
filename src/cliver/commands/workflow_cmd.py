@@ -48,19 +48,24 @@ def _list_workflows(cliver: Cliver):
     from cliver.workflow.persistence import WorkflowStore
 
     store = WorkflowStore(cliver.agent_profile.workflows_dir)
-    names = store.list_workflows()
+    entries = store.list_all_workflows()
 
-    if not names:
+    if not entries:
         cliver.output("No workflows saved.")
         return
 
     cliver.output("[bold]Saved workflows:[/bold]\n")
-    for name in names:
-        wf = store.load_workflow(name)
-        desc = wf.description or "(no description)" if wf else "(error loading)"
-        steps = len(wf.steps) if wf else 0
-        agents = len(wf.agents) if wf and wf.agents else 0
-        cliver.output(f"  [bold]{name}[/bold] — {desc} ({steps} steps, {agents} agents)")
+    for name, source, path in entries:
+        wf = WorkflowStore.load_workflow_from_file(path)
+        if wf:
+            desc = wf.description or "(no description)"
+            steps = len(wf.steps)
+            agents = len(wf.agents) if wf.agents else 0
+            source_tag = f"[dim][{source}][/dim] " if source == "project" else ""
+            cliver.output(f"  {source_tag}[bold]{name}[/bold] — {desc} ({steps} steps, {agents} agents)")
+        else:
+            source_tag = f"[dim][{source}][/dim] " if source == "project" else ""
+            cliver.output(f"  {source_tag}[bold]{name}[/bold] — [red]error loading {path}[/red]")
 
 
 def _show_workflow(cliver: Cliver, name: str):
@@ -94,7 +99,13 @@ def _run_workflow(cliver: Cliver, name: str, inputs: tuple):
 
     cliver.output(f"[bold]Running workflow: {name}[/bold]\n")
 
-    result = _run_async(executor.execute_workflow(name, inputs=parsed_inputs or None))
+    async def _execute():
+        try:
+            return await executor.execute_workflow(name, inputs=parsed_inputs or None)
+        finally:
+            await executor.close()
+
+    result = _run_async(_execute())
 
     if result:
         _display_result(cliver, result)
@@ -132,7 +143,13 @@ def _status_workflow(cliver: Cliver, name: str, thread_id: str):
     """Show step-by-step status of a specific execution."""
     executor, _ = _make_executor(cliver)
 
-    status = _run_async(executor.get_execution_status(name, thread_id))
+    async def _get_status():
+        try:
+            return await executor.get_execution_status(name, thread_id)
+        finally:
+            await executor.close()
+
+    status = _run_async(_get_status())
 
     if not status:
         cliver.output(f"No execution found for thread '{thread_id}'.")
@@ -163,12 +180,20 @@ def _resume_workflow(cliver: Cliver, name: str, thread: str, answer: str | None,
         cliver.output(f"Workflow '{name}' not found.")
         return
 
+    async def _execute():
+        try:
+            if step:
+                return await executor.resume_from_step(name, thread, step)
+            return await executor.resume_workflow(name, thread_id=thread, resume_value=answer)
+        finally:
+            await executor.close()
+
     if step:
         cliver.output(f"[bold]Resuming workflow '{name}' from step '{step}'[/bold]\n")
-        result = _run_async(executor.resume_from_step(name, thread, step))
     else:
         cliver.output(f"[bold]Resuming workflow: {name}[/bold]\n")
-        result = _run_async(executor.resume_workflow(name, thread_id=thread, resume_value=answer))
+
+    result = _run_async(_execute())
 
     if result:
         _display_result(cliver, result)

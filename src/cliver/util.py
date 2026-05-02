@@ -54,7 +54,7 @@ BROWSER_USER_AGENT = (
 )
 
 
-def _get_app_user_agent() -> str:
+def get_app_user_agent() -> str:
     """Read user_agent from app config, falling back to 'CLIver'."""
     try:
         from cliver.agent_profile import get_current_profile
@@ -93,7 +93,7 @@ def url_request(
     """
     import urllib.request as _ur
 
-    ua = user_agent or _get_app_user_agent()
+    ua = user_agent or get_app_user_agent()
     merged: dict[str, str] = {"User-Agent": ua}
     if headers:
         merged.update(headers)

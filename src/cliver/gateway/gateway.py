@@ -395,19 +395,29 @@ class Gateway:
                 await self.run_workflow(task.workflow, inputs=inputs)
                 response_text = "Workflow completed."
             else:
-                system_appender = None
-                if task.skills:
-                    system_appender = self._build_skill_appender(task.skills)
+                from cliver.skill_manager import SkillManager, build_skill_appender, build_skill_tool_filter
 
                 async def _task_filter_tools(_input, tools):
                     return [t for t in tools if t.name != "Ask"]
+
+                system_appender = None
+                tool_filter = _task_filter_tools
+                if task.skills:
+                    manager = SkillManager()
+                    skill_objs = [s for name in task.skills if (s := manager.get_skill(name))]
+                    for name in task.skills:
+                        if not manager.get_skill(name):
+                            logger.warning("Skill '%s' not found for pre-activation", name)
+                    if skill_objs:
+                        system_appender = build_skill_appender(skill_objs)
+                        tool_filter = build_skill_tool_filter(skill_objs, _task_filter_tools)
 
                 response = await self._agent_core.process_user_input(
                     user_input=task.prompt,
                     model=task.model,
                     system_message_appender=system_appender,
                     conversation_history=conversation_history,
-                    filter_tools=_task_filter_tools,
+                    filter_tools=tool_filter,
                 )
                 from cliver.media_handler import extract_response_text
 
@@ -532,25 +542,6 @@ class Gateway:
             encoding="utf-8",
         )
         logger.info("Task result saved to %s", result_path)
-
-    def _build_skill_appender(self, skill_names: list) -> callable:
-        """Build a system_message_appender that injects pre-activated skills."""
-        from cliver.skill_manager import SkillManager
-
-        manager = SkillManager()
-        skill_contents = []
-        for name in skill_names:
-            skill = manager.get_skill(name)
-            if skill and skill.body:
-                skill_contents.append(f"# Skill: {skill.name}\n\n{skill.body}")
-            else:
-                logger.warning("Skill '%s' not found for pre-activation", name)
-
-        if not skill_contents:
-            return None
-
-        combined = "\n\n".join(skill_contents)
-        return lambda: combined
 
     async def run_workflow(self, workflow_name: str, inputs: dict = None) -> Optional[dict]:
         """Execute a workflow headlessly via the gateway."""

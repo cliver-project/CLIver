@@ -136,7 +136,7 @@ class AgentCore:
         agent_profile=None,
         token_tracker=None,
         permission_manager: Optional[PermissionManager] = None,
-        on_permission_prompt: Optional[Callable[[str, dict], str]] = None,
+        on_permission_prompt: Optional[Callable[[str, dict], "str | tuple[str, str]"]] = None,
         enabled_toolsets: Optional[List[str]] = None,
         skill_auto_learn: bool = False,
         model_auto_fallback: bool = True,
@@ -524,6 +524,89 @@ class AgentCore:
             )
         )
 
+    # -- Skill execution wrappers -----------------------------------------------
+
+    async def process_skill(
+        self,
+        skill_name: str,
+        user_input: str,
+        *,
+        model: str = None,
+        system_message_appender: Optional[Callable[[], str]] = None,
+        filter_tools: Optional[Callable[[str, list[BaseTool]], Awaitable[list[BaseTool]]]] = None,
+        conversation_history: Optional[List[BaseMessage]] = None,
+        **kwargs,
+    ) -> BaseMessage:
+        """Execute a skill by name, injecting its instructions into the system prompt.
+
+        Resolves the skill via SkillManager, builds the appropriate
+        system_message_appender and filter_tools callbacks, and delegates
+        to process_user_input().  Callers can layer additional appenders
+        and filters via the corresponding parameters.
+        """
+        appender, tool_filter = self._resolve_skill_context(
+            skill_name,
+            system_message_appender,
+            filter_tools,
+        )
+        return await self.process_user_input(
+            user_input=user_input,
+            model=model,
+            system_message_appender=appender,
+            filter_tools=tool_filter,
+            conversation_history=conversation_history,
+            **kwargs,
+        )
+
+    async def stream_skill(
+        self,
+        skill_name: str,
+        user_input: str,
+        *,
+        model: str = None,
+        system_message_appender: Optional[Callable[[], str]] = None,
+        filter_tools: Optional[Callable[[str, list[BaseTool]], Awaitable[list[BaseTool]]]] = None,
+        conversation_history: Optional[List[BaseMessage]] = None,
+        **kwargs,
+    ):
+        """Streaming variant of process_skill()."""
+        appender, tool_filter = self._resolve_skill_context(
+            skill_name,
+            system_message_appender,
+            filter_tools,
+        )
+        async for chunk in self.stream_user_input(
+            user_input=user_input,
+            model=model,
+            system_message_appender=appender,
+            filter_tools=tool_filter,
+            conversation_history=conversation_history,
+            **kwargs,
+        ):
+            yield chunk
+
+    def _resolve_skill_context(
+        self,
+        skill_name: str,
+        extra_appender: Optional[Callable[[], str]],
+        extra_filter: Optional[Callable],
+    ):
+        """Resolve a skill and return (appender, tool_filter) pair."""
+        from cliver.skill_manager import SkillManager, build_skill_appender, build_skill_tool_filter
+
+        manager = SkillManager()
+        skill = manager.get_skill(skill_name)
+        if not skill:
+            available = manager.get_skill_names()
+            names = ", ".join(available) if available else "none"
+            raise ValueError(f"Skill '{skill_name}' not found. Available: {names}")
+
+        appender = build_skill_appender([skill], extra_appender)
+        tool_filter = build_skill_tool_filter([skill], extra_filter)
+        return appender, tool_filter
+
+    # -- Streaming input ------------------------------------------------------
+
     async def stream_user_input(
         self,
         user_input: str,
@@ -600,6 +683,8 @@ class AgentCore:
         )
 
         ctx = CallContext()
+        if filter_tools and llm_tools:
+            ctx.allowed_tools = {t.name for t in llm_tools}
         ctx.activate()
 
         required_caps = self._compute_required_capabilities(
@@ -690,16 +775,14 @@ class AgentCore:
         ]
 
         llm_tools: List[BaseTool] = []
-        # mcp_tools are langchain BaseTool coming from MCP server, the name follows 'mcp_server_name#tool_name'
         mcp_tools: List[BaseTool] = await self.mcp_caller.get_mcp_tools()
-        if filter_tools:
-            mcp_tools = await filter_tools(user_input, mcp_tools)
         if mcp_tools:
             llm_tools.extend(mcp_tools)
-        # Include builtin tools filtered by relevance to user input
         _builtin_tools = tool_registry.get_tools(user_input=user_input)
         if _builtin_tools:
             llm_tools.extend(_builtin_tools)
+        if filter_tools:
+            llm_tools = await filter_tools(user_input, llm_tools)
 
         # Apply template if provided
         if template:
@@ -947,6 +1030,8 @@ class AgentCore:
         )
 
         ctx = CallContext()
+        if filter_tools and llm_tools:
+            ctx.allowed_tools = {t.name for t in llm_tools}
         ctx.activate()
 
         required_caps = self._compute_required_capabilities(
@@ -1368,14 +1453,23 @@ class AgentCore:
                 self._append_denied_tool_message(full_tool_name, args, tool_call_id, messages, llm_response)
                 return False, None
             elif decision == PermissionDecision.ASK:
-                user_choice = self._prompt_user_permission(full_tool_name, args)
+                user_choice, extra_context = self._prompt_user_permission(full_tool_name, args)
                 if user_choice in ("deny", "deny_always"):
                     if user_choice == "deny_always":
                         self.permission_manager.grant_session(full_tool_name, PermissionAction.DENY)
-                    self._append_denied_tool_message(full_tool_name, args, tool_call_id, messages, llm_response)
+                    self._append_denied_tool_message(
+                        full_tool_name,
+                        args,
+                        tool_call_id,
+                        messages,
+                        llm_response,
+                        user_note=extra_context,
+                    )
                     return False, None
                 elif user_choice == "allow_always":
                     self.permission_manager.grant_session(full_tool_name, PermissionAction.ALLOW)
+                if extra_context:
+                    messages.append(HumanMessage(content=f"[User note on tool '{full_tool_name}']: {extra_context}"))
             return None
 
         if confirm_tool_exec is not None:
@@ -1384,11 +1478,15 @@ class AgentCore:
 
         return None
 
-    def _prompt_user_permission(self, full_tool_name: str, args: dict) -> str:
-        """Prompt user for permission. Returns allow/allow_always/deny/deny_always."""
+    def _prompt_user_permission(self, full_tool_name: str, args: dict) -> tuple[str, str]:
+        """Prompt user for permission. Returns (choice, extra_context)."""
         if self.on_permission_prompt is not None:
-            return self.on_permission_prompt(full_tool_name, args)
-        return _default_permission_prompt(full_tool_name, args)
+            result = self.on_permission_prompt(full_tool_name, args)
+            if isinstance(result, tuple):
+                return result
+            return result, ""
+        choice = _default_permission_prompt(full_tool_name, args)
+        return choice, ""
 
     def _append_denied_tool_message(
         self,
@@ -1397,6 +1495,7 @@ class AgentCore:
         tool_call_id: str,
         messages: List[BaseMessage],
         llm_response: Optional[BaseMessage],
+        user_note: str = "",
     ):
         """Append AIMessage + ToolMessage for a denied tool call."""
         extra_kwargs: Dict[str, Any] = {}
@@ -1418,14 +1517,14 @@ class AgentCore:
                 additional_kwargs=extra_kwargs,
             )
         )
-        messages.append(
-            ToolMessage(
-                content=f"Permission denied: The user denied execution of '{full_tool_name}'. "
-                f"Do NOT retry this tool. Inform the user that the action was skipped "
-                f"and ask how they would like to proceed.",
-                tool_call_id=tool_call_id,
-            )
+        denied_msg = (
+            f"Permission denied: The user denied execution of '{full_tool_name}'. "
+            f"Do NOT retry this tool. Inform the user that the action was skipped "
+            f"and ask how they would like to proceed."
         )
+        if user_note:
+            denied_msg += f"\n\nUser's note: {user_note}"
+        messages.append(ToolMessage(content=denied_msg, tool_call_id=tool_call_id))
 
     _CACHEABLE_TOOLS = frozenset(
         {
@@ -1463,6 +1562,14 @@ class AgentCore:
         exceptions as error results so the LLM can recover.
         Uses a per-conversation cache to deduplicate identical calls.
         """
+        if ctx.allowed_tools is not None and tool_name not in ctx.allowed_tools:
+            return [
+                {
+                    "error": f"Tool '{tool_name}' is not allowed by the active skill. "
+                    f"Allowed tools: {', '.join(sorted(ctx.allowed_tools))}"
+                }
+            ]
+
         cache_key = self._tool_cache_key(full_tool_name, args)
         cache = ctx.tool_result_cache
         if cache_key and cache_key in cache:

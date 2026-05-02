@@ -9,6 +9,28 @@ from pydantic import BaseModel, Field
 logger = logging.getLogger(__name__)
 
 
+def _parse_choice_with_context(text: str) -> tuple[int | None, str]:
+    """Parse user input like '1', '0, my custom text', or '2 extra context'.
+
+    Returns (choice_number, extra_text). If the input doesn't start with
+    a digit, returns (None, '').
+    """
+    text = text.strip()
+    if not text or not text[0].isdigit():
+        return None, ""
+
+    import re
+
+    m = re.match(r"^(\d+)(?:\s*[,，]\s*|\s+)(.*)", text)
+    if m:
+        return int(m.group(1)), m.group(2).strip()
+    # Bare number with no extra text
+    try:
+        return int(text), ""
+    except ValueError:
+        return None, ""
+
+
 class QuestionOption(BaseModel):
     """An option for a question."""
 
@@ -102,22 +124,24 @@ class AskUserQuestionTool(BaseTool):
             if not result:
                 return "User cancelled the question."
 
-            # Handle numbered options
+            # Handle numbered options, with optional extra context after comma/space
             if options and result:
-                try:
-                    choice = int(result)
-                    if 1 <= choice <= len(options):
-                        opt = options[choice - 1]
+                choice_num, extra = _parse_choice_with_context(result)
+                if choice_num is not None:
+                    if 1 <= choice_num <= len(options):
+                        opt = options[choice_num - 1]
                         label = opt.get("label", "") if isinstance(opt, dict) else opt.label
+                        if extra:
+                            return f"User selected: {label}. Additional context: {extra}"
                         return f"User selected: {label}"
-                    elif choice == 0:
+                    elif choice_num == 0:
+                        if extra:
+                            return f"User response: {extra}"
                         if cliver_inst:
                             custom = cliver_inst.ui.ask_input("  Your response: ")
                         else:
                             custom = input("  Your response: ").strip()
                         return f"User response: {custom}"
-                except ValueError:
-                    pass
                 return f"User response: {result}"
 
             return f"User response: {result}"

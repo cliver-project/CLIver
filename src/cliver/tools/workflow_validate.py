@@ -150,7 +150,14 @@ def _format_schema() -> str:
 ## Top-level fields
 - name (str, required): Unique workflow name
 - description (str, optional): What the workflow does
+- overview (str, optional): High-level context shared with all subagents
 - inputs (dict, optional): Default input parameters (key: default_value)
+- agents (dict, optional): Reusable agent profile configs, keyed by agent name
+  Example:
+    agents:
+      researcher:
+        role: "Research analyst"
+        instructions: "Focus on accuracy and citations."
 - steps (list, required): List of step definitions
 - permissions (optional): Permission overrides for the workflow
 

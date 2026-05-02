@@ -32,7 +32,7 @@ class TestMiniMaxImageHelper:
         body = helper.build_request("a sunset over mountains")
         assert body["prompt"] == "a sunset over mountains"
         assert body["model"] == "image-01"
-        assert body["response_format"] == "url"
+        assert body["response_format"] == "b64_json"
 
     def test_build_request_custom_model(self):
         helper = MiniMaxImageHelper()

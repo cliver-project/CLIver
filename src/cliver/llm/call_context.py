@@ -25,6 +25,9 @@ class CallContext:
     tool_result_cache: dict[str, list] = field(default_factory=dict)
     """Dedup cache: maps (tool_name, args) hash to cached result list."""
 
+    allowed_tools: Optional[set[str]] = None
+    """When set, only these tool names may execute. Others return an error."""
+
     def activate(self) -> None:
         """Set this context as the current one (via ContextVar)."""
         _current_call_context.set(self)

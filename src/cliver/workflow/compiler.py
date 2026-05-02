@@ -24,6 +24,20 @@ from cliver.workflow.workflow_models import (
 
 logger = logging.getLogger(__name__)
 
+# Tools excluded from workflow step execution — each step is a focused
+# execution unit, not a planning session.
+_WORKFLOW_EXCLUDED_TOOLS = frozenset(
+    {
+        "TodoWrite",
+        "TodoRead",
+        "Skill",
+        "CliverHelp",
+        "CreateTask",
+        "WorkflowValidate",
+        "SearchSessions",
+    }
+)
+
 
 def merge_steps(left: Optional[Dict[str, Any]], right: Dict[str, Any]) -> Dict[str, Any]:
     """Reducer for WorkflowState.steps — merges new step results into existing."""
@@ -255,12 +269,22 @@ class WorkflowCompiler:
 
             effective_model = (agent_config.model if agent_config else None) or step.model
 
+            # Build tool filter: use agent's explicit tool list if set,
+            # otherwise exclude planning/meta tools from workflow steps.
+            agent_tools = agent_config.tools if agent_config and agent_config.tools else None
+
+            async def _filter_tools(_user_input, tools):
+                if agent_tools:
+                    return [t for t in tools if t.name in agent_tools]
+                return [t for t in tools if t.name not in _WORKFLOW_EXCLUDED_TOOLS]
+
             start = time.time()
             try:
                 response = await subagent.process_user_input(
                     user_input=rendered_prompt,
                     model=effective_model,
                     system_message_appender=system_appender,
+                    filter_tools=_filter_tools,
                     images=render_template(step.images, context) if step.images else None,
                     audio_files=render_template(step.audio_files, context) if step.audio_files else None,
                     video_files=render_template(step.video_files, context) if step.video_files else None,

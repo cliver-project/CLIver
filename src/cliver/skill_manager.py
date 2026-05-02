@@ -19,7 +19,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 import yaml
 
@@ -365,10 +365,17 @@ class SkillManager:
         lines.append("\nCall skill('<name>') to activate a skill and get its full instructions.")
         return "\n".join(lines)
 
-    def activate_skill(self, name: str) -> str:
+    def activate_skill(self, name: str, prompt: str = "") -> str:
         """Activate a skill and return its content for injection into the conversation.
 
-        Returns the skill body prefixed with the base directory path.
+        Args:
+            name: Skill name to activate.
+            prompt: Optional initial prompt describing what the user wants.
+                    When provided, it is included so the LLM has full context
+                    of the task alongside the skill instructions.
+
+        Returns the skill body prefixed with the base directory path and,
+        if given, the user's initial prompt.
         """
         skill = self.get_skill(name)
         if not skill:
@@ -378,9 +385,70 @@ class SkillManager:
                 msg += f" Available skills: {', '.join(available)}"
             return msg
 
-        return f"Base directory for this skill: {skill.base_dir}/\n\n{skill.body}"
+        parts = [f"Base directory for this skill: {skill.base_dir}/\n\n{skill.body}"]
+        if prompt:
+            parts.append(f"# User's Request\n\n{prompt}")
+        return "\n\n".join(parts)
 
     def reload(self) -> None:
         """Force re-discovery of skills."""
         self._skills = None
         self._ensure_loaded()
+
+
+# ---------------------------------------------------------------------------
+# Skill execution helpers — used by AgentCore, CLI, and gateway
+# ---------------------------------------------------------------------------
+
+
+def build_skill_appender(
+    skills: list[Skill],
+    extra_appender: "Callable[[], str] | None" = None,
+) -> "Callable[[], str]":
+    """Build a system_message_appender that injects skill instructions.
+
+    Combines one or more skill bodies into a single appender. If
+    *extra_appender* is provided its output is appended after the skill
+    content so callers can layer additional context (e.g. IM rules).
+    """
+    parts = [f"# Skill: {s.name}\n\nBase directory for this skill: {s.base_dir}/\n\n{s.body}" for s in skills]
+    combined = "\n\n".join(parts)
+
+    def _appender() -> str:
+        sections = [combined]
+        if extra_appender:
+            extra = extra_appender()
+            if extra:
+                sections.append(extra)
+        return "\n\n".join(sections)
+
+    return _appender
+
+
+def build_skill_tool_filter(
+    skills: list[Skill],
+    extra_filter: "Callable | None" = None,
+) -> "Callable | None":
+    """Build a filter_tools callback that restricts tools to those listed in
+    the skills' ``allowed_tools`` frontmatter.
+
+    Returns *None* if no skill specifies ``allowed_tools`` (meaning no
+    filtering is needed). If *extra_filter* is provided it is applied first,
+    then the allowed-tools whitelist is applied on top.
+    """
+    allowed: set[str] = set()
+    has_constraint = False
+    for s in skills:
+        if s.allowed_tools:
+            has_constraint = True
+            allowed.update(s.allowed_tools)
+
+    if not has_constraint:
+        return extra_filter
+
+    async def _filter(user_input: str, tools: list) -> list:
+        if extra_filter:
+            tools = await extra_filter(user_input, tools)
+        return [t for t in tools if t.name in allowed]
+
+    return _filter

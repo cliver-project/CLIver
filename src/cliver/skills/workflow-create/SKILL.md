@@ -1,8 +1,8 @@
 ---
 name: workflow-create
-description: Create a reusable workflow from a natural language description. The LLM designs a DAG of steps with dependencies, branching, and state propagation, then outputs valid workflow YAML.
+description: Create a single workflow from a concrete step-by-step description. Best for small automations (under 10 steps) where the user already knows what steps are needed and wants a DAG with dependencies, branching, and state propagation.
 keywords: workflow, create, automate, pipeline, dag, steps
-allowed-tools: Read LS Grep Bash Write Ask Skill WorkflowValidate
+allowed-tools: Read LS Grep Write Ask Skill WorkflowValidate
 ---
 
 # Create Workflow
@@ -72,21 +72,23 @@ steps:
 
 ## 5. Validate Before Saving
 
-**Always validate before saving.** Call:
+**You MUST validate every workflow YAML before saving.** Do NOT skip this step. Call:
 ```
 WorkflowValidate(action='validate', yaml_content='...')
 ```
 This checks YAML syntax, required fields, step type schemas,
 dependency references, and cycle detection. Fix any reported
-errors and re-validate until it returns `Valid`.
+errors and re-validate until the tool returns `Valid`.
+Never call `Write` to save a workflow that has not passed validation.
 
 ## 6. Save the Workflow
 
-After validation passes, save using `Write` to:
-`{agent_workflows_dir}/{workflow-name}.yaml`
+After validation passes, save to the **project-local** `.cliver/workflows/` directory
+(relative to CWD) using `Write`:
+`.cliver/workflows/{workflow-name}.yaml`
 
 Tell the user the workflow is saved and how to run it:
-`cliver workflow run {workflow-name}`
+`cliver workflow run .cliver/workflows/{workflow-name}.yaml`
 
 ## Rules
 - Every step MUST have a unique `id`

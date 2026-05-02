@@ -9,6 +9,8 @@ from cliver.skill_manager import (
     Skill,
     SkillManager,
     _parse_skill_md,
+    build_skill_appender,
+    build_skill_tool_filter,
     validate_skill,
     validate_skill_name,
 )
@@ -415,6 +417,16 @@ class TestActivateSkill:
         assert "# Web Search" in result
         assert "tavily_search" in result
 
+    def test_activate_with_prompt(self, manager):
+        result = manager.activate_skill("web-search", prompt="Find docs about Python asyncio")
+        assert "# Web Search" in result
+        assert "# User's Request" in result
+        assert "Find docs about Python asyncio" in result
+
+    def test_activate_without_prompt_has_no_request_section(self, manager):
+        result = manager.activate_skill("web-search")
+        assert "# User's Request" not in result
+
     def test_activate_nonexistent_lists_available(self, manager):
         result = manager.activate_skill("nonexistent")
         assert "not found" in result
@@ -578,3 +590,111 @@ class TestBuiltinSkillDiscovery:
         mgr = SkillManager()
         skill = mgr.get_skill("test-skill")
         assert skill.source == "builtin"
+
+
+# ---------------------------------------------------------------------------
+# build_skill_appender / build_skill_tool_filter
+# ---------------------------------------------------------------------------
+
+
+class TestBuildSkillAppender:
+    def _make_skill(self, name="test", body="Do the thing.", allowed_tools=None):
+        return Skill(
+            name=name,
+            description="test skill",
+            body=body,
+            base_dir=Path("/fake"),
+            allowed_tools=allowed_tools,
+        )
+
+    def test_single_skill(self):
+        skill = self._make_skill(name="my-skill", body="Step 1: Go.")
+        appender = build_skill_appender([skill])
+        result = appender()
+        assert "# Skill: my-skill" in result
+        assert "Step 1: Go." in result
+        assert "Base directory for this skill: /fake/" in result
+
+    def test_multiple_skills(self):
+        s1 = self._make_skill(name="alpha", body="A body")
+        s2 = self._make_skill(name="beta", body="B body")
+        appender = build_skill_appender([s1, s2])
+        result = appender()
+        assert "# Skill: alpha" in result
+        assert "# Skill: beta" in result
+
+    def test_extra_appender_combined(self):
+        skill = self._make_skill()
+        appender = build_skill_appender([skill], extra_appender=lambda: "Extra context")
+        result = appender()
+        assert "Do the thing." in result
+        assert "Extra context" in result
+
+    def test_extra_appender_empty_ignored(self):
+        skill = self._make_skill()
+        appender = build_skill_appender([skill], extra_appender=lambda: "")
+        result = appender()
+        assert "Do the thing." in result
+        assert result.strip().endswith("Do the thing.")
+
+
+class TestBuildSkillToolFilter:
+    def _make_skill(self, allowed_tools=None):
+        return Skill(
+            name="test",
+            description="test",
+            body="body",
+            base_dir=Path("/fake"),
+            allowed_tools=allowed_tools,
+        )
+
+    class FakeTool:
+        def __init__(self, name):
+            self.name = name
+
+    def test_no_constraint_returns_none(self):
+        skill = self._make_skill(allowed_tools=None)
+        assert build_skill_tool_filter([skill]) is None
+
+    def test_no_constraint_returns_extra_filter(self):
+        skill = self._make_skill(allowed_tools=None)
+
+        async def my_filter(ui, tools):
+            return tools
+
+        result = build_skill_tool_filter([skill], extra_filter=my_filter)
+        assert result is my_filter
+
+    @pytest.mark.asyncio
+    async def test_filters_to_allowed_only(self):
+        skill = self._make_skill(allowed_tools=["Read", "Write"])
+        tool_filter = build_skill_tool_filter([skill])
+        tools = [self.FakeTool("Read"), self.FakeTool("Write"), self.FakeTool("Bash")]
+        filtered = await tool_filter("test", tools)
+        names = [t.name for t in filtered]
+        assert "Read" in names
+        assert "Write" in names
+        assert "Bash" not in names
+
+    @pytest.mark.asyncio
+    async def test_merges_allowed_tools_from_multiple_skills(self):
+        s1 = self._make_skill(allowed_tools=["Read"])
+        s2 = self._make_skill(allowed_tools=["Write"])
+        tool_filter = build_skill_tool_filter([s1, s2])
+        tools = [self.FakeTool("Read"), self.FakeTool("Write"), self.FakeTool("Bash")]
+        filtered = await tool_filter("test", tools)
+        names = [t.name for t in filtered]
+        assert names == ["Read", "Write"]
+
+    @pytest.mark.asyncio
+    async def test_extra_filter_applied_first(self):
+        skill = self._make_skill(allowed_tools=["Read", "Write"])
+
+        async def remove_ask(ui, tools):
+            return [t for t in tools if t.name != "Ask"]
+
+        tool_filter = build_skill_tool_filter([skill], extra_filter=remove_ask)
+        tools = [self.FakeTool("Read"), self.FakeTool("Ask"), self.FakeTool("Bash")]
+        filtered = await tool_filter("test", tools)
+        names = [t.name for t in filtered]
+        assert names == ["Read"]

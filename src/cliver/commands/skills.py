@@ -172,12 +172,6 @@ def _run_skill(cliver: Cliver, name: str, message: str = ""):
 
     cliver.output(f"Activating skill '[green]{name}[/green]' ...")
 
-    skill_content = manager.activate_skill(name)
-    skill_system_msg = f"The user has activated the '{name}' skill. Follow these skill instructions:\n\n{skill_content}"
-
-    def skill_appender():
-        return skill_system_msg
-
     user_message = message if message else ""
     if not user_message:
         user_message = (
@@ -204,15 +198,22 @@ def _run_skill(cliver: Cliver, name: str, message: str = ""):
         cliver.record_turn("assistant", text)
         cliver.conversation_messages.append(AIMessage(content=text))
 
+    router = getattr(cliver, "_command_router", None)
+    on_pending_input = None
+    if router is not None:
+        router.promote_to_query()
+        on_pending_input = router.drain_pending
+
     llm_call(
         cliver,
         LLMCallOptions(
+            skill_name=name,
             user_input=user_message,
             model=use_model,
             stream=use_stream,
-            system_message_appender=skill_appender,
             conversation_history=conv_history,
             on_response=on_response,
+            on_pending_input=on_pending_input,
         ),
     )
 

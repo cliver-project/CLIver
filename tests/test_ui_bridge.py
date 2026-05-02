@@ -108,31 +108,43 @@ class TestCLIBridgePermission:
         bridge = CLIBridge()
         with patch("builtins.input", return_value="y"):
             result = bridge.ask_permission("run_shell", {"cmd": "ls"}, {})
-        assert result == "allow"
+        assert result == ("allow", "")
 
     def test_ask_permission_deny(self):
         bridge = CLIBridge()
         with patch("builtins.input", return_value="n"):
             result = bridge.ask_permission("run_shell", {"cmd": "rm -rf"}, {})
-        assert result == "deny"
+        assert result == ("deny", "")
 
     def test_ask_permission_always(self):
         bridge = CLIBridge()
         with patch("builtins.input", return_value="a"):
             result = bridge.ask_permission("read_file", {"path": "x"}, {})
-        assert result == "allow_always"
+        assert result == ("allow_always", "")
 
     def test_ask_permission_deny_always(self):
         bridge = CLIBridge()
         with patch("builtins.input", return_value="d"):
             result = bridge.ask_permission("run_shell", {"cmd": "x"}, {})
-        assert result == "deny_always"
+        assert result == ("deny_always", "")
 
     def test_ask_permission_eof_denies(self):
         bridge = CLIBridge()
         with patch("builtins.input", side_effect=EOFError):
             result = bridge.ask_permission("run_shell", {"cmd": "x"}, {})
-        assert result == "deny"
+        assert result == ("deny", "")
+
+    def test_ask_permission_with_extra_context(self):
+        bridge = CLIBridge()
+        with patch("builtins.input", return_value="n, this touches production"):
+            result = bridge.ask_permission("run_shell", {"cmd": "rm -rf"}, {})
+        assert result == ("deny", "this touches production")
+
+    def test_ask_permission_allow_with_note(self):
+        bridge = CLIBridge()
+        with patch("builtins.input", return_value="y, only for this file"):
+            result = bridge.ask_permission("run_shell", {"cmd": "ls"}, {})
+        assert result == ("allow", "only for this file")
 
 
 class TestTUIBridge:
@@ -191,7 +203,23 @@ class TestTUIBridge:
         time.sleep(0.05)
         bridge.try_receive("y")
         t.join(timeout=1)
-        assert result[0] == "allow"
+        assert result[0] == ("allow", "")
+
+    def test_ask_permission_with_extra_context(self):
+        bridge = TUIBridge()
+        result = [None]
+
+        def worker():
+            result[0] = bridge.ask_permission("bash", {"cmd": "ls"}, {})
+
+        t = threading.Thread(target=worker)
+        t.start()
+        import time
+
+        time.sleep(0.05)
+        bridge.try_receive("y, just this once")
+        t.join(timeout=1)
+        assert result[0] == ("allow", "just this once")
 
     def test_cancel_pending(self):
         bridge = TUIBridge()

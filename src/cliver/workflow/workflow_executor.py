@@ -7,6 +7,7 @@ executes with SQLite checkpointing for pause/resume support.
 
 import logging
 import uuid
+from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -36,6 +37,7 @@ class WorkflowExecutor:
 
         self._db_path = db_path
         self._checkpointer = None
+        self._exit_stack = AsyncExitStack()
 
         self._subagent_factory = None
         if app_config and skill_manager:
@@ -44,13 +46,19 @@ class WorkflowExecutor:
         self._app_config = app_config
         self._skill_manager = skill_manager
 
+    async def close(self):
+        """Clean up all managed resources."""
+        await self._exit_stack.aclose()
+        self._checkpointer = None
+
     async def _get_checkpointer(self):
         """Lazy-init the async SQLite checkpointer."""
         if self._checkpointer is None and self._db_path:
             from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
-            self._checkpointer = AsyncSqliteSaver.from_conn_string(str(self._db_path))
-            await self._checkpointer.setup()
+            self._checkpointer = await self._exit_stack.enter_async_context(
+                AsyncSqliteSaver.from_conn_string(str(self._db_path))
+            )
         return self._checkpointer
 
     async def execute_workflow(

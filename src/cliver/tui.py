@@ -285,6 +285,7 @@ def run_tui(cliver: "Cliver") -> None:
     bridge = TUIBridge()
     cliver.ui = bridge
     router = CommandRouter(cliver)
+    cliver._command_router = router
 
     set_input_fn(lambda prompt="": bridge.ask_input(prompt))
     set_output_fn(lambda text: bridge.output(text))
@@ -484,10 +485,10 @@ def run_tui(cliver: "Cliver") -> None:
     def _get_prompt():
         if bridge._pending is not None:
             if bridge._valid_choices:
-                return [("class:permission-prompt", "⚠ y/n/a/d ❯ ")]
+                return [("class:permission-prompt", "⚠ y/n/a/d[, note] ❯ ")]
             return [("class:permission-prompt", "? ❯ ")]
         if cliver._permission_pending is not None:
-            return [("class:permission-prompt", "⚠ y/n/a/d ❯ ")]
+            return [("class:permission-prompt", "⚠ y/n/a/d[, note] ❯ ")]
         if cliver._user_input_pending is not None:
             return [("class:permission-prompt", "? ❯ ")]
         return [("class:prompt", "❯ ")]

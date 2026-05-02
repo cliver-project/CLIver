@@ -11,7 +11,18 @@ from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from cliver.util import get_app_user_agent, url_request
+
 logger = logging.getLogger(__name__)
+
+
+def _download_url(url: str) -> bytes:
+    """Download URL content using url_request (stdlib, with User-Agent)."""
+    import urllib.request
+
+    req = url_request(url, timeout=120)
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        return resp.read()
 
 
 class MediaType(Enum):
@@ -85,11 +96,7 @@ class MediaContent:
         """
         try:
             if self.is_url():
-                import httpx
-
-                resp = httpx.get(self.data, timeout=120, follow_redirects=True)
-                resp.raise_for_status()
-                binary_data = resp.content
+                binary_data = _download_url(self.data)
             elif self.data.startswith("data:"):
                 base64_data = self.data.split(",", 1)[1] if "," in self.data else self.data
                 binary_data = base64.b64decode(base64_data)
@@ -107,11 +114,7 @@ class MediaContent:
     def to_bytes(self) -> bytes:
         """Resolve data to raw bytes (download URL, decode base64)."""
         if self.is_url():
-            import httpx
-
-            resp = httpx.get(self.data, timeout=120, follow_redirects=True)
-            resp.raise_for_status()
-            return resp.content
+            return _download_url(self.data)
         elif self.data.startswith("data:"):
             base64_data = self.data.split(",", 1)[1] if "," in self.data else self.data
             return base64.b64decode(base64_data)
@@ -152,7 +155,7 @@ def load_media_file(source: str) -> MediaContent:
     if is_url:
         # Load from URL
         try:
-            response = requests.get(source)
+            response = requests.get(source, headers={"User-Agent": get_app_user_agent()})
             response.raise_for_status()
             file_data = response.content
 

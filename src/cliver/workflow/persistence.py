@@ -62,10 +62,15 @@ class WorkflowStore:
         Search order:
         1. {workflows_dir}/{name}.yaml
         2. {workflows_dir}/sub-workflows/{name}.yaml
+        3. .cliver/workflows/{name}.yaml  (project-local)
         """
         path = self.workflows_dir / f"{name}.yaml"
         if not path.exists():
             path = self.workflows_dir / "sub-workflows" / f"{name}.yaml"
+        if not path.exists():
+            project_path = Path(".cliver/workflows") / f"{name}.yaml"
+            if project_path.exists():
+                path = project_path
         if not path.exists():
             return None
         try:
@@ -123,6 +128,36 @@ class WorkflowStore:
                 if not p.stem.endswith(".state"):
                     names.add(p.stem)
         return sorted(names)
+
+    def list_all_workflows(self) -> List[tuple[str, str, Path]]:
+        """List workflows from both global and project-local directories.
+
+        Returns list of (name, source, path) tuples where source is
+        'global' or 'project'.
+        """
+        results: dict[str, tuple[str, str, Path]] = {}
+
+        # Global workflows (from agent profile)
+        self._collect_workflows(self.workflows_dir, "global", results)
+
+        # Project-local workflows (.cliver/workflows/ relative to CWD)
+        project_dir = Path(".cliver/workflows")
+        if project_dir.is_dir() and project_dir.resolve() != self.workflows_dir.resolve():
+            self._collect_workflows(project_dir, "project", results)
+
+        return sorted(results.values(), key=lambda x: x[0])
+
+    @staticmethod
+    def _collect_workflows(
+        directory: Path,
+        source: str,
+        results: dict[str, tuple[str, str, Path]],
+    ) -> None:
+        if not directory.is_dir():
+            return
+        for p in directory.glob("*.yaml"):
+            if not p.stem.endswith(".state") and p.stem not in results:
+                results[p.stem] = (p.stem, source, p)
 
     def delete_workflow(self, name: str, checkpointer=None, db_path: Optional[Path] = None) -> bool:
         """Delete a workflow YAML and all its execution data."""
