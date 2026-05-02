@@ -22,7 +22,7 @@ class MiniMaxImageHelper(ImageGenerationHelper):
         model_name: Optional[str] = None,
         **params,
     ) -> Dict[str, Any]:
-        response_format = params.pop("response_format", "b64_json")
+        response_format = params.pop("response_format", "base64")
         body = {
             "model": model_name or DEFAULT_MODEL,
             "prompt": prompt,

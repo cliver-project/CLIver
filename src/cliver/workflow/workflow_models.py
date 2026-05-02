@@ -22,6 +22,8 @@ class AgentConfig(BaseModel):
     CliverProfile (identity/memory system).
     """
 
+    role: Optional[str] = Field(None, description="Agent role description")
+    instructions: Optional[str] = Field(None, description="Behavioral instructions for the agent")
     model: Optional[str] = Field(None, description="LLM model to use")
     system_message: Optional[str] = Field(None, description="System prompt for this agent")
     tools: Optional[List[str]] = Field(None, description="Builtin tools to enable")
@@ -52,7 +54,11 @@ class BaseStep(BaseModel):
     skipped: bool = Field(False, description="Whether the step is skipped")
     depends_on: List[str] = Field(default_factory=list, description="Step IDs that must complete first")
     condition: Optional[str] = Field(None, description="Jinja2 expression — skip step if false")
-    retry: int = Field(0, description="Max retries on failure")
+    expected_result: Optional[str] = Field(
+        None, description="Description of expected output — step retries until this is met or timeout"
+    )
+    retry: int = Field(0, description="Max retries (0 = unlimited until expected result or timeout)")
+    timeout: int = Field(1800, description="Step timeout in seconds (default 30 minutes)")
 
 
 class LLMStep(BaseStep):

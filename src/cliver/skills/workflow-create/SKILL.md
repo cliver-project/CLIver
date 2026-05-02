@@ -30,45 +30,74 @@ Only call this when you need it — skip for simple workflows.
 
 Plan the workflow as a directed acyclic graph:
 - Each step has a unique `id` and a `type` (llm, function, human, decision, workflow)
+- **Step IDs MUST use underscores only** (e.g., `write_story`). Hyphens break Jinja2.
 - Steps declare `depends_on` to specify execution order
 - Use `decision` type for if/else branching
-- Steps pass results via `outputs` and Jinja2 templates: `{{ step_id.outputs.key }}`
+- Steps pass results via Jinja2 templates: `{{ step_id.outputs.result }}`
 
 ## 4. Output Workflow YAML
 
-Generate a valid YAML block. Example:
+Generate a valid YAML block. Key format rules:
+- **agents** is a dict keyed by name, NOT a list
+- **Step IDs** use underscores only, no hyphens
+- Do NOT hardcode directory paths — the engine injects output directory automatically
+- Use `expected_result` for steps where output quality matters
+
+Example:
 
 ```yaml
-name: workflow-name
+name: my_workflow
 description: What this workflow does
+overview: |
+  Context shared with all steps.
+
+agents:
+  writer:
+    role: "Content writer"
+    instructions: "Write clear content."
+
 inputs:
   param_name: default_value
 
 steps:
-  - id: unique_id
+  - id: write_content
     type: llm
-    name: Human-readable name
-    prompt: "Your prompt here"
-    outputs: [named_output]
-    depends_on: [other_step_id]
+    name: Write Content
+    prompt: "Write about {{ inputs.param_name }}"
+    agent: writer
+    output_format: md
+    expected_result: "A complete draft with at least 3 paragraphs"
+    timeout: 1800
+    retry: 0
+
+  - id: review_content
+    type: llm
+    name: Review
+    prompt: "Review: {{ write_content.outputs.result }}"
+    depends_on: [write_content]
 
   - id: branch_point
     type: decision
     name: Choose path
-    depends_on: [unique_id]
+    depends_on: [review_content]
     branches:
-      - condition: "'success' in unique_id.outputs.result"
-        next_step: success_step
-      - condition: "'failure' in unique_id.outputs.result"
-        next_step: failure_step
-    default: failure_step
-
-  - id: human_approval
-    type: human
-    name: Get approval
-    prompt: "Approve deployment to production?"
-    depends_on: [branch_point]
+      - condition: "'approved' in review_content.outputs.result"
+        next_step: publish
+      - condition: "'rejected' in review_content.outputs.result"
+        next_step: revise
+    default: revise
 ```
+
+Output references for inter-step data flow:
+- `{{ step_id.outputs.result }}` — text output
+- `{{ step_id.outputs.media_files }}` — list of generated media file paths
+- `{{ step_id.outputs.media_files[0] }}` — first media file
+- `{{ inputs.param }}` — workflow input parameters
+
+Validation fields:
+- `expected_result`: LLM validates output meets this description, retries if not
+- `retry`: 0 = unlimited retries until expected result or timeout
+- `timeout`: seconds (default 1800 = 30 minutes)
 
 ## 5. Validate Before Saving
 
@@ -76,27 +105,26 @@ steps:
 ```
 WorkflowValidate(action='validate', yaml_content='...')
 ```
-This checks YAML syntax, required fields, step type schemas,
-dependency references, and cycle detection. Fix any reported
-errors and re-validate until the tool returns `Valid`.
+The validator checks YAML syntax, Pydantic model, step ID format (no hyphens),
+dependency refs, template refs, agent refs, cycles, and LangGraph compilation.
+Fix any errors and re-validate until it returns `Valid`.
 Never call `Write` to save a workflow that has not passed validation.
 
 ## 6. Save the Workflow
 
 After validation passes, save to the **project-local** `.cliver/workflows/` directory
 (relative to CWD) using `Write`:
-`.cliver/workflows/{workflow-name}.yaml`
+`.cliver/workflows/{name}.yaml`
 
 Tell the user the workflow is saved and how to run it:
-`cliver workflow run .cliver/workflows/{workflow-name}.yaml`
+`cliver workflow run .cliver/workflows/{name}.yaml`
 
 ## Rules
-- Every step MUST have a unique `id`
-- Step IDs should be short, descriptive, lowercase with hyphens
+- Every step MUST have a unique `id` using underscores only (no hyphens)
 - Dependencies must reference existing step IDs (no cycles)
-- LLM steps always capture output as `outputs.result`
-- Use `{{ step_id.outputs.result }}` to reference previous step results
+- Use `{{ step_id.outputs.result }}` for text, `{{ step_id.outputs.media_files[0] }}` for files
 - Use `{{ inputs.param_name }}` to reference workflow inputs
-- DecisionStep branches are evaluated in order — first match wins
-- Keep workflows focused — one workflow per automation goal
+- Do NOT hardcode directory paths in prompts
+- Set `expected_result` on steps where output quality is critical
+- agents is a dict keyed by name, NOT a list
 - **Always validate, then save** — never save unvalidated YAML

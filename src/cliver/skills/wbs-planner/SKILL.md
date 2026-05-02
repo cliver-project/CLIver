@@ -44,8 +44,7 @@ The user's original message is the **prompt** — it describes the purpose of th
 workflow. Extract as much as you can from it before asking follow-up questions.
 
 You need the following information. Skip any item the user already provided:
-- **Workflow name**: a short, lowercase, hyphenated slug the user will type in
-  `cliver workflow run <name>` (e.g., `user-auth`, `data-pipeline`).
+- **Workflow name**: a short, lowercase slug using underscores (e.g., `user_auth`, `data_pipeline`).
 - **Goal**: the overall goal or deliverable.
 - **Phases**: the major phases or milestones.
 - **Dependencies**: external dependencies, constraints, or deadlines.
@@ -106,50 +105,140 @@ user to confirm. Stop and wait for their response.
 
 ## 4. Generate Workflow YAML
 
-For each workflow file:
+### Complete YAML format reference
 
-1. Each Level 3 task becomes a `type: llm` step with a specific, actionable prompt
-2. Set `depends_on` based on task dependencies from the WBS
-3. Add `type: decision` steps for conditional paths (if/else branching)
-4. Add `type: human` steps for approval gates between phases
-5. Use `overview` for shared project context visible to all steps
-6. Use `agents` section for specialized roles — **agents is a dict keyed by name, NOT a list**:
-   ```yaml
-   agents:
-     architect:
-       role: "System architect"
-       instructions: "Focus on clean API design."
-     developer:
-       role: "Full-stack developer"
-       instructions: "Write tested, production-ready code."
-   ```
-7. Use `inputs` for configurable parameters
+```yaml
+name: my_workflow
+description: What this workflow does
+overview: |
+  High-level context shared with all steps.
+  Do NOT include directory paths here — the execution engine injects output directories automatically.
+
+agents:
+  writer:
+    role: "Content writer"
+    instructions: "Write clear, concise content."
+    model: null
+    tools: null
+    skills: null
+  reviewer:
+    role: "Quality reviewer"
+    instructions: "Check for accuracy and completeness."
+
+inputs:
+  topic: "default topic"
+  language: "en"
+
+steps:
+  - id: write_draft
+    name: Write Draft
+    type: llm
+    prompt: |
+      Write a draft about {{ inputs.topic }} in {{ inputs.language }}.
+    agent: writer
+    output_format: md
+    expected_result: "A complete draft with at least 3 paragraphs"
+    timeout: 1800
+    retry: 0
+
+  - id: generate_image
+    name: Generate Image
+    type: llm
+    prompt: |
+      Generate an illustration for the following draft:
+      {{ write_draft.outputs.result }}
+    agent: writer
+    output_format: md
+    expected_result: "At least one image file generated"
+    depends_on: [write_draft]
+
+  - id: review_content
+    name: Review Content
+    type: llm
+    prompt: |
+      Review the following draft and images:
+      Draft: {{ write_draft.outputs.result }}
+      Images: {{ write_draft.outputs.media_files }}
+    agent: reviewer
+    output_format: md
+    depends_on: [write_draft, generate_image]
+```
+
+### Critical format rules
+
+1. **Step IDs**: MUST use lowercase letters, digits, and underscores ONLY.
+   Do NOT use hyphens — they break Jinja2 template references.
+   Good: `write_story`, `generate_images`, `create_pdf`
+   Bad: `write-story`, `generate-images`, `create-pdf`
+
+2. **Agents**: MUST be a dict keyed by agent name, NOT a list.
+
+3. **No directory paths in workflow**: Do NOT hardcode output directories in prompts.
+   The execution engine automatically injects the output directory into each step's system prompt.
+   Steps should say "save to the outputs directory" not "save to /path/to/dir".
+
+4. **Output references** (Jinja2 templates for inter-step data flow):
+   - `{{ inputs.param }}` — workflow input parameters
+   - `{{ step_id.outputs.result }}` — text output from a completed step
+   - `{{ step_id.outputs.media_files }}` — list of generated media file paths
+   - `{{ step_id.outputs.media_files[0] }}` — first media file path
+   - `{{ step_id.outputs.outputs_dir }}` — the execution output directory
+
+5. **Validation fields**:
+   - `expected_result` (str, optional): Describes what the output should contain.
+     When set, the execution engine uses LLM to validate the output and retries if it doesn't match.
+   - `retry` (int, default 0): Max retries. 0 = unlimited (keeps retrying until expected result or timeout).
+   - `timeout` (int, default 1800): Step timeout in seconds (default 30 minutes).
+
+6. **Step types**:
+   - `llm`: LLM-powered step with prompt, model, agent, tools
+   - `human`: User approval gate (pauses workflow for input)
+   - `decision`: Conditional branching with Jinja2 conditions
+   - `function`: Python function call
+   - `workflow`: Sub-workflow execution
 
 For hierarchical structures, the main workflow references sub-workflows:
 ```yaml
 steps:
-  - id: design-phase
+  - id: design_phase
     type: workflow
     name: "Design Phase"
-    workflow_file: ./sub-workflows/design-phase.yaml
+    workflow_file: ./sub-workflows/design_phase.yaml
     workflow_inputs:
       requirements: "{{ inputs.requirements }}"
 ```
 
 Each sub-workflow file is self-contained with its own `name`, `overview`, `agents`, and `steps`.
 
-Guidelines for LLM step prompts:
+### Guidelines for LLM step prompts
+
 - Be specific and actionable — tell the LLM exactly what to produce
-- Reference inputs and prior step outputs via Jinja2: `{{ inputs.param }}`, `{{ step_id.outputs.result }}`
+- Reference inputs and prior step outputs via Jinja2
 - Set `output_format` appropriately (md for docs, json for structured data, code for source files)
+- Set `expected_result` for steps where output quality matters
+- Do NOT mention directories in prompts — the engine injects output directory automatically
 
 ## 5. Validate All Workflows
 
 **You MUST validate every workflow YAML before saving.** Do NOT skip this step.
+
+First, call `WorkflowValidate(action='schema')` if you need the complete field reference.
+
 For each generated YAML, call:
 ```
 WorkflowValidate(action='validate', yaml_content='...')
 ```
+
+The validator checks:
+- YAML syntax
+- Pydantic model validation (field types, required fields, agents as dict)
+- Step ID format (underscores only, no hyphens)
+- Dependency references (all depends_on targets exist)
+- Jinja2 template references (all referenced step IDs exist)
+- Agent references (all step agent refs exist in agents section)
+- Cycle detection
+- LangGraph compilation (the workflow can actually be compiled to a graph)
+
 Fix any reported errors and re-validate until the tool returns `Valid`.
 Never call `Write` to save a workflow that has not passed validation.
 
@@ -194,12 +283,15 @@ state from prior workflow runs.
 ## Rules
 
 - **Always validate before saving** — never save unvalidated YAML
-- Step IDs: lowercase with hyphens, descriptive (e.g., `design-api`, `test-auth`)
+- Step IDs: lowercase with underscores, descriptive (e.g., `design_api`, `test_auth`). Do NOT use hyphens — they break Jinja2 template references
 - Every LLM step must have a clear, specific prompt — no vague instructions
 - Max ~15 steps per workflow file — split into sub-workflows if larger
 - Sub-workflow files go in a `sub-workflows/` subdirectory relative to the main workflow
 - Use `{{ inputs.param }}` for configurable parameters
 - Use `{{ step_id.outputs.result }}` for inter-step data flow
+- Use `{{ step_id.outputs.media_files[0] }}` for referencing generated files
+- Do NOT hardcode directory paths in prompts — the engine injects output directory
+- Set `expected_result` on steps where output quality is critical
 - When updating, preserve step IDs that haven't changed
 - Each workflow file should have an `overview` providing context for its scope
 - Use `type: human` steps at phase boundaries for user review gates

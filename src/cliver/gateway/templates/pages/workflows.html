@@ -1,14 +1,31 @@
 <h2>Workflows</h2>
-<div id="workflows-content" class="loading">Loading...</div>
+<div class="tabs">
+  <button class="tab active" onclick="switchWfTab('definitions')">Definitions</button>
+  <button class="tab" onclick="switchWfTab('executions')">Executions</button>
+</div>
+<div id="tab-definitions" class="tab-content active">
+  <div id="wf-definitions" class="loading">Loading...</div>
+</div>
+<div id="tab-executions" class="tab-content">
+  <div id="wf-executions" class="loading">Loading...</div>
+</div>
 
 <script>
+function switchWfTab(tab) {
+  var tabs = document.querySelectorAll('.tabs .tab');
+  for (var i = 0; i < tabs.length; i++) tabs[i].classList.remove('active');
+  tabs[tab === 'definitions' ? 0 : 1].classList.add('active');
+  document.getElementById('tab-definitions').classList.toggle('active', tab === 'definitions');
+  document.getElementById('tab-executions').classList.toggle('active', tab === 'executions');
+}
+
+// --- Definitions tab ---
 (async function() {
   var data = await api('/workflows');
-  var el = document.getElementById('workflows-content');
+  var el = document.getElementById('wf-definitions');
   if (!data) { el.textContent = 'Failed to load data'; el.className = ''; return; }
-
   el.className = '';
-  el.innerHTML = '';
+  el.textContent = '';
 
   if (data.length === 0) {
     el.textContent = 'No workflows defined.';
@@ -27,7 +44,7 @@
 
     var h3 = document.createElement('h3');
     var link = document.createElement('a');
-    link.href = '/admin/workflows/' + encodeURIComponent(wf.name);
+    link.href = '/admin/workflows/' + encodeURIComponent(wf.id);
     link.textContent = wf.name;
     link.style.color = 'var(--accent)';
     h3.appendChild(link);
@@ -39,15 +56,134 @@
       card.appendChild(desc);
     }
 
+    var tags = document.createElement('div');
+    tags.style.cssText = 'display:flex;gap:6px;margin-top:6px';
+
     var stepCount = wf.steps || 0;
     var tag = document.createElement('span');
     tag.className = 'tag';
     tag.textContent = stepCount + (stepCount === 1 ? ' step' : ' steps');
-    card.appendChild(tag);
+    tags.appendChild(tag);
 
+    if (wf.source === 'project') {
+      var srcTag = document.createElement('span');
+      srcTag.className = 'pill';
+      srcTag.textContent = 'project';
+      srcTag.style.fontSize = '10px';
+      tags.appendChild(srcTag);
+    }
+
+    card.appendChild(tags);
     grid.appendChild(card);
   }
 
   el.appendChild(grid);
 })();
+
+// --- Executions tab ---
+async function loadExecutions() {
+  var data = await api('/workflow-executions');
+  var el = document.getElementById('wf-executions');
+  el.className = '';
+  el.textContent = '';
+
+  if (!data || data.length === 0) {
+    el.textContent = 'No workflow executions found.';
+    el.style.color = 'var(--text-dim)';
+    el.style.fontStyle = 'italic';
+    return;
+  }
+
+  var table = document.createElement('table');
+  var thead = document.createElement('thead');
+  var headRow = document.createElement('tr');
+  var cols = ['Workflow', 'Execution', 'Status', 'Started', 'Finished', 'Error', 'Actions'];
+  for (var c = 0; c < cols.length; c++) {
+    var th = document.createElement('th');
+    th.textContent = cols[c];
+    headRow.appendChild(th);
+  }
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  var tbody = document.createElement('tbody');
+  for (var i = 0; i < data.length; i++) {
+    var ex = data[i];
+    var row = document.createElement('tr');
+
+    // Workflow name (link)
+    var tdName = document.createElement('td');
+    var nameLink = document.createElement('a');
+    nameLink.href = '/admin/workflows/' + encodeURIComponent(ex.workflow_name);
+    nameLink.textContent = ex.workflow_name;
+    nameLink.style.color = 'var(--accent)';
+    tdName.appendChild(nameLink);
+    row.appendChild(tdName);
+
+    // Execution ID
+    var tdExec = document.createElement('td');
+    tdExec.textContent = ex.execution_id || ex.thread_id || '—';
+    tdExec.style.cssText = 'font-family:monospace;font-size:12px';
+    row.appendChild(tdExec);
+
+    // Status pill
+    var tdStatus = document.createElement('td');
+    var statusPill = document.createElement('span');
+    var st = ex.status || 'unknown';
+    statusPill.className = 'pill ' + (st === 'completed' ? 'ok' : st === 'failed' ? 'err' : st === 'running' ? 'warn' : '');
+    statusPill.textContent = st;
+    tdStatus.appendChild(statusPill);
+    row.appendChild(tdStatus);
+
+    // Started
+    var tdStarted = document.createElement('td');
+    tdStarted.textContent = ex.started_at || '—';
+    tdStarted.style.cssText = 'font-size:12px;color:var(--text-dim)';
+    row.appendChild(tdStarted);
+
+    // Finished
+    var tdFinished = document.createElement('td');
+    tdFinished.textContent = ex.finished_at || '—';
+    tdFinished.style.cssText = 'font-size:12px;color:var(--text-dim)';
+    row.appendChild(tdFinished);
+
+    // Error
+    var tdError = document.createElement('td');
+    if (ex.error) {
+      tdError.textContent = ex.error.length > 60 ? ex.error.substring(0, 60) + '...' : ex.error;
+      tdError.style.cssText = 'font-size:12px;color:#ef4444';
+    } else {
+      tdError.textContent = '—';
+      tdError.style.color = 'var(--text-dim)';
+    }
+    row.appendChild(tdError);
+
+    // Actions
+    var tdActions = document.createElement('td');
+    var delBtn = document.createElement('button');
+    delBtn.className = 'btn danger';
+    delBtn.textContent = 'Delete';
+    delBtn.onclick = (function(wfName, threadId) {
+      return function() {
+        confirmAction('Delete Execution', 'Delete this execution record? This cannot be undone.', function() {
+          apiDelete('/workflows/' + encodeURIComponent(wfName) + '/executions/' + encodeURIComponent(threadId))
+            .then(function(result) {
+              if (result && result.status === 'deleted') {
+                loadExecutions();
+              } else {
+                alertMessage('Error', 'Failed to delete: ' + (result ? result.error || 'unknown' : 'no response'));
+              }
+            });
+        });
+      };
+    })(ex.workflow_name, ex.thread_id);
+    tdActions.appendChild(delBtn);
+    row.appendChild(tdActions);
+
+    tbody.appendChild(row);
+  }
+  table.appendChild(tbody);
+  el.appendChild(table);
+}
+loadExecutions();
 </script>

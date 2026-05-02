@@ -315,8 +315,8 @@ def _get_task_detail(ctx, task_name):
         return None
 
 
-def _get_workflow_detail(ctx, workflow_name):
-    """Get detailed info for a single workflow."""
+def _get_workflow_detail(ctx, workflow_id):
+    """Get detailed info for a single workflow by file stem or internal name."""
     try:
         from cliver.agent_profile import CliverProfile
         from cliver.workflow.persistence import WorkflowStore
@@ -326,17 +326,46 @@ def _get_workflow_detail(ctx, workflow_name):
             return None
         profile = CliverProfile(ctx["agent_name"], config_dir)
         store = WorkflowStore(profile.workflows_dir)
-        wf = store.load_workflow(workflow_name)
-        if not wf:
-            return None
-        return wf.model_dump(exclude_none=True, mode="json")
+        # Get default model and model list from gateway config
+        default_model = None
+        model_names = []
+        gateway = ctx.get("gateway")
+        agent_core = getattr(gateway, "_agent_core", None) if gateway else None
+        if agent_core:
+            default_model = agent_core.default_model
+            model_names = sorted(agent_core.llm_models.keys())
+
+        for stem, _source, path in store.list_all_workflows():
+            if stem == workflow_id:
+                wf = WorkflowStore.load_workflow_from_file(path)
+                if wf:
+                    data = wf.model_dump(exclude_none=True, mode="json")
+                    data["id"] = stem
+                    data["_path"] = str(path)
+                    if default_model:
+                        data["_default_model"] = default_model
+                    data["_models"] = model_names
+                    if not wf.outputs_dir:
+                        # Check app config for workflow_runs_dir
+                        config_runs_dir = None
+                        if gateway:
+                            ac = getattr(gateway, "_agent_core", None)
+                            if ac and hasattr(ac, "_app_config") and ac._app_config:
+                                config_runs_dir = getattr(ac._app_config, "workflow_runs_dir", None)
+                        if config_runs_dir:
+                            default_runs = Path(config_runs_dir) / stem
+                        else:
+                            default_runs = profile.agent_dir / "workflow-runs" / stem
+                        data["_default_outputs_dir"] = str(default_runs)
+                    return data
+        return None
     except Exception as e:
         logger.warning("Failed to get workflow detail: %s", e)
         return None
 
 
 def _get_workflows(ctx: dict) -> list:
-    """List workflows with descriptions."""
+    """List workflows with descriptions (global + project-local)."""
     try:
         from cliver.agent_profile import CliverProfile
         from cliver.workflow.persistence import WorkflowStore
@@ -346,12 +375,17 @@ def _get_workflows(ctx: dict) -> list:
             return []
         profile = CliverProfile(ctx["agent_name"], config_dir)
         store = WorkflowStore(profile.workflows_dir)
-        names = store.list_workflows()
+        entries = store.list_all_workflows()
         result = []
-        for name in names:
-            wf = store.load_workflow(name)
+        for stem, source, path in entries:
+            wf = WorkflowStore.load_workflow_from_file(path)
             if wf:
-                entry = {"name": wf.name, "description": wf.description or ""}
+                entry = {
+                    "id": stem,
+                    "name": wf.name,
+                    "description": wf.description or "",
+                    "source": source,
+                }
                 if hasattr(wf, "steps") and wf.steps:
                     entry["steps"] = len(wf.steps)
                 result.append(entry)
@@ -359,6 +393,139 @@ def _get_workflows(ctx: dict) -> list:
     except Exception as e:
         logger.warning("Failed to get workflows: %s", e)
         return []
+
+
+def _get_workflow_executions(ctx: dict, workflow_id: str = None) -> list:
+    """List workflow executions from the database.
+
+    Searches by workflow_id (file stem). For backward compatibility,
+    also searches by internal workflow name if the stem yields no results.
+    """
+    try:
+        from cliver.agent_profile import CliverProfile
+        from cliver.workflow.persistence import WorkflowStore
+
+        config_dir = ctx.get("config_dir")
+        if not config_dir:
+            return []
+        profile = CliverProfile(ctx["agent_name"], config_dir)
+        if not workflow_id:
+            return WorkflowStore.list_executions(profile.workflow_checkpoints_db)
+
+        results = WorkflowStore.list_executions(profile.workflow_checkpoints_db, workflow_id)
+        if results:
+            return results
+
+        # Backward compat: try internal name for old executions
+        store = WorkflowStore(profile.workflows_dir)
+        for stem, _source, path in store.list_all_workflows():
+            if stem == workflow_id:
+                wf = WorkflowStore.load_workflow_from_file(path)
+                if wf and wf.name != workflow_id:
+                    return WorkflowStore.list_executions(profile.workflow_checkpoints_db, wf.name)
+        return []
+    except Exception as e:
+        logger.warning("Failed to get workflow executions: %s", e)
+        return []
+
+
+async def _get_execution_status(ctx: dict, workflow_id: str, thread_id: str) -> Optional[dict]:
+    """Get step-by-step status of a specific workflow execution."""
+    try:
+        from cliver.agent_profile import CliverProfile
+        from cliver.workflow.persistence import WorkflowStore
+        from cliver.workflow.workflow_executor import WorkflowExecutor
+
+        config_dir = ctx.get("config_dir")
+        if not config_dir:
+            return None
+        profile = CliverProfile(ctx["agent_name"], config_dir)
+        gateway = ctx.get("gateway")
+        agent_core = getattr(gateway, "_agent_core", None) if gateway else None
+        if not agent_core:
+            return None
+
+        store = WorkflowStore(profile.workflows_dir)
+
+        # Resolve file stem to internal workflow name + load workflow object
+        wf = None
+        internal_name = workflow_id
+        for stem, _source, path in store.list_all_workflows():
+            if stem == workflow_id:
+                wf = WorkflowStore.load_workflow_from_file(path)
+                if wf:
+                    internal_name = wf.name
+                break
+
+        executor = WorkflowExecutor(
+            agent_core=agent_core,
+            store=store,
+            db_path=profile.workflow_checkpoints_db,
+        )
+        try:
+            return await executor.get_execution_status(internal_name, thread_id, workflow=wf)
+        finally:
+            await executor.close()
+    except Exception as e:
+        logger.warning("Failed to get execution status: %s", e)
+        return None
+
+
+def _save_workflow(ctx: dict, workflow_id: str, data: dict) -> Optional[str]:
+    """Save workflow changes back to the YAML file.
+
+    Returns None on success, or an error message string.
+    """
+    try:
+        import yaml as _yaml
+
+        from cliver.agent_profile import CliverProfile
+        from cliver.workflow.persistence import WorkflowStore
+        from cliver.workflow.workflow_models import Workflow
+
+        config_dir = ctx.get("config_dir")
+        if not config_dir:
+            return "No config dir"
+        profile = CliverProfile(ctx["agent_name"], config_dir)
+        store = WorkflowStore(profile.workflows_dir)
+
+        # Find the file path
+        file_path = None
+        for stem, _source, path in store.list_all_workflows():
+            if stem == workflow_id:
+                file_path = path
+                break
+        if not file_path:
+            return f"Workflow '{workflow_id}' not found"
+
+        # Strip internal metadata fields before saving
+        clean = {k: v for k, v in data.items() if not k.startswith("_") and k != "id"}
+
+        # Validate through the Pydantic model
+        try:
+            wf = Workflow(**clean)
+        except Exception as e:
+            return f"Validation error: {e}"
+
+        # Validate semantics + compilation
+        from cliver.tools.workflow_validate import _compile_check, _semantic_checks
+
+        errors = _semantic_checks(wf)
+        if errors:
+            return "Validation errors:\n" + "\n".join(f"- {e}" for e in errors)
+        compile_errors = _compile_check(wf)
+        if compile_errors:
+            return "Compilation errors:\n" + "\n".join(f"- {e}" for e in compile_errors)
+
+        # Write back to YAML
+        dump_data = wf.model_dump(exclude_none=True, mode="json")
+        with open(file_path, "w", encoding="utf-8") as f:
+            _yaml.dump(dump_data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+
+        return None
+    except Exception as e:
+        logger.warning("Failed to save workflow: %s", e)
+        return str(e)
 
 
 def _get_skills() -> list:
@@ -734,6 +901,136 @@ def get_admin_routes(
         return JSONResponse(detail)
 
     @require_auth
+    async def handle_update_workflow(request: Request):
+        name = request.path_params["name"]
+        try:
+            data = await request.json()
+        except Exception:
+            return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+        error = _save_workflow(context, name, data)
+        if error:
+            return JSONResponse({"error": error}, status_code=400)
+        return JSONResponse({"status": "saved"})
+
+    @require_auth
+    async def handle_workflow_executions(request: Request):
+        name = request.path_params.get("name")
+        execs = _get_workflow_executions(context, name)
+        return JSONResponse(execs)
+
+    @require_auth
+    async def handle_all_workflow_executions(request: Request):
+        execs = _get_workflow_executions(context)
+        return JSONResponse(execs)
+
+    @require_auth
+    async def handle_execution_status(request: Request):
+        name = request.path_params["name"]
+        tid = request.path_params["tid"]
+        status = await _get_execution_status(context, name, tid)
+        if status is None:
+            return JSONResponse({"error": "Execution not found"}, status_code=404)
+        return JSONResponse(status)
+
+    @require_auth
+    async def handle_run_workflow(request: Request):
+        name = request.path_params["name"]
+        gateway = context.get("gateway")
+        if not gateway or not hasattr(gateway, "run_workflow"):
+            return JSONResponse({"error": "Gateway not available"}, status_code=500)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        inputs = body.get("inputs")
+        asyncio.create_task(gateway.run_workflow(name, inputs=inputs))
+        return JSONResponse({"status": "started", "workflow": name})
+
+    @require_auth
+    async def handle_browse_files(request: Request):
+        """Browse server filesystem for file selection."""
+        dir_path = request.query_params.get("dir", "")
+        file_filter = request.query_params.get("filter", "")
+        if not dir_path:
+            dir_path = str(Path.home())
+        target = Path(dir_path).expanduser().resolve()
+        if not target.is_dir():
+            return JSONResponse({"error": "Not a directory", "path": str(target)}, status_code=400)
+
+        filter_exts = set()
+        if file_filter == "image":
+            filter_exts = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".svg", ".bmp"}
+        elif file_filter == "audio":
+            filter_exts = {".mp3", ".wav", ".ogg", ".aac", ".flac", ".m4a"}
+        elif file_filter == "video":
+            filter_exts = {".mp4", ".webm", ".mov", ".avi", ".mkv"}
+
+        items = []
+        try:
+            # Parent directory
+            parent = str(target.parent)
+            if parent != str(target):
+                items.append({"name": "..", "path": parent, "type": "dir"})
+            for entry in sorted(target.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower())):
+                if entry.name.startswith("."):
+                    continue
+                if entry.is_dir():
+                    items.append({"name": entry.name, "path": str(entry), "type": "dir"})
+                elif entry.is_file():
+                    if filter_exts and entry.suffix.lower() not in filter_exts:
+                        continue
+                    items.append({"name": entry.name, "path": str(entry), "type": "file", "size": entry.stat().st_size})
+        except PermissionError:
+            return JSONResponse({"error": "Permission denied", "path": str(target)}, status_code=403)
+
+        return JSONResponse({"path": str(target), "items": items})
+
+    @require_auth
+    async def handle_delete_execution(request: Request):
+        tid = request.path_params["tid"]
+        try:
+            from cliver.agent_profile import CliverProfile
+            from cliver.workflow.persistence import WorkflowStore
+
+            config_dir = context.get("config_dir")
+            if not config_dir:
+                return JSONResponse({"error": "No config dir"}, status_code=500)
+            profile = CliverProfile(context["agent_name"], config_dir)
+            deleted = WorkflowStore.delete_execution(tid, profile.workflow_checkpoints_db)
+            if deleted:
+                return JSONResponse({"status": "deleted"})
+            return JSONResponse({"error": "Execution not found"}, status_code=404)
+        except Exception as e:
+            logger.warning("Failed to delete execution: %s", e)
+            return JSONResponse({"error": str(e)}, status_code=500)
+
+    async def handle_static(request: Request):
+        file_path = request.path_params["path"]
+        static_dir = Path(__file__).parent / "static"
+        full_path = static_dir / file_path
+        if not full_path.exists() or not full_path.is_file():
+            return Response("Not found", status_code=404)
+        content_type = "application/javascript" if file_path.endswith(".js") else "text/plain"
+        return Response(full_path.read_bytes(), media_type=content_type)
+
+    @require_auth
+    async def handle_workflow_media(request: Request):
+        """Serve media files from workflow output directories."""
+        import mimetypes as _mt
+
+        file_path = request.path_params["path"]
+        full_path = Path(file_path)
+        if not full_path.is_absolute():
+            return Response("Invalid path", status_code=400)
+        if not full_path.exists() or not full_path.is_file():
+            return Response("Not found", status_code=404)
+        # Only serve files from workflow-runs directories
+        if "workflow-runs" not in str(full_path):
+            return Response("Forbidden", status_code=403)
+        content_type = _mt.guess_type(str(full_path))[0] or "application/octet-stream"
+        return Response(full_path.read_bytes(), media_type=content_type)
+
+    @require_auth
     async def handle_skills(request: Request):
         skills = _get_skills()
         return JSONResponse(skills)
@@ -776,8 +1073,17 @@ def get_admin_routes(
         Route("/admin/api/sessions/{source}", handle_sessions_by_source),
         Route("/admin/api/sessions/{source}/{id}", handle_session_turns),
         Route("/admin/api/sessions/{source}/{id}", handle_delete_session, methods=["DELETE"]),
+        Route("/admin/api/browse", handle_browse_files),
+        Route("/admin/api/workflow-executions", handle_all_workflow_executions),
         Route("/admin/api/workflows", handle_workflows),
+        Route("/admin/api/workflows/{name}/executions/{tid}", handle_execution_status),
+        Route("/admin/api/workflows/{name}/executions/{tid}", handle_delete_execution, methods=["DELETE"]),
+        Route("/admin/api/workflows/{name}/executions", handle_workflow_executions),
+        Route("/admin/api/workflows/{name}/run", handle_run_workflow, methods=["POST"]),
         Route("/admin/api/workflows/{name}", handle_workflow_detail_api),
+        Route("/admin/api/workflows/{name}", handle_update_workflow, methods=["PUT"]),
+        Route("/admin/static/{path:path}", handle_static),
+        Route("/admin/api/media/{path:path}", handle_workflow_media),
         Route("/admin/api/skills", handle_skills),
         Route("/admin/api/adapters", handle_adapters),
         Route("/admin/api/agent", handle_agent),

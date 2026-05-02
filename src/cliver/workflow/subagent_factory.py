@@ -37,21 +37,40 @@ class SubAgentFactory:
         llm_models = config_manager.list_llm_models()
         mcp_servers = config_manager.list_mcp_servers_for_mcp_caller()
 
-        permission_manager = None
-        if agent_config.permissions:
-            permission_manager = self._build_permissions(agent_config.permissions)
+        # Use agent's model if specified, otherwise fall back to app default
+        default_model = agent_config.model
+        if not default_model:
+            default_llm = config_manager.get_llm_model()
+            if default_llm:
+                default_model = default_llm.name
+
+        permission_manager = (
+            self._build_permissions(agent_config.permissions)
+            if agent_config.permissions
+            else self._build_auto_allow_permissions()
+        )
 
         core = AgentCore(
             llm_models=llm_models,
             mcp_servers=mcp_servers,
-            default_model=agent_config.model,
+            default_model=default_model,
             agent_name=self.agent_name,
             permission_manager=permission_manager,
+            on_permission_prompt=lambda tool, args: ("allow", ""),
             enabled_toolsets=agent_config.tools,
-            model_auto_fallback=False,
+            model_auto_fallback=True,
         )
 
         return core
+
+    @staticmethod
+    def _build_auto_allow_permissions() -> "PermissionManager":
+        """Build a PermissionManager that auto-allows everything (headless mode)."""
+        from cliver.permissions import PermissionManager, PermissionMode
+
+        pm = PermissionManager()
+        pm.set_mode(PermissionMode.YOLO)
+        return pm
 
     @staticmethod
     def _build_permissions(permissions_config) -> Optional["PermissionManager"]:

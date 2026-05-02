@@ -1,274 +1,1566 @@
 <style>
-/* Vertical step flow overrides for workflow detail */
-.step-flow.vertical {
-  flex-direction: column;
-  align-items: center;
-  overflow-x: visible;
+.wf-toolbar {
+  display: flex; gap: 12px; align-items: center; margin-bottom: 16px; flex-wrap: wrap;
+}
+.wf-toolbar label { font-size: 13px; color: var(--text-dim); }
+.wf-toolbar select {
+  background: var(--card); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 4px 8px; font-size: 13px;
+}
+.dag-legend { display: flex; gap: 12px; font-size: 11px; color: var(--text-dim); align-items: center; margin-left: auto; }
+.legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 3px; vertical-align: middle; }
+
+/* DAG container */
+.dag-container {
+  border: 1px solid var(--border); border-radius: 8px; background: var(--bg);
+  min-height: 300px; overflow: auto; position: relative;
 }
 
-.step-flow.vertical .step-connector {
-  width: 2px;
-  height: 24px;
-  background: var(--border);
-  padding: 0;
-  flex-shrink: 0;
+/* Step dialog overlay */
+.step-dialog-overlay {
+  display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center;
+}
+.step-dialog-overlay.visible { display: flex; }
+.step-dialog {
+  background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+  width: 90%; max-width: 700px; height: 70vh; max-height: 85vh; display: flex; flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+}
+.step-dialog-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.step-dialog-header h3 { margin: 0; font-size: 16px; }
+.step-dialog-header .step-type-badge {
+  font-size: 10px; padding: 2px 8px; border-radius: 4px; margin-left: 8px;
+}
+.step-dialog-close {
+  background: none; border: none; color: var(--text-dim); font-size: 22px;
+  cursor: pointer; padding: 0 4px; line-height: 1;
+}
+.step-dialog-close:hover { color: var(--text); }
+.step-dialog-tabs {
+  display: flex; gap: 0; border-bottom: 1px solid var(--border); padding: 0 20px; flex-shrink: 0;
+}
+.step-dialog-tabs button {
+  padding: 8px 16px; font-size: 12px; color: var(--text-dim); cursor: pointer;
+  border: none; background: none; border-bottom: 2px solid transparent;
+}
+.step-dialog-tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
+.step-dialog-body {
+  padding: 16px 20px; overflow-y: auto; flex: 1;
+}
+.step-dialog-body table td { padding: 6px 8px; font-size: 13px; vertical-align: top; }
+.step-dialog-body table td:first-child {
+  font-weight: 600; color: var(--text-dim); white-space: nowrap; width: 120px;
+}
+.step-dialog-body pre {
+  overflow: auto; font-size: 12px; line-height: 1.5;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px;
+}
+#step-tab-details pre { max-height: 250px; }
+#step-tab-output { display: flex; flex-direction: column; }
+#step-tab-output pre { flex: 1; min-height: 100px; }
+.step-output-media { margin-top: 12px; }
+.step-output-media img {
+  max-width: 100%; max-height: 300px; border-radius: 6px;
+  border: 1px solid var(--border); margin: 4px 0;
+}
+.step-output-media audio, .step-output-media video {
+  max-width: 100%; border-radius: 6px; margin: 4px 0;
+}
+.step-output-empty {
+  color: var(--text-dim); font-style: italic; padding: 20px 0; text-align: center;
 }
 
-.step-flow.vertical .step-box {
-  width: 100%;
-  max-width: 480px;
-  text-align: left;
-  cursor: pointer;
-  user-select: none;
+/* Edit fields */
+.edit-field { margin-bottom: 10px; }
+.edit-field label {
+  display: block; font-size: 11px; font-weight: 600; color: var(--text-dim);
+  margin-bottom: 3px;
+}
+.edit-field input, .edit-field select {
+  width: 100%; padding: 5px 8px; font-size: 12px; border: 1px solid var(--border);
+  border-radius: 4px; background: var(--bg); color: var(--text); box-sizing: border-box;
+}
+.edit-field textarea {
+  width: 100%; padding: 6px 8px; font-size: 12px; border: 1px solid var(--border);
+  border-radius: 4px; background: var(--bg); color: var(--text); box-sizing: border-box;
+  font-family: monospace; line-height: 1.5; resize: vertical; min-height: 60px;
+}
+.edit-field input[type="checkbox"] { width: auto; margin-right: 6px; }
+.edit-field .cb-row { display: flex; align-items: center; }
+.edit-field .hint { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+.edit-readonly { font-size: 12px; color: var(--text-dim); padding: 5px 0; }
+.step-dialog-footer {
+  padding: 10px 20px; border-top: 1px solid var(--border); display: flex;
+  justify-content: flex-end; gap: 8px; flex-shrink: 0;
+}
+.save-ok { color: var(--accent); font-size: 12px; margin-right: 8px; }
+
+/* File browser dialog */
+.fb-overlay {
+  display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5); z-index: 1100; align-items: center; justify-content: center;
+}
+.fb-overlay.visible { display: flex; }
+.fb-dialog {
+  background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+  width: 90%; max-width: 560px; height: 60vh; display: flex; flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+}
+.fb-header {
+  padding: 12px 16px; border-bottom: 1px solid var(--border); display: flex;
+  align-items: center; justify-content: space-between; flex-shrink: 0;
+}
+.fb-header h4 { margin: 0; font-size: 14px; }
+.fb-path {
+  padding: 6px 16px; font-size: 11px; color: var(--text-dim); font-family: monospace;
+  border-bottom: 1px solid var(--border); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.fb-list { flex: 1; overflow-y: auto; padding: 4px 0; }
+.fb-item {
+  display: flex; align-items: center; gap: 8px; padding: 5px 16px; cursor: pointer;
+  font-size: 13px; transition: background 0.1s;
+}
+.fb-item:hover { background: var(--bg); }
+.fb-item.selected { background: rgba(0,212,170,0.1); }
+.fb-icon { font-size: 14px; width: 20px; text-align: center; flex-shrink: 0; }
+.fb-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fb-size { font-size: 11px; color: var(--text-dim); flex-shrink: 0; }
+.fb-footer {
+  padding: 10px 16px; border-top: 1px solid var(--border); display: flex;
+  justify-content: flex-end; gap: 8px; flex-shrink: 0;
 }
 
-.step-flow.vertical .step-box .step-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+/* Running animation */
+@keyframes pulse-border { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+/* Workflow meta */
+.wf-meta { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; align-items: center; }
+.wf-meta .tag { font-size: 11px; }
+.wf-overview {
+  font-size: 13px; color: var(--text-dim); line-height: 1.6;
+  margin-bottom: 16px; white-space: pre-wrap;
 }
 
-.step-flow.vertical .step-box .step-desc {
-  font-size: 12px;
-  color: var(--text-dim);
-  margin-top: 4px;
+/* Bottom panels */
+.wf-bottom { margin-top: 20px; display: flex; gap: 16px; flex-wrap: wrap; align-items: stretch; }
+.wf-bottom-panel {
+  flex: 1; min-width: 280px; border: 1px solid var(--border); border-radius: 8px;
+  background: var(--card); overflow: hidden; display: flex; flex-direction: column;
+}
+.wf-bottom-panel h4 {
+  font-size: 13px; font-weight: 600; padding: 10px 14px; margin: 0;
+  border-bottom: 1px solid var(--border); background: var(--bg);
+}
+.wf-bottom-panel pre {
+  margin: 0; padding: 12px 14px; font-size: 12px; line-height: 1.5;
+  overflow: auto; flex: 1;
 }
 
-.step-flow.vertical .step-box .step-details {
-  display: none;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-  background: transparent;
-  border: none;
-  border-radius: 0;
-  padding: 12px 0 0 0;
+/* Agent tabs */
+.agent-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); }
+.agent-tabs button {
+  padding: 6px 14px; font-size: 12px; color: var(--text-dim); cursor: pointer;
+  border: none; background: none; border-bottom: 2px solid transparent;
+}
+.agent-tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
+.agent-content { padding: 12px 14px; font-size: 13px; }
+.agent-content table { width: 100%; }
+.agent-content table td { padding: 4px 6px; font-size: 12px; vertical-align: top; }
+.agent-content table td:first-child {
+  font-weight: 600; color: var(--text-dim); white-space: nowrap; width: 100px;
+}
+.agent-content pre {
+  margin: 4px 0 0 0; padding: 8px; font-size: 11px; line-height: 1.5;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+  max-height: 150px; overflow: auto;
 }
 
-.step-flow.vertical .step-box.expanded .step-details {
-  display: block;
+/* Inline editable sections */
+.editable-text {
+  cursor: pointer; border-bottom: 1px dashed transparent; transition: border-color 0.2s;
 }
-
-.step-flow.vertical .step-box .step-details table {
-  margin-bottom: 0;
+.editable-text:hover { border-bottom-color: var(--accent); }
+.inline-edit { display: none; margin-top: 4px; }
+.inline-edit.active { display: block; }
+.inline-edit textarea, .inline-edit input {
+  width: 100%; padding: 6px 8px; font-size: 13px; border: 1px solid var(--accent);
+  border-radius: 4px; background: var(--bg); color: var(--text); box-sizing: border-box;
+  font-family: inherit;
 }
-
-.step-flow.vertical .step-box .step-details td {
-  padding: 4px 8px;
-  font-size: 12px;
-  border-bottom: none;
+.inline-edit textarea { font-family: monospace; line-height: 1.5; resize: vertical; }
+.inline-edit-actions {
+  display: flex; gap: 6px; margin-top: 6px; justify-content: flex-end;
 }
-
-.step-flow.vertical .step-box .step-details td:first-child {
-  font-weight: 600;
-  color: var(--text-dim);
-  white-space: nowrap;
-  width: 100px;
+.inline-edit-actions button { font-size: 11px; padding: 3px 10px; }
+.wf-save-status {
+  font-size: 11px; margin-left: 8px; transition: opacity 0.3s;
 }
 </style>
 
+<div style="margin-bottom:8px">
+  <a href="/admin/workflows" style="color:var(--accent);font-size:13px;text-decoration:none">&larr; Back to Workflows</a>
+</div>
 <h2 id="wf-title">Workflow Detail</h2>
-<div id="workflow-detail-content" class="loading">Loading...</div>
+
+<div style="margin-bottom:16px">
+  <div id="wf-desc" class="editable-text" style="color:var(--text-dim);margin-bottom:4px" onclick="startInlineEdit('description')"></div>
+  <div id="wf-desc-edit" class="inline-edit">
+    <input type="text" id="wf-desc-input">
+    <div class="inline-edit-actions">
+      <button class="btn" onclick="cancelInlineEdit('description')">Cancel</button>
+      <button class="btn" onclick="saveInlineField('description', 'wf-desc-input')">Save</button>
+    </div>
+  </div>
+</div>
+
+<div id="wf-meta" class="wf-meta"></div>
+
+<div style="margin-bottom:16px">
+  <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+    <span style="font-size:12px;font-weight:600;color:var(--text-dim)">Overview</span>
+    <button class="btn" style="font-size:12px;padding:3px 10px" onclick="startInlineEdit('overview')">Edit</button>
+  </div>
+  <div id="wf-overview" class="wf-overview" style="display:none"></div>
+  <div id="wf-overview-edit" class="inline-edit">
+    <textarea id="wf-overview-input" rows="5"></textarea>
+    <div class="inline-edit-actions">
+      <button class="btn" onclick="cancelInlineEdit('overview')">Cancel</button>
+      <button class="btn" onclick="saveInlineField('overview', 'wf-overview-input')">Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="wf-toolbar">
+  <label>Execution:</label>
+  <select id="exec-select"><option value="">Structure only (no status)</option></select>
+  <div class="dag-legend">
+    <span><span class="legend-dot" style="background:#6b7280"></span>Pending</span>
+    <span><span class="legend-dot" style="background:#eab308"></span>Running</span>
+    <span><span class="legend-dot" style="background:#22c55e"></span>Completed</span>
+    <span><span class="legend-dot" style="background:#ef4444"></span>Failed</span>
+  </div>
+</div>
+
+<div id="exec-error" style="display:none;background:rgba(239,68,68,0.1);border:1px solid #ef4444;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#ef4444"></div>
+<div id="view-graph" class="dag-container"></div>
+
+<div id="exec-summary" style="display:none;margin-top:16px;border:1px solid var(--border);border-radius:8px;background:var(--card);overflow:hidden">
+  <h4 id="exec-summary-title" style="font-size:13px;font-weight:600;padding:10px 14px;margin:0;border-bottom:1px solid var(--border);background:var(--bg)"></h4>
+  <div id="exec-summary-body" style="padding:14px;font-size:13px"></div>
+</div>
+
+<div id="wf-bottom" class="wf-bottom"></div>
+
+<div id="step-dialog-overlay" class="step-dialog-overlay" onclick="if(event.target===this)closeStepPanel()">
+  <div class="step-dialog">
+    <div class="step-dialog-header">
+      <div style="display:flex;align-items:center">
+        <h3 id="step-dialog-title"></h3>
+        <span id="step-dialog-type" class="step-type-badge"></span>
+      </div>
+      <button class="step-dialog-close" onclick="closeStepPanel()">&times;</button>
+    </div>
+    <div class="step-dialog-tabs">
+      <button class="active" onclick="switchStepTab(this,'details')">Details</button>
+      <button onclick="switchStepTab(this,'validation')">Validation</button>
+      <button onclick="switchStepTab(this,'output')">Output</button>
+    </div>
+    <div class="step-dialog-body" id="step-tab-details"></div>
+    <div class="step-dialog-body" id="step-tab-validation" style="display:none"></div>
+    <div class="step-dialog-body" id="step-tab-output" style="display:none"></div>
+    <div class="step-dialog-footer" id="step-dialog-footer">
+      <span id="save-status" class="save-ok" style="display:none">Saved</span>
+      <button class="btn" onclick="saveStepChanges()">Save</button>
+    </div>
+  </div>
+</div>
+
+<div id="fb-overlay" class="fb-overlay" onclick="if(event.target===this)closeFB()">
+  <div class="fb-dialog">
+    <div class="fb-header">
+      <h4 id="fb-title">Select File</h4>
+      <button class="step-dialog-close" onclick="closeFB()">&times;</button>
+    </div>
+    <div class="fb-path" id="fb-path"></div>
+    <div class="fb-list" id="fb-list"></div>
+    <div class="fb-footer">
+      <button class="btn" onclick="closeFB()">Cancel</button>
+      <button class="btn" id="fb-select-btn" onclick="fbSelectFile()" disabled>Select</button>
+    </div>
+  </div>
+</div>
 
 <script>
 var workflowName = "{{ITEM_NAME}}";
-(async function() {
-  var wf = await api('/workflows/' + encodeURIComponent(workflowName));
-  var titleEl = document.getElementById('wf-title');
-  var el = document.getElementById('workflow-detail-content');
+var _wfData = null;
+var _graph = null;
+var _paper = null;
+var _statusMap = {};
+var _pollTimer = null;
+var _editingStepIdx = -1;
 
-  if (!wf) {
-    el.textContent = 'Workflow not found';
-    el.className = '';
+// --- Edit field helpers ---
+function ef(parent, label, id, type, value, opts) {
+  opts = opts || {};
+  var div = document.createElement('div');
+  div.className = 'edit-field';
+  var lbl = document.createElement('label');
+  lbl.textContent = label;
+  div.appendChild(lbl);
+
+  if (type === 'readonly') {
+    var span = document.createElement('span');
+    span.className = 'edit-readonly';
+    span.textContent = value || '—';
+    div.appendChild(span);
+  } else if (type === 'text') {
+    var inp = document.createElement('input');
+    inp.type = 'text'; inp.id = 'ef-' + id;
+    inp.value = value || '';
+    if (opts.placeholder) inp.placeholder = opts.placeholder;
+    div.appendChild(inp);
+  } else if (type === 'number') {
+    var inp2 = document.createElement('input');
+    inp2.type = 'number'; inp2.id = 'ef-' + id;
+    inp2.value = value != null ? value : 0;
+    inp2.min = opts.min != null ? opts.min : 0;
+    div.appendChild(inp2);
+  } else if (type === 'checkbox') {
+    var row = document.createElement('div');
+    row.className = 'cb-row';
+    var cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.id = 'ef-' + id;
+    cb.checked = !!value;
+    row.appendChild(cb);
+    var cbLabel = document.createElement('span');
+    cbLabel.textContent = label;
+    cbLabel.style.fontSize = '12px';
+    row.appendChild(cbLabel);
+    lbl.textContent = '';
+    div.appendChild(row);
+  } else if (type === 'textarea') {
+    var ta = document.createElement('textarea');
+    ta.id = 'ef-' + id;
+    ta.value = value || '';
+    ta.rows = opts.rows || 4;
+    if (opts.placeholder) ta.placeholder = opts.placeholder;
+    div.appendChild(ta);
+  } else if (type === 'select') {
+    var sel = document.createElement('select');
+    sel.id = 'ef-' + id;
+    var choices = opts.choices || [];
+    var labels = opts.labels || {};
+    for (var c = 0; c < choices.length; c++) {
+      var opt = document.createElement('option');
+      opt.value = choices[c];
+      opt.textContent = labels[choices[c]] || choices[c] || '(default)';
+      if (choices[c] === value) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    div.appendChild(sel);
+  } else if (type === 'list') {
+    var inp3 = document.createElement('input');
+    inp3.type = 'text'; inp3.id = 'ef-' + id;
+    inp3.value = Array.isArray(value) ? value.join(', ') : (value || '');
+    inp3.placeholder = opts.placeholder || 'comma-separated values';
+    div.appendChild(inp3);
+    var hint = document.createElement('div');
+    hint.className = 'hint';
+    hint.textContent = 'Comma-separated';
+    div.appendChild(hint);
+  } else if (type === 'files') {
+    var fileRow = document.createElement('div');
+    fileRow.style.cssText = 'display:flex;gap:6px;align-items:flex-start';
+    var inp4 = document.createElement('input');
+    inp4.type = 'text'; inp4.id = 'ef-' + id;
+    inp4.value = Array.isArray(value) ? value.join(', ') : (value || '');
+    inp4.placeholder = opts.placeholder || 'file paths (comma-separated)';
+    inp4.style.flex = '1';
+    fileRow.appendChild(inp4);
+    var browseBtn = document.createElement('button');
+    browseBtn.className = 'btn';
+    browseBtn.textContent = 'Browse';
+    browseBtn.style.cssText = 'font-size:11px;padding:5px 10px;flex-shrink:0';
+    browseBtn.onclick = (function(inputId, filter) {
+      return function() {
+        openFileBrowser(filter, function(paths) {
+          var el = document.getElementById('ef-' + inputId);
+          var existing = el.value.trim();
+          var all = existing ? existing.split(',').map(function(s){return s.trim();}).filter(function(s){return s;}) : [];
+          for (var p = 0; p < paths.length; p++) {
+            if (all.indexOf(paths[p]) < 0) all.push(paths[p]);
+          }
+          el.value = all.join(', ');
+        }, true);
+      };
+    })(id, opts.filter || '');
+    fileRow.appendChild(browseBtn);
+    div.appendChild(fileRow);
+  } else if (type === 'json') {
+    var ta2 = document.createElement('textarea');
+    ta2.id = 'ef-' + id;
+    ta2.value = value ? JSON.stringify(value, null, 2) : '';
+    ta2.rows = opts.rows || 3;
+    ta2.placeholder = opts.placeholder || 'JSON';
+    div.appendChild(ta2);
+  }
+
+  parent.appendChild(div);
+}
+
+function getEf(id) {
+  var el = document.getElementById('ef-' + id);
+  if (!el) return undefined;
+  if (el.type === 'checkbox') return el.checked;
+  return el.value;
+}
+
+function getEfList(id) {
+  var v = getEf(id);
+  if (!v || !v.trim()) return [];
+  return v.split(',').map(function(s) { return s.trim(); }).filter(function(s) { return s; });
+}
+
+function getEfJson(id) {
+  var v = getEf(id);
+  if (!v || !v.trim()) return null;
+  try { return JSON.parse(v); } catch(e) { return null; }
+}
+
+function getEfStr(id) {
+  var v = getEf(id);
+  return (v && v.trim()) ? v.trim() : null;
+}
+
+function getEfInt(id) {
+  var v = getEf(id);
+  return parseInt(v, 10) || 0;
+}
+
+// --- File browser ---
+var _fbCallback = null;
+var _fbFilter = '';
+var _fbSelected = null;
+var _fbMulti = false;
+var _fbSelectedPaths = [];
+
+function openFileBrowser(filter, callback, multi) {
+  _fbCallback = callback;
+  _fbFilter = filter || '';
+  _fbMulti = !!multi;
+  _fbSelected = null;
+  _fbSelectedPaths = [];
+  var titles = { image: 'Select Image(s)', audio: 'Select Audio File(s)', video: 'Select Video File(s)', '': 'Select File(s)' };
+  document.getElementById('fb-title').textContent = titles[filter] || titles[''];
+  document.getElementById('fb-select-btn').disabled = true;
+  document.getElementById('fb-overlay').classList.add('visible');
+  loadFBDir(null);
+}
+
+function closeFB() {
+  document.getElementById('fb-overlay').classList.remove('visible');
+  _fbCallback = null;
+}
+
+function fmtSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / 1048576).toFixed(1) + ' MB';
+}
+
+async function loadFBDir(dirPath) {
+  var list = document.getElementById('fb-list');
+  list.textContent = 'Loading...';
+  var url = '/browse?filter=' + encodeURIComponent(_fbFilter);
+  if (dirPath) url += '&dir=' + encodeURIComponent(dirPath);
+  var data = await api(url);
+  if (!data || data.error) {
+    list.textContent = data ? data.error : 'Failed to load';
+    return;
+  }
+  document.getElementById('fb-path').textContent = data.path;
+  list.textContent = '';
+  _fbSelected = null;
+  _fbSelectedPaths = [];
+  document.getElementById('fb-select-btn').disabled = true;
+
+  for (var i = 0; i < data.items.length; i++) {
+    var item = data.items[i];
+    var row = document.createElement('div');
+    row.className = 'fb-item';
+
+    var icon = document.createElement('span');
+    icon.className = 'fb-icon';
+    icon.textContent = item.type === 'dir' ? '📁' : '📄';
+    row.appendChild(icon);
+
+    var name = document.createElement('span');
+    name.className = 'fb-name';
+    name.textContent = item.name;
+    row.appendChild(name);
+
+    if (item.size != null) {
+      var size = document.createElement('span');
+      size.className = 'fb-size';
+      size.textContent = fmtSize(item.size);
+      row.appendChild(size);
+    }
+
+    if (item.type === 'dir') {
+      row.ondblclick = (function(p) { return function() { loadFBDir(p); }; })(item.path);
+      row.onclick = (function(p) { return function() { loadFBDir(p); }; })(item.path);
+    } else {
+      row.onclick = (function(r, p) {
+        return function() {
+          if (_fbMulti) {
+            r.classList.toggle('selected');
+            var idx = _fbSelectedPaths.indexOf(p);
+            if (idx >= 0) { _fbSelectedPaths.splice(idx, 1); }
+            else { _fbSelectedPaths.push(p); }
+            document.getElementById('fb-select-btn').disabled = _fbSelectedPaths.length === 0;
+          } else {
+            var prev = list.querySelector('.selected');
+            if (prev) prev.classList.remove('selected');
+            r.classList.add('selected');
+            _fbSelected = p;
+            document.getElementById('fb-select-btn').disabled = false;
+          }
+        };
+      })(row, item.path);
+      row.ondblclick = (function(p) {
+        return function() {
+          _fbSelected = p;
+          fbSelectFile();
+        };
+      })(item.path);
+    }
+
+    list.appendChild(row);
+  }
+}
+
+function fbSelectFile() {
+  if (_fbCallback) {
+    if (_fbMulti) {
+      _fbCallback(_fbSelectedPaths);
+    } else if (_fbSelected) {
+      _fbCallback([_fbSelected]);
+    }
+  }
+  closeFB();
+}
+
+function saveStepChanges() {
+  if (_editingStepIdx < 0 || !_wfData) return;
+  var step = _wfData.steps[_editingStepIdx];
+
+  // Common fields (not id, type)
+  step.name = getEf('name') || step.name;
+  step.description = getEfStr('description');
+  step.condition = getEfStr('condition');
+  step.expected_result = getEfStr('expected_result');
+  step.retry = getEfInt('retry');
+  step.timeout = getEfInt('timeout') || 1800;
+  step.skipped = getEf('skipped') || false;
+
+  // Type-specific
+  if (step.type === 'llm') {
+    step.prompt = getEf('prompt') || step.prompt;
+    step.model = getEfStr('model');
+    step.agent = getEfStr('agent');
+    step.output_format = getEf('output_format') || 'md';
+    step.stream = getEf('stream') || false;
+    step.skills = getEfList('skills');
+    if (step.skills.length === 0) step.skills = null;
+    step.template = getEfStr('template');
+    step.params = getEfJson('params');
+    step.images = getEfList('images'); if (step.images.length === 0) step.images = null;
+    step.audio_files = getEfList('audio_files'); if (step.audio_files.length === 0) step.audio_files = null;
+    step.video_files = getEfList('video_files'); if (step.video_files.length === 0) step.video_files = null;
+    step.files = getEfList('files'); if (step.files.length === 0) step.files = null;
+    step.permissions = getEfJson('permissions');
+  }
+  if (step.type === 'function') {
+    step.function = getEf('function') || step.function;
+  }
+  if (step.type === 'human') {
+    step.prompt = getEf('prompt') || step.prompt;
+    step.auto_confirm = getEf('auto_confirm') || false;
+  }
+  if (step.type === 'workflow') {
+    step.workflow = getEfStr('workflow');
+    step.workflow_file = getEfStr('workflow_file');
+    step.workflow_inputs = getEfJson('workflow_inputs');
+  }
+
+  // Save to server
+  apiPut('/workflows/' + encodeURIComponent(workflowName), _wfData).then(function(res) {
+    var status = document.getElementById('save-status');
+    if (res && res.status === 'saved') {
+      status.textContent = 'Saved';
+      status.style.color = 'var(--accent)';
+      status.style.display = '';
+      setTimeout(function() { status.style.display = 'none'; }, 2000);
+    } else {
+      status.textContent = 'Error: ' + (res ? res.error || 'unknown' : 'no response');
+      status.style.color = '#ef4444';
+      status.style.display = '';
+    }
+  });
+}
+
+// --- Inline editing for workflow-level fields ---
+function startInlineEdit(field) {
+  var editEl = document.getElementById('wf-' + field + '-edit');
+  var inputEl = document.getElementById('wf-' + field + '-input');
+  if (field === 'description') {
+    inputEl.value = _wfData.description || '';
+    document.getElementById('wf-desc').style.display = 'none';
+  } else if (field === 'overview') {
+    inputEl.value = _wfData.overview || '';
+    document.getElementById('wf-overview').style.display = 'none';
+  }
+  editEl.classList.add('active');
+  inputEl.focus();
+}
+
+function cancelInlineEdit(field) {
+  document.getElementById('wf-' + field + '-edit').classList.remove('active');
+  if (field === 'description') {
+    document.getElementById('wf-desc').style.display = '';
+  } else if (field === 'overview') {
+    document.getElementById('wf-overview').style.display = _wfData.overview ? '' : 'none';
+  }
+}
+
+function saveInlineField(field, inputId) {
+  var val = document.getElementById(inputId).value;
+  _wfData[field] = val || null;
+
+  apiPut('/workflows/' + encodeURIComponent(workflowName), _wfData).then(function(res) {
+    if (res && res.status === 'saved') {
+      if (field === 'description') {
+        document.getElementById('wf-desc').textContent = val || '(no description)';
+        document.getElementById('wf-desc').style.display = '';
+      } else if (field === 'overview') {
+        document.getElementById('wf-overview').textContent = val || '';
+        document.getElementById('wf-overview').style.display = val ? '' : 'none';
+      }
+      document.getElementById('wf-' + field + '-edit').classList.remove('active');
+    } else {
+      alertMessage('Save Error', res ? res.error || 'Unknown error' : 'No response');
+    }
+  });
+}
+
+function saveWorkflowField(field, value) {
+  _wfData[field] = value;
+  apiPut('/workflows/' + encodeURIComponent(workflowName), _wfData).then(function(res) {
+    if (!res || res.status !== 'saved') {
+      alertMessage('Save Error', res ? res.error || 'Unknown error' : 'No response');
+    }
+  });
+}
+
+// --- Workflow info layout ---
+function buildWfInfo(wf) {
+  // Meta tags (top, next to description)
+  var meta = document.getElementById('wf-meta');
+  var stepCount = (wf.steps || []).length;
+  var stepTag = document.createElement('span');
+  stepTag.className = 'tag';
+  stepTag.textContent = stepCount + (stepCount === 1 ? ' step' : ' steps');
+  meta.appendChild(stepTag);
+
+  var dirTag = document.createElement('span');
+  dirTag.className = 'tag';
+  dirTag.textContent = 'output: ' + (wf.outputs_dir || wf._default_outputs_dir || '(default)');
+  meta.appendChild(dirTag);
+
+  if (wf.agents) {
+    var agentCount = Object.keys(wf.agents).length;
+    var agentTag = document.createElement('span');
+    agentTag.className = 'tag';
+    agentTag.textContent = agentCount + (agentCount === 1 ? ' agent' : ' agents');
+    meta.appendChild(agentTag);
+  }
+
+  // Overview (top, below description)
+  if (wf.overview) {
+    var overviewEl = document.getElementById('wf-overview');
+    overviewEl.textContent = wf.overview;
+    overviewEl.style.display = '';
+  }
+
+  // Bottom panels (below graph)
+  var bottom = document.getElementById('wf-bottom');
+  var hasBottom = false;
+
+  // Inputs + Run panel
+  hasBottom = true;
+  var inputsPanel = document.createElement('div');
+  inputsPanel.className = 'wf-bottom-panel';
+  var inputsH = document.createElement('h4');
+  inputsH.textContent = 'Inputs';
+  inputsPanel.appendChild(inputsH);
+
+  var inputsTA = document.createElement('textarea');
+  inputsTA.id = 'wf-inputs-editor';
+  inputsTA.style.cssText = 'width:100%;padding:12px 14px;font-size:12px;font-family:monospace;line-height:1.5;background:transparent;color:var(--text);border:none;box-sizing:border-box;resize:vertical;min-height:80px;flex:1';
+  inputsTA.value = wf.inputs ? JSON.stringify(wf.inputs, null, 2) : '';
+  inputsPanel.appendChild(inputsTA);
+
+  var inputsBar = document.createElement('div');
+  inputsBar.style.cssText = 'padding:8px 14px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:center';
+  var saveInputsBtn = document.createElement('button');
+  saveInputsBtn.className = 'btn';
+  saveInputsBtn.textContent = 'Save Inputs';
+  saveInputsBtn.onclick = function() {
+    var val = inputsTA.value.trim();
+    if (val) {
+      try { _wfData.inputs = JSON.parse(val); }
+      catch(e) { alertMessage('Error', 'Invalid JSON: ' + e.message); return; }
+    } else {
+      _wfData.inputs = null;
+    }
+    apiPut('/workflows/' + encodeURIComponent(workflowName), _wfData).then(function(res) {
+      var msg = inputsBar.querySelector('.wf-save-status');
+      if (res && res.status === 'saved') {
+        if (msg) { msg.textContent = 'Saved'; msg.style.color = 'var(--accent)'; }
+      } else {
+        alertMessage('Save Error', res ? res.error || 'Unknown error' : 'No response');
+        if (msg) { msg.textContent = 'Error'; msg.style.color = '#ef4444'; }
+      }
+    });
+  };
+  inputsBar.appendChild(saveInputsBtn);
+  var runBtn = document.createElement('button');
+  runBtn.id = 'run-btn';
+  runBtn.className = 'btn';
+  runBtn.textContent = 'Run Workflow';
+  runBtn.onclick = runWorkflow;
+  inputsBar.appendChild(runBtn);
+  var saveMsg = document.createElement('span');
+  saveMsg.className = 'wf-save-status';
+  inputsBar.appendChild(saveMsg);
+  inputsPanel.appendChild(inputsBar);
+
+  bottom.appendChild(inputsPanel);
+
+  // Agents panel (tabbed)
+  if (wf.agents) {
+    var agentNames = Object.keys(wf.agents);
+    if (agentNames.length > 0) {
+      hasBottom = true;
+      var agentsPanel = document.createElement('div');
+      agentsPanel.className = 'wf-bottom-panel';
+      var agentsH = document.createElement('h4');
+      agentsH.textContent = 'Agents';
+      agentsPanel.appendChild(agentsH);
+
+      // Tabs
+      var tabBar = document.createElement('div');
+      tabBar.className = 'agent-tabs';
+      var contents = [];
+      for (var a = 0; a < agentNames.length; a++) {
+        var name = agentNames[a];
+        var btn = document.createElement('button');
+        btn.textContent = name;
+        if (a === 0) btn.classList.add('active');
+        btn.onclick = (function(idx, bar) {
+          return function() {
+            var btns = bar.querySelectorAll('button');
+            for (var b = 0; b < btns.length; b++) btns[b].classList.remove('active');
+            this.classList.add('active');
+            for (var c = 0; c < contents.length; c++) {
+              contents[c].style.display = c === idx ? '' : 'none';
+            }
+          };
+        })(a, tabBar);
+        tabBar.appendChild(btn);
+      }
+      agentsPanel.appendChild(tabBar);
+
+      // Content for each agent (editable)
+      for (var ai = 0; ai < agentNames.length; ai++) {
+        var agentName = agentNames[ai];
+        var cfg = wf.agents[agentName];
+        var content = document.createElement('div');
+        content.className = 'agent-content';
+        if (ai > 0) content.style.display = 'none';
+
+        var prefix = 'agent_' + ai + '_';
+        ef(content, 'Role', prefix + 'role', 'text', cfg.role);
+        var agentModelChoices = [''].concat(_wfData._models || []);
+        var agentModelLabels = _wfData._default_model ? {'': '(default: ' + _wfData._default_model + ')'} : {};
+        ef(content, 'Model', prefix + 'model', 'select', cfg.model || '', { choices: agentModelChoices, labels: agentModelLabels });
+        ef(content, 'Tools', prefix + 'tools', 'list', cfg.tools);
+        ef(content, 'Skills', prefix + 'skills', 'list', cfg.skills);
+        ef(content, 'Instructions', prefix + 'instructions', 'textarea', cfg.instructions, { rows: 3 });
+        ef(content, 'System Message', prefix + 'system_message', 'textarea', cfg.system_message, { rows: 3 });
+        ef(content, 'Permissions', prefix + 'permissions', 'json', cfg.permissions, { rows: 2 });
+
+        // Save button per agent
+        var saveBar = document.createElement('div');
+        saveBar.style.cssText = 'margin-top:8px;display:flex;gap:6px;align-items:center';
+        var saveBtn = document.createElement('button');
+        saveBtn.className = 'btn';
+        saveBtn.textContent = 'Save Agent';
+        saveBtn.onclick = (function(aName, pfx) {
+          return function() {
+            var ag = _wfData.agents[aName];
+            ag.role = getEfStr(pfx + 'role');
+            ag.model = getEfStr(pfx + 'model');
+            ag.tools = getEfList(pfx + 'tools'); if (ag.tools.length === 0) ag.tools = null;
+            ag.skills = getEfList(pfx + 'skills'); if (ag.skills.length === 0) ag.skills = null;
+            ag.instructions = getEfStr(pfx + 'instructions');
+            ag.system_message = getEfStr(pfx + 'system_message');
+            ag.permissions = getEfJson(pfx + 'permissions');
+            saveWorkflowField('agents', _wfData.agents);
+          };
+        })(agentName, prefix);
+        saveBar.appendChild(saveBtn);
+        content.appendChild(saveBar);
+
+        agentsPanel.appendChild(content);
+        contents.push(content);
+      }
+
+      bottom.appendChild(agentsPanel);
+    }
+  }
+}
+
+// --- Step dialog ---
+function closeStepPanel() {
+  document.getElementById('step-dialog-overlay').classList.remove('visible');
+}
+
+function switchStepTab(btn, tab) {
+  var tabs = btn.parentElement.querySelectorAll('button');
+  for (var i = 0; i < tabs.length; i++) tabs[i].classList.remove('active');
+  btn.classList.add('active');
+  document.getElementById('step-tab-details').style.display = tab === 'details' ? '' : 'none';
+  document.getElementById('step-tab-validation').style.display = tab === 'validation' ? '' : 'none';
+  document.getElementById('step-tab-output').style.display = tab === 'output' ? '' : 'none';
+}
+
+function showStepPanel(step) {
+  var overlay = document.getElementById('step-dialog-overlay');
+  var title = document.getElementById('step-dialog-title');
+  var typeBadge = document.getElementById('step-dialog-type');
+  var body = document.getElementById('step-tab-details');
+
+  // Find step index for saving
+  _editingStepIdx = -1;
+  for (var si = 0; si < (_wfData.steps || []).length; si++) {
+    if (_wfData.steps[si].id === step.id) { _editingStepIdx = si; break; }
+  }
+
+  title.textContent = step.name || step.id;
+  var typeColor = TYPE_COLORS[step.type] || '#6b7280';
+  typeBadge.textContent = step.type;
+  typeBadge.style.background = typeColor;
+  typeBadge.style.color = '#fff';
+
+  body.textContent = '';
+  document.getElementById('save-status').style.display = 'none';
+  var info = _statusMap[step.id];
+
+  // Execution status (read-only)
+  if (info) {
+    var statusDiv = document.createElement('div');
+    statusDiv.style.cssText = 'margin-bottom:12px;padding:8px 10px;border-radius:6px;font-size:12px';
+    var st = info.status || 'pending';
+    statusDiv.style.background = st === 'completed' ? 'rgba(34,197,94,0.1)' : st === 'failed' ? 'rgba(239,68,68,0.1)' : st === 'running' ? 'rgba(234,179,8,0.1)' : 'transparent';
+    var pill = document.createElement('span');
+    pill.className = 'pill ' + (st === 'completed' ? 'ok' : st === 'failed' ? 'err' : st === 'running' ? 'warn' : '');
+    pill.textContent = st;
+    statusDiv.appendChild(pill);
+    if (info.execution_time != null) {
+      var timeSpan = document.createElement('span');
+      timeSpan.style.cssText = 'margin-left:10px;color:var(--text-dim)';
+      timeSpan.textContent = info.execution_time.toFixed(1) + 's';
+      statusDiv.appendChild(timeSpan);
+    }
+    if (info.attempts && info.attempts > 1) {
+      var attSpan = document.createElement('span');
+      attSpan.style.cssText = 'margin-left:10px;color:var(--text-dim)';
+      attSpan.textContent = info.attempts + ' attempts';
+      statusDiv.appendChild(attSpan);
+    }
+    if (info.validation) {
+      var valSpan = document.createElement('div');
+      valSpan.style.cssText = 'margin-top:4px;font-size:11px';
+      valSpan.style.color = info.validation === 'passed' ? '#22c55e' : '#eab308';
+      valSpan.textContent = 'Validation: ' + info.validation;
+      statusDiv.appendChild(valSpan);
+    }
+    if (info.error) {
+      var errDiv = document.createElement('div');
+      errDiv.style.cssText = 'margin-top:4px;color:#ef4444;font-size:11px';
+      errDiv.textContent = info.error;
+      statusDiv.appendChild(errDiv);
+    }
+    body.appendChild(statusDiv);
+  }
+
+  // --- Readonly fields ---
+  ef(body, 'ID', 'id_ro', 'readonly', step.id);
+  ef(body, 'Type', 'type_ro', 'readonly', step.type);
+  ef(body, 'Depends On', 'deps_ro', 'readonly', (step.depends_on || []).join(', ') || '—');
+
+  // --- Common editable fields ---
+  ef(body, 'Name', 'name', 'text', step.name);
+  ef(body, 'Description', 'description', 'text', step.description);
+  ef(body, 'Condition', 'condition', 'text', step.condition, { placeholder: 'Jinja2 expression' });
+  ef(body, 'Retry', 'retry', 'number', step.retry || 0);
+  ef(body, 'Skipped', 'skipped', 'checkbox', step.skipped);
+
+  // --- LLM step ---
+  if (step.type === 'llm') {
+    var agentChoices = [''];
+    if (_wfData.agents) { agentChoices = agentChoices.concat(Object.keys(_wfData.agents)); }
+    ef(body, 'Agent', 'agent', 'select', step.agent || '', { choices: agentChoices });
+    var modelChoices = [''].concat(_wfData._models || []);
+    ef(body, 'Model', 'model', 'select', step.model || '', { choices: modelChoices, labels: {'': '(use agent model)'} });
+    ef(body, 'Text Output Format', 'output_format', 'select', step.output_format || 'md', { choices: ['md', 'json', 'txt', 'yaml', 'code'] });
+    ef(body, 'Stream', 'stream', 'checkbox', step.stream);
+    ef(body, 'Skills', 'skills', 'list', step.skills);
+    ef(body, 'Template', 'template', 'text', step.template);
+    ef(body, 'Params', 'params', 'json', step.params, { rows: 2 });
+    ef(body, 'Images', 'images', 'files', step.images, { filter: 'image' });
+    ef(body, 'Audio Files', 'audio_files', 'files', step.audio_files, { filter: 'audio' });
+    ef(body, 'Video Files', 'video_files', 'files', step.video_files, { filter: 'video' });
+    ef(body, 'Files', 'files', 'files', step.files, { filter: '' });
+    ef(body, 'Permissions', 'permissions', 'json', step.permissions, { rows: 2 });
+    ef(body, 'Prompt', 'prompt', 'textarea', step.prompt, { rows: 8 });
+  }
+
+  // --- Function step ---
+  if (step.type === 'function') {
+    ef(body, 'Function', 'function', 'text', step.function, { placeholder: 'module.path.function_name' });
+  }
+
+  // --- Human step ---
+  if (step.type === 'human') {
+    ef(body, 'Auto Confirm', 'auto_confirm', 'checkbox', step.auto_confirm);
+    ef(body, 'Prompt', 'prompt', 'textarea', step.prompt, { rows: 4 });
+  }
+
+  // --- Decision step ---
+  if (step.type === 'decision') {
+    ef(body, 'Default', 'default_ro', 'readonly', step.default || '—');
+    if (step.branches) {
+      for (var b = 0; b < step.branches.length; b++) {
+        var br = step.branches[b];
+        ef(body, 'Branch ' + (b + 1), 'branch_' + b + '_ro', 'readonly', br.condition + ' → ' + br.next_step);
+      }
+    }
+  }
+
+  // --- Workflow step ---
+  if (step.type === 'workflow') {
+    ef(body, 'Workflow', 'workflow', 'text', step.workflow);
+    ef(body, 'Workflow File', 'workflow_file', 'text', step.workflow_file);
+    ef(body, 'Workflow Inputs', 'workflow_inputs', 'json', step.workflow_inputs, { rows: 3 });
+  }
+
+  // --- Build validation tab ---
+  var valBody = document.getElementById('step-tab-validation');
+  valBody.textContent = '';
+
+  ef(valBody, 'Expected Result', 'expected_result', 'textarea', step.expected_result, { rows: 4, placeholder: 'Describe what the output should contain for validation. Leave empty to skip validation.' });
+  ef(valBody, 'Timeout (seconds)', 'timeout', 'number', step.timeout || 1800);
+  ef(valBody, 'Retry', 'retry_val', 'readonly', (step.retry || 0) === 0 ? '0 (unlimited)' : String(step.retry));
+
+  // Show validation result from execution
+  if (info && info.validation) {
+    var valResultDiv = document.createElement('div');
+    valResultDiv.style.cssText = 'margin-top:12px;padding:8px 10px;border-radius:6px;font-size:12px';
+    var valPassed = info.validation === 'passed';
+    valResultDiv.style.background = valPassed ? 'rgba(34,197,94,0.1)' : 'rgba(234,179,8,0.1)';
+    var valTitle = document.createElement('div');
+    valTitle.style.cssText = 'font-weight:600;margin-bottom:4px';
+    valTitle.style.color = valPassed ? '#22c55e' : '#eab308';
+    valTitle.textContent = 'Validation Result: ' + (valPassed ? 'PASSED' : 'FAILED');
+    valResultDiv.appendChild(valTitle);
+    if (info.attempts && info.attempts > 1) {
+      var attDiv = document.createElement('div');
+      attDiv.style.cssText = 'font-size:11px;color:var(--text-dim)';
+      attDiv.textContent = 'Completed after ' + info.attempts + ' attempts';
+      valResultDiv.appendChild(attDiv);
+    }
+    if (!valPassed) {
+      var feedbackDiv = document.createElement('div');
+      feedbackDiv.style.cssText = 'font-size:11px;color:var(--text-dim);margin-top:4px';
+      feedbackDiv.textContent = info.validation;
+      valResultDiv.appendChild(feedbackDiv);
+    }
+    valBody.appendChild(valResultDiv);
+  } else if (info && !step.expected_result) {
+    var noValDiv = document.createElement('div');
+    noValDiv.style.cssText = 'margin-top:12px;padding:8px 10px;border-radius:6px;font-size:12px;color:var(--text-dim);background:var(--bg)';
+    noValDiv.textContent = 'No validation configured — step completes on first successful execution.';
+    valBody.appendChild(noValDiv);
+  }
+
+  // --- Build output tab ---
+  var outputBody = document.getElementById('step-tab-output');
+  outputBody.textContent = '';
+
+  if (!info || !info.has_output) {
+    var emptyMsg = document.createElement('div');
+    emptyMsg.className = 'step-output-empty';
+    emptyMsg.textContent = info ? 'No output available for this step.' : 'Select an execution to view output.';
+    outputBody.appendChild(emptyMsg);
+  } else {
+    var stepRef = step.id;
+
+    // Validation status
+    if (info.validation) {
+      var valDiv = document.createElement('div');
+      valDiv.style.cssText = 'font-size:12px;padding:6px 10px;border-radius:4px;margin-bottom:10px';
+      var valPassed = info.validation === 'passed';
+      valDiv.style.background = valPassed ? 'rgba(34,197,94,0.1)' : 'rgba(234,179,8,0.1)';
+      valDiv.style.color = valPassed ? '#22c55e' : '#eab308';
+      valDiv.textContent = 'Validation: ' + info.validation;
+      if (info.attempts && info.attempts > 1) {
+        valDiv.textContent += ' (' + info.attempts + ' attempts)';
+      }
+      outputBody.appendChild(valDiv);
+    }
+
+    // Text result with reference label
+    if (info.result) {
+      var resultHeader = document.createElement('div');
+      resultHeader.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:6px';
+      var resultLabel = document.createElement('span');
+      resultLabel.style.cssText = 'font-weight:600;font-size:12px;color:var(--text-dim)';
+      resultLabel.textContent = 'Result';
+      resultHeader.appendChild(resultLabel);
+      var resultRef = document.createElement('code');
+      resultRef.style.cssText = 'font-size:10px;color:var(--accent);background:var(--bg);padding:2px 6px;border-radius:3px;cursor:pointer';
+      resultRef.textContent = '{{ ' + stepRef + '.outputs.result }}';
+      resultRef.title = 'Click to copy reference';
+      resultRef.onclick = function() {
+        navigator.clipboard.writeText(resultRef.textContent);
+        resultRef.style.color = '#22c55e';
+        setTimeout(function() { resultRef.style.color = 'var(--accent)'; }, 1000);
+      };
+      resultHeader.appendChild(resultRef);
+      outputBody.appendChild(resultHeader);
+      var resultPre = document.createElement('pre');
+      resultPre.textContent = info.result;
+      outputBody.appendChild(resultPre);
+    }
+
+    // Media files with reference labels
+    if (info.media_files && info.media_files.length > 0) {
+      var mediaLabel = document.createElement('div');
+      mediaLabel.style.cssText = 'font-weight:600;font-size:12px;color:var(--text-dim);margin-top:12px;margin-bottom:6px';
+      mediaLabel.textContent = 'Media (' + info.media_files.length + ')';
+      outputBody.appendChild(mediaLabel);
+
+      var mediaDiv = document.createElement('div');
+      mediaDiv.className = 'step-output-media';
+
+      for (var mi = 0; mi < info.media_files.length; mi++) {
+        var filePath = info.media_files[mi];
+        var mediaUrl = '/admin/api/media/' + encodeURIComponent(filePath);
+        var ext = filePath.split('.').pop().toLowerCase();
+
+        // Reference label for this media file
+        var mediaRefDiv = document.createElement('div');
+        mediaRefDiv.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-top:8px';
+        var mediaName = document.createElement('span');
+        mediaName.style.cssText = 'font-size:11px;color:var(--text-dim)';
+        mediaName.textContent = '[' + mi + '] ' + filePath.split('/').pop();
+        mediaRefDiv.appendChild(mediaName);
+        var mediaRef = document.createElement('code');
+        mediaRef.style.cssText = 'font-size:10px;color:var(--accent);background:var(--bg);padding:2px 6px;border-radius:3px;cursor:pointer';
+        mediaRef.textContent = '{{ ' + stepRef + '.outputs.media_files[' + mi + '] }}';
+        mediaRef.title = 'Click to copy reference';
+        mediaRef.onclick = (function(refEl) {
+          return function() {
+            navigator.clipboard.writeText(refEl.textContent);
+            refEl.style.color = '#22c55e';
+            setTimeout(function() { refEl.style.color = 'var(--accent)'; }, 1000);
+          };
+        })(mediaRef);
+        mediaRefDiv.appendChild(mediaRef);
+        mediaDiv.appendChild(mediaRefDiv);
+
+        if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].indexOf(ext) >= 0) {
+          var img = document.createElement('img');
+          img.src = mediaUrl;
+          img.alt = filePath.split('/').pop();
+          img.loading = 'lazy';
+          mediaDiv.appendChild(img);
+        } else if (['mp3', 'wav', 'ogg', 'aac', 'flac'].indexOf(ext) >= 0) {
+          var audio = document.createElement('audio');
+          audio.controls = true;
+          audio.src = mediaUrl;
+          mediaDiv.appendChild(audio);
+        } else if (['mp4', 'webm', 'mov', 'avi'].indexOf(ext) >= 0) {
+          var video = document.createElement('video');
+          video.controls = true;
+          video.style.maxWidth = '100%';
+          video.src = mediaUrl;
+          mediaDiv.appendChild(video);
+        } else {
+          var fileLink = document.createElement('a');
+          fileLink.href = mediaUrl;
+          fileLink.textContent = 'Download';
+          fileLink.style.cssText = 'color:var(--accent);font-size:11px';
+          fileLink.target = '_blank';
+          mediaDiv.appendChild(fileLink);
+        }
+      }
+      outputBody.appendChild(mediaDiv);
+    }
+  }
+
+  // Reset to details tab
+  var tabBtns = overlay.querySelectorAll('.step-dialog-tabs button');
+  for (var ti = 0; ti < tabBtns.length; ti++) tabBtns[ti].classList.remove('active');
+  tabBtns[0].classList.add('active');
+  document.getElementById('step-tab-details').style.display = '';
+  document.getElementById('step-tab-validation').style.display = 'none';
+  document.getElementById('step-tab-output').style.display = 'none';
+
+  overlay.classList.add('visible');
+}
+
+// --- Status colors ---
+var STATUS_COLORS = {
+  pending: '#6b7280',
+  running: '#eab308',
+  completed: '#22c55e',
+  failed: '#ef4444'
+};
+
+var STATUS_FILLS = {
+  pending: 'var(--card, #1a1a2e)',
+  running: 'rgba(234, 179, 8, 0.12)',
+  completed: 'rgba(34, 197, 94, 0.12)',
+  failed: 'rgba(239, 68, 68, 0.12)'
+};
+
+function getStepStatus(stepId) {
+  var info = _statusMap[stepId];
+  return info ? (info.status || 'pending') : 'pending';
+}
+
+// --- Type colors ---
+var TYPE_COLORS = {
+  llm: '#3b82f6',
+  function: '#8b5cf6',
+  human: '#f59e0b',
+  decision: '#ec4899',
+  workflow: '#06b6d4'
+};
+
+// --- JointJS DAG ---
+function buildDAG(steps) {
+  if (typeof joint === 'undefined') {
+    document.getElementById('view-graph').textContent = 'Graph library not loaded';
     return;
   }
 
-  el.className = '';
-  el.innerHTML = '';
+  var namespace = joint.shapes;
+  _graph = new joint.dia.Graph({}, { cellNamespace: namespace });
 
-  // --- Header ---
-  titleEl.textContent = wf.name;
-  if (wf.description) {
-    var descP = document.createElement('p');
-    descP.textContent = wf.description;
-    descP.style.cssText = 'color:var(--text-dim);margin-bottom:20px;margin-top:-12px';
-    el.appendChild(descP);
+  var container = document.getElementById('view-graph');
+  container.textContent = '';
+
+  _paper = new joint.dia.Paper({
+    el: container,
+    model: _graph,
+    cellViewNamespace: namespace,
+    width: '100%',
+    height: 400,
+    gridSize: 1,
+    interactive: false,
+    background: { color: 'transparent' },
+  });
+
+  var nodeMap = {};
+  for (var i = 0; i < steps.length; i++) {
+    var step = steps[i];
+    var st = getStepStatus(step.id);
+    var borderColor = STATUS_COLORS[st] || STATUS_COLORS.pending;
+    var typeColor = TYPE_COLORS[step.type] || '#6b7280';
+
+    var displayName = (step.name || step.id).substring(0, 22);
+
+    var rect = new joint.shapes.standard.Rectangle({
+      id: step.id,
+      size: { width: 180, height: 56 },
+      attrs: {
+        body: {
+          rx: 8, ry: 8,
+          fill: 'var(--card, #1a1a2e)',
+          stroke: borderColor,
+          strokeWidth: 2,
+          cursor: 'pointer',
+        },
+        label: {
+          text: displayName,
+          fill: 'var(--text, #e0e0e0)',
+          fontSize: 13,
+          fontFamily: 'system-ui, -apple-system, sans-serif',
+          textAnchor: 'middle',
+          textVerticalAnchor: 'middle',
+        }
+      }
+    });
+
+    rect.addTo(_graph);
+    nodeMap[step.id] = rect;
   }
 
-  // --- Overview ---
-  if (wf.overview) {
-    var overviewHeading = document.createElement('h3');
-    overviewHeading.textContent = 'Overview';
-    overviewHeading.style.cssText = 'font-size:14px;font-weight:600;margin-bottom:10px';
-    el.appendChild(overviewHeading);
-
-    var overviewDiv = document.createElement('div');
-    overviewDiv.className = 'md-content';
-    overviewDiv.textContent = wf.overview;
-    el.appendChild(overviewDiv);
+  for (var j = 0; j < steps.length; j++) {
+    var s = steps[j];
+    if (s.depends_on) {
+      for (var d = 0; d < s.depends_on.length; d++) {
+        var depId = s.depends_on[d];
+        if (nodeMap[depId]) {
+          var link = new joint.shapes.standard.Link({
+            source: { id: depId },
+            target: { id: s.id },
+            attrs: {
+              line: {
+                stroke: 'var(--border, #333)',
+                strokeWidth: 1.5,
+                targetMarker: { type: 'path', d: 'M 10 -5 0 0 10 5 Z', fill: 'var(--border, #333)' }
+              }
+            },
+          });
+          link.addTo(_graph);
+        }
+      }
+    }
   }
 
-  // --- Step Diagram ---
-  var diagramHeading = document.createElement('h3');
-  diagramHeading.textContent = 'Step Diagram';
-  diagramHeading.style.cssText = 'font-size:14px;font-weight:600;margin-bottom:10px;margin-top:20px';
-  el.appendChild(diagramHeading);
+  if (joint.layout && joint.layout.DirectedGraph) {
+    joint.layout.DirectedGraph.layout(_graph, {
+      rankDir: 'TB',
+      nodeSep: 40,
+      rankSep: 80,
+      marginX: 30,
+      marginY: 30,
+      setVertices: true,
+      setLinkVertices: true,
+    });
+  }
+
+  // Convert dagre vertices to orthogonal (horizontal + vertical only)
+  _graph.getLinks().forEach(function(link) {
+    var vertices = link.vertices();
+    if (!vertices || vertices.length === 0) return;
+    var src = link.getSourceCell();
+    var tgt = link.getTargetCell();
+    if (!src || !tgt) return;
+    var srcPos = src.position();
+    var srcSize = src.size();
+    var tgtPos = tgt.position();
+    var tgtSize = tgt.size();
+    var sx = srcPos.x + srcSize.width / 2;
+    var sy = srcPos.y + srcSize.height;
+    var tx = tgtPos.x + tgtSize.width / 2;
+    var ty = tgtPos.y;
+    var midY = (sy + ty) / 2;
+    // Simple orthogonal: go down from source center, horizontal to target x, then down to target
+    if (Math.abs(sx - tx) < 2) {
+      link.vertices([]);
+    } else {
+      link.vertices([
+        { x: sx, y: midY },
+        { x: tx, y: midY }
+      ]);
+    }
+  });
+
+  var bbox = _graph.getBBox();
+  if (bbox) {
+    var containerWidth = container.clientWidth || bbox.width + 60;
+    var paperWidth = Math.max(containerWidth, bbox.width + 60);
+    var offsetX = (paperWidth - bbox.width) / 2 - (bbox.x || 0);
+    _paper.setDimensions(paperWidth, bbox.height + 60);
+    _paper.translate(offsetX, 30 - (bbox.y || 0));
+  }
+
+  _paper.on('element:pointerclick', function(cellView) {
+    var id = cellView.model.id;
+    var step = null;
+    for (var k = 0; k < steps.length; k++) {
+      if (steps[k].id === id) { step = steps[k]; break; }
+    }
+    if (step) showStepPanel(step);
+  });
+
+  // Add type badges to top-left of each node after rendering
+  for (var t = 0; t < steps.length; t++) {
+    var stp = steps[t];
+    var cellView = _paper.findViewByModel(stp.id);
+    if (!cellView) continue;
+    var tc = TYPE_COLORS[stp.type] || '#6b7280';
+    var badge = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    badge.setAttribute('x', '8');
+    badge.setAttribute('y', '14');
+    badge.setAttribute('font-size', '9');
+    badge.setAttribute('font-family', 'system-ui, -apple-system, sans-serif');
+    badge.setAttribute('fill', tc);
+    badge.textContent = stp.type;
+    cellView.el.appendChild(badge);
+  }
+}
+
+function updateDAGStatus() {
+  if (!_graph || !_wfData) return;
+  var steps = _wfData.steps || [];
+  for (var i = 0; i < steps.length; i++) {
+    var step = steps[i];
+    var cell = _graph.getCell(step.id);
+    if (!cell) continue;
+    var st = getStepStatus(step.id);
+    var color = STATUS_COLORS[st] || STATUS_COLORS.pending;
+    var fill = STATUS_FILLS[st] || STATUS_FILLS.pending;
+    cell.attr('body/stroke', color);
+    cell.attr('body/strokeWidth', st === 'running' ? 3 : 2);
+    cell.attr('body/fill', fill);
+  }
+}
+
+// --- Execution loading ---
+var _isRunning = false;
+
+function showExecError(msg) {
+  var el = document.getElementById('exec-error');
+  if (msg) {
+    el.textContent = msg;
+    el.style.display = '';
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+async function loadExecution(threadId, forcePolling) {
+  if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+  _statusMap = {};
+  _isRunning = false;
+  showExecError(null);
+  document.getElementById('exec-summary').style.display = 'none';
+
+  if (!threadId) {
+    updateDAGStatus();
+    closeStepPanel();
+    return;
+  }
+
+  // Check execution-level error from the executions list
+  var execs = await api('/workflows/' + encodeURIComponent(workflowName) + '/executions');
+  if (execs) {
+    for (var e = 0; e < execs.length; e++) {
+      if (execs[e].thread_id === threadId && execs[e].error) {
+        showExecError('Execution failed: ' + execs[e].error);
+        break;
+      }
+    }
+  }
+
+  var status = await api('/workflows/' + encodeURIComponent(workflowName) + '/executions/' + encodeURIComponent(threadId));
+  if (status && status.steps) {
+    for (var i = 0; i < status.steps.length; i++) {
+      _statusMap[status.steps[i].id] = status.steps[i];
+    }
+    // Check for step-level errors if no execution-level error
+    if (!document.getElementById('exec-error').textContent) {
+      for (var j = 0; j < status.steps.length; j++) {
+        if (status.steps[j].error) {
+          showExecError('Step \'' + status.steps[j].id + '\' failed: ' + status.steps[j].error);
+          break;
+        }
+      }
+    }
+  }
+
+  updateDAGStatus();
+
+  // Start polling if execution is still running or was just triggered
+  var shouldPoll = forcePolling || (status && status.next_steps && status.next_steps.length > 0);
+  if (!shouldPoll && !status) {
+    // No checkpoint data yet — might be a brand-new execution, poll anyway
+    shouldPoll = true;
+  }
+
+  if (shouldPoll) {
+    _isRunning = true;
+    _pollTimer = setInterval(function() {
+      api('/workflows/' + encodeURIComponent(workflowName) + '/executions/' + encodeURIComponent(threadId))
+        .then(function(st) {
+          if (!st || !st.steps) return;
+          _statusMap = {};
+          for (var j = 0; j < st.steps.length; j++) {
+            _statusMap[st.steps[j].id] = st.steps[j];
+          }
+          updateDAGStatus();
+          if (st.next_steps && st.next_steps.length === 0) {
+            clearInterval(_pollTimer);
+            _pollTimer = null;
+            _isRunning = false;
+            showExecSummary();
+            reloadExecDropdown(threadId);
+          }
+        });
+    }, 2000);
+  } else {
+    // Already completed — show summary immediately
+    var hasAnyResult = Object.keys(_statusMap).some(function(k) { return _statusMap[k].has_output; });
+    if (hasAnyResult) showExecSummary();
+  }
+}
+
+function showExecSummary() {
+  var panel = document.getElementById('exec-summary');
+  var title = document.getElementById('exec-summary-title');
+  var body = document.getElementById('exec-summary-body');
+  body.textContent = '';
+
+  var steps = _wfData.steps || [];
+  var completed = 0, failed = 0, totalTime = 0;
+  var lastResult = null;
+
+  for (var i = 0; i < steps.length; i++) {
+    var info = _statusMap[steps[i].id];
+    if (!info) continue;
+    if (info.status === 'completed') completed++;
+    if (info.status === 'failed') failed++;
+    if (info.execution_time) totalTime += info.execution_time;
+    if (info.has_output && info.result) lastResult = { id: steps[i].id, name: steps[i].name, result: info.result };
+  }
+
+  var statusText = failed > 0
+    ? completed + ' completed, ' + failed + ' failed'
+    : completed + '/' + steps.length + ' steps completed';
+  title.textContent = 'Execution Result — ' + statusText + ' (' + totalTime.toFixed(1) + 's)';
+  title.style.color = failed > 0 ? '#ef4444' : 'var(--accent)';
+
+  // Show the last step's output as the final result
+  if (lastResult) {
+    var label = document.createElement('div');
+    label.style.cssText = 'font-weight:600;font-size:12px;color:var(--text-dim);margin-bottom:6px';
+    label.textContent = 'Final output (' + lastResult.name + ')';
+    body.appendChild(label);
+    var pre = document.createElement('pre');
+    pre.style.cssText = 'max-height:300px;overflow:auto;font-size:12px;line-height:1.5;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:12px;margin:0';
+    pre.textContent = lastResult.result.length > 2000 ? lastResult.result.substring(0, 2000) + '\n...(truncated)' : lastResult.result;
+    body.appendChild(pre);
+  }
+
+  panel.style.display = '';
+}
+
+function reloadExecDropdown(selectedThreadId) {
+  api('/workflows/' + encodeURIComponent(workflowName) + '/executions')
+    .then(function(execs) {
+      if (!execs || execs.length === 0) return;
+      var sel = document.getElementById('exec-select');
+      while (sel.options.length > 1) sel.remove(1);
+      for (var i = 0; i < execs.length; i++) {
+        var ex = execs[i];
+        var opt = document.createElement('option');
+        opt.value = ex.thread_id;
+        var label = (ex.execution_id || ex.thread_id) + ' (' + (ex.status || '?') + ')';
+        if (ex.started_at) label += ' — ' + ex.started_at.substring(0, 19);
+        opt.textContent = label;
+        sel.appendChild(opt);
+      }
+      if (selectedThreadId) sel.value = selectedThreadId;
+    });
+}
+
+// --- Run workflow ---
+function runWorkflow() {
+  confirmAction('Run Workflow', 'Start a new execution of this workflow?', function() {
+    var btn = document.getElementById('run-btn');
+    btn.disabled = true;
+    btn.textContent = 'Starting...';
+    apiPost('/workflows/' + encodeURIComponent(workflowName) + '/run')
+      .then(function(result) {
+        btn.disabled = false;
+        btn.textContent = 'Run';
+        if (result && result.status === 'started') {
+          // Wait a moment for the execution to register in the DB, then reload executions
+          setTimeout(async function() {
+            var execs = await api('/workflows/' + encodeURIComponent(workflowName) + '/executions');
+            if (execs && execs.length > 0) {
+              var sel = document.getElementById('exec-select');
+              // Clear existing options except the first one
+              while (sel.options.length > 1) sel.remove(1);
+              for (var i = 0; i < execs.length; i++) {
+                var ex = execs[i];
+                var opt = document.createElement('option');
+                opt.value = ex.thread_id;
+                var label = (ex.execution_id || ex.thread_id) + ' (' + (ex.status || '?') + ')';
+                if (ex.started_at) label += ' — ' + ex.started_at.substring(0, 19);
+                opt.textContent = label;
+                sel.appendChild(opt);
+              }
+              // Select the latest (first) and start polling with forcePolling
+              sel.value = execs[0].thread_id;
+              loadExecution(execs[0].thread_id, true);
+            }
+          }, 1500);
+        } else {
+          alertMessage('Error', 'Failed to start: ' + (result ? result.error || 'unknown' : 'no response'));
+        }
+      });
+  });
+}
+
+// --- Init (wait for JointJS to load) ---
+window.addEventListener('load', async function() {
+  var wf = await api('/workflows/' + encodeURIComponent(workflowName));
+  if (!wf) {
+    document.getElementById('view-graph').textContent = 'Workflow not found';
+    return;
+  }
+
+  _wfData = wf;
+  document.getElementById('wf-title').textContent = wf.name;
+  document.getElementById('wf-desc').textContent = wf.description || '';
+  buildWfInfo(wf);
 
   var steps = wf.steps || [];
-  if (steps.length === 0) {
-    var noSteps = document.createElement('p');
-    noSteps.textContent = 'No steps defined.';
-    noSteps.style.cssText = 'color:var(--text-dim);font-style:italic';
-    el.appendChild(noSteps);
-  } else {
-    var flow = document.createElement('div');
-    flow.className = 'step-flow vertical';
+  buildDAG(steps);
 
-    function typePillClass(type) {
-      var t = String(type || '').toLowerCase();
-      if (t === 'llm') return 'ok';
-      if (t === 'function') return 'pending';
-      if (t === 'workflow') return 'pending';
-      if (t === 'human') return 'warn';
-      if (t === 'decision') return 'warn';
-      return '';
+  var execs = await api('/workflows/' + encodeURIComponent(workflowName) + '/executions');
+  if (execs && execs.length > 0) {
+    var sel = document.getElementById('exec-select');
+    for (var i = 0; i < execs.length; i++) {
+      var ex = execs[i];
+      var opt = document.createElement('option');
+      opt.value = ex.thread_id;
+      var label = (ex.execution_id || ex.thread_id) + ' (' + (ex.status || '?') + ')';
+      if (ex.started_at) label += ' — ' + ex.started_at.substring(0, 19);
+      opt.textContent = label;
+      sel.appendChild(opt);
     }
+    sel.onchange = function() { loadExecution(sel.value); };
 
-    for (var i = 0; i < steps.length; i++) {
-      var step = steps[i];
-
-      // Add connector between steps (not before first)
-      if (i > 0) {
-        var connector = document.createElement('div');
-        connector.className = 'step-connector';
-        flow.appendChild(connector);
-      }
-
-      // Step box
-      var box = document.createElement('div');
-      box.className = 'step-box';
-      box.onclick = (function(b) {
-        return function() { b.classList.toggle('expanded'); };
-      })(box);
-
-      // Header row: name + type pill
-      var header = document.createElement('div');
-      header.className = 'step-header';
-
-      var nameEl = document.createElement('h4');
-      nameEl.textContent = step.name || step.id || ('Step ' + (i + 1));
-
-      var typePill = document.createElement('span');
-      typePill.className = 'pill ' + typePillClass(step.type);
-      typePill.textContent = step.type || 'unknown';
-
-      header.appendChild(nameEl);
-      header.appendChild(typePill);
-      box.appendChild(header);
-
-      // Description
-      if (step.description) {
-        var stepDesc = document.createElement('div');
-        stepDesc.className = 'step-desc';
-        stepDesc.textContent = step.description;
-        box.appendChild(stepDesc);
-      }
-
-      // Expandable details
-      var details = document.createElement('div');
-      details.className = 'step-details';
-
-      var detailTable = document.createElement('table');
-      var detailBody = document.createElement('tbody');
-
-      function addDetailRow(tbody, label, value) {
-        if (value == null || value === '' || (Array.isArray(value) && value.length === 0)) return;
-        var tr = document.createElement('tr');
-        var tdL = document.createElement('td');
-        tdL.textContent = label;
-        var tdV = document.createElement('td');
-        if (Array.isArray(value)) {
-          tdV.textContent = value.join(', ');
-        } else if (typeof value === 'object') {
-          tdV.textContent = JSON.stringify(value, null, 2);
-          tdV.style.fontFamily = 'monospace';
-          tdV.style.fontSize = '11px';
-          tdV.style.whiteSpace = 'pre-wrap';
-        } else {
-          tdV.textContent = String(value);
-        }
-        tr.appendChild(tdL);
-        tr.appendChild(tdV);
-        tbody.appendChild(tr);
-      }
-
-      addDetailRow(detailBody, 'ID', step.id);
-      addDetailRow(detailBody, 'Type', step.type);
-      addDetailRow(detailBody, 'Inputs', step.inputs);
-      addDetailRow(detailBody, 'Outputs', step.outputs);
-      addDetailRow(detailBody, 'Depends On', step.depends_on);
-      addDetailRow(detailBody, 'Condition', step.condition);
-
-      // Retry
-      if (step.retry) {
-        var retryVal = (typeof step.retry === 'object')
-          ? JSON.stringify(step.retry)
-          : String(step.retry);
-        addDetailRow(detailBody, 'Retry', retryVal);
-      }
-
-      // Decision branches
-      if (step.type === 'decision' && step.branches) {
-        var branchHeading = document.createElement('tr');
-        var branchTd = document.createElement('td');
-        branchTd.colSpan = 2;
-        branchTd.style.cssText = 'font-weight:600;color:var(--text);padding-top:8px';
-        branchTd.textContent = 'Branches:';
-        branchHeading.appendChild(branchTd);
-        detailBody.appendChild(branchHeading);
-
-        if (Array.isArray(step.branches)) {
-          for (var b = 0; b < step.branches.length; b++) {
-            var branch = step.branches[b];
-            var condText = branch.condition || branch.name || ('Branch ' + (b + 1));
-            var nextText = branch.next_step || branch.target || '';
-            addDetailRow(detailBody, condText, nextText);
-          }
-        } else if (typeof step.branches === 'object') {
-          var branchKeys = Object.keys(step.branches);
-          for (var bk = 0; bk < branchKeys.length; bk++) {
-            addDetailRow(detailBody, branchKeys[bk], step.branches[branchKeys[bk]]);
-          }
-        }
-      }
-
-      detailTable.appendChild(detailBody);
-      details.appendChild(detailTable);
-      box.appendChild(details);
-
-      flow.appendChild(box);
+    var autoSelect = execs[0].thread_id;
+    var autoIsRunning = false;
+    for (var k = 0; k < execs.length; k++) {
+      if (execs[k].status === 'running') { autoSelect = execs[k].thread_id; autoIsRunning = true; break; }
     }
-
-    el.appendChild(flow);
+    sel.value = autoSelect;
+    loadExecution(autoSelect, autoIsRunning);
   }
-
-  // --- Actions ---
-  var actionsHeading = document.createElement('h3');
-  actionsHeading.textContent = 'Actions';
-  actionsHeading.style.cssText = 'font-size:14px;font-weight:600;margin-bottom:10px;margin-top:20px';
-  el.appendChild(actionsHeading);
-
-  var actionsDiv = document.createElement('div');
-  actionsDiv.className = 'actions';
-
-  var editBtn = document.createElement('button');
-  editBtn.className = 'btn';
-  editBtn.disabled = true;
-  editBtn.style.cssText = 'opacity:0.4;cursor:not-allowed';
-  editBtn.textContent = 'Edit';
-  actionsDiv.appendChild(editBtn);
-
-  el.appendChild(actionsDiv);
-})();
+});
 </script>

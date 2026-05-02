@@ -75,13 +75,14 @@ class ChatDeepSeek(ChatOpenAI):
                     ai_reasoning[ai_index] = rc
                 ai_index += 1
 
-        # Re-inject reasoning_content into serialized assistant message dicts
+        # Re-inject reasoning_content into serialized assistant message dicts.
+        # DeepSeek requires reasoning_content on ALL assistant messages when
+        # thinking mode is active — even empty string for tool-call messages.
         if ai_reasoning and "messages" in payload:
             ai_index = 0
             for msg_dict in payload["messages"]:
                 if msg_dict.get("role") == "assistant":
-                    if ai_index in ai_reasoning:
-                        msg_dict["reasoning_content"] = ai_reasoning[ai_index]
+                    msg_dict["reasoning_content"] = ai_reasoning.get(ai_index, "")
                     ai_index += 1
 
         return payload

@@ -57,7 +57,7 @@ class WorkflowValidateTool(BaseTool):
 
 
 def _validate_yaml(yaml_content: str) -> str:
-    """Parse YAML through the Workflow Pydantic model and report errors."""
+    """Parse YAML through the Workflow Pydantic model, semantic checks, and LangGraph compilation."""
     if not yaml_content or not yaml_content.strip():
         return "Error: No YAML content provided."
 
@@ -83,31 +83,52 @@ def _validate_yaml(yaml_content: str) -> str:
     if errors:
         return "Validation errors:\n" + "\n".join(f"- {e}" for e in errors)
 
+    # Phase 4: LangGraph compilation
+    compile_errors = _compile_check(wf)
+    if compile_errors:
+        return "Compilation errors:\n" + "\n".join(f"- {e}" for e in compile_errors)
+
     step_summary = ", ".join(f"{s.id} ({s.type.value})" for s in wf.steps)
     return f"Valid. Workflow '{wf.name}' with {len(wf.steps)} steps: {step_summary}"
 
 
 def _semantic_checks(wf) -> list[str]:
-    """Check cross-step references and dependency graph."""
-    from cliver.workflow.workflow_models import DecisionStep
+    """Check cross-step references, Jinja2 templates, and dependency graph."""
+    import re
+
+    from cliver.workflow.workflow_models import DecisionStep, LLMStep
 
     errors = []
     step_ids = {s.id for s in wf.steps}
 
-    # Check for duplicate IDs
+    # --- Step ID format ---
+    for s in wf.steps:
+        if not re.match(r"^[a-z][a-z0-9_]*$", s.id):
+            if "-" in s.id:
+                errors.append(
+                    f"Step id '{s.id}' contains hyphens. Use underscores instead "
+                    f"(e.g., '{s.id.replace('-', '_')}') — hyphens break Jinja2 "
+                    f"template references like {{{{ {s.id}.outputs.result }}}}"
+                )
+            else:
+                errors.append(
+                    f"Step id '{s.id}' is not a valid identifier. "
+                    f"Use lowercase letters, digits, and underscores only (e.g., 'my_step_1')"
+                )
+
+    # --- Duplicate IDs ---
     seen = set()
     for s in wf.steps:
         if s.id in seen:
             errors.append(f"Duplicate step id: '{s.id}'")
         seen.add(s.id)
 
+    # --- Dependency references ---
     for s in wf.steps:
-        # Check depends_on references
         for dep in s.depends_on:
             if dep not in step_ids:
                 errors.append(f"Step '{s.id}' depends_on unknown step '{dep}'")
 
-        # Check decision branch references
         if isinstance(s, DecisionStep):
             for branch in s.branches:
                 if branch.next_step not in step_ids:
@@ -115,7 +136,41 @@ def _semantic_checks(wf) -> list[str]:
             if s.default and s.default not in step_ids:
                 errors.append(f"Decision '{s.id}' default references unknown step '{s.default}'")
 
-    # Simple cycle detection (topological sort)
+    # --- Jinja2 template references (only if all step IDs are valid) ---
+    has_invalid_ids = any(not re.match(r"^[a-z][a-z0-9_]*$", s.id) for s in wf.steps)
+    if not has_invalid_ids:
+
+        def check_templates(step, text, field_name):
+            if not text or "{{" not in text:
+                return
+            refs = re.findall(r"\{\{\s*([a-zA-Z_][\w]*)", text)
+            valid_vars = {"inputs", "steps"} | step_ids
+            for ref in refs:
+                if ref not in valid_vars:
+                    errors.append(
+                        f"Step '{step.id}' {field_name}: template reference '{ref}' "
+                        f"is not a known step ID or variable. "
+                        f"Available: inputs, steps, {', '.join(sorted(step_ids))}"
+                    )
+
+        for s in wf.steps:
+            if hasattr(s, "prompt") and isinstance(getattr(s, "prompt", None), str):
+                check_templates(s, s.prompt, "prompt")
+            if s.condition:
+                check_templates(s, s.condition, "condition")
+
+    # --- Agent references ---
+    agent_names = set(wf.agents.keys()) if wf.agents else set()
+    for s in wf.steps:
+        if isinstance(s, LLMStep) and s.agent:
+            if s.agent not in agent_names:
+                errors.append(
+                    f"Step '{s.id}' references agent '{s.agent}' "
+                    f"which is not defined in the agents section. "
+                    f"Available agents: {', '.join(sorted(agent_names)) if agent_names else 'none'}"
+                )
+
+    # --- Cycle detection ---
     if not errors:
         visited = set()
         in_progress = set()
@@ -143,6 +198,19 @@ def _semantic_checks(wf) -> list[str]:
     return errors
 
 
+def _compile_check(wf) -> list[str]:
+    """Try to compile the workflow into a LangGraph StateGraph."""
+    errors = []
+    try:
+        from cliver.workflow.compiler import WorkflowCompiler
+
+        compiler = WorkflowCompiler()
+        compiler.compile(wf)
+    except Exception as e:
+        errors.append(f"LangGraph compilation failed: {e}")
+    return errors
+
+
 def _format_schema() -> str:
     """Return concise field reference for all workflow step types."""
     return """# Workflow Model Reference
@@ -162,7 +230,9 @@ def _format_schema() -> str:
 - permissions (optional): Permission overrides for the workflow
 
 ## Shared step fields (all step types)
-- id (str, required): Unique step identifier
+- id (str, required): Unique step identifier — must be a valid Python identifier
+  (lowercase letters, digits, underscores only, e.g. 'write_story'). Do NOT use
+  hyphens — they break Jinja2 template references like {{ step_id.outputs.result }}
 - name (str, required): Descriptive name
 - type (str, required): "llm" | "function" | "human" | "decision" | "workflow"
 - description (str, optional): Step description
@@ -170,13 +240,29 @@ def _format_schema() -> str:
 - outputs (list[str], optional): Named output variables
 - depends_on (list[str], default=[]): Step IDs that must complete first
 - condition (str, optional): Jinja2 expression — skip step if false
-- retry (int, default=0): Max retries on failure
+- expected_result (str, optional): Description of expected output — LLM validates the result
+  and retries until expectations are met or timeout is reached
+- retry (int, default=0): Max retries (0 = unlimited, keeps retrying until expected result or timeout)
+- timeout (int, default=1800): Step timeout in seconds (default 30 minutes)
 
 ## LLM step (type: llm)
 - prompt (str, required): Prompt for the LLM (supports Jinja2: {{ step_id.outputs.key }})
 - model (str, optional): Override LLM model for this step
+- agent (str, optional): Agent profile name from workflow agents section
+- output_format (str, default='md'): Text output file format (md, json, txt, yaml, code)
 - skills (list[str], optional): Skills to activate
+- stream (bool, default=false): Whether to stream the response
+- images (list[str], optional): Image file paths to include
+- audio_files (list[str], optional): Audio file paths to include
+- video_files (list[str], optional): Video file paths to include
+- files (list[str], optional): General file paths to include
 - permissions (optional): Permission overrides
+
+## Step output references (available in Jinja2 templates)
+- {{ step_id.outputs.result }} — text output of the step
+- {{ step_id.outputs.media_files }} — list of generated media file paths
+- {{ step_id.outputs.media_files[0] }} — first media file path
+- {{ step_id.outputs.outputs_dir }} — output directory path
 
 ## Function step (type: function)
 - function (str, required): Python module path (e.g., "mymodule.process")

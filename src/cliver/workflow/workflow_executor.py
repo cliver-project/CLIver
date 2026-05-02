@@ -45,6 +45,9 @@ class WorkflowExecutor:
 
         self._app_config = app_config
         self._skill_manager = skill_manager
+        self._workflow_runs_dir = None
+        if app_config and hasattr(app_config, "workflow_runs_dir") and app_config.workflow_runs_dir:
+            self._workflow_runs_dir = Path(app_config.workflow_runs_dir)
 
     async def close(self):
         """Clean up all managed resources."""
@@ -88,7 +91,13 @@ class WorkflowExecutor:
             logger.error("Workflow '%s' not found", workflow_name)
             return None
 
-        return await self.execute_workflow_obj(workflow, inputs=inputs, execution_id=execution_id, base_dir=base_dir)
+        return await self.execute_workflow_obj(
+            workflow,
+            inputs=inputs,
+            execution_id=execution_id,
+            base_dir=base_dir,
+            workflow_id=workflow_name,
+        )
 
     async def execute_workflow_obj(
         self,
@@ -96,19 +105,25 @@ class WorkflowExecutor:
         inputs: Optional[Dict[str, Any]] = None,
         execution_id: Optional[str] = None,
         base_dir: Optional[str] = None,
+        workflow_id: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Execute a pre-loaded Workflow object directly."""
         checkpointer = await self._get_checkpointer()
         effective_base = base_dir or str(self.store.workflows_dir)
         graph = self.compiler.compile(workflow, checkpointer=checkpointer, store=self.store, base_dir=effective_base)
 
+        wf_id = workflow_id or workflow.name
         execution_id = execution_id or str(uuid.uuid4())[:8]
-        default_runs_dir = self.store.workflows_dir.parent / "workflow-runs" / workflow.name
+        if self._workflow_runs_dir:
+            default_runs_dir = self._workflow_runs_dir / wf_id
+        else:
+            default_runs_dir = self.store.workflows_dir.parent / "workflow-runs" / wf_id
         outputs_dir = str(Path(workflow.outputs_dir or str(default_runs_dir)) / execution_id)
 
+        thread_id = f"{wf_id}_{execution_id}"
         config = {
             "configurable": {
-                "thread_id": f"{workflow.name}_{execution_id}",
+                "thread_id": thread_id,
                 "agent_core": self.agent_core,
                 "subagent_factory": self._subagent_factory,
                 "workflow_store": self.store,
@@ -127,13 +142,11 @@ class WorkflowExecutor:
             "execution_id": execution_id,
             "error": None,
         }
-
-        thread_id = f"{workflow.name}_{execution_id}"
         if self._db_path:
             WorkflowStore.record_execution_start(
                 Path(self._db_path),
                 thread_id,
-                workflow.name,
+                wf_id,
                 execution_id,
                 inputs=initial_state["inputs"],
             )
@@ -265,9 +278,15 @@ class WorkflowExecutor:
             return []
         return WorkflowStore.list_executions(self._db_path, workflow_name)
 
-    async def get_execution_status(self, workflow_name: str, thread_id: str) -> Optional[Dict[str, Any]]:
+    async def get_execution_status(
+        self,
+        workflow_name: str,
+        thread_id: str,
+        workflow: Optional[Workflow] = None,
+    ) -> Optional[Dict[str, Any]]:
         """Get step-by-step status of a specific execution."""
-        workflow = self.store.load_workflow(workflow_name)
+        if workflow is None:
+            workflow = self.store.load_workflow(workflow_name)
         if not workflow:
             return None
 
@@ -289,19 +308,31 @@ class WorkflowExecutor:
         steps_data = snapshot.values.get("steps", {})
         all_step_ids = [s.id for s in workflow.steps]
 
+        next_step_ids = set(snapshot.next) if snapshot.next else set()
+
         steps_status = []
         for sid in all_step_ids:
             if sid in steps_data:
                 info = steps_data[sid]
-                steps_status.append(
-                    {
-                        "id": sid,
-                        "status": info.get("status", "unknown"),
-                        "execution_time": info.get("execution_time"),
-                        "has_output": "result" in info.get("outputs", {}),
-                        "error": info.get("outputs", {}).get("error"),
-                    }
-                )
+                outputs = info.get("outputs", {})
+                step_info = {
+                    "id": sid,
+                    "status": info.get("status", "unknown"),
+                    "execution_time": info.get("execution_time"),
+                    "has_output": "result" in outputs,
+                    "error": outputs.get("error"),
+                }
+                if "result" in outputs:
+                    step_info["result"] = outputs["result"]
+                if "media_files" in outputs:
+                    step_info["media_files"] = outputs["media_files"]
+                if "validation" in outputs:
+                    step_info["validation"] = outputs["validation"]
+                if info.get("attempts"):
+                    step_info["attempts"] = info["attempts"]
+                steps_status.append(step_info)
+            elif sid in next_step_ids:
+                steps_status.append({"id": sid, "status": "running"})
             else:
                 steps_status.append({"id": sid, "status": "pending"})
 

@@ -545,6 +545,7 @@ class Gateway:
 
     async def run_workflow(self, workflow_name: str, inputs: dict = None) -> Optional[dict]:
         """Execute a workflow headlessly via the gateway."""
+        from cliver.skill_manager import SkillManager
         from cliver.workflow.persistence import WorkflowStore
         from cliver.workflow.workflow_executor import WorkflowExecutor
 
@@ -562,9 +563,13 @@ class Gateway:
             store=store,
             db_path=db_path,
             app_config=config_manager.config,
+            skill_manager=SkillManager(),
         )
 
-        return await executor.execute_workflow(workflow_name, inputs=inputs)
+        try:
+            return await executor.execute_workflow(workflow_name, inputs=inputs)
+        finally:
+            await executor.close()
 
     def _create_agent_core(self) -> AgentCore:
         """Create a AgentCore from config (same config the CLI uses)."""

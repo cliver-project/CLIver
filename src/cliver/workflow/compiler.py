@@ -35,7 +35,18 @@ _WORKFLOW_EXCLUDED_TOOLS = frozenset(
         "CreateTask",
         "WorkflowValidate",
         "SearchSessions",
+        "Ask",
     }
+)
+
+_WORKFLOW_STEP_SYSTEM_INSTRUCTION = (
+    "You are executing a workflow step autonomously. "
+    "Do NOT ask for user confirmation or clarification. "
+    "Make the best decision based on the information available and proceed. "
+    "Do NOT use the Ask tool. Complete the task directly.\n\n"
+    "ALL output files (text, images, audio, video, code, data) MUST be saved "
+    "to the designated outputs directory provided below. Do NOT use any other directory. "
+    "Reference files from prior steps using the paths listed under Available Files."
 )
 
 
@@ -82,46 +93,100 @@ def _save_step_output(outputs_dir: str, step_id: str, content: str, fmt: str) ->
 
 
 def _save_step_media(outputs_dir: str, step_id: str, response, agent_core, model: str) -> list[str]:
-    """Extract and save media files from an LLM response.
+    """Extract and save media files from an LLM response using MultimediaResponseHandler.
 
     Returns list of saved file paths (empty if no media).
     """
     if not outputs_dir:
         return []
 
-    from cliver.media import MediaContent, get_file_extension
+    from cliver.media_handler import MultimediaResponseHandler
 
-    media_list: list[MediaContent] = []
+    try:
+        llm_engine = agent_core.get_llm_engine(model) if agent_core else None
+    except Exception:
+        llm_engine = None
 
-    if hasattr(response, "additional_kwargs"):
-        media_list = response.additional_kwargs.get("media_content", [])
+    handler = MultimediaResponseHandler(save_directory=outputs_dir)
+    multimedia = handler.process_response(response, llm_engine=llm_engine)
 
-    if not media_list:
-        try:
-            llm_engine = agent_core.get_llm_engine(model)
-            media_list = llm_engine.extract_media_from_response(response)
-        except Exception as e:
-            logger.warning("Could not extract media from LLM response: %s", e)
-
-    if not media_list:
+    if not multimedia.has_media():
         return []
 
-    dir_path = Path(outputs_dir)
-    dir_path.mkdir(parents=True, exist_ok=True)
-
-    saved: list[str] = []
-    for i, media in enumerate(media_list):
-        ext = get_file_extension(media.mime_type)
-        filename = f"{step_id}_media_{i}{ext}"
-        file_path = dir_path / filename
-        try:
-            media.save(file_path)
-            saved.append(str(file_path))
-            logger.info("Saved step media: %s", file_path)
-        except Exception as e:
-            logger.error("Failed to save media %s: %s", filename, e)
-
+    saved = handler.save_media_content(multimedia, prefix=step_id)
     return saved
+
+
+async def _validate_step_output(
+    subagent,
+    step,
+    result_text: str,
+    media_files: list,
+    model: str,
+) -> tuple[bool, str]:
+    """Use LLM to validate if step output meets expected result.
+
+    Passes generated images to the LLM for visual validation when the model
+    supports multimodal input. Audio/video files are described by path.
+
+    Returns (passed, feedback).
+    """
+    import mimetypes as _mt
+
+    media_section = ""
+    image_paths = []
+    other_media = []
+
+    if media_files:
+        for f in media_files:
+            mime = _mt.guess_type(f)[0] or ""
+            fname = Path(f).name
+            if mime.startswith("image/") and Path(f).exists():
+                image_paths.append(f)
+                other_media.append(f"- {fname} (image — attached for visual inspection)")
+            elif mime.startswith("audio/"):
+                other_media.append(f"- {fname} (audio file — verify file exists and format is correct)")
+            elif mime.startswith("video/"):
+                other_media.append(f"- {fname} (video file — verify file exists and format is correct)")
+            else:
+                other_media.append(f"- {fname}")
+        media_section = f"\n**Media files generated ({len(media_files)}):**\n" + "\n".join(other_media)
+
+    validation_prompt = (
+        f"Evaluate if the following step output meets the expected result.\n\n"
+        f"**Expected result:** {step.expected_result}\n\n"
+        f"**Text output:**\n{result_text[:3000]}\n"
+        f"{media_section}\n\n"
+        f"Validation rules:\n"
+        f"1. Check if the text output satisfies the expected result description\n"
+        f"2. If images were expected, verify they were generated (attached for inspection)\n"
+        f"3. If audio/video was expected, verify the files exist in the list above\n"
+        f"4. Check quantity — if multiple files were expected, verify the count\n\n"
+        f"Answer with exactly YES on the first line if ALL expectations are met, "
+        f"or NO on the first line followed by specifically what is missing or wrong."
+    )
+
+    async def _no_tools(_user_input, _tools):
+        return []
+
+    try:
+        response = await subagent.process_user_input(
+            user_input=validation_prompt,
+            model=model,
+            images=image_paths if image_paths else None,
+            filter_tools=_no_tools,
+        )
+        from cliver.media_handler import extract_response_text
+
+        answer = extract_response_text(response).strip()
+        first_line = answer.split("\n")[0].strip().upper()
+        if first_line.startswith("YES"):
+            return True, ""
+        feedback = answer[answer.find("\n") + 1 :].strip() if "\n" in answer else answer
+        return False, feedback
+    except Exception as e:
+        logger.warning("Validation LLM call failed: %s", e)
+        return True, ""
 
 
 def _load_overview(workflow: Workflow) -> Optional[str]:
@@ -249,6 +314,9 @@ class WorkflowCompiler:
     @staticmethod
     def _make_llm_node(step: LLMStep, agent_config: Optional[AgentConfig], overview: Optional[str]):
         async def node(state, config):
+            if state.get("error"):
+                return {"steps": {step.id: {"outputs": {"error": "Skipped: prior step failed"}, "status": "skipped"}}}
+
             factory = config["configurable"].get("subagent_factory")
             context = _state_to_execution_context(state)
             rendered_prompt = render_template(step.prompt, context)
@@ -260,12 +328,36 @@ class WorkflowCompiler:
                 subagent = config["configurable"]["agent_core"]
 
             def system_appender():
-                parts = []
+                parts = [_WORKFLOW_STEP_SYSTEM_INSTRUCTION]
                 if overview:
                     parts.append(f"# Workflow Overview\n\n{overview}")
-                if agent_config and agent_config.system_message:
-                    parts.append(agent_config.system_message)
-                return "\n\n".join(parts) if parts else ""
+                if agent_config:
+                    if agent_config.role:
+                        parts.append(f"# Your Role\n\n{agent_config.role}")
+                    if agent_config.instructions:
+                        parts.append(f"# Instructions\n\n{agent_config.instructions}")
+                    if agent_config.system_message:
+                        parts.append(agent_config.system_message)
+
+                # Inject outputs directory and file context from prior steps
+                outputs_dir = state.get("outputs_dir", "")
+                file_section = []
+                if outputs_dir:
+                    file_section.append(f"**Outputs directory:** `{outputs_dir}`")
+                    file_section.append("Save ALL generated files to this directory.")
+                prior_files = []
+                for sid, sdata in state.get("steps", {}).items():
+                    s_outputs = sdata.get("outputs", {})
+                    if s_outputs.get("media_files"):
+                        for f in s_outputs["media_files"]:
+                            prior_files.append(f"- `{f}` (from step '{sid}')")
+                if prior_files:
+                    file_section.append("\n**Files from prior steps:**")
+                    file_section.extend(prior_files)
+                if file_section:
+                    parts.append("# Output Directory & Available Files\n\n" + "\n".join(file_section))
+
+                return "\n\n".join(parts)
 
             effective_model = (agent_config.model if agent_config else None) or step.model
 
@@ -279,27 +371,70 @@ class WorkflowCompiler:
                 return [t for t in tools if t.name not in _WORKFLOW_EXCLUDED_TOOLS]
 
             start = time.time()
+            deadline = start + step.timeout
+            attempt = 0
+            current_prompt = rendered_prompt
+            result_text = ""
+            media_files = []
+            validation_status = None
+
             try:
-                response = await subagent.process_user_input(
-                    user_input=rendered_prompt,
-                    model=effective_model,
-                    system_message_appender=system_appender,
-                    filter_tools=_filter_tools,
-                    images=render_template(step.images, context) if step.images else None,
-                    audio_files=render_template(step.audio_files, context) if step.audio_files else None,
-                    video_files=render_template(step.video_files, context) if step.video_files else None,
-                    files=render_template(step.files, context) if step.files else None,
-                )
                 from cliver.media_handler import extract_response_text
 
-                result_text = extract_response_text(response)
-                _save_step_output(state["outputs_dir"], step.id, result_text, step.output_format)
+                while True:
+                    response = await subagent.process_user_input(
+                        user_input=current_prompt,
+                        model=effective_model,
+                        system_message_appender=system_appender,
+                        filter_tools=_filter_tools,
+                        images=render_template(step.images, context) if step.images else None,
+                        audio_files=render_template(step.audio_files, context) if step.audio_files else None,
+                        video_files=render_template(step.video_files, context) if step.video_files else None,
+                        files=render_template(step.files, context) if step.files else None,
+                    )
 
-                media_files = _save_step_media(state["outputs_dir"], step.id, response, subagent, effective_model)
+                    result_text = extract_response_text(response)
+                    _save_step_output(state["outputs_dir"], step.id, result_text, step.output_format)
+                    media_files = _save_step_media(state["outputs_dir"], step.id, response, subagent, effective_model)
 
-                outputs = {"result": result_text}
+                    if not step.expected_result:
+                        break
+
+                    passed, feedback = await _validate_step_output(
+                        subagent,
+                        step,
+                        result_text,
+                        media_files,
+                        effective_model,
+                    )
+                    if passed:
+                        validation_status = "passed"
+                        logger.info("Step '%s' validation passed (attempt %d)", step.id, attempt + 1)
+                        break
+
+                    attempt += 1
+                    validation_status = f"failed (attempt {attempt}): {feedback}"
+                    logger.info("Step '%s' validation failed (attempt %d): %s", step.id, attempt, feedback)
+
+                    if step.retry > 0 and attempt >= step.retry:
+                        logger.warning("Step '%s' exhausted %d retries", step.id, step.retry)
+                        break
+                    if time.time() >= deadline:
+                        logger.warning("Step '%s' timed out after %ds", step.id, step.timeout)
+                        validation_status += " (timeout)"
+                        break
+
+                    current_prompt = (
+                        rendered_prompt + f"\n\n--- Previous attempt failed validation ---\n"
+                        f"Feedback: {feedback}\n"
+                        f"Please try again and ensure the output meets: {step.expected_result}"
+                    )
+
+                outputs = {"result": result_text, "outputs_dir": state["outputs_dir"]}
                 if media_files:
                     outputs["media_files"] = media_files
+                if validation_status:
+                    outputs["validation"] = validation_status
                 if step.outputs:
                     for name in step.outputs:
                         outputs[name] = result_text
@@ -310,6 +445,7 @@ class WorkflowCompiler:
                             "outputs": outputs,
                             "status": "completed",
                             "execution_time": time.time() - start,
+                            "attempts": attempt + 1,
                         }
                     }
                 }
@@ -331,6 +467,8 @@ class WorkflowCompiler:
     @staticmethod
     def _make_human_node(step: HumanStep):
         async def node(state, config):
+            if state.get("error"):
+                return {"steps": {step.id: {"outputs": {"error": "Skipped: prior step failed"}, "status": "skipped"}}}
             context = _state_to_execution_context(state)
             rendered_prompt = render_template(step.prompt, context)
 
@@ -346,6 +484,8 @@ class WorkflowCompiler:
     @staticmethod
     def _make_function_node(step: FunctionStep):
         async def node(state, config):
+            if state.get("error"):
+                return {"steps": {step.id: {"outputs": {"error": "Skipped: prior step failed"}, "status": "skipped"}}}
             import importlib
 
             context = _state_to_execution_context(state)
@@ -397,6 +537,8 @@ class WorkflowCompiler:
         """
 
         async def node(state, config):
+            if state.get("error"):
+                return {"steps": {step.id: {"outputs": {"error": "Skipped: prior step failed"}, "status": "skipped"}}}
             context = _state_to_execution_context(state)
             start = time.time()
 

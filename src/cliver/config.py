@@ -345,6 +345,11 @@ class AppConfig(BaseModel):
         default=True,
         description="Automatically fall back to another model when the current one fails (default: on).",
     )
+    workflow_runs_dir: Optional[str] = Field(
+        default=None,
+        description="Base directory for workflow execution outputs. "
+        "Default: {agent_dir}/workflow-runs. Each execution creates a subdirectory.",
+    )
 
     def resolve_secrets(self) -> None:
         """Resolve all Jinja2 template strings in the config tree.

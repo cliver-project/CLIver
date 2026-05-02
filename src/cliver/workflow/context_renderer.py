@@ -43,9 +43,15 @@ _jinja_env = Environment(undefined=_PermissiveUndefined)
 
 
 def _build_template_context(context: ExecutionContext) -> dict:
-    """Build the Jinja2 template context from an ExecutionContext."""
+    """Build the Jinja2 template context from an ExecutionContext.
+
+    Step outputs are accessible via ``steps['step_id']`` (bracket notation)
+    and directly as ``step_id`` (dot notation, requires valid Python identifiers).
+    Step IDs must use underscores, not hyphens, to be usable in Jinja2 dot notation.
+    """
     template_ctx = {}
     template_ctx["inputs"] = context.inputs or {}
+    template_ctx["steps"] = dict(context.steps)
     for step_id, step_data in context.steps.items():
         template_ctx[step_id] = step_data
     return template_ctx
