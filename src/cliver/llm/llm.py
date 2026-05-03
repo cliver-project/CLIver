@@ -747,8 +747,23 @@ class AgentCore:
 
         llm_engine = self._select_llm_engine(model)
         logger.debug(f"Selected LLM engine: {type(llm_engine)}")
+
+        # Collect and filter tools BEFORE building the system prompt so that
+        # the prompt only references tools that are actually available.
+        llm_tools: List[BaseTool] = []
+        mcp_tools: List[BaseTool] = await self.mcp_caller.get_mcp_tools()
+        if mcp_tools:
+            llm_tools.extend(mcp_tools)
+        _builtin_tools = tool_registry.get_tools(user_input=user_input)
+        if _builtin_tools:
+            llm_tools.extend(_builtin_tools)
+        if filter_tools:
+            llm_tools = await filter_tools(user_input, llm_tools)
+
+        available_tool_names = {t.name for t in llm_tools}
+
         # Build a single system prompt with all sections
-        system_parts = [llm_engine.system_message()]
+        system_parts = [llm_engine.system_message(available_tools=available_tool_names)]
         if system_message_appender:
             system_message_extra = system_message_appender()
             if system_message_extra and len(system_message_extra) > 0:
@@ -773,16 +788,6 @@ class AgentCore:
         messages: list[BaseMessage] = [
             SystemMessage(content="\n\n".join(system_parts)),
         ]
-
-        llm_tools: List[BaseTool] = []
-        mcp_tools: List[BaseTool] = await self.mcp_caller.get_mcp_tools()
-        if mcp_tools:
-            llm_tools.extend(mcp_tools)
-        _builtin_tools = tool_registry.get_tools(user_input=user_input)
-        if _builtin_tools:
-            llm_tools.extend(_builtin_tools)
-        if filter_tools:
-            llm_tools = await filter_tools(user_input, llm_tools)
 
         # Apply template if provided
         if template:

@@ -1,7 +1,7 @@
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, AsyncIterator, List, Optional
+from typing import Any, AsyncIterator, List, Optional, Set
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessageChunk
@@ -126,17 +126,21 @@ class LLMInferenceEngine(ABC):
             return None
         return parse_tool_calls_from_content(response)
 
-    def system_message(self) -> str:
+    def system_message(self, available_tools: Optional[Set[str]] = None) -> str:
         """
         Build the builtin system prompt for CLIver.
+
+        Args:
+            available_tools: Set of tool names available in this session.
+                If None, all tool guidance is included (backwards compatible).
 
         This method can be overridden by engine subclasses.
         User-provided system messages are appended separately by AgentCore.
         """
         sections = [self._section_identity(self.agent_name)]
-        sections.append(self._section_self_awareness())
+        sections.append(self._section_self_awareness(available_tools))
         sections.append(self._section_tool_usage())
-        sections.append(self._section_interaction_guidelines())
+        sections.append(self._section_interaction_guidelines(available_tools))
         sections.append(self._section_response_format())
 
         return "\n\n".join(sections)
@@ -183,26 +187,35 @@ class LLMInferenceEngine(ABC):
         )
 
     @staticmethod
-    def _section_self_awareness() -> str:
+    def _section_self_awareness(available_tools: Optional[Set[str]] = None) -> str:
         from cliver.util import get_config_dir
 
+        def _has(*names: str) -> bool:
+            return available_tools is None or bool(available_tools & set(names))
+
         config_dir = get_config_dir()
-        return (
-            "# Self-Awareness\n\n"
+        lines = [
+            "# Self-Awareness\n",
             "You are powered by CLIver, a configurable AI agent platform. "
-            "You can inspect and modify your own configuration, identity, "
-            "skills, tasks, and workflows.\n\n"
-            "## Key files you can read and edit\n\n"
-            f"- Config: `{config_dir}/config.yaml` — models, providers, gateway, session settings\n"
-            f"- Identity: `{config_dir}/agents/*/identity.md` — your persona and behavior\n"
-            f"- Memory: `{config_dir}/agents/*/memory.md` — persistent knowledge\n"
-            f"- Skills: `.cliver/skills/` (project) or `{config_dir}/skills/` (global) — SKILL.md files\n"
-            f"- Tasks: `{config_dir}/agents/*/tasks/` — YAML task definitions with cron schedules\n\n"
+            "You can inspect and modify your own configuration.\n",
+            "## Key files you can read and edit\n",
+            f"- Config: `{config_dir}/config.yaml` — models, providers, gateway, session settings",
+        ]
+        if _has("Identity"):
+            lines.append(f"- Identity: `{config_dir}/agents/*/identity.md` — your persona and behavior")
+        if _has("MemoryRead", "MemoryWrite"):
+            lines.append(f"- Memory: `{config_dir}/agents/*/memory.md` — persistent knowledge")
+        if _has("Skill"):
+            lines.append(f"- Skills: `.cliver/skills/` (project) or `{config_dir}/skills/` (global) — SKILL.md files")
+        lines.append(f"- Tasks: `{config_dir}/agents/*/tasks/` — YAML task definitions with cron schedules")
+        lines.append("")
+        lines.append(
             "## Commands\n\n"
             "Slash commands: model, config, gateway, session, permissions, "
             "mcp, skills, identity, agent, cost, provider, task, workflow. "
             "Use the CliverHelp tool for syntax."
         )
+        return "\n".join(lines)
 
     @staticmethod
     def _section_tool_usage() -> str:
@@ -239,64 +252,101 @@ class LLMInferenceEngine(ABC):
         )
 
     @staticmethod
-    def _section_interaction_guidelines() -> str:
-        return (
-            "# Interaction Guidelines\n\n"
-            "## Asking the user\n\n"
-            "Use the `Ask` tool when you need to:\n"
-            "- Clarify ambiguous instructions\n"
-            "- Confirm before destructive or irreversible actions\n"
-            "- Choose between multiple valid approaches\n"
-            "- Gather missing information that you cannot determine on your own\n\n"
-            "Do **not** ask for confirmation on routine, safe, or clearly specified tasks.\n\n"
-            "## Skills\n\n"
-            "Use the `Skill` tool to discover and activate specialized skills. "
-            "Call `Skill(skill_name='list')` to see available skills. "
-            "When a task matches a skill's domain, activate it to get expert instructions.\n\n"
-            "## Planning\n\n"
-            "When you receive a request, assess its complexity:\n\n"
-            "1. **Simple** (1-2 steps): Respond directly. Call tools as needed. No plan required.\n"
-            "2. **Medium** (3-5 steps): Use `TodoWrite` to create a task list, then work through "
-            "each task. Mark items `in_progress` when you begin and `completed` when done. "
-            "Use `TodoRead` to review your progress at any time.\n"
-            "3. **Complex** (5+ steps, design decisions, multi-file changes): "
-            "Use the structured planning pipeline via builtin skills:\n"
-            "   - `Skill('brainstorm')` — explore, clarify, design, get user approval\n"
-            "   - `Skill('write-plan')` — create a detailed implementation plan\n"
-            "   - `Skill('execute-plan')` — systematic execution with verification\n"
-            "   Each skill guides you through its process step by step. "
-            "You can also use any skill independently when appropriate.\n\n"
-            "When using `TodoWrite`:\n"
-            "- Create the full plan **first**, then start executing\n"
-            "- Each call replaces the entire list — always include all items\n"
-            "- Mark each task `in_progress` before starting, `completed` when done\n"
-            "- After completing all tasks, provide a final summary to the user\n\n"
-            "## Memory & Identity\n\n"
-            "You have persistent memory and an identity profile that survive across conversations.\n\n"
-            "**Memory** (`MemoryRead` / `MemoryWrite`): a curated knowledge base organized by topic.\n"
-            "- Organize by topic headings (`## Project Setup`, `## User Preferences`), not chronologically\n"
-            "- Before appending, read existing memory to avoid duplicates\n"
-            "- Periodically consolidate: use `rewrite` mode to merge related entries, remove outdated ones, "
-            "and keep the document concise\n"
-            "- Keep entries factual and concise — no narratives or session-specific details\n"
-            "- Do **not** save trivial, temporary, or obvious information\n\n"
-            "**Identity** (`Identity`): a living markdown document describing who "
-            "the user is (name, location, role, preferences) and how you should behave. "
-            "Unlike memory, identity is **rewritten as a whole** — always include all existing "
-            "information plus updates. Read the current identity first to avoid losing data.\n\n"
-            "Update identity when the user shares personal info or states behavior preferences. "
-            "Use memory for everything else — facts, events, decisions.\n\n"
+    def _section_interaction_guidelines(available_tools: Optional[Set[str]] = None) -> str:
+        def _has(*names: str) -> bool:
+            return available_tools is None or bool(available_tools & set(names))
+
+        parts = ["# Interaction Guidelines\n"]
+
+        if _has("Ask"):
+            parts.append(
+                "## Asking the user\n\n"
+                "Use the `Ask` tool when you need to:\n"
+                "- Clarify ambiguous instructions\n"
+                "- Confirm before destructive or irreversible actions\n"
+                "- Choose between multiple valid approaches\n"
+                "- Gather missing information that you cannot determine on your own\n\n"
+                "Do **not** ask for confirmation on routine, safe, or clearly specified tasks."
+            )
+
+        if _has("Skill"):
+            parts.append(
+                "## Skills\n\n"
+                "Use the `Skill` tool to discover and activate specialized skills. "
+                "Call `Skill(skill_name='list')` to see available skills. "
+                "When a task matches a skill's domain, activate it to get expert instructions."
+            )
+
+        has_todo = _has("TodoWrite", "TodoRead")
+        has_skill = _has("Skill")
+        if has_todo or has_skill:
+            planning = ["## Planning\n", "When you receive a request, assess its complexity:\n"]
+            planning.append("1. **Simple** (1-2 steps): Respond directly. Call tools as needed. No plan required.")
+            if has_todo:
+                planning.append(
+                    "2. **Medium** (3-5 steps): Use `TodoWrite` to create a task list, then work through "
+                    "each task. Mark items `in_progress` when you begin and `completed` when done. "
+                    "Use `TodoRead` to review your progress at any time."
+                )
+            if has_skill:
+                planning.append(
+                    f"{'3' if has_todo else '2'}. **Complex** (5+ steps, design decisions, multi-file changes): "
+                    "Use the structured planning pipeline via builtin skills:\n"
+                    "   - `Skill('brainstorm')` — explore, clarify, design, get user approval\n"
+                    "   - `Skill('write-plan')` — create a detailed implementation plan\n"
+                    "   - `Skill('execute-plan')` — systematic execution with verification\n"
+                    "   Each skill guides you through its process step by step. "
+                    "You can also use any skill independently when appropriate."
+                )
+            if has_todo:
+                planning.append(
+                    "\nWhen using `TodoWrite`:\n"
+                    "- Create the full plan **first**, then start executing\n"
+                    "- Each call replaces the entire list — always include all items\n"
+                    "- Mark each task `in_progress` before starting, `completed` when done\n"
+                    "- After completing all tasks, provide a final summary to the user"
+                )
+            parts.append("\n".join(planning))
+
+        if _has("MemoryRead", "MemoryWrite", "Identity"):
+            memory_parts = ["## Memory & Identity\n"]
+            if _has("MemoryRead", "MemoryWrite"):
+                memory_parts.append(
+                    "You have persistent memory that survives across conversations.\n\n"
+                    "**Memory** (`MemoryRead` / `MemoryWrite`): a curated knowledge base organized by topic.\n"
+                    "- Organize by topic headings (`## Project Setup`, `## User Preferences`), not chronologically\n"
+                    "- Before appending, read existing memory to avoid duplicates\n"
+                    "- Periodically consolidate: use `rewrite` mode to merge related entries, remove outdated ones, "
+                    "and keep the document concise\n"
+                    "- Keep entries factual and concise — no narratives or session-specific details\n"
+                    "- Do **not** save trivial, temporary, or obvious information"
+                )
+            if _has("Identity"):
+                memory_parts.append(
+                    "**Identity** (`Identity`): a living markdown document describing who "
+                    "the user is (name, location, role, preferences) and how you should behave. "
+                    "Unlike memory, identity is **rewritten as a whole** — always include all existing "
+                    "information plus updates. Read the current identity first to avoid losing data.\n\n"
+                    "Update identity when the user shares personal info or states behavior preferences. "
+                    "Use memory for everything else — facts, events, decisions."
+                )
+            parts.append("\n".join(memory_parts))
+
+        parts.append(
             "## Error handling\n\n"
             "If a tool call fails, analyse the error and try an alternative approach "
             "rather than repeating the same call. "
-            "If you are unable to resolve the issue, explain what went wrong to the user.\n\n"
+            "If you are unable to resolve the issue, explain what went wrong to the user."
+        )
+
+        parts.append(
             "## Security\n\n"
             "Never read, display, or log credentials, API keys, private keys, "
-            "or other secrets. The `Read` tool will block access to known sensitive "
-            "files (`.env`, `credentials.json`, `*.pem`, `*.key`, etc.). "
-            "If you need to reference a secret, use a placeholder like `<API_KEY>` "
-            "instead of the actual value."
+            "or other secrets. If you need to reference a secret, use a placeholder "
+            "like `<API_KEY>` instead of the actual value."
         )
+
+        return "\n\n".join(parts)
 
     @staticmethod
     def _section_response_format() -> str:
