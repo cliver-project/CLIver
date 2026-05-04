@@ -1,120 +1,66 @@
 """DeepSeek-specific inference engine.
 
-Handles DeepSeek API quirks that differ from standard OpenAI-compatible APIs:
-- reasoning_content field in responses (for DeepSeek-R1 / deepseek-reasoner)
-- Content array flattening (DeepSeek requires content as string, not array)
-- reasoning_content MUST be preserved in assistant messages in conversation history
+Uses langchain-deepseek's ChatDeepSeek directly — no subclassing.
 
-Langchain's ChatOpenAI drops reasoning_content in both directions:
-- Response parsing (_convert_dict_to_message): only captures known OpenAI fields
-- Request serialization (_convert_message_to_dict): only serializes known OpenAI fields
-
-ChatDeepSeek fixes both by overriding _create_chat_result and _get_request_payload.
+Handles DeepSeek API quirks via convert_messages_to_engine_specific():
+- Content array flattening (DeepSeek requires content as plain string)
+- Strips reasoning_content from conversation history so DeepSeek's API
+  doesn't require it on every assistant message. The model still uses
+  thinking mode for the current response; prior reasoning is not needed.
 """
 
 import logging
-from typing import Any, List, Optional, Union
+from typing import Any, Dict, List
 
-import openai
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
-from langchain_core.outputs import ChatResult
-from langchain_openai import ChatOpenAI
+from langchain_deepseek import ChatDeepSeek
 
 from cliver.config import ModelConfig
-from cliver.llm.openai_engine import OpenAICompatibleInferenceEngine
+from cliver.llm.base import LLMInferenceEngine
 
 logger = logging.getLogger(__name__)
 
 
-class ChatDeepSeek(ChatOpenAI):
-    """ChatOpenAI subclass that preserves reasoning_content for DeepSeek's API.
-
-    Langchain drops reasoning_content in both directions because it's not a
-    standard OpenAI field. DeepSeek's thinking mode API requires it on all
-    assistant messages in conversation history.
-    """
-
-    def _create_chat_result(
-        self,
-        response: Union[dict, openai.BaseModel],
-        generation_info: Optional[dict] = None,
-    ) -> ChatResult:
-        """Capture reasoning_content from DeepSeek's response into additional_kwargs."""
-        result = super()._create_chat_result(response, generation_info=generation_info)
-
-        # Extract reasoning_content from the raw response
-        response_dict = response if isinstance(response, dict) else response.model_dump()
-        choices = response_dict.get("choices", [])
-
-        for i, gen in enumerate(result.generations):
-            if i < len(choices):
-                reasoning = choices[i].get("message", {}).get("reasoning_content")
-                if reasoning is not None and isinstance(gen.message, AIMessage):
-                    gen.message.additional_kwargs["reasoning_content"] = reasoning
-
-        return result
-
-    def _get_request_payload(
-        self,
-        input_: Any,
-        *,
-        stop: Optional[list[str]] = None,
-        **kwargs: Any,
-    ) -> dict:
-        """Re-inject reasoning_content into assistant messages in the API payload."""
-        payload = super()._get_request_payload(input_, stop=stop, **kwargs)
-
-        # Collect reasoning_content from the original AIMessages
-        messages = self._convert_input(input_).to_messages()
-        ai_reasoning: dict[int, str] = {}
-        ai_index = 0
-        for msg in messages:
-            if isinstance(msg, AIMessage):
-                rc = (getattr(msg, "additional_kwargs", None) or {}).get("reasoning_content")
-                if rc is not None:
-                    ai_reasoning[ai_index] = rc
-                ai_index += 1
-
-        # Re-inject reasoning_content into serialized assistant message dicts.
-        # DeepSeek requires reasoning_content on ALL assistant messages when
-        # thinking mode is active — even empty string for tool-call messages.
-        if ai_reasoning and "messages" in payload:
-            ai_index = 0
-            for msg_dict in payload["messages"]:
-                if msg_dict.get("role") == "assistant":
-                    msg_dict["reasoning_content"] = ai_reasoning.get(ai_index, "")
-                    ai_index += 1
-
-        return payload
-
-
-class DeepSeekInferenceEngine(OpenAICompatibleInferenceEngine):
+class DeepSeekInferenceEngine(LLMInferenceEngine):
     def __init__(self, config: ModelConfig, user_agent: str = None, agent_name: str = "CLIver"):
         super().__init__(config, user_agent=user_agent, agent_name=agent_name)
+        self.options = {}
+        if self.config and self.config.options:
+            self.options = self.config.options.model_dump(exclude_unset=True)
 
-        # Replace the default ChatOpenAI with ChatDeepSeek to preserve reasoning_content
-        default_headers = {"User-Agent": user_agent} if user_agent else None
         resolved_api_key = self.config.get_api_key()
-        self.llm = ChatDeepSeek(
-            model=self.config.api_model_name,
-            base_url=self.config.get_resolved_url(),
-            api_key=resolved_api_key,
-            default_headers=default_headers,
-            **self.options,
-        )
+        resolved_url = self.config.get_resolved_url()
+        default_headers = {"User-Agent": user_agent} if user_agent else {}
+
+        llm_kwargs: Dict[str, Any] = {
+            "model": self.config.api_model_name,
+            "api_key": resolved_api_key,
+            "default_headers": default_headers,
+        }
+
+        if resolved_url:
+            llm_kwargs["api_base"] = resolved_url
+
+        for key in ("temperature", "top_p", "max_tokens"):
+            if key in self.options:
+                llm_kwargs[key] = self.options[key]
+
+        extra = {k: v for k, v in self.options.items() if k not in llm_kwargs}
+        if extra:
+            llm_kwargs["model_kwargs"] = extra
+
+        self.llm = ChatDeepSeek(**llm_kwargs)
 
     def convert_messages_to_engine_specific(self, messages: List[BaseMessage]) -> List[BaseMessage]:
-        """
-        Convert messages to DeepSeek format.
+        """Convert messages for DeepSeek's API.
 
-        DeepSeek requires content to be a plain string, not an array of
-        content parts. This method flattens multipart content into a single
-        string, then delegates media handling to the parent class.
+        - Flattens multipart HumanMessage content to plain strings
+        - Strips reasoning_content from AIMessages to avoid the
+          'reasoning_content must be passed back' error
         """
         converted = []
         for message in messages:
             if isinstance(message, HumanMessage) and isinstance(message.content, list):
-                # Flatten content parts into a single string
                 text_parts = []
                 for part in message.content:
                     if isinstance(part, dict):
@@ -126,9 +72,16 @@ class DeepSeekInferenceEngine(OpenAICompatibleInferenceEngine):
                             text_parts.append(str(part))
                     elif isinstance(part, str):
                         text_parts.append(part)
-                flattened = HumanMessage(content="\n\n".join(text_parts))
-                converted.append(flattened)
+                converted.append(HumanMessage(content="\n\n".join(text_parts)))
+            elif isinstance(message, AIMessage) and message.additional_kwargs.get("reasoning_content"):
+                cleaned_kwargs = {k: v for k, v in message.additional_kwargs.items() if k != "reasoning_content"}
+                converted.append(
+                    AIMessage(
+                        content=message.content,
+                        tool_calls=message.tool_calls,
+                        additional_kwargs=cleaned_kwargs,
+                    )
+                )
             else:
                 converted.append(message)
-
         return converted

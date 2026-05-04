@@ -28,6 +28,10 @@ class CallContext:
     allowed_tools: Optional[set[str]] = None
     """When set, only these tool names may execute. Others return an error."""
 
+    outputs_dir: Optional[str] = None
+    """Directory for saving generated files (images, etc.). When set by the
+    caller, tools like ImageGenerate use this instead of their own default."""
+
     def activate(self) -> None:
         """Set this context as the current one (via ContextVar)."""
         _current_call_context.set(self)

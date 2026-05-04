@@ -38,7 +38,6 @@ class ModelCapability(Enum):
 PROVIDER_CAPABILITIES = {
     "openai": {
         ModelCapability.TEXT_TO_TEXT,
-        ModelCapability.TEXT_TO_IMAGE,
         ModelCapability.IMAGE_TO_TEXT,
         ModelCapability.TOOL_CALLING,
         ModelCapability.FUNCTION_CALLING,
@@ -160,7 +159,6 @@ MODEL_CAPABILITIES = {
         ModelCapability.TEXT_TO_TEXT,
         ModelCapability.IMAGE_TO_TEXT,
         ModelCapability.AUDIO_TO_TEXT,
-        ModelCapability.TEXT_TO_IMAGE,
         ModelCapability.TOOL_CALLING,
         ModelCapability.JSON_MODE,
     },
@@ -197,7 +195,6 @@ MODEL_CAPABILITIES = {
         ModelCapability.TEXT_TO_TEXT,
         ModelCapability.IMAGE_TO_TEXT,
         ModelCapability.AUDIO_TO_TEXT,
-        ModelCapability.TEXT_TO_IMAGE,
         ModelCapability.TOOL_CALLING,
         ModelCapability.JSON_MODE,
         ModelCapability.THINK_MODE,

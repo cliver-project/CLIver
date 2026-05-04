@@ -150,11 +150,12 @@ class TestAgentCoreGenerateImage:
         }
         with patch.object(executor, "_call_generation_api", new_callable=AsyncMock) as mock_call:
             mock_call.return_value = mock_api_response
-            result = await executor.generate_image("a sunset", model="mm/chat", ctx=CallContext())
+            ctx = CallContext()
+            result = await executor.generate_image("a sunset", model="mm/chat", ctx=ctx)
 
             assert isinstance(result, AIMessage)
-            assert "media_content" in result.additional_kwargs
-            assert len(result.additional_kwargs["media_content"]) == 1
+            assert "Generated 1 image" in result.content
+            assert len(ctx.generated_media) == 1
             mock_call.assert_called_once()
 
     @pytest.mark.asyncio
@@ -221,41 +222,9 @@ class TestAgentCoreGenerateImage:
 
 class TestCapabilityRouting:
     @pytest.mark.asyncio
-    async def test_text_to_image_only_model_routes_to_generate(self):
-        from langchain_core.messages import AIMessage
-
-        from cliver.config import ModelConfig, ProviderConfig
-        from cliver.llm.llm import AgentCore
-        from cliver.model_capabilities import ModelCapability
-
-        prov = ProviderConfig(
-            name="mm",
-            type="openai",
-            api_url="http://x",
-            api_key="sk-test",
-            image_url="https://api.minimaxi.com/v1/image_generation",
-            image_model="image-01",
-        )
-        img_model = ModelConfig(name="mm/image-01", provider="mm")
-        img_model.capabilities = {ModelCapability.TEXT_TO_IMAGE}
-        img_model._provider_config = prov
-
-        executor = AgentCore(llm_models={"mm/image-01": img_model}, mcp_servers={})
-
-        mock_api_response = {
-            "base_resp": {"status_code": 0, "status_msg": "success"},
-            "data": {"image_urls": ["https://img.png"]},
-        }
-        with patch.object(executor, "_call_generation_api", new_callable=AsyncMock) as mock_call:
-            mock_call.return_value = mock_api_response
-            result = await executor.process_user_input("a sunset", model="mm/image-01")
-
-            assert isinstance(result, AIMessage)
-            assert "media_content" in result.additional_kwargs
-            mock_call.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_multimodal_model_uses_react_loop(self):
+    async def test_all_models_use_react_loop(self):
+        """All models go through the Re-Act loop. Image generation is handled
+        by the ImageGenerateTool, not by capability-based routing."""
         from langchain_core.messages import AIMessage
 
         from cliver.config import ModelConfig, ProviderConfig
@@ -268,15 +237,14 @@ class TestCapabilityRouting:
             api_url="http://x",
             api_key="sk-test",
         )
-        multi_model = ModelConfig(name="mm/mm-2.7", provider="mm")
-        multi_model.capabilities = {
+        model = ModelConfig(name="mm/mm-2.7", provider="mm")
+        model.capabilities = {
             ModelCapability.TEXT_TO_TEXT,
-            ModelCapability.TEXT_TO_IMAGE,
             ModelCapability.TOOL_CALLING,
         }
-        multi_model._provider_config = prov
+        model._provider_config = prov
 
-        executor = AgentCore(llm_models={"mm/mm-2.7": multi_model}, mcp_servers={})
+        executor = AgentCore(llm_models={"mm/mm-2.7": model}, mcp_servers={})
 
         mock_engine = Mock()
         mock_response = AIMessage(content="Here is your image")
@@ -284,7 +252,7 @@ class TestCapabilityRouting:
         mock_engine.parse_tool_calls.return_value = None
         mock_engine.system_message.return_value = "system"
         mock_engine.supports_capability.return_value = False
-        mock_engine.config = multi_model
+        mock_engine.config = model
         executor.llm_engines["mm/mm-2.7"] = mock_engine
 
         with patch.object(executor, "_prepare_messages_and_tools", new_callable=AsyncMock) as mock_prep:

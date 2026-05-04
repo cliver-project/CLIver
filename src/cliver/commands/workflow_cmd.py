@@ -40,6 +40,66 @@ def _make_executor(cliver: Cliver):
     ), store
 
 
+def _tail_log_files(cliver: Cliver, outputs_dir: str, stop_event):
+    """Tail all .log files in outputs_dir and display new lines."""
+    import json as _json
+    import time
+    from pathlib import Path
+
+    offsets = {}
+    log_dir = Path(outputs_dir)
+
+    while not stop_event.is_set():
+        if not log_dir.exists():
+            time.sleep(1)
+            continue
+        for log_file in log_dir.glob("*.log"):
+            sid = log_file.stem
+            offset = offsets.get(sid, 0)
+            try:
+                lines = log_file.read_text(encoding="utf-8").splitlines()
+            except Exception:
+                continue
+            for line in lines[offset:]:
+                try:
+                    evt = _json.loads(line)
+                except Exception:
+                    continue
+                _display_log_event(cliver, sid, evt)
+            offsets[sid] = len(lines)
+        time.sleep(1)
+
+
+def _display_log_event(cliver: Cliver, step_id: str, evt: dict):
+    """Display a single log event in the TUI."""
+    etype = evt.get("type", "")
+    tool = evt.get("tool", "")
+    if etype == "step_start":
+        name = evt.get("result", step_id)
+        cliver.output(f"\n[bold cyan]── [{step_id}] Starting: {name} ──[/bold cyan]")
+    elif etype == "step_end":
+        ms = evt.get("duration_ms")
+        dur = f" ({ms / 1000:.1f}s)" if ms else ""
+        cliver.output(f"[bold green]── [{step_id}] Completed{dur} ──[/bold green]")
+    elif etype == "step_error":
+        cliver.output(f"[bold red]── [{step_id}] Failed: {evt.get('error', '')} ──[/bold red]")
+    elif etype == "tool_start":
+        desc = ""
+        if evt.get("args"):
+            parts = [f"{k}={str(v)[:80]}" for k, v in evt["args"].items()]
+            desc = " " + ", ".join(parts[:3])
+        cliver.output(f"  [dim][{step_id}] ⟳ {tool}{desc}[/dim]")
+    elif etype == "tool_end":
+        ms = evt.get("duration_ms")
+        dur = f" {ms}ms" if ms else ""
+        cliver.output(f"  [dim][{step_id}] ✓ {tool}{dur}[/dim]")
+        if evt.get("result"):
+            for line in evt["result"].splitlines()[:5]:
+                cliver.output(f"  [dim][{step_id}]   {line[:120]}[/dim]")
+    elif etype == "tool_error":
+        cliver.output(f"  [dim][{step_id}] ✗ {tool}: {evt.get('error', '')}[/dim]")
+
+
 # ── Logic Functions ──
 
 
@@ -99,6 +159,28 @@ def _run_workflow(cliver: Cliver, name: str, inputs: tuple):
 
     cliver.output(f"[bold]Running workflow: {name}[/bold]\n")
 
+    # Resolve outputs directory for log tailing
+    outputs_dir = None
+    if wf.outputs_dir:
+        outputs_dir = wf.outputs_dir
+    else:
+        app_config = cliver.config_manager.config
+        runs_dir = getattr(app_config, "workflow_runs_dir", None)
+        if runs_dir:
+            outputs_dir = str(Path(runs_dir) / name)
+        else:
+            outputs_dir = str(cliver.agent_profile.agent_dir / "workflow-runs" / name)
+
+    import threading
+
+    stop_event = threading.Event()
+    tailer = threading.Thread(
+        target=_tail_log_files,
+        args=(cliver, outputs_dir, stop_event),
+        daemon=True,
+    )
+    tailer.start()
+
     async def _execute():
         try:
             return await executor.execute_workflow(name, inputs=parsed_inputs or None)
@@ -106,6 +188,8 @@ def _run_workflow(cliver: Cliver, name: str, inputs: tuple):
             await executor.close()
 
     result = _run_async(_execute())
+    stop_event.set()
+    tailer.join(timeout=2)
 
     if result:
         _display_result(cliver, result)

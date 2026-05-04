@@ -4,6 +4,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from langchain_core.messages import AIMessageChunk
 
 from cliver.workflow.persistence import WorkflowStore
 from cliver.workflow.workflow_executor import WorkflowExecutor
@@ -13,6 +14,16 @@ from cliver.workflow.workflow_models import (
     LLMStep,
     Workflow,
 )
+
+
+def _mock_stream(process_fn):
+    """Wrap a mock process function as an async generator for stream_user_input."""
+
+    async def stream(user_input, **kwargs):
+        result = await process_fn(user_input, **kwargs)
+        yield AIMessageChunk(content=result.content)
+
+    return stream
 
 
 @pytest.fixture
@@ -47,7 +58,7 @@ class TestDAGExecution:
             msg.content = f"result of {user_input}"
             return msg
 
-        mock_agent_core.process_user_input = AsyncMock(side_effect=mock_process)
+        mock_agent_core.stream_user_input = _mock_stream(AsyncMock(side_effect=mock_process))
 
         executor = WorkflowExecutor(mock_agent_core, store)
         result = asyncio.run(executor.execute_workflow("linear"))
@@ -78,7 +89,7 @@ class TestDAGExecution:
             msg.content = f"done: {user_input}"
             return msg
 
-        mock_agent_core.process_user_input = AsyncMock(side_effect=mock_process)
+        mock_agent_core.stream_user_input = _mock_stream(AsyncMock(side_effect=mock_process))
 
         executor = WorkflowExecutor(mock_agent_core, store)
         result = asyncio.run(executor.execute_workflow("parallel"))
@@ -123,7 +134,7 @@ class TestDecisionBranching:
                 msg.content = f"done: {user_input}"
             return msg
 
-        mock_agent_core.process_user_input = AsyncMock(side_effect=mock_process)
+        mock_agent_core.stream_user_input = _mock_stream(AsyncMock(side_effect=mock_process))
 
         executor = WorkflowExecutor(mock_agent_core, store)
         result = asyncio.run(executor.execute_workflow("branching"))
@@ -161,7 +172,7 @@ class TestDecisionBranching:
             msg.content = "status: REGULAR"
             return msg
 
-        mock_agent_core.process_user_input = AsyncMock(side_effect=mock_process)
+        mock_agent_core.stream_user_input = _mock_stream(AsyncMock(side_effect=mock_process))
 
         executor = WorkflowExecutor(mock_agent_core, store)
         result = asyncio.run(executor.execute_workflow("default-branch"))
@@ -199,7 +210,7 @@ class TestConditionGating:
             msg.content = "no match here"
             return msg
 
-        mock_agent_core.process_user_input = AsyncMock(side_effect=mock_process)
+        mock_agent_core.stream_user_input = _mock_stream(AsyncMock(side_effect=mock_process))
 
         executor = WorkflowExecutor(mock_agent_core, store)
         result = asyncio.run(executor.execute_workflow("conditional"))
@@ -233,7 +244,7 @@ class TestRetry:
             msg.content = "success"
             return msg
 
-        mock_agent_core.process_user_input = AsyncMock(side_effect=mock_process)
+        mock_agent_core.stream_user_input = _mock_stream(AsyncMock(side_effect=mock_process))
 
         executor = WorkflowExecutor(mock_agent_core, store)
         result = asyncio.run(executor.execute_workflow("retry-wf"))
@@ -264,7 +275,7 @@ class TestPauseResume:
             msg.content = f"done: {user_input}"
             return msg
 
-        mock_agent_core.process_user_input = AsyncMock(side_effect=mock_process)
+        mock_agent_core.stream_user_input = _mock_stream(AsyncMock(side_effect=mock_process))
 
         executor = WorkflowExecutor(mock_agent_core, store)
         # Note: LangGraph pause/resume uses checkpointer, not WorkflowExecutionState

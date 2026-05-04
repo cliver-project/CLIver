@@ -1,4 +1,4 @@
-from unittest.mock import ANY, AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from langchain_core.messages import AIMessage
 
@@ -18,30 +18,23 @@ class TestImageGenerateTool:
             result = tool._run(prompt="a cat")
             assert "error" in result.lower()
 
-    def test_run_success(self):
+    def test_run_success_url(self):
+        """URL images are returned as URLs without downloading."""
         tool = ImageGenerateTool()
         mock_executor = Mock()
-        mock_media = [MediaContent(type=MediaType.IMAGE, data="https://img.png", mime_type="image/png", source="test")]
-        mock_result = AIMessage(
-            content="Generated 1 image(s):\nhttps://img.png",
-            additional_kwargs={"media_content": mock_media},
-        )
-        mock_executor.generate_image = AsyncMock(return_value=mock_result)
+        mock_media = MediaContent(type=MediaType.IMAGE, data="https://img.png", mime_type="image/png", source="url")
+        mock_result = AIMessage(content="Generated 1 image(s).")
+
+        def mock_generate(prompt, ctx):
+            ctx.generated_media.append(mock_media)
+            return mock_result
+
+        mock_executor.generate_image = AsyncMock(side_effect=mock_generate)
 
         with patch("cliver.tools.image_generate.get_agent_core", return_value=mock_executor):
             result = tool._run(prompt="a cat")
             assert "https://img.png" in result
-            mock_executor.generate_image.assert_called_once_with("a cat", None, ctx=ANY)
-
-    def test_run_with_model(self):
-        tool = ImageGenerateTool()
-        mock_executor = Mock()
-        mock_result = AIMessage(content="Generated 1 image(s):\nhttps://img.png")
-        mock_executor.generate_image = AsyncMock(return_value=mock_result)
-
-        with patch("cliver.tools.image_generate.get_agent_core", return_value=mock_executor):
-            tool._run(prompt="a dog", model="minimax-image")
-            mock_executor.generate_image.assert_called_once_with("a dog", "minimax-image", ctx=ANY)
+            assert "Generated 1 image" in result
 
     def test_run_handles_exception(self):
         tool = ImageGenerateTool()

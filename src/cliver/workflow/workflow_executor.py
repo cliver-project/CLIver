@@ -30,10 +30,12 @@ class WorkflowExecutor:
         db_path: Optional[Path] = None,
         app_config=None,
         skill_manager=None,
+        on_tool_event=None,
     ):
         self.agent_core = agent_core
         self.store = store
         self.compiler = WorkflowCompiler()
+        self.on_tool_event = on_tool_event
 
         self._db_path = db_path
         self._checkpointer = None
@@ -41,7 +43,9 @@ class WorkflowExecutor:
 
         self._subagent_factory = None
         if app_config and skill_manager:
-            self._subagent_factory = SubAgentFactory(app_config, skill_manager, agent_name=agent_core.agent_name)
+            self._subagent_factory = SubAgentFactory(
+                app_config, skill_manager, agent_name=agent_core.agent_name, on_tool_event=on_tool_event
+            )
 
         self._app_config = app_config
         self._skill_manager = skill_manager
@@ -215,6 +219,7 @@ class WorkflowExecutor:
                 "app_config": self._app_config,
                 "skill_manager": self._skill_manager,
                 "workflow_base_dir": str(self.store.workflows_dir),
+                "on_tool_event": self.on_tool_event,
             }
         }
 

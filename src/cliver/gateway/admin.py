@@ -18,13 +18,14 @@ import functools
 import hashlib
 import hmac
 import inspect
+import json
 import logging
 import secrets
 from pathlib import Path
 from typing import Optional
 
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
+from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from starlette.routing import Route
 
 logger = logging.getLogger(__name__)
@@ -947,13 +948,87 @@ def get_admin_routes(
         return JSONResponse({"status": "started", "workflow": name})
 
     @require_auth
+    async def handle_resume_from_step(request: Request):
+        """Resume a workflow execution from a specific step.
+
+        Uses LangGraph checkpoint history to find the state right before
+        the target step, then re-runs from that point forward.
+
+        Path params: name (workflow), step_id
+        Query/body: thread_id (required — the execution to resume)
+        """
+        wf_name = request.path_params["name"]
+        step_id = request.path_params["step_id"]
+
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        thread_id = body.get("thread_id", "")
+        if not thread_id:
+            return JSONResponse({"error": "'thread_id' is required"}, status_code=400)
+
+        gateway = context.get("gateway")
+        if not gateway or not getattr(gateway, "_agent_core", None):
+            return JSONResponse({"error": "Gateway not available"}, status_code=503)
+
+        async def _do_resume():
+            from cliver.agent_profile import CliverProfile
+            from cliver.skill_manager import SkillManager
+            from cliver.workflow.persistence import WorkflowStore
+            from cliver.workflow.workflow_executor import WorkflowExecutor
+
+            config_dir = context.get("config_dir")
+            agent_name = context.get("agent_name", "CLIver")
+            profile = CliverProfile(agent_name, config_dir)
+            store = WorkflowStore(profile.workflows_dir)
+            db_path = profile.workflow_checkpoints_db
+            config_manager = gateway._get_config_manager()
+
+            executor = WorkflowExecutor(
+                agent_core=gateway._agent_core,
+                store=store,
+                db_path=db_path,
+                app_config=config_manager.config,
+                skill_manager=SkillManager(),
+            )
+            try:
+                result = await executor.resume_from_step(wf_name, thread_id, step_id)
+                if result and "error" in result:
+                    logger.warning("Resume from step failed: %s", result["error"])
+                else:
+                    logger.info("Resumed workflow '%s' from step '%s'", wf_name, step_id)
+            except Exception as e:
+                logger.error("Resume failed: %s", e)
+            finally:
+                await executor.close()
+
+        asyncio.create_task(_do_resume())
+        return JSONResponse(
+            {
+                "status": "started",
+                "workflow": wf_name,
+                "step_id": step_id,
+                "thread_id": thread_id,
+            }
+        )
+
+    @require_auth
     async def handle_browse_files(request: Request):
-        """Browse server filesystem for file selection."""
+        """Browse server filesystem for file selection (restricted to home directory)."""
+        home = Path.home().resolve()
         dir_path = request.query_params.get("dir", "")
         file_filter = request.query_params.get("filter", "")
         if not dir_path:
-            dir_path = str(Path.home())
+            dir_path = str(home)
         target = Path(dir_path).expanduser().resolve()
+
+        # Restrict browsing to home directory
+        try:
+            target.relative_to(home)
+        except ValueError:
+            return JSONResponse({"error": "Access restricted to home directory"}, status_code=403)
+
         if not target.is_dir():
             return JSONResponse({"error": "Not a directory", "path": str(target)}, status_code=400)
 
@@ -967,10 +1042,14 @@ def get_admin_routes(
 
         items = []
         try:
-            # Parent directory
-            parent = str(target.parent)
-            if parent != str(target):
-                items.append({"name": "..", "path": parent, "type": "dir"})
+            # Parent directory (only if still within home)
+            parent = target.parent.resolve()
+            try:
+                parent.relative_to(home)
+                if parent != target:
+                    items.append({"name": "..", "path": str(parent), "type": "dir"})
+            except ValueError:
+                pass
             for entry in sorted(target.iterdir(), key=lambda e: (not e.is_dir(), e.name.lower())):
                 if entry.name.startswith("."):
                     continue
@@ -1050,6 +1129,520 @@ def get_admin_routes(
         config = _get_config(context)
         return JSONResponse(config)
 
+    # --- Chat API (streaming LLM inference for admin portal) ---
+
+    @require_auth
+    async def handle_models(request: Request):
+        """Return available LLM models for the chat UI."""
+        gateway = context.get("gateway")
+        if not gateway or not getattr(gateway, "_agent_core", None):
+            return JSONResponse({"models": [], "default": None})
+        models = list(gateway._agent_core.llm_models.keys())
+        return JSONResponse({"models": models, "default": gateway._agent_core.default_model})
+
+    @require_auth
+    async def handle_chat(request: Request):
+        """Streaming chat endpoint via SSE.
+
+        Accepts JSON body:
+            model: str (optional)
+            prompt: str (required)
+            system_message: str (optional)
+            conversation_history: list of {role, content} (optional)
+            filter_tools: list of tool names to allow (optional)
+            save_media_dir: str - directory to save generated media (optional)
+        """
+        gateway = context.get("gateway")
+        if not gateway or not getattr(gateway, "_agent_core", None):
+            return JSONResponse({"error": "Agent not available"}, status_code=503)
+
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+
+        prompt = body.get("prompt", "").strip()
+        if not prompt:
+            return JSONResponse({"error": "'prompt' is required"}, status_code=400)
+
+        executor = gateway._agent_core
+        model = body.get("model") or executor.default_model
+        system_message = body.get("system_message")
+        raw_history = body.get("conversation_history") or []
+        tool_names = body.get("filter_tools")
+        save_media_dir = body.get("save_media_dir")
+
+        # Build conversation history, preserving reasoning_content for
+        # thinking-mode models (DeepSeek requires it on all assistant messages).
+        conversation_history = None
+        if raw_history:
+            from langchain_core.messages import AIMessage, HumanMessage
+
+            conversation_history = []
+            for msg in raw_history:
+                role = msg.get("role", "")
+                content = msg.get("content", "")
+                if role == "user":
+                    conversation_history.append(HumanMessage(content=content))
+                elif role == "assistant":
+                    extra = {}
+                    if "reasoning_content" in msg:
+                        extra["reasoning_content"] = msg["reasoning_content"]
+                    conversation_history.append(AIMessage(content=content, additional_kwargs=extra))
+
+        # System message appender
+        def _system_appender():
+            parts = []
+            if system_message:
+                parts.append(system_message)
+            parts.append(
+                "\n## Server Mode\n\n"
+                "You are running as a backend API service via the admin portal. "
+                "Do NOT use Ask — there is no human to respond. "
+                "Make autonomous decisions. Be concise and direct. "
+                "After a tool call completes, summarize the result briefly — "
+                "do NOT repeat the tool input or arguments you already provided."
+            )
+            return "\n".join(parts)
+
+        # Tool filter
+        _tool_filter = None
+        if tool_names:
+            allowed = set(tool_names)
+
+            async def _tool_filter(user_input, tools):
+                return [t for t in tools if t.name in allowed]
+
+        # Configure server mode
+        from cliver.permissions import PermissionMode
+
+        if executor.permission_manager:
+            executor.permission_manager.set_mode(PermissionMode.YOLO)
+        executor.on_permission_prompt = lambda tool, args: "allow"
+
+        # Detect thinking mode to signal frontend to preserve reasoning_content
+        uses_thinking = False
+        try:
+            from cliver.model_capabilities import ModelCapability
+
+            effective_model = model or executor.default_model
+            mc = executor._get_llm_model(effective_model) if effective_model else None
+            if mc and ModelCapability.THINK_MODE in mc.get_capabilities():
+                uses_thinking = True
+        except Exception:
+            pass
+
+        async def generate():
+            full_text = ""
+            media_files = []
+            stream_media = []
+            try:
+                async for chunk in executor.stream_user_input(
+                    user_input=prompt,
+                    model=model,
+                    system_message_appender=_system_appender,
+                    filter_tools=_tool_filter,
+                    conversation_history=conversation_history,
+                    outputs_dir=save_media_dir,
+                ):
+                    if hasattr(chunk, "content") and chunk.content:
+                        text = str(chunk.content)
+                        full_text += text
+                        data = json.dumps({"type": "chunk", "content": text})
+                        yield f"data: {data}\n\n".encode()
+                    chunk_kwargs = getattr(chunk, "additional_kwargs", None) or {}
+                    if "media_content" in chunk_kwargs:
+                        stream_media.extend(chunk_kwargs["media_content"])
+
+                # Save media generated by tools (captured from streaming chunks)
+                if save_media_dir and stream_media:
+                    try:
+                        from cliver.media_handler import MultimediaResponse, MultimediaResponseHandler
+
+                        handler = MultimediaResponseHandler(save_directory=save_media_dir)
+                        multimedia = MultimediaResponse(media_content=stream_media)
+                        media_files = handler.save_media_content(multimedia, prefix="chat")
+                    except Exception as e:
+                        logger.warning("Failed to save media: %s", e)
+
+                done_data = {
+                    "type": "done",
+                    "content": full_text,
+                    "media_files": media_files,
+                }
+                if uses_thinking:
+                    done_data["reasoning_content"] = ""
+                done = json.dumps(done_data)
+                yield f"data: {done}\n\n".encode()
+
+            except Exception as e:
+                logger.error("Chat streaming error: %s", e)
+                error = json.dumps({"type": "error", "message": str(e)})
+                yield f"data: {error}\n\n".encode()
+
+        return StreamingResponse(
+            generate(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+        )
+
+    @require_auth
+    async def handle_save_step_output(request: Request):
+        """Save chat output as a workflow step's output file.
+
+        Accepts JSON body:
+            result: str (required) — text result
+            media_files: list of str (optional) — file paths of generated media
+            output_format: str (optional, default 'md')
+        """
+        wf_name = request.path_params["name"]
+        step_id = request.path_params["step_id"]
+
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+
+        result_text = body.get("result", "")
+        media_files = body.get("media_files", [])
+        output_format = body.get("output_format", "md")
+
+        if not result_text and not media_files:
+            return JSONResponse({"error": "No content to save"}, status_code=400)
+
+        try:
+            detail = await _run_in_thread(_get_workflow_detail, context, wf_name)
+            if not detail or "error" in detail:
+                return JSONResponse({"error": "Workflow not found"}, status_code=404)
+
+            outputs_dir = detail.get("outputs_dir") or detail.get("_default_outputs_dir")
+            if not outputs_dir:
+                return JSONResponse({"error": "No outputs directory configured"}, status_code=400)
+
+            from cliver.workflow.compiler import _save_step_output
+
+            _save_step_output(outputs_dir, step_id, result_text, output_format)
+
+            return JSONResponse(
+                {
+                    "status": "saved",
+                    "outputs_dir": outputs_dir,
+                    "step_id": step_id,
+                    "media_files": media_files,
+                }
+            )
+        except Exception as e:
+            logger.error("Failed to save step output: %s", e)
+            return JSONResponse({"error": str(e)}, status_code=500)
+
+    @require_auth
+    async def handle_step_log(request: Request):
+        """Read a step's log file. Returns JSON lines from {outputs_dir}/{step_id}.log.
+
+        Query params:
+            after: int — line offset to read from (for incremental polling)
+        """
+        wf_name = request.path_params["name"]
+        step_id = request.path_params["step_id"]
+        after = int(request.query_params.get("after", "0"))
+
+        detail = await _run_in_thread(_get_workflow_detail, context, wf_name)
+        if not detail or "error" in detail:
+            return JSONResponse({"error": "Workflow not found"}, status_code=404)
+
+        outputs_dir = detail.get("outputs_dir") or detail.get("_default_outputs_dir")
+        if not outputs_dir:
+            return JSONResponse({"lines": [], "total": 0})
+
+        log_path = Path(outputs_dir) / f"{step_id}.log"
+        if not log_path.exists():
+            return JSONResponse({"lines": [], "total": 0})
+
+        try:
+            all_lines = log_path.read_text(encoding="utf-8").splitlines()
+            new_lines = []
+            for line in all_lines[after:]:
+                try:
+                    new_lines.append(json.loads(line))
+                except Exception:
+                    new_lines.append({"type": "raw", "result": line})
+            return JSONResponse({"lines": new_lines, "total": len(all_lines)})
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=500)
+
+    @require_auth
+    async def handle_run_step(request: Request):
+        """Run a single workflow step with context from existing outputs.
+
+        Reads prior step outputs from the outputs directory, renders the
+        step prompt with Jinja2, streams LLM inference via SSE, and saves
+        the result to the outputs directory.
+        """
+        wf_name = request.path_params["name"]
+        step_id = request.path_params["step_id"]
+
+        gateway = context.get("gateway")
+        if not gateway or not getattr(gateway, "_agent_core", None):
+            return JSONResponse({"error": "Agent not available"}, status_code=503)
+
+        executor = gateway._agent_core
+
+        # Load workflow definition
+        detail = await _run_in_thread(_get_workflow_detail, context, wf_name)
+        if not detail or "error" in detail:
+            return JSONResponse({"error": "Workflow not found"}, status_code=404)
+
+        steps = detail.get("steps", [])
+        step = None
+        for s in steps:
+            if s.get("id") == step_id:
+                step = s
+                break
+        if not step:
+            return JSONResponse({"error": f"Step '{step_id}' not found"}, status_code=404)
+
+        outputs_dir = detail.get("outputs_dir") or detail.get("_default_outputs_dir", "")
+        inputs = detail.get("inputs") or {}
+
+        # Build execution context from existing output files on disk
+        from cliver.workflow.workflow_models import ExecutionContext
+
+        step_outputs = {}
+        if outputs_dir:
+            from pathlib import Path as _P
+
+            _text_exts = {".md", ".json", ".txt", ".yaml"}
+            _media_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".mp3", ".wav", ".mp4"}
+            out_path = _P(outputs_dir)
+            if out_path.exists():
+                # Collect all media files in the directory
+                all_media = [f for f in out_path.iterdir() if f.is_file() and f.suffix in _media_exts]
+
+                # Read text output files (one per step)
+                for f in out_path.iterdir():
+                    if not f.is_file() or f.suffix not in _text_exts:
+                        continue
+                    sid = f.stem
+                    if sid == step_id:
+                        continue
+                    try:
+                        result_text = f.read_text(encoding="utf-8")
+                    except Exception:
+                        continue
+                    # Match media files: prefix matches step ID (e.g., step_id_timestamp_0.png)
+                    media = [str(m) for m in all_media if m.stem.startswith(sid)]
+                    step_outputs[sid] = {
+                        "outputs": {"result": result_text, "media_files": media},
+                        "status": "completed",
+                    }
+
+        exec_context = ExecutionContext(
+            workflow_name=wf_name,
+            inputs=inputs,
+            steps=step_outputs,
+        )
+
+        # Render prompt
+        from cliver.workflow.context_renderer import render_template
+
+        raw_prompt = step.get("prompt", "")
+        rendered_prompt = render_template(raw_prompt, exec_context)
+
+        model = step.get("model") or detail.get("_default_model") or executor.default_model
+
+        # Build system message from agent config
+        system_message = None
+        agent_name = step.get("agent")
+        agents = detail.get("agents") or {}
+        if agent_name and agent_name in agents:
+            agent_cfg = agents[agent_name]
+            parts = []
+            if agent_cfg.get("role"):
+                parts.append("You are: " + agent_cfg["role"])
+            if agent_cfg.get("instructions"):
+                parts.append(agent_cfg["instructions"])
+            if agent_cfg.get("system_message"):
+                parts.append(agent_cfg["system_message"])
+            if parts:
+                system_message = "\n\n".join(parts)
+
+        def _sys_appender():
+            p = [
+                "You are executing a workflow step autonomously. "
+                "Do NOT ask for user confirmation or clarification. "
+                "Make the best decision based on the information available and proceed. "
+                "Do NOT use the Ask tool. Complete the task directly. "
+                "After a tool call, summarize the result briefly — do NOT repeat the tool input.\n\n"
+                "ALL output files (text, images, audio, video, code, data) MUST be saved "
+                "to the designated outputs directory provided below. Do NOT use any other directory. "
+                "Reference files from prior steps using the paths listed under Available Files."
+            ]
+
+            overview = detail.get("overview")
+            if overview:
+                p.append(f"# Workflow Overview\n\n{overview}")
+
+            if system_message:
+                p.append(system_message)
+
+            # Outputs directory and prior step files
+            file_section = []
+            if outputs_dir:
+                file_section.append(f"**Outputs directory:** `{outputs_dir}`")
+                file_section.append("Save ALL generated files to this directory.")
+            prior_files = []
+            for sid, sdata in step_outputs.items():
+                s_out = sdata.get("outputs", {})
+                if s_out.get("media_files"):
+                    for f in s_out["media_files"]:
+                        prior_files.append(f"- `{f}` (from step '{sid}')")
+            if prior_files:
+                file_section.append("\n**Files from prior steps:**")
+                file_section.extend(prior_files)
+            if file_section:
+                p.append("# Output Directory & Available Files\n\n" + "\n".join(file_section))
+
+            # Workflow inputs
+            if inputs:
+                p.append("# Workflow Inputs\n\n" + "\n".join(f"- **{k}**: {v}" for k, v in inputs.items()))
+
+            return "\n\n".join(p)
+
+        # Tool filter from agent config
+        _tf = None
+        if agent_name and agent_name in agents:
+            tools = agents[agent_name].get("tools")
+            if tools:
+                allowed = set(tools)
+
+                async def _tf(_ui, t):
+                    return [x for x in t if x.name in allowed]
+
+        # Server mode
+        from cliver.permissions import PermissionMode
+
+        if executor.permission_manager:
+            executor.permission_manager.set_mode(PermissionMode.YOLO)
+        executor.on_permission_prompt = lambda tool, args: "allow"
+
+        output_format = step.get("output_format", "md")
+
+        # Log events to file + forward to SSE queue
+        event_queue = asyncio.Queue()
+        step_logger = None
+        if outputs_dir:
+            from cliver.workflow.compiler import create_step_logger
+
+            step_logger, _ = create_step_logger(outputs_dir, step_id)
+
+        def _event_handler(event):
+            from cliver.tool_events import ToolEventType
+
+            if step_logger:
+                step_logger(event)
+
+            evt = {"tool": event.tool_name}
+            if event.event_type == ToolEventType.TOOL_START:
+                evt["type"] = "tool_start"
+                if event.args:
+                    summary = {}
+                    for k, v in event.args.items():
+                        val = str(v)
+                        summary[k] = val[:200] + "..." if len(val) > 200 else val
+                    evt["args"] = summary
+            elif event.event_type == ToolEventType.TOOL_END:
+                evt["type"] = "tool_end"
+                if event.duration_ms:
+                    evt["duration_ms"] = round(event.duration_ms)
+                if event.result:
+                    evt["result"] = event.result[:500]
+            elif event.event_type == ToolEventType.TOOL_ERROR:
+                evt["type"] = "tool_error"
+                evt["error"] = event.error
+            else:
+                return
+            try:
+                event_queue.put_nowait(evt)
+            except Exception:
+                pass
+
+        executor.on_tool_event = _event_handler
+
+        async def generate():
+            full_text = ""
+            stream_media = []
+            try:
+                async for chunk in executor.stream_user_input(
+                    user_input=rendered_prompt,
+                    model=model,
+                    system_message_appender=_sys_appender,
+                    filter_tools=_tf,
+                    outputs_dir=outputs_dir,
+                ):
+                    # Drain any queued tool events
+                    while not event_queue.empty():
+                        try:
+                            evt = event_queue.get_nowait()
+                            yield f"data: {json.dumps(evt)}\n\n".encode()
+                        except asyncio.QueueEmpty:
+                            break
+
+                    if hasattr(chunk, "content") and chunk.content:
+                        text = str(chunk.content)
+                        full_text += text
+                        data = json.dumps({"type": "chunk", "content": text})
+                        yield f"data: {data}\n\n".encode()
+                    chunk_kwargs = getattr(chunk, "additional_kwargs", None) or {}
+                    if "media_content" in chunk_kwargs:
+                        stream_media.extend(chunk_kwargs["media_content"])
+
+                # Drain remaining tool events
+                while not event_queue.empty():
+                    try:
+                        evt = event_queue.get_nowait()
+                        yield f"data: {json.dumps(evt)}\n\n".encode()
+                    except asyncio.QueueEmpty:
+                        break
+
+                # Save output to disk
+                media_files = []
+                if outputs_dir and full_text:
+                    from cliver.workflow.compiler import _save_step_output
+
+                    _save_step_output(outputs_dir, step_id, full_text, output_format)
+
+                # Save media from ctx.generated_media (via stream chunks)
+                if outputs_dir and stream_media:
+                    try:
+                        from cliver.media_handler import MultimediaResponse, MultimediaResponseHandler
+
+                        handler = MultimediaResponseHandler(save_directory=outputs_dir)
+                        multimedia = MultimediaResponse(media_content=stream_media)
+                        media_files = handler.save_media_content(multimedia, prefix=step_id)
+                    except Exception as e:
+                        logger.warning("Failed to save step media: %s", e)
+
+                done = json.dumps(
+                    {
+                        "type": "done",
+                        "content": full_text,
+                        "media_files": media_files,
+                        "outputs_dir": outputs_dir,
+                    }
+                )
+                yield f"data: {done}\n\n".encode()
+
+            except Exception as e:
+                logger.error("Step execution error: %s", e)
+                error = json.dumps({"type": "error", "message": str(e)})
+                yield f"data: {error}\n\n".encode()
+
+        return StreamingResponse(
+            generate(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
+        )
+
     # --- Return routes ---
 
     return [
@@ -1076,6 +1669,11 @@ def get_admin_routes(
         Route("/admin/api/browse", handle_browse_files),
         Route("/admin/api/workflow-executions", handle_all_workflow_executions),
         Route("/admin/api/workflows", handle_workflows),
+        # Step-level routes (before catch-all {name} routes)
+        Route("/admin/api/workflows/{name}/steps/{step_id}/output", handle_save_step_output, methods=["POST"]),
+        Route("/admin/api/workflows/{name}/steps/{step_id}/log", handle_step_log),
+        Route("/admin/api/workflows/{name}/steps/{step_id}/run", handle_run_step, methods=["POST"]),
+        Route("/admin/api/workflows/{name}/steps/{step_id}/resume", handle_resume_from_step, methods=["POST"]),
         Route("/admin/api/workflows/{name}/executions/{tid}", handle_execution_status),
         Route("/admin/api/workflows/{name}/executions/{tid}", handle_delete_execution, methods=["DELETE"]),
         Route("/admin/api/workflows/{name}/executions", handle_workflow_executions),
@@ -1088,4 +1686,6 @@ def get_admin_routes(
         Route("/admin/api/adapters", handle_adapters),
         Route("/admin/api/agent", handle_agent),
         Route("/admin/api/config", handle_config),
+        Route("/admin/api/models", handle_models),
+        Route("/admin/api/chat", handle_chat, methods=["POST"]),
     ]

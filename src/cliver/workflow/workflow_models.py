@@ -65,7 +65,6 @@ class LLMStep(BaseStep):
     type: StepType = StepType.LLM
     prompt: str = Field(..., description="Prompt for the LLM")
     model: Optional[str] = Field(None, description="LLM model to use")
-    stream: bool = Field(False, description="Whether to stream the response")
     skills: Optional[List[str]] = Field(None, description="Skills to activate for this step")
     images: Optional[List[str]] = Field(None, description="Image files")
     audio_files: Optional[List[str]] = Field(None, description="Audio files")

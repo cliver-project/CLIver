@@ -23,6 +23,10 @@ class ToolEventType(str, Enum):
     MODEL_COMPRESS = "model_compress"
     MODEL_FALLBACK = "model_fallback"
     MODEL_RATE_LIMIT = "model_rate_limit"
+    STEP_START = "step_start"
+    STEP_END = "step_end"
+    STEP_ERROR = "step_error"
+    STEP_CONTENT = "step_content"
 
 
 @dataclass

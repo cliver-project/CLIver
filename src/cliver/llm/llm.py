@@ -264,13 +264,7 @@ class AgentCore:
 
         ctx.generated_media.extend(media_list)
 
-        urls = [m.data for m in media_list if m.data]
-        content = f"Generated {len(media_list)} image(s):\n" + "\n".join(urls) if urls else "Image generated."
-
-        return AIMessage(
-            content=content,
-            additional_kwargs={"media_content": media_list},
-        )
+        return AIMessage(content=f"Generated {len(media_list)} image(s).")
 
     async def _call_generation_api(self, url: str, api_key: str, body: dict) -> dict:
         """Make an HTTP POST to a generation API endpoint.
@@ -628,6 +622,7 @@ class AgentCore:
         timeout_s: Optional[int] = None,
         auto_fallback: Optional[bool] = None,
         on_pending_input: Optional[Callable[[], Optional[str]]] = None,
+        outputs_dir: Optional[str] = None,
     ) -> AsyncIterator[BaseMessageChunk]:
         """
         Stream user input through the LLM, handling tool calls if needed.
@@ -654,15 +649,6 @@ class AgentCore:
         if auto_fallback is None:
             auto_fallback = self.model_auto_fallback
 
-        # Route generation-only models directly (skip Re-Act loop)
-        _model_config = self._get_llm_model(model)
-        if _model_config:
-            _caps = _model_config.get_capabilities()
-            if ModelCapability.TEXT_TO_IMAGE in _caps and ModelCapability.TEXT_TO_TEXT not in _caps:
-                result = await self.generate_image(user_input, model, ctx=CallContext(), **(options or {}))
-                yield AIMessageChunk(content=result.content, additional_kwargs=result.additional_kwargs)
-                return
-
         (
             llm_engine,
             llm_tools,
@@ -685,6 +671,8 @@ class AgentCore:
         ctx = CallContext()
         if filter_tools and llm_tools:
             ctx.allowed_tools = {t.name for t in llm_tools}
+        if outputs_dir:
+            ctx.outputs_dir = outputs_dir
         ctx.activate()
 
         required_caps = self._compute_required_capabilities(
@@ -982,6 +970,7 @@ class AgentCore:
         timeout_s: Optional[int] = None,
         auto_fallback: Optional[bool] = None,
         on_pending_input: Optional[Callable[[], Optional[str]]] = None,
+        outputs_dir: Optional[str] = None,
     ) -> BaseMessage:
         """
         Process user input through the LLM, handling tool calls if needed.
@@ -1004,16 +993,10 @@ class AgentCore:
             template: Template name to apply.
             params: Parameters for templates.
             options: Additional options for LLM inference that can override what the ModelConfig is defined.
+            outputs_dir: Directory for saving generated files. Passed to CallContext for tools.
         """
         if auto_fallback is None:
             auto_fallback = self.model_auto_fallback
-
-        # Route generation-only models directly (skip Re-Act loop)
-        _model_config = self._get_llm_model(model)
-        if _model_config:
-            _caps = _model_config.get_capabilities()
-            if ModelCapability.TEXT_TO_IMAGE in _caps and ModelCapability.TEXT_TO_TEXT not in _caps:
-                return await self.generate_image(user_input, model, ctx=CallContext(), **(options or {}))
 
         (
             llm_engine,
@@ -1037,6 +1020,8 @@ class AgentCore:
         ctx = CallContext()
         if filter_tools and llm_tools:
             ctx.allowed_tools = {t.name for t in llm_tools}
+        if outputs_dir:
+            ctx.outputs_dir = outputs_dir
         ctx.activate()
 
         required_caps = self._compute_required_capabilities(
@@ -1244,7 +1229,8 @@ class AgentCore:
                     friendly = get_friendly_error_message(e, "LLM inference")
                     return AIMessage(content=friendly)
 
-                logger.debug(f"LLM response: {response}")
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug("LLM response: %s", _summarize_message(response))
 
                 # Guard against None response from LLM engine
                 if response is None:
@@ -1938,6 +1924,58 @@ class AgentCore:
                 await close_browser_session()
             except Exception:
                 pass
+
+
+def _summarize_message(msg) -> str:
+    """Summarize a message for debug logging without dumping base64 data."""
+    if msg is None:
+        return "None"
+    role = type(msg).__name__
+    content = getattr(msg, "content", None)
+    tool_calls = getattr(msg, "tool_calls", None)
+
+    parts = [role]
+    if isinstance(content, str):
+        parts.append(f"text({len(content)}ch)")
+    elif isinstance(content, list):
+        block_summaries = []
+        for block in content:
+            if isinstance(block, dict):
+                btype = block.get("type", "?")
+                if btype == "text":
+                    block_summaries.append(f"text({len(block.get('text', ''))}ch)")
+                elif btype in ("image_url", "image"):
+                    url = block.get("image_url", {}).get("url", "") if btype == "image_url" else ""
+                    if url.startswith("data:"):
+                        mime = url.split(";")[0].split(":")[1] if ";" in url else "unknown"
+                        size = len(url) * 3 // 4
+                        block_summaries.append(f"image(base64 {mime} ~{size // 1024}KB)")
+                    else:
+                        block_summaries.append("image(url)")
+                else:
+                    block_summaries.append(btype)
+            else:
+                block_summaries.append(type(block).__name__)
+        parts.append(f"[{', '.join(block_summaries)}]")
+
+    if tool_calls:
+        names = [tc.get("name", "?") for tc in tool_calls]
+        parts.append(f"tool_calls=[{', '.join(names)}]")
+
+    kwargs = getattr(msg, "additional_kwargs", None)
+    if kwargs:
+        safe_keys = [k for k in kwargs if k not in ("reasoning_content",)]
+        if "reasoning_content" in kwargs:
+            rc = kwargs["reasoning_content"]
+            safe_keys.append(f"reasoning({len(rc) if isinstance(rc, str) else '?'}ch)")
+        if "media_content" in kwargs:
+            mc = kwargs["media_content"]
+            safe_keys.remove("media_content")
+            safe_keys.append(f"media({len(mc)} items)")
+        if safe_keys:
+            parts.append(f"kwargs=[{', '.join(safe_keys)}]")
+
+    return " | ".join(parts)
 
 
 def _is_error_response(response) -> bool:

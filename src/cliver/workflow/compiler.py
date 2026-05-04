@@ -201,6 +201,52 @@ def _load_overview(workflow: Workflow) -> Optional[str]:
     return None
 
 
+def create_step_logger(outputs_dir: str, step_id: str, upstream_handler=None):
+    """Create an event handler that writes step/tool events to a log file.
+
+    Log file: {outputs_dir}/{step_id}.log
+    Each line is a JSON object with timestamp and event data.
+    """
+    import json as _json
+    from datetime import datetime
+
+    log_path = Path(outputs_dir) / f"{step_id}.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    def handler(event):
+        entry = {
+            "ts": datetime.now().isoformat(timespec="milliseconds"),
+            "type": event.event_type.value,
+            "tool": event.tool_name,
+        }
+        if event.duration_ms is not None:
+            entry["duration_ms"] = round(event.duration_ms)
+        if event.result:
+            entry["result"] = event.result[:2000]
+        if event.error:
+            entry["error"] = event.error
+        if event.args:
+            summary = {}
+            for k, v in event.args.items():
+                val = str(v)
+                summary[k] = val[:200] + "..." if len(val) > 200 else val
+            entry["args"] = summary
+
+        try:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(_json.dumps(entry, ensure_ascii=False) + "\n")
+        except Exception:
+            pass
+
+        if upstream_handler:
+            try:
+                upstream_handler(event)
+            except Exception:
+                pass
+
+    return handler, str(log_path)
+
+
 class WorkflowCompiler:
     """Compiles a CLIver Workflow YAML model into a LangGraph CompiledStateGraph."""
 
@@ -314,18 +360,34 @@ class WorkflowCompiler:
     @staticmethod
     def _make_llm_node(step: LLMStep, agent_config: Optional[AgentConfig], overview: Optional[str]):
         async def node(state, config):
+            from cliver.tool_events import ToolEvent, ToolEventType
+
             if state.get("error"):
                 return {"steps": {step.id: {"outputs": {"error": "Skipped: prior step failed"}, "status": "skipped"}}}
 
             factory = config["configurable"].get("subagent_factory")
+            upstream_handler = config["configurable"].get("on_tool_event")
             context = _state_to_execution_context(state)
             rendered_prompt = render_template(step.prompt, context)
+
+            # Create per-step log file and event handler
+            outputs_dir_val = state.get("outputs_dir", "")
+            emit_event = None
+            log_path = None
+            if outputs_dir_val:
+                emit_event, log_path = create_step_logger(outputs_dir_val, step.id, upstream_handler)
+            elif upstream_handler:
+                emit_event = upstream_handler
 
             if factory:
                 effective_config = agent_config or AgentConfig(model=step.model)
                 subagent = factory.create(effective_config)
             else:
                 subagent = config["configurable"]["agent_core"]
+
+            # Wire the step logger as the subagent's tool event handler
+            if emit_event:
+                subagent.on_tool_event = emit_event
 
             def system_appender():
                 parts = [_WORKFLOW_STEP_SYSTEM_INSTRUCTION]
@@ -378,20 +440,56 @@ class WorkflowCompiler:
             media_files = []
             validation_status = None
 
+            if emit_event:
+                try:
+                    emit_event(
+                        ToolEvent(
+                            event_type=ToolEventType.STEP_START,
+                            tool_name=step.id,
+                            result=step.name or step.id,
+                        )
+                    )
+                except Exception:
+                    pass
+
             try:
                 from cliver.media_handler import extract_response_text
 
                 while True:
-                    response = await subagent.process_user_input(
+                    from langchain_core.messages import AIMessage
+
+                    chunks = []
+                    async for chunk in subagent.stream_user_input(
                         user_input=current_prompt,
                         model=effective_model,
                         system_message_appender=system_appender,
                         filter_tools=_filter_tools,
+                        outputs_dir=state.get("outputs_dir", ""),
                         images=render_template(step.images, context) if step.images else None,
                         audio_files=render_template(step.audio_files, context) if step.audio_files else None,
                         video_files=render_template(step.video_files, context) if step.video_files else None,
                         files=render_template(step.files, context) if step.files else None,
-                    )
+                    ):
+                        if emit_event and hasattr(chunk, "content") and chunk.content:
+                            try:
+                                emit_event(
+                                    ToolEvent(
+                                        event_type=ToolEventType.STEP_CONTENT,
+                                        tool_name=step.id,
+                                        result=str(chunk.content),
+                                    )
+                                )
+                            except Exception:
+                                pass
+                        chunks.append(chunk)
+                    full_text = "".join(str(c.content) for c in chunks if hasattr(c, "content") and c.content)
+                    last_kwargs = {}
+                    for c in reversed(chunks):
+                        ck = getattr(c, "additional_kwargs", None)
+                        if ck and "media_content" in ck:
+                            last_kwargs = ck
+                            break
+                    response = AIMessage(content=full_text, additional_kwargs=last_kwargs)
 
                     result_text = extract_response_text(response)
                     _save_step_output(state["outputs_dir"], step.id, result_text, step.output_format)
@@ -431,6 +529,8 @@ class WorkflowCompiler:
                     )
 
                 outputs = {"result": result_text, "outputs_dir": state["outputs_dir"]}
+                if log_path:
+                    outputs["log_file"] = log_path
                 if media_files:
                     outputs["media_files"] = media_files
                 if validation_status:
@@ -439,24 +539,50 @@ class WorkflowCompiler:
                     for name in step.outputs:
                         outputs[name] = result_text
 
+                elapsed = time.time() - start
+                if emit_event:
+                    try:
+                        emit_event(
+                            ToolEvent(
+                                event_type=ToolEventType.STEP_END,
+                                tool_name=step.id,
+                                result=step.name or step.id,
+                                duration_ms=elapsed * 1000,
+                            )
+                        )
+                    except Exception:
+                        pass
                 return {
                     "steps": {
                         step.id: {
                             "outputs": outputs,
                             "status": "completed",
-                            "execution_time": time.time() - start,
+                            "execution_time": elapsed,
                             "attempts": attempt + 1,
                         }
                     }
                 }
             except Exception as e:
                 logger.error("LLM step '%s' failed: %s", step.id, e)
+                elapsed = time.time() - start
+                if emit_event:
+                    try:
+                        emit_event(
+                            ToolEvent(
+                                event_type=ToolEventType.STEP_ERROR,
+                                tool_name=step.id,
+                                error=str(e),
+                                duration_ms=elapsed * 1000,
+                            )
+                        )
+                    except Exception:
+                        pass
                 return {
                     "steps": {
                         step.id: {
                             "outputs": {"error": str(e)},
                             "status": "failed",
-                            "execution_time": time.time() - start,
+                            "execution_time": elapsed,
                         }
                     },
                     "error": f"Step '{step.id}' failed: {e}",

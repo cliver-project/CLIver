@@ -67,10 +67,11 @@ class MediaContent:
     """Represents a media content item."""
 
     type: MediaType
-    data: str  # base64 encoded data
+    data: str  # base64 encoded data or URL
     mime_type: str  # e.g., "image/jpeg", "audio/wav"
     filename: Optional[str] = None
     source: str = "local"  # local, url, etc.
+    saved_path: Optional[str] = None  # set after saving to disk
 
     def is_url(self) -> bool:
         """Check if data is a URL rather than base64-encoded content."""
@@ -106,6 +107,7 @@ class MediaContent:
             with open(file_path, "wb") as f:
                 f.write(binary_data)
 
+            self.saved_path = str(file_path)
             return True
         except Exception as e:
             logger.error("Error saving media to %s, exception: %s", file_path, e, exc_info=True)

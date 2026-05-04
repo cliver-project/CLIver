@@ -183,3 +183,5 @@ temp/
 CLAUDE.md
 claude.prompt.txt
 .DS_Store
+assets
+generated_images

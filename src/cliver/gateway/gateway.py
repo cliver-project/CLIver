@@ -981,6 +981,13 @@ class _QuietPollFilter(logging.Filter):
         return not any(p in msg for p in self._QUIET_PATHS)
 
 
+def _looks_like_base64(s: str) -> bool:
+    """Quick heuristic: long string of alphanumeric + /+=."""
+    import re
+
+    return bool(re.fullmatch(r"[A-Za-z0-9+/=\s]{100,}", s[:200]))
+
+
 def _create_gateway_tool_handler():
     """Create a tool event handler that logs via the standard logger."""
     from cliver.tool_events import ToolEvent, ToolEventType
@@ -1004,9 +1011,13 @@ def _create_gateway_tool_handler():
             duration = f" ({event.duration_ms:.0f}ms)" if event.duration_ms else ""
             tool_logger.info("[DONE]  %s%s", event.tool_name, duration)
             if event.result:
-                # Log full result (the rotating handler limits total disk usage)
                 for line in event.result.splitlines():
-                    tool_logger.info("        %s", line)
+                    if len(line) > 500 and not line[:20].isascii():
+                        tool_logger.info("        [binary data, %d bytes]", len(line))
+                    elif len(line) > 500 and _looks_like_base64(line.strip()):
+                        tool_logger.info("        [base64 data, ~%dKB]", len(line) * 3 // 4 // 1024)
+                    else:
+                        tool_logger.info("        %s", line[:500])
 
         elif event.event_type == ToolEventType.TOOL_ERROR:
             duration = f" ({event.duration_ms:.0f}ms)" if event.duration_ms else ""

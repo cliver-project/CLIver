@@ -22,10 +22,11 @@ logger = logging.getLogger(__name__)
 class SubAgentFactory:
     """Creates isolated AgentCore instances from workflow agent profiles."""
 
-    def __init__(self, app_config, skill_manager: "SkillManager", agent_name: str = "CLIver"):
+    def __init__(self, app_config, skill_manager: "SkillManager", agent_name: str = "CLIver", on_tool_event=None):
         self.app_config = app_config
         self.skill_manager = skill_manager
         self.agent_name = agent_name
+        self.on_tool_event = on_tool_event
 
     def create(self, agent_config: AgentConfig) -> AgentCore:
         """Create a fresh AgentCore with the specified configuration."""
@@ -57,6 +58,7 @@ class SubAgentFactory:
             agent_name=self.agent_name,
             permission_manager=permission_manager,
             on_permission_prompt=lambda tool, args: ("allow", ""),
+            on_tool_event=self.on_tool_event,
             enabled_toolsets=agent_config.tools,
             model_auto_fallback=True,
         )

@@ -196,6 +196,11 @@ class MultimediaResponseHandler:
 
         for i, media in enumerate(response.media_content):
             try:
+                # Skip already-saved media
+                if media.saved_path:
+                    saved_files.append(media.saved_path)
+                    continue
+
                 # Generate filename if not provided
                 if not media.filename:
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
