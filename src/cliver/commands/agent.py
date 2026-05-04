@@ -19,42 +19,42 @@ def _show_agents(cliver: Cliver):
     agents = CliverProfile.list_agents(cliver.config_dir)
     current = cliver.agent_name
 
-    cliver.output("[bold]Agent Instances[/bold]")
+    cliver.output("Agent Instances")
     if not agents:
-        cliver.output(f"  [green]* {current}[/green] (active, no data yet)")
+        cliver.output(f"  * {current} (active, no data yet)")
     else:
         for name in agents:
             if name == current:
-                cliver.output(f"  [green]* {name}[/green] (active)")
+                cliver.output(f"  * {name} (active)")
             else:
                 cliver.output(f"    {name}")
         if current not in agents:
-            cliver.output(f"  [green]* {current}[/green] (active, no data yet)")
+            cliver.output(f"  * {current} (active, no data yet)")
     cliver.output()
-    cliver.output("[dim]  /agent create <name>  — create new agent[/dim]")
-    cliver.output("[dim]  /agent switch <name>  — switch to agent[/dim]")
-    cliver.output("[dim]  /agent rename <name>  — rename current agent[/dim]")
-    cliver.output("[dim]  /agent delete <name>  — delete an agent[/dim]")
+    cliver.output("  /agent create <name>  — create new agent")
+    cliver.output("  /agent switch <name>  — switch to agent")
+    cliver.output("  /agent rename <name>  — rename current agent")
+    cliver.output("  /agent delete <name>  — delete an agent")
 
 
 def _switch_agent(cliver: Cliver, name: str):
     """Switch to an agent instance. Creates it if it doesn't exist."""
     if name == cliver.agent_name:
-        cliver.output(f"Already using agent [green]{name}[/green].")
+        cliver.output(f"Already using agent {name}.")
         return
     cliver.switch_agent(name)
-    cliver.output(f"Switched to agent [bold green]{name}[/bold green].")
+    cliver.output(f"Switched to agent {name}.")
 
 
 def _create_agent(cliver: Cliver, name: str):
     """Create a new agent with an identity profile and switch to it."""
     existing = CliverProfile.list_agents(cliver.config_dir)
     if name in existing:
-        cliver.output(f"Agent [yellow]{name}[/yellow] already exists. Use [bold]/agent switch {name}[/bold].")
+        cliver.output(f"Agent {name} already exists. Use /agent switch {name}.")
         return
 
-    cliver.output(f"\nSetting up agent [bold green]{name}[/bold green]…\n")
-    cliver.output("[dim]Press Enter to skip any question.[/dim]\n")
+    cliver.output(f"\nSetting up agent {name}…\n")
+    cliver.output("Press Enter to skip any question.\n")
 
     # Gather identity info interactively
     identity = _ask_identity(name, cliver=cliver)
@@ -65,8 +65,8 @@ def _create_agent(cliver: Cliver, name: str):
     profile.save_identity(identity)
 
     cliver.switch_agent(name)
-    cliver.output(f"\nCreated and switched to agent [bold green]{name}[/bold green].")
-    cliver.output("[dim]Update identity anytime with /identity chat[/dim]")
+    cliver.output(f"\nCreated and switched to agent {name}.")
+    cliver.output("Update identity anytime with /identity chat")
 
 
 def _ask_identity(agent_name: str, cliver=None) -> str:
@@ -123,15 +123,15 @@ def _rename_agent(cliver: Cliver, new_name: str):
 
     existing = CliverProfile.list_agents(cliver.config_dir)
     if new_name in existing:
-        cliver.output(f"[red]Agent '{new_name}' already exists. Choose a different name.[/red]")
+        cliver.output(f"Agent '{new_name}' already exists. Choose a different name.")
         return
 
     try:
         cliver.agent_profile.rename(new_name)
         cliver.switch_agent(new_name)
-        cliver.output(f"Renamed agent [yellow]{old_name}[/yellow] to [bold green]{new_name}[/bold green].")
+        cliver.output(f"Renamed agent {old_name} to {new_name}.")
     except Exception as e:
-        cliver.output(f"[red]Failed to rename: {e}[/red]")
+        cliver.output(f"Failed to rename: {e}")
 
 
 def _delete_agent(cliver: Cliver, name: str):
@@ -139,7 +139,7 @@ def _delete_agent(cliver: Cliver, name: str):
     import shutil
 
     if name == cliver.agent_name:
-        cliver.output(f"[red]Cannot delete the active agent '{name}'. Switch to another agent first.[/red]")
+        cliver.output(f"Cannot delete the active agent '{name}'. Switch to another agent first.")
         return
 
     agent_dir = cliver.config_dir / "agents" / name
@@ -148,7 +148,7 @@ def _delete_agent(cliver: Cliver, name: str):
         return
 
     # Confirm deletion
-    cliver.output(f"[bold yellow]Delete agent '{name}' and all its data?[/bold yellow]")
+    cliver.output(f"Delete agent '{name}' and all its data?")
     cliver.output(f"  Directory: {agent_dir}")
 
     response = cliver.ui.ask_input("  Type 'yes' to confirm: ")
@@ -157,7 +157,7 @@ def _delete_agent(cliver: Cliver, name: str):
         return
 
     shutil.rmtree(agent_dir)
-    cliver.output(f"Deleted agent [red]{name}[/red].")
+    cliver.output(f"Deleted agent {name}.")
 
 
 # TUI dispatch entry point
@@ -203,7 +203,7 @@ def dispatch(cliver: Cliver, args: str):
             return
         _delete_agent(cliver, rest.strip())
     else:
-        cliver.output(f"[yellow]Unknown: /agent {sub}[/yellow]")
+        cliver.output(f"Unknown: /agent {sub}")
 
 
 # Click wrappers (thin — just call logic functions)

@@ -54,11 +54,11 @@ def _start_gateway(cliver: Cliver):
 
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         if s.connect_ex((host, port)) == 0:
-            cliver.output(f"[red]Port {port} is already in use. An orphan gateway may be running.[/red]")
-            cliver.output(f"[dim]Find it with: lsof -i :{port}[/dim]")
+            cliver.output(f"Port {port} is already in use. An orphan gateway may be running.")
+            cliver.output(f"Find it with: lsof -i :{port}")
             return 1
 
-    cliver.output("[dim]Starting gateway...[/dim]")
+    cliver.output("Starting gateway...")
 
     # Spawn gateway as a fresh subprocess — avoids all fork-related issues
     # (macOS mach port invalidation, DNS resolver segfaults, thread state).
@@ -76,8 +76,8 @@ def _start_gateway(cliver: Cliver):
         time.sleep(0.5)
         # Check if process died
         if proc.poll() is not None:
-            cliver.output(f"[red]Gateway process exited with code {proc.returncode}[/red]")
-            cliver.output(f"[dim]Check log: {log_path}[/dim]")
+            cliver.output(f"Gateway process exited with code {proc.returncode}")
+            cliver.output(f"Check log: {log_path}")
             return 1
         # Check for health endpoint
         if pid_path.exists():
@@ -99,8 +99,8 @@ def _start_gateway(cliver: Cliver):
         cliver.output(f"Gateway process alive (PID {proc.pid}) but not yet healthy")
         cliver.output(f"  Check log: {log_path}")
     else:
-        cliver.output(f"[red]Gateway process exited with code {proc.returncode}[/red]")
-        cliver.output(f"[dim]Check log: {log_path}[/dim]")
+        cliver.output(f"Gateway process exited with code {proc.returncode}")
+        cliver.output(f"Check log: {log_path}")
     return 1
 
 
@@ -158,8 +158,8 @@ def _list_platforms(cliver: Cliver):
     cfg = cliver.config_manager.config
     gw = cfg.gateway
     if not gw or not gw.platforms:
-        cliver.output("[dim]No platforms configured.[/dim]")
-        cliver.output("[dim]Set one up with: /gateway platform setup[/dim]")
+        cliver.output("No platforms configured.")
+        cliver.output("Set one up with: /gateway platform setup")
         return
 
     # Fetch live status from running gateway if available
@@ -194,18 +194,18 @@ def _list_platforms(cliver: Cliver):
             state = live.get("state", "")
             err = live.get("error", "")
             if state == "connected":
-                status_str = "[green]● connected[/green]"
+                status_str = "● connected"
             elif state == "connecting":
-                status_str = "[yellow]◌ connecting[/yellow]"
+                status_str = "◌ connecting"
             elif state == "error":
                 short_err = (err[:30] + "...") if len(err) > 30 else err
-                status_str = f"[red]✗ {short_err}[/red]"
+                status_str = f"✗ {short_err}"
             else:
-                status_str = f"[dim]{state}[/dim]"
+                status_str = f"{state}"
         elif pid_path.exists():
-            status_str = "[dim]not loaded[/dim]"
+            status_str = "not loaded"
         else:
-            status_str = "[dim]gateway stopped[/dim]"
+            status_str = "gateway stopped"
         table.add_row(name, p.type, status_str, token_display, p.home_channel or "-")
 
     cliver.output(table)
@@ -230,7 +230,7 @@ def _add_platform(
         cfg.gateway = GatewayConfig()
 
     if name in cfg.gateway.platforms:
-        cliver.output(f"[red]Platform '{name}' already exists. Use 'setup' to reconfigure.[/red]")
+        cliver.output(f"Platform '{name}' already exists. Use 'setup' to reconfigure.")
         return
 
     users = [u.strip() for u in allowed_users.split(",")] if allowed_users else None
@@ -244,8 +244,8 @@ def _add_platform(
     )
     cfg.gateway.platforms[name] = platform
     cliver.config_manager._save_config()
-    cliver.output(f"[green]✓[/green] Platform '{name}' added (type: {ptype}).")
-    cliver.output("[dim]Restart gateway to apply: /gateway stop && /gateway start[/dim]")
+    cliver.output(f"✓ Platform '{name}' added (type: {ptype}).")
+    cliver.output("Restart gateway to apply: /gateway stop && /gateway start")
 
 
 # -- Platform type metadata for the setup wizard --
@@ -258,14 +258,13 @@ _PLATFORM_INFO = {
             (
                 "token",
                 "Bot User OAuth Token",
-                "Find it in Slack App → OAuth & Permissions → Bot User OAuth Token.\n"
-                "   [dim]Starts with xoxb-...[/dim]",
+                "Find it in Slack App → OAuth & Permissions → Bot User OAuth Token.\n   Starts with xoxb-...",
             ),
             (
                 "app_token",
                 "App-Level Token",
                 "Find it in Slack App → Basic Information → App-Level Tokens.\n"
-                "   [dim]Starts with xapp-... Required for Socket Mode.[/dim]",
+                "   Starts with xapp-... Required for Socket Mode.",
             ),
         ],
     },
@@ -276,7 +275,7 @@ _PLATFORM_INFO = {
             (
                 "token",
                 "Bot Token",
-                "Get it from @BotFather on Telegram → /newbot.\n   [dim]Format: 123456789:ABCdef...[/dim]",
+                "Get it from @BotFather on Telegram → /newbot.\n   Format: 123456789:ABCdef...",
             ),
         ],
     },
@@ -288,7 +287,7 @@ _PLATFORM_INFO = {
                 "token",
                 "Bot Token",
                 "Find it in Discord Developer Portal → Bot → Token.\n"
-                "   [dim]Enable Message Content Intent in the Bot settings.[/dim]",
+                "   Enable Message Content Intent in the Bot settings.",
             ),
         ],
     },
@@ -309,33 +308,33 @@ def _setup_platform(cliver: Cliver):
     from cliver.gateway.adapters import BUILTIN_ADAPTERS
 
     console = cliver.console
-    console.print("\n[bold]Platform Setup[/bold]")
-    console.print("[dim]─────────────────[/dim]")
+    console.print("\nPlatform Setup")
+    console.print("─────────────────")
 
     # 1. Choose platform type
     types = list(BUILTIN_ADAPTERS.keys())
-    console.print("\n[bold]1. Platform type[/bold]")
+    console.print("\n1. Platform type")
     for i, t in enumerate(types, 1):
         info = _PLATFORM_INFO.get(t, {})
         label = info.get("label", t)
         desc = info.get("description", "")
-        console.print(f"   [green]{i}[/green]) {label}  [dim]{desc}[/dim]")
+        console.print(f"   {i}) {label}  {desc}")
 
     choice = cliver.ui.ask_input("   Choose [1-5] > ")
     if not choice:
-        console.print("[yellow]Cancelled.[/yellow]")
+        console.print("Cancelled.")
         return
     try:
         ptype = types[int(choice) - 1]
     except (ValueError, IndexError):
-        console.print(f"[red]Invalid choice: {choice}[/red]")
+        console.print(f"Invalid choice: {choice}")
         return
 
     info = _PLATFORM_INFO.get(ptype, {})
     label = info.get("label", ptype)
 
     # 2. Name (default to type)
-    console.print("\n[bold]2. Adapter name[/bold] [dim](used as identifier)[/dim]")
+    console.print("\n2. Adapter name (used as identifier)")
     name = cliver.ui.ask_input(f"   Name [{ptype}] > ") or ptype
 
     # Check for existing — offer to reconfigure
@@ -346,14 +345,14 @@ def _setup_platform(cliver: Cliver):
             choices=["y", "yes", "n", "no"],
         )
         if response.lower() not in ("y", "yes"):
-            console.print("[yellow]Cancelled.[/yellow]")
+            console.print("Cancelled.")
             return
 
     # 3. Type-specific required fields
     collected = {"type": ptype}
     fields = info.get("fields", [])
     for i, (field_key, field_label, field_help) in enumerate(fields, 3):
-        console.print(f"\n[bold]{i}. {field_label}[/bold]")
+        console.print(f"\n{i}. {field_label}")
         console.print(f"   {field_help}")
 
         # Show existing value if reconfiguring
@@ -372,14 +371,14 @@ def _setup_platform(cliver: Cliver):
         if not value and existing:
             value = existing
         if not value and field_key in ("token",):
-            console.print(f"[red]{field_label} is required.[/red]")
+            console.print(f"{field_label} is required.")
             return
         if value:
             collected[field_key] = value
 
     # 4. Optional: home channel
     next_num = 3 + len(fields)
-    console.print(f"\n[bold]{next_num}. Home channel[/bold] [dim](optional — default channel for cron output)[/dim]")
+    console.print(f"\n{next_num}. Home channel (optional — default channel for cron output)")
     existing_channel = ""
     if cfg.gateway and name in cfg.gateway.platforms:
         existing_channel = cfg.gateway.platforms[name].home_channel or ""
@@ -390,9 +389,7 @@ def _setup_platform(cliver: Cliver):
 
     # 5. Optional: allowed users
     next_num += 1
-    console.print(
-        f"\n[bold]{next_num}. Allowed users[/bold] [dim](optional — comma-separated user IDs, empty = all)[/dim]"
-    )
+    console.print(f"\n{next_num}. Allowed users (optional — comma-separated user IDs, empty = all)")
     existing_users = ""
     if cfg.gateway and name in cfg.gateway.platforms:
         existing_users = ",".join(cfg.gateway.platforms[name].allowed_users or [])
@@ -425,15 +422,15 @@ def _setup_platform(cliver: Cliver):
     cfg.gateway.platforms[name] = platform
     cliver.config_manager._save_config()
 
-    console.print(f"\n[green]✓[/green] Platform '{name}' ({label}) configured.")
-    cliver.output("[dim]Restart gateway to apply: /gateway stop && /gateway start[/dim]")
+    console.print(f"\n✓ Platform '{name}' ({label}) configured.")
+    cliver.output("Restart gateway to apply: /gateway stop && /gateway start")
 
 
 def _set_platform(cliver: Cliver, name: str, **kwargs):
     """Update an existing platform adapter configuration."""
     cfg = cliver.config_manager.config
     if not cfg.gateway or name not in cfg.gateway.platforms:
-        cliver.output(f"[red]Platform '{name}' not found.[/red]")
+        cliver.output(f"Platform '{name}' not found.")
         return
 
     p = cfg.gateway.platforms[name]
@@ -444,15 +441,15 @@ def _set_platform(cliver: Cliver, name: str, **kwargs):
             setattr(p, key, value)
 
     cliver.config_manager._save_config()
-    cliver.output(f"[green]✓[/green] Platform '{name}' updated.")
-    cliver.output("[dim]Restart gateway to apply.[/dim]")
+    cliver.output(f"✓ Platform '{name}' updated.")
+    cliver.output("Restart gateway to apply.")
 
 
 def _remove_platform(cliver: Cliver, name: str):
     """Remove a platform adapter configuration."""
     cfg = cliver.config_manager.config
     if not cfg.gateway or name not in cfg.gateway.platforms:
-        cliver.output(f"[red]Platform '{name}' not found.[/red]")
+        cliver.output(f"Platform '{name}' not found.")
         return
 
     response = cliver.ui.ask_input(f"  Remove platform '{name}'? [y/n] > ", choices=["y", "yes", "n", "no"])
@@ -527,14 +524,14 @@ def _status_gateway(cliver: Cliver):
                 state = a.get("state", "unknown")
                 name = a.get("name", "?")
                 if state == "connected":
-                    cliver.output(f"    [green]●[/green] {name} [dim](running)[/dim]")
+                    cliver.output(f"    ● {name} (running)")
                 elif state == "connecting":
-                    cliver.output(f"    [yellow]◌[/yellow] {name} [dim](connecting...)[/dim]")
+                    cliver.output(f"    ◌ {name} (connecting...)")
                 elif state == "error":
                     err = a.get("error", "")
-                    cliver.output(f"    [red]✗[/red] {name} [dim]({err})[/dim]")
+                    cliver.output(f"    ✗ {name} ({err})")
                 else:
-                    cliver.output(f"    [dim]?[/dim] {name} [dim]({state})[/dim]")
+                    cliver.output(f"    ? {name} ({state})")
         else:
             cliver.output("  Adapters: none")
     except Exception:
@@ -572,7 +569,7 @@ def dispatch(cliver: Cliver, args: str):
     elif sub == "platform":
         _dispatch_platform(cliver, rest)
     else:
-        cliver.output(f"[yellow]Unknown: /gateway {sub}[/yellow]")
+        cliver.output(f"Unknown: /gateway {sub}")
 
 
 def _dispatch_platform(cliver: Cliver, args: str):
@@ -595,7 +592,7 @@ def _dispatch_platform(cliver: Cliver, args: str):
         _setup_platform(cliver)
     elif sub == "set":
         if not rest:
-            cliver.output("[yellow]Usage: /gateway platform set <name> --token T ...[/yellow]")
+            cliver.output("Usage: /gateway platform set <name> --token T ...")
             return
         from shlex import split as shlex_split
 
@@ -620,16 +617,16 @@ def _dispatch_platform(cliver: Cliver, args: str):
                 kwargs["allowed_users"] = p[i + 1]
                 i += 2
             else:
-                cliver.output(f"[yellow]Unknown option: {p[i]}[/yellow]")
+                cliver.output(f"Unknown option: {p[i]}")
                 return
         _set_platform(cliver, name, **kwargs)
     elif sub == "remove":
         if not rest:
-            cliver.output("[yellow]Usage: /gateway platform remove <name>[/yellow]")
+            cliver.output("Usage: /gateway platform remove <name>")
             return
         _remove_platform(cliver, rest.strip())
     else:
-        cliver.output(f"[yellow]Unknown: /gateway platform {sub}[/yellow]")
+        cliver.output(f"Unknown: /gateway platform {sub}")
 
 
 @click.group(

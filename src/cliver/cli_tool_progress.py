@@ -28,13 +28,13 @@ def get_last_full_output() -> tuple[str, str]:
 # ─── Status Icons ─────────────────────────────────────────────────────────────
 
 _STATUS_ICONS = {
-    ToolEventType.TOOL_START: "[bold yellow]⟳[/bold yellow]",
-    ToolEventType.TOOL_END: "[bold green]✓[/bold green]",
-    ToolEventType.TOOL_ERROR: "[bold red]✗[/bold red]",
-    ToolEventType.MODEL_RETRY: "[bold yellow]↻[/bold yellow]",
-    ToolEventType.MODEL_COMPRESS: "[bold blue]⊘[/bold blue]",
-    ToolEventType.MODEL_FALLBACK: "[bold magenta]⇢[/bold magenta]",
-    ToolEventType.MODEL_RATE_LIMIT: "[bold cyan]⏱[/bold cyan]",
+    ToolEventType.TOOL_START: "⟳",
+    ToolEventType.TOOL_END: "✓",
+    ToolEventType.TOOL_ERROR: "✗",
+    ToolEventType.MODEL_RETRY: "↻",
+    ToolEventType.MODEL_COMPRESS: "⊘",
+    ToolEventType.MODEL_FALLBACK: "⇢",
+    ToolEventType.MODEL_RATE_LIMIT: "⏱",
 }
 
 # ─── Tool Activity Descriptions ──────────────────────────────────────────────
@@ -99,10 +99,10 @@ def _describe_tool(tool_name: str, args: dict | None) -> str:
 # ─── Plan Status Icons ────────────────────────────────────────────────────────
 
 _PLAN_ICONS = {
-    "pending": "[dim]○[/dim]",
-    "in_progress": "[bold yellow]◉[/bold yellow]",
-    "completed": "[bold green]●[/bold green]",
-    "failed": "[bold red]✗[/bold red]",
+    "pending": "○",
+    "in_progress": "◉",
+    "completed": "●",
+    "failed": "✗",
 }
 
 
@@ -218,11 +218,8 @@ def create_tool_progress_handler(
     state = {"in_block": False}
 
     def handler(event: ToolEvent) -> None:
-        from cliver.themes import get_theme
-
-        theme = get_theme()
         icon = _STATUS_ICONS.get(event.event_type, "")
-        tool = f"[{theme.tool_name}]{event.tool_name}[/{theme.tool_name}]"
+        tool = event.tool_name
 
         if event.event_type == ToolEventType.TOOL_START:
             # Stop thinking spinner when tool execution begins (no blank line — spinner restarts after)
@@ -235,10 +232,10 @@ def create_tool_progress_handler(
 
             # Human-readable activity description
             desc = _describe_tool(event.tool_name, event.args)
-            console.print(f"  {icon} [{theme.tool_desc}]{desc}[/{theme.tool_desc}]")
+            console.print(f"  {icon} {desc}")
 
         elif event.event_type == ToolEventType.TOOL_END:
-            duration = f"[dim]{event.duration_ms:.0f}ms[/dim]" if event.duration_ms else ""
+            duration = f"{event.duration_ms:.0f}ms" if event.duration_ms else ""
             console.print(f"  {icon} {tool} {duration}")
 
             # Show tool result preview
@@ -258,12 +255,12 @@ def create_tool_progress_handler(
                 thinking.start(thinking._model)
 
         elif event.event_type == ToolEventType.TOOL_ERROR:
-            duration = f"[dim]{event.duration_ms:.0f}ms[/dim]" if event.duration_ms else ""
+            duration = f"{event.duration_ms:.0f}ms" if event.duration_ms else ""
             console.print(f"  {icon} {tool} {duration}")
             if event.error:
                 # Truncate very long errors
                 err = event.error if len(event.error) <= 200 else event.error[:197] + "…"
-                console.print(f"      [red]{err}[/red]")
+                console.print(f"      {err}")
             state["in_block"] = False
             console.print()  # blank line after error
 
@@ -274,8 +271,8 @@ def create_tool_progress_handler(
         elif event.event_type == ToolEventType.MODEL_FALLBACK:
             if thinking:
                 thinking.stop(blank_line=False)
-            model = f"[bold magenta]{event.tool_name}[/bold magenta]"
-            reason = f"[dim]{event.result}[/dim]" if event.result else ""
+            model = f"{event.tool_name}"
+            reason = f"{event.result}" if event.result else ""
             console.print(f"\n  {icon} Falling back to {model}  {reason}\n")
             if thinking:
                 thinking.start(event.tool_name)
@@ -287,7 +284,7 @@ def create_tool_progress_handler(
         elif event.event_type == ToolEventType.MODEL_COMPRESS:
             if thinking:
                 thinking.stop(blank_line=False)
-            model = f"[blue]{event.tool_name}[/blue]"
+            model = f"{event.tool_name}"
             console.print(f"\n  {icon} Compressing context for {model}\n")
             if thinking:
                 thinking.start(event.tool_name)
@@ -321,9 +318,9 @@ def _render_tool_result(console: Console, result: str, tool_name: str = "") -> N
 
     body = "\n".join(display_lines)
     if total > _MAX_RESULT_LINES:
-        body += f"\n[dim]… ({total - _MAX_RESULT_LINES} more lines, Ctrl+O to expand)[/dim]"
+        body += f"\n… ({total - _MAX_RESULT_LINES} more lines, Ctrl+O to expand)"
 
-    console.print(f"      [dim]{body}[/dim]")
+    console.print(f"      {body}")
 
     # Store full output for Ctrl+O expansion
     if was_truncated:
@@ -349,15 +346,7 @@ def _render_plan_progress(console: Console) -> None:
         icon = _PLAN_ICONS.get(status, _PLAN_ICONS["pending"])
         content = item.get("content", "")
 
-        # Style content based on status
-        if status == "completed":
-            styled = f"[dim strikethrough]{content}[/dim strikethrough]"
-        elif status == "in_progress":
-            styled = f"[bold]{content}[/bold]"
-        elif status == "failed":
-            styled = f"[red]{content}[/red]"
-        else:
-            styled = content
+        styled = content
 
         lines.append(f"  {icon} {styled}")
         if status == "pending":
@@ -374,18 +363,18 @@ def _render_plan_progress(console: Console) -> None:
     done_ratio = completed / total if total > 0 else 0
     bar_width = 20
     filled = int(done_ratio * bar_width)
-    bar = f"[green]{'━' * filled}[/green][dim]{'─' * (bar_width - filled)}[/dim]"
+    bar = f"{'━' * filled}{'─' * (bar_width - filled)}"
 
-    summary_parts = [f"[green]{completed}[/green]/{total} done"]
+    summary_parts = [f"{completed}/{total} done"]
     if in_progress:
-        summary_parts.append(f"[yellow]{in_progress} active[/yellow]")
+        summary_parts.append(f"{in_progress} active")
     if pending:
         summary_parts.append(f"{pending} pending")
     if failed:
-        summary_parts.append(f"[red]{failed} failed[/red]")
+        summary_parts.append(f"{failed} failed")
     summary = ", ".join(summary_parts)
 
     console.print()
-    console.print(f"  [bold]Plan[/bold]  {bar}  {summary}")
+    console.print(f"  Plan  {bar}  {summary}")
     for line in lines:
         console.print(line)

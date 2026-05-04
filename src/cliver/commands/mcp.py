@@ -183,7 +183,7 @@ def dispatch(cliver: Cliver, args: str):
     if sub == "list":
         _list_mcp_servers(cliver)
     else:
-        cliver.output(f"[yellow]Unknown subcommand: /mcp {sub}[/yellow]")
+        cliver.output(f"Unknown subcommand: /mcp {sub}")
         cliver.output("Run '/mcp help' for usage.")
 
 

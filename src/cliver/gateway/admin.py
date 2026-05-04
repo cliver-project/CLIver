@@ -933,6 +933,8 @@ def get_admin_routes(
             return JSONResponse({"error": "Execution not found"}, status_code=404)
         return JSONResponse(status)
 
+    _running_workflow_tasks = {}
+
     @require_auth
     async def handle_run_workflow(request: Request):
         name = request.path_params["name"]
@@ -944,8 +946,19 @@ def get_admin_routes(
         except Exception:
             body = {}
         inputs = body.get("inputs")
-        asyncio.create_task(gateway.run_workflow(name, inputs=inputs))
+        task = asyncio.create_task(gateway.run_workflow(name, inputs=inputs))
+        _running_workflow_tasks[name] = task
+        task.add_done_callback(lambda _: _running_workflow_tasks.pop(name, None))
         return JSONResponse({"status": "started", "workflow": name})
+
+    @require_auth
+    async def handle_stop_workflow(request: Request):
+        name = request.path_params["name"]
+        task = _running_workflow_tasks.get(name)
+        if not task:
+            return JSONResponse({"error": "No running execution found"}, status_code=404)
+        task.cancel()
+        return JSONResponse({"status": "stopped", "workflow": name})
 
     @require_auth
     async def handle_resume_from_step(request: Request):
@@ -1678,6 +1691,7 @@ def get_admin_routes(
         Route("/admin/api/workflows/{name}/executions/{tid}", handle_delete_execution, methods=["DELETE"]),
         Route("/admin/api/workflows/{name}/executions", handle_workflow_executions),
         Route("/admin/api/workflows/{name}/run", handle_run_workflow, methods=["POST"]),
+        Route("/admin/api/workflows/{name}/stop", handle_stop_workflow, methods=["POST"]),
         Route("/admin/api/workflows/{name}", handle_workflow_detail_api),
         Route("/admin/api/workflows/{name}", handle_update_workflow, methods=["PUT"]),
         Route("/admin/static/{path:path}", handle_static),

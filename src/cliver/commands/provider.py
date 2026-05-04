@@ -97,7 +97,7 @@ def _remove_provider(cliver: Cliver, name: str):
         else:
             cliver.output(f"Provider '{name}' not found.")
     except ValueError as e:
-        cliver.output(f"[red]{e}[/red]")
+        cliver.output(f"{e}")
 
 
 # ---------------------------------------------------------------------------
@@ -122,7 +122,7 @@ def dispatch(cliver: Cliver, args: str):
     if sub == "list":
         _list_providers(cliver)
     else:
-        cliver.output(f"[yellow]Unknown subcommand: /provider {sub}[/yellow]")
+        cliver.output(f"Unknown subcommand: /provider {sub}")
         cliver.output("Run '/provider help' for usage.")
 
 

@@ -823,6 +823,13 @@ function buildWfInfo(wf) {
   runBtn.textContent = 'Run Workflow';
   runBtn.onclick = runWorkflow;
   inputsBar.appendChild(runBtn);
+  var stopBtn = document.createElement('button');
+  stopBtn.id = 'stop-btn';
+  stopBtn.className = 'btn danger';
+  stopBtn.textContent = 'Stop';
+  stopBtn.style.display = 'none';
+  stopBtn.onclick = stopWorkflow;
+  inputsBar.appendChild(stopBtn);
   var saveMsg = document.createElement('span');
   saveMsg.className = 'wf-save-status';
   inputsBar.appendChild(saveMsg);
@@ -1574,6 +1581,8 @@ async function loadExecution(threadId, forcePolling) {
             clearInterval(_pollTimer);
             _pollTimer = null;
             _isRunning = false;
+            var sb = document.getElementById('stop-btn');
+            if (sb) sb.style.display = 'none';
             showExecSummary();
             reloadExecDropdown(threadId);
           }
@@ -1645,10 +1654,11 @@ function reloadExecDropdown(selectedThreadId) {
     });
 }
 
-// --- Run workflow ---
+// --- Run / Stop workflow ---
 function runWorkflow() {
   confirmAction('Run Workflow', 'Start a new execution of this workflow?', function() {
     var btn = document.getElementById('run-btn');
+    var stopBtn = document.getElementById('stop-btn');
     btn.disabled = true;
     btn.textContent = 'Starting...';
     apiPost('/workflows/' + encodeURIComponent(workflowName) + '/run')
@@ -1656,12 +1666,11 @@ function runWorkflow() {
         btn.disabled = false;
         btn.textContent = 'Run';
         if (result && result.status === 'started') {
-          // Wait a moment for the execution to register in the DB, then reload executions
+          stopBtn.style.display = '';
           setTimeout(async function() {
             var execs = await api('/workflows/' + encodeURIComponent(workflowName) + '/executions');
             if (execs && execs.length > 0) {
               var sel = document.getElementById('exec-select');
-              // Clear existing options except the first one
               while (sel.options.length > 1) sel.remove(1);
               for (var i = 0; i < execs.length; i++) {
                 var ex = execs[i];
@@ -1672,13 +1681,30 @@ function runWorkflow() {
                 opt.textContent = label;
                 sel.appendChild(opt);
               }
-              // Select the latest (first) and start polling with forcePolling
               sel.value = execs[0].thread_id;
               loadExecution(execs[0].thread_id, true);
             }
           }, 1500);
         } else {
           alertMessage('Error', 'Failed to start: ' + (result ? result.error || 'unknown' : 'no response'));
+        }
+      });
+  });
+}
+
+function stopWorkflow() {
+  confirmAction('Stop Workflow', 'Stop the running workflow? Completed steps are preserved in the checkpoint.', function() {
+    var stopBtn = document.getElementById('stop-btn');
+    stopBtn.disabled = true;
+    stopBtn.textContent = 'Stopping...';
+    apiPost('/workflows/' + encodeURIComponent(workflowName) + '/stop')
+      .then(function(result) {
+        stopBtn.disabled = false;
+        stopBtn.textContent = 'Stop';
+        if (result && result.status === 'stopped') {
+          stopBtn.style.display = 'none';
+        } else {
+          alertMessage('Error', result ? result.error || 'unknown' : 'No response');
         }
       });
   });

@@ -31,11 +31,13 @@ class WorkflowExecutor:
         app_config=None,
         skill_manager=None,
         on_tool_event=None,
+        on_execution_start=None,
     ):
         self.agent_core = agent_core
         self.store = store
         self.compiler = WorkflowCompiler()
         self.on_tool_event = on_tool_event
+        self.on_execution_start = on_execution_start
 
         self._db_path = db_path
         self._checkpointer = None
@@ -156,6 +158,22 @@ class WorkflowExecutor:
             )
 
         logger.info("Executing workflow '%s' (id: %s)", workflow.name, execution_id)
+
+        if self.on_execution_start:
+            try:
+                self.on_execution_start(
+                    {
+                        "workflow_name": workflow.name,
+                        "execution_id": execution_id,
+                        "thread_id": thread_id,
+                        "outputs_dir": outputs_dir,
+                        "inputs": initial_state["inputs"],
+                        "steps": len(workflow.steps),
+                    }
+                )
+            except Exception:
+                pass
+
         try:
             result = await graph.ainvoke(initial_state, config)
             if self._db_path:

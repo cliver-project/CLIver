@@ -40,7 +40,7 @@ def _create_skill(cliver: Cliver, name: str, description: str, save_global: bool
     errors = validate_skill_name(name)
     if errors:
         for err in errors:
-            cliver.output(f"[red]{err}[/red]")
+            cliver.output(f"{err}")
         return
 
     # Determine target directory
@@ -51,7 +51,7 @@ def _create_skill(cliver: Cliver, name: str, description: str, save_global: bool
 
     skill_file = skills_dir / "SKILL.md"
     if skill_file.exists():
-        cliver.output(f"[yellow]Skill '{name}' already exists at {skill_file}[/yellow]")
+        cliver.output(f"Skill '{name}' already exists at {skill_file}")
         return
 
     # Build prompt for the LLM to generate the SKILL.md content
@@ -66,7 +66,7 @@ def _create_skill(cliver: Cliver, name: str, description: str, save_global: bool
     # Write to disk
     skills_dir.mkdir(parents=True, exist_ok=True)
     skill_file.write_text(content, encoding="utf-8")
-    cliver.output(f"Created skill at: [green]{skill_file}[/green]")
+    cliver.output(f"Created skill at: {skill_file}")
     cliver.output("You can edit the file to refine the skill content.")
 
 
@@ -75,15 +75,15 @@ def _show_skill(cliver: Cliver, name: str):
     manager = SkillManager()
     skill = manager.get_skill(name)
     if not skill:
-        cliver.output(f"[red]Skill '{name}' not found.[/red]")
+        cliver.output(f"Skill '{name}' not found.")
         _suggest_available(cliver, manager)
         return
 
-    cliver.output(f"[bold]Skill: {skill.name}[/bold]")
-    cliver.output(f"[dim]Source: {skill.source} — {skill.base_dir}[/dim]")
-    cliver.output(f"[dim]Description: {skill.description}[/dim]")
+    cliver.output(f"Skill: {skill.name}")
+    cliver.output(f"Source: {skill.source} — {skill.base_dir}")
+    cliver.output(f"Description: {skill.description}")
     if skill.allowed_tools:
-        cliver.output(f"[dim]Allowed tools: {', '.join(skill.allowed_tools)}[/dim]")
+        cliver.output(f"Allowed tools: {', '.join(skill.allowed_tools)}")
     cliver.output("")
     cliver.output(skill.body)
 
@@ -93,13 +93,13 @@ def _update_skill(cliver: Cliver, name: str, instructions: str):
     manager = SkillManager()
     skill = manager.get_skill(name)
     if not skill:
-        cliver.output(f"[red]Skill '{name}' not found.[/red]")
+        cliver.output(f"Skill '{name}' not found.")
         _suggest_available(cliver, manager)
         return
 
     skill_file = skill.base_dir / "SKILL.md"
     if not skill_file.is_file():
-        cliver.output(f"[red]Cannot find SKILL.md at {skill_file}[/red]")
+        cliver.output(f"Cannot find SKILL.md at {skill_file}")
         return
 
     current_content = skill_file.read_text(encoding="utf-8")
@@ -112,7 +112,7 @@ def _update_skill(cliver: Cliver, name: str, instructions: str):
     content = result
 
     skill_file.write_text(content, encoding="utf-8")
-    cliver.output(f"Updated skill at: [green]{skill_file}[/green]")
+    cliver.output(f"Updated skill at: {skill_file}")
 
 
 def _compress_if_needed(cliver, agent_core, model_config, model_name, new_input):
@@ -149,12 +149,12 @@ def _resolve_prompt(cliver: Cliver, inline_prompt: str, prompt_file: str | None)
     if prompt_file:
         p = Path(prompt_file).expanduser()
         if not p.is_file():
-            cliver.output(f"[red]Prompt file not found: {p}[/red]")
+            cliver.output(f"Prompt file not found: {p}")
             return None
         try:
             parts.append(p.read_text(encoding="utf-8").strip())
         except Exception as e:
-            cliver.output(f"[red]Failed to read prompt file: {e}[/red]")
+            cliver.output(f"Failed to read prompt file: {e}")
             return None
     if inline_prompt:
         parts.append(inline_prompt)
@@ -166,11 +166,11 @@ def _run_skill(cliver: Cliver, name: str, message: str = ""):
     manager = SkillManager()
     skill_obj = manager.get_skill(name)
     if not skill_obj:
-        cliver.output(f"[red]Skill '{name}' not found.[/red]")
+        cliver.output(f"Skill '{name}' not found.")
         _suggest_available(cliver, manager)
         return
 
-    cliver.output(f"Activating skill '[green]{name}[/green]' ...")
+    cliver.output(f"Activating skill '{name}' ...")
 
     user_message = message if message else ""
     if not user_message:
@@ -262,7 +262,7 @@ def dispatch(cliver: Cliver, args: str):
                     prompt_file = run_parts[i + 1]
                     i += 2
                 else:
-                    cliver.output("[red]Missing file path after -f/--prompt-file[/red]")
+                    cliver.output("Missing file path after -f/--prompt-file")
                     return
             else:
                 prompt_parts.append(run_parts[i])
@@ -279,7 +279,7 @@ def dispatch(cliver: Cliver, args: str):
         skill_name = create_parts[0]
         desc = create_parts[1] if len(create_parts) > 1 else ""
         if not desc:
-            cliver.output("[red]Missing description[/red]")
+            cliver.output("Missing description")
             return
         save_global = "--global" in desc
         if save_global:
@@ -293,11 +293,11 @@ def dispatch(cliver: Cliver, args: str):
         skill_name = update_parts[0]
         instructions = update_parts[1] if len(update_parts) > 1 else ""
         if not instructions:
-            cliver.output("[red]Missing update instructions[/red]")
+            cliver.output("Missing update instructions")
             return
         _update_skill(cliver, skill_name, instructions)
     else:
-        cliver.output(f"[yellow]Unknown subcommand: /skills {sub}[/yellow]")
+        cliver.output(f"Unknown subcommand: /skills {sub}")
         cliver.output("Run '/skills help' for usage.")
 
 
@@ -404,11 +404,11 @@ def _list_skills(cliver: Cliver) -> None:
 
     if not all_skills:
         cliver.output("No skills found.")
-        cliver.output("[dim]Skills are discovered from:[/dim]")
-        cliver.output("[dim]  - .cliver/skills/ (project)[/dim]")
-        cliver.output(f"[dim]  - {get_config_dir() / 'skills'} (global)[/dim]")
-        cliver.output("[dim]  - ~/.agents/skills/ (agent-agnostic)[/dim]")
-        cliver.output("[dim]Create one with: /skills create <name> <description>[/dim]")
+        cliver.output("Skills are discovered from:")
+        cliver.output("  - .cliver/skills/ (project)")
+        cliver.output(f"  - {get_config_dir() / 'skills'} (global)")
+        cliver.output("  - ~/.agents/skills/ (agent-agnostic)")
+        cliver.output("Create one with: /skills create <name> <description>")
         return
 
     table = Table(title=f"Discovered Skills ({len(all_skills)})", box=box.ROUNDED)
@@ -444,7 +444,7 @@ def _llm_generate(cliver: Cliver, prompt: str, model: str, status_msg: str) -> s
     """
     from cliver.cli_llm_call import LLMCallOptions, llm_call
 
-    cliver.output(f"[bold cyan]{status_msg}[/bold cyan]")
+    cliver.output(f"{status_msg}")
     result = llm_call(
         cliver,
         LLMCallOptions(
@@ -457,7 +457,7 @@ def _llm_generate(cliver: Cliver, prompt: str, model: str, status_msg: str) -> s
 
     if not result.success or not result.text:
         if not result.error:
-            cliver.output("[red]LLM returned no content.[/red]")
+            cliver.output("LLM returned no content.")
         return None
 
     return _extract_skill_content(result.text.strip())

@@ -60,14 +60,14 @@ def _search_sessions(cliver: Cliver, query: str, limit: int = 10):
     try:
         results = sm.search(query, limit=limit)
     except Exception as e:
-        cliver.output(f"[red]Search failed: {e}[/red]")
+        cliver.output(f"Search failed: {e}")
         return
 
     if not results:
         cliver.output(f'No sessions found matching "{query}".')
         return
 
-    cliver.output(f'\n[bold]🔍 {len(results)} session(s) matching "{query}"[/bold]\n')
+    cliver.output(f'\n🔍 {len(results)} session(s) matching "{query}"\n')
 
     for r in results:
         title = r.get("title") or "(untitled)"
@@ -76,13 +76,13 @@ def _search_sessions(cliver: Cliver, query: str, limit: int = 10):
         turns = r.get("turn_count", 0)
 
         cliver.output("━" * 50)
-        cliver.output(f"[bold]📋 {sid}[/bold] — {title}")
+        cliver.output(f"📋 {sid} — {title}")
         cliver.output(f"   {created} · {turns} turns\n")
 
         for snippet in r.get("snippets", [])[:5]:
             role = snippet["role"]
             content = snippet["content"]
-            cliver.output(f"   [dim]{role}:[/dim] {content}")
+            cliver.output(f"   {role}: {content}")
 
         cliver.output("")
 
@@ -507,31 +507,31 @@ def _dispatch_option(cliver: Cliver, args: str):
     elif sub == "set":
         # Parse key=value pairs
         if not rest:
-            cliver.output("[yellow]Usage: /session option set <key>=<value> ...[/yellow]")
+            cliver.output("Usage: /session option set <key>=<value> ...")
             return
         from cliver.util import parse_key_value_options
 
         opts = parse_key_value_options(rest.split())
         for key, value in opts.items():
             cliver.session_options.setdefault("options", {})[key] = value
-        cliver.output(f"[green]Set: {opts}[/green]")
+        cliver.output(f"Set: {opts}")
     elif sub == "reset":
         cliver.session_options.pop("options", None)
-        cliver.output("[green]Session options reset to defaults.[/green]")
+        cliver.output("Session options reset to defaults.")
     elif sub == "exclude":
         if rest:
             cliver.agent_core.excluded_models.add(rest.strip())
             cliver.output(f"Excluded model: {rest.strip()}")
         else:
-            cliver.output("[yellow]Usage: /session option exclude <model>[/yellow]")
+            cliver.output("Usage: /session option exclude <model>")
     elif sub == "include":
         if rest:
             cliver.agent_core.excluded_models.discard(rest.strip())
             cliver.output(f"Re-included model: {rest.strip()}")
         else:
-            cliver.output("[yellow]Usage: /session option include <model>[/yellow]")
+            cliver.output("Usage: /session option include <model>")
     else:
-        cliver.output(f"[yellow]Unknown: /session option {sub}[/yellow]")
+        cliver.output(f"Unknown: /session option {sub}")
 
 
 def _dispatch_permission(cliver: Cliver, args: str):
@@ -565,19 +565,19 @@ def _dispatch_permission(cliver: Cliver, args: str):
                 cliver.output(f"  {marker} {tool}: {action.value}")
     elif sub == "mode":
         if not rest or rest.strip() not in ("default", "auto-edit", "yolo"):
-            cliver.output("[yellow]Usage: /session permission mode <default|auto-edit|yolo>[/yellow]")
+            cliver.output("Usage: /session permission mode <default|auto-edit|yolo>")
             return
         pm.set_mode(PermissionMode(rest.strip()))
         cliver.output(f"Session permission mode set to '{rest.strip()}'.")
     elif sub == "grant":
         if not rest:
-            cliver.output("[yellow]Usage: /session permission grant <tool>[/yellow]")
+            cliver.output("Usage: /session permission grant <tool>")
             return
         pm.grant_session(rest.strip(), PermissionAction.ALLOW)
         cliver.output(f"Granted: {rest.strip()} allowed for this session.")
     elif sub == "deny":
         if not rest:
-            cliver.output("[yellow]Usage: /session permission deny <tool>[/yellow]")
+            cliver.output("Usage: /session permission deny <tool>")
             return
         pm.grant_session(rest.strip(), PermissionAction.DENY)
         cliver.output(f"Denied: {rest.strip()} blocked for this session.")
@@ -585,7 +585,7 @@ def _dispatch_permission(cliver: Cliver, args: str):
         pm.clear_session_grants()
         cliver.output("All session permission grants cleared.")
     else:
-        cliver.output(f"[yellow]Unknown: /session permission {sub}[/yellow]")
+        cliver.output(f"Unknown: /session permission {sub}")
 
 
 # ---------------------------------------------------------------------------
@@ -611,19 +611,19 @@ def dispatch(cliver: Cliver, args: str):
         _show_current_session(cliver)
     elif sub == "search":
         if not rest:
-            cliver.output("[red]Missing search query[/red]")
+            cliver.output("Missing search query")
             return
         _search_sessions(cliver, rest.strip())
     elif sub == "load":
         if not rest:
-            cliver.output("[red]Missing session ID[/red]")
+            cliver.output("Missing session ID")
             return
         _load_session(cliver, rest.strip())
     elif sub == "new":
         _new_session(cliver)
     elif sub == "delete":
         if not rest:
-            cliver.output("[red]Missing session ID[/red]")
+            cliver.output("Missing session ID")
             return
         _delete_session(cliver, rest.strip())
     elif sub == "compress":
@@ -633,7 +633,7 @@ def dispatch(cliver: Cliver, args: str):
     elif sub == "permission":
         _dispatch_permission(cliver, rest)
     else:
-        cliver.output(f"[yellow]Unknown subcommand: /session {sub}[/yellow]")
+        cliver.output(f"Unknown subcommand: /session {sub}")
         cliver.output("Run '/session help' for usage.")
 
 

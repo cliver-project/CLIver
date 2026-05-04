@@ -111,7 +111,7 @@ def llm_call(cliver: "Cliver", opts: LLMCallOptions) -> LLMCallResult:
     except Exception as e:
         if thinking:
             thinking.stop()
-        cliver.output(f"[red]Error: {e}[/red]")
+        cliver.output(f"Error: {e}")
         return LLMCallResult(success=False, error=str(e))
     finally:
         if thinking:
@@ -146,7 +146,7 @@ def _stream_call(
             thinking.stop()
         if not first_token_emitted:
             first_token_emitted = True
-            console.print("[dim]─" * 50 + "[/dim]")
+            console.print("─" * 50 + "")
             print(_response_color_start(), end="")
 
     try:
@@ -233,7 +233,7 @@ def _stream_call(
 
     except ValueError as e:
         if "File upload is not supported" in str(e):
-            console.print(f"[red]Error: {e}[/red]")
+            console.print(f"Error: {e}")
             console.print("Will use content embedding as fallback.")
         else:
             raise
@@ -295,7 +295,7 @@ def _sync_call(
     if thinking:
         thinking.stop()
 
-    console.print("[dim]─" * 50 + "[/dim]")
+    console.print("─" * 50 + "")
 
     text = ""
     if response:
@@ -337,7 +337,7 @@ def _show_token_usage(cliver: "Cliver") -> None:
 
     cache_info = ""
     if last.cached_tokens > 0:
-        cache_info = f" [dim green]cached: {format_tokens(last.cached_tokens)}[/dim green]"
+        cache_info = f" cached: {format_tokens(last.cached_tokens)}"
 
     # Cost estimation
     cost_info = ""
@@ -348,14 +348,14 @@ def _show_token_usage(cliver: "Cliver") -> None:
     estimate = cost_tracker.estimate_cost(model, last.input_tokens, last.output_tokens, last.cached_tokens)
     if estimate.total_cost > 0:
         session_cost = cost_tracker.get_session_total()
-        cost_info = f"  [dim]cost:[/dim] [bold]{format_cost(estimate.total_cost, estimate.currency)}[/bold]"
+        cost_info = f"  cost: {format_cost(estimate.total_cost, estimate.currency)}"
         if session_cost > estimate.total_cost:
-            cost_info += f" [dim](session: {format_cost(session_cost, estimate.currency)})[/dim]"
+            cost_info += f" (session: {format_cost(session_cost, estimate.currency)})"
 
     cliver.output(
-        f"[dim]◆ {model}[/dim]  "
-        f"[dim]tokens:[/dim] [bold]{format_tokens(last.total_tokens)}[/bold] "
-        f"[dim](in: {format_tokens(last.input_tokens)}, out: {format_tokens(last.output_tokens)})[/dim]"
+        f"◆ {model}  "
+        f"tokens: {format_tokens(last.total_tokens)} "
+        f"(in: {format_tokens(last.input_tokens)}, out: {format_tokens(last.output_tokens)})"
         f"{cache_info}{cost_info}  "
-        f"[dim]session:[/dim] [bold]{format_tokens(session.total_tokens)}[/bold]"
+        f"session: {format_tokens(session.total_tokens)}"
     )

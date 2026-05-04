@@ -45,7 +45,7 @@ def _list_models(cliver: Cliver):
         is_active = model_cfg.name == active_model
         if not is_active and active_model:
             is_active = model_cfg.name.endswith(f"/{active_model}")
-        marker = "[bold green]✔[/bold green]" if is_active else ""
+        marker = "✔" if is_active else ""
 
         table.add_row(marker, model_cfg.name, model_cfg.provider, modalities)
 
@@ -58,7 +58,7 @@ def _show_model_detail(cliver: Cliver, name: str):
 
     mc = cliver.config_manager.get_llm_model(name)
     if not mc:
-        cliver.output(f"[red]Model '{name}' not found.[/red]")
+        cliver.output(f"Model '{name}' not found.")
         models = cliver.config_manager.list_llm_models()
         if models:
             cliver.output(f"Available: {', '.join(models.keys())}")
@@ -71,24 +71,24 @@ def _show_model_detail(cliver: Cliver, name: str):
     t.add_column("Key", style="dim", min_width=18)
     t.add_column("Value")
 
-    t.add_row("Name", f"[bold green]{mc.name}[/bold green]")
+    t.add_row("Name", f"{mc.name}")
     t.add_row("API Model Name", mc.api_model_name)
     if is_default:
-        t.add_row("Status", "[green]● default[/green]")
-    t.add_row("Provider", f"[magenta]{mc.provider}[/magenta]")
+        t.add_row("Status", "● default")
+    t.add_row("Provider", f"{mc.provider}")
 
     url = mc.get_resolved_url()
     if url:
-        t.add_row("URL", f"[blue]{url}[/blue]")
+        t.add_row("URL", f"{url}")
 
     if mc._provider_config and mc._provider_config.api_key:
-        t.add_row("API Key", f"[dim](from provider)[/dim] {_mask_api_key(mc._provider_config.api_key)}")
+        t.add_row("API Key", f"(from provider) {_mask_api_key(mc._provider_config.api_key)}")
 
     if mc.context_window:
         t.add_row("Context Window", f"{mc.context_window:,} tokens")
 
     if mc.think_mode is not None:
-        t.add_row("Think Mode", "[green]enabled[/green]" if mc.think_mode else "[red]disabled[/red]")
+        t.add_row("Think Mode", "enabled" if mc.think_mode else "disabled")
 
     modalities = _format_modalities(capabilities)
     features = _format_features(capabilities)
@@ -108,13 +108,13 @@ def _show_model_detail(cliver: Cliver, name: str):
         inp, out, cached, currency = pricing
         t.add_row("Pricing (per 1M)", f"in: {inp} / out: {out} / cached: {cached} {currency}")
 
-    cliver.output(Panel(t, title=f"[bold]Model: {mc.name}[/bold]", border_style="green", padding=(0, 1)))
+    cliver.output(Panel(t, title=f"Model: {mc.name}", border_style="green", padding=(0, 1)))
 
 
 def _mask_api_key(key: str) -> str:
     """Mask API key — show template expressions, mask plain text."""
     if "{{" in key and "}}" in key:
-        return f"[dim]{key}[/dim]"
+        return f"{key}"
     if len(key) <= 8:
         return "****"
     return f"{key[:4]}{'*' * (len(key) - 8)}{key[-4:]}"
@@ -144,11 +144,11 @@ def _format_features(capabilities: set) -> str:
     """Format non-modality capabilities as feature tags."""
     features = []
     if ModelCapability.TOOL_CALLING in capabilities:
-        features.append("[green]tools[/green]")
+        features.append("tools")
     if ModelCapability.FUNCTION_CALLING in capabilities:
-        features.append("[green]fn-call[/green]")
+        features.append("fn-call")
     if ModelCapability.THINK_MODE in capabilities:
-        features.append("[magenta]think[/magenta]")
+        features.append("think")
     if ModelCapability.FILE_UPLOAD in capabilities:
         features.append("upload")
     return " ".join(features) if features else "-"
@@ -175,7 +175,7 @@ def _set_default_model(cliver: Cliver, name: str = None):
     if not name:
         current = cliver.config_manager.config.default_model
         if current:
-            cliver.output(f"Current default model: [green]{current}[/green]")
+            cliver.output(f"Current default model: {current}")
         else:
             cliver.output("No default model set.")
         models = cliver.config_manager.list_llm_models()
@@ -186,9 +186,9 @@ def _set_default_model(cliver: Cliver, name: str = None):
     if cliver.config_manager.set_default_model(name):
         mc = cliver.config_manager.get_llm_model(name)
         cliver.agent_core.default_model = mc.name
-        cliver.output(f"Default model set to: [green]{mc.name}[/green]")
+        cliver.output(f"Default model set to: {mc.name}")
     else:
-        cliver.output(f"[red]Model '{name}' not found.[/red]")
+        cliver.output(f"Model '{name}' not found.")
         models = cliver.config_manager.list_llm_models()
         if models:
             cliver.output(f"Available models: {', '.join(models.keys())}")
@@ -213,7 +213,7 @@ def _add_model(
 ):
     """Add a new LLM model to a provider."""
     if provider not in cliver.config_manager.list_providers():
-        cliver.output(f"[red]Provider '{provider}' not found.[/red]")
+        cliver.output(f"Provider '{provider}' not found.")
         return
 
     key = f"{provider}/{name}"
@@ -291,7 +291,7 @@ def dispatch(cliver: Cliver, args: str):
         if mc:
             _show_model_detail(cliver, sub)
         else:
-            cliver.output(f"[yellow]Unknown subcommand or model: /model {sub}[/yellow]")
+            cliver.output(f"Unknown subcommand or model: /model {sub}")
             cliver.output("Run '/model help' for usage.")
 
 
@@ -335,7 +335,7 @@ def _dispatch_add(cliver: Cliver, rest: str) -> None:
     name = opts.get("name")
     provider = opts.get("provider")
     if not name or not provider:
-        cliver.output("[yellow]Usage: /model add --provider PROVIDER --name NAME [--option K=V][/yellow]")
+        cliver.output("Usage: /model add --provider PROVIDER --name NAME [--option K=V]")
         return
     _add_model(cliver, provider, name, option=opts.get("option"), capabilities=opts.get("capabilities"))
 
@@ -345,7 +345,7 @@ def _dispatch_set(cliver: Cliver, rest: str) -> None:
     opts = _parse_model_flags(rest)
     name = opts.get("name")
     if not name:
-        cliver.output("[yellow]Usage: /model set --name NAME [--option K=V][/yellow]")
+        cliver.output("Usage: /model set --name NAME [--option K=V]")
         return
     _update_model(cliver, name, option=opts.get("option"), capabilities=opts.get("capabilities"))
 

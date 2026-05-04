@@ -82,7 +82,7 @@ def dispatch(cliver: Cliver, args: str):
     elif sub == "clear":
         _clear_identity(cliver)
     else:
-        cliver.output(f"[yellow]Unknown subcommand: /identity {sub}[/yellow]")
+        cliver.output(f"Unknown subcommand: /identity {sub}")
         cliver.output("Run '/identity help' for usage.")
 
 

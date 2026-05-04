@@ -40,20 +40,37 @@ def _make_executor(cliver: Cliver):
     ), store
 
 
-def _tail_log_files(cliver: Cliver, outputs_dir: str, stop_event):
-    """Tail all .log files in outputs_dir and display new lines."""
+def _tail_log_files(cliver: Cliver, runs_base_dir: str, stop_event):
+    """Tail .log files from the current execution's directory.
+
+    Waits for a new subdirectory to appear in {runs_base_dir}/ (created
+    by the executor), then tails all *.log files within it.
+    """
     import json as _json
     import time
     from pathlib import Path
 
+    base = Path(runs_base_dir)
+    start_time = time.time()
     offsets = {}
-    log_dir = Path(outputs_dir)
+    target_dir = None
 
     while not stop_event.is_set():
-        if not log_dir.exists():
+        if not base.exists():
             time.sleep(1)
             continue
-        for log_file in log_dir.glob("*.log"):
+
+        # Find the execution directory created after we started
+        if target_dir is None:
+            for d in base.iterdir():
+                if d.is_dir() and d.stat().st_ctime >= start_time:
+                    target_dir = d
+                    break
+            if target_dir is None:
+                time.sleep(0.5)
+                continue
+
+        for log_file in target_dir.glob("*.log"):
             sid = log_file.stem
             offset = offsets.get(sid, 0)
             try:
@@ -71,33 +88,33 @@ def _tail_log_files(cliver: Cliver, outputs_dir: str, stop_event):
 
 
 def _display_log_event(cliver: Cliver, step_id: str, evt: dict):
-    """Display a single log event in the TUI."""
+    """Display a single log event in the TUI using plain text."""
     etype = evt.get("type", "")
     tool = evt.get("tool", "")
     if etype == "step_start":
         name = evt.get("result", step_id)
-        cliver.output(f"\n[bold cyan]── [{step_id}] Starting: {name} ──[/bold cyan]")
+        print(f"\n── [{step_id}] Starting: {name} ──")
     elif etype == "step_end":
         ms = evt.get("duration_ms")
         dur = f" ({ms / 1000:.1f}s)" if ms else ""
-        cliver.output(f"[bold green]── [{step_id}] Completed{dur} ──[/bold green]")
+        print(f"── [{step_id}] Completed{dur} ──")
     elif etype == "step_error":
-        cliver.output(f"[bold red]── [{step_id}] Failed: {evt.get('error', '')} ──[/bold red]")
+        print(f"── [{step_id}] Failed: {evt.get('error', '')} ──")
     elif etype == "tool_start":
         desc = ""
         if evt.get("args"):
             parts = [f"{k}={str(v)[:80]}" for k, v in evt["args"].items()]
             desc = " " + ", ".join(parts[:3])
-        cliver.output(f"  [dim][{step_id}] ⟳ {tool}{desc}[/dim]")
+        print(f"  [{step_id}] > {tool}{desc}")
     elif etype == "tool_end":
         ms = evt.get("duration_ms")
         dur = f" {ms}ms" if ms else ""
-        cliver.output(f"  [dim][{step_id}] ✓ {tool}{dur}[/dim]")
+        print(f"  [{step_id}] + {tool}{dur}")
         if evt.get("result"):
-            for line in evt["result"].splitlines()[:5]:
-                cliver.output(f"  [dim][{step_id}]   {line[:120]}[/dim]")
+            for line in evt["result"].splitlines():
+                print(f"  [{step_id}]   {line}")
     elif etype == "tool_error":
-        cliver.output(f"  [dim][{step_id}] ✗ {tool}: {evt.get('error', '')}[/dim]")
+        print(f"  [{step_id}] x {tool}: {evt.get('error', '')}")
 
 
 # ── Logic Functions ──
@@ -114,18 +131,18 @@ def _list_workflows(cliver: Cliver):
         cliver.output("No workflows saved.")
         return
 
-    cliver.output("[bold]Saved workflows:[/bold]\n")
+    cliver.output("Saved workflows:\n")
     for name, source, path in entries:
         wf = WorkflowStore.load_workflow_from_file(path)
         if wf:
             desc = wf.description or "(no description)"
             steps = len(wf.steps)
             agents = len(wf.agents) if wf.agents else 0
-            source_tag = f"[dim][{source}][/dim] " if source == "project" else ""
-            cliver.output(f"  {source_tag}[bold]{name}[/bold] — {desc} ({steps} steps, {agents} agents)")
+            source_tag = f"[{source}] " if source == "project" else ""
+            cliver.output(f"  {source_tag}{name} — {desc} ({steps} steps, {agents} agents)")
         else:
-            source_tag = f"[dim][{source}][/dim] " if source == "project" else ""
-            cliver.output(f"  {source_tag}[bold]{name}[/bold] — [red]error loading {path}[/red]")
+            source_tag = f"[{source}] " if source == "project" else ""
+            cliver.output(f"  {source_tag}{name} — error loading {path}")
 
 
 def _show_workflow(cliver: Cliver, name: str):
@@ -144,7 +161,23 @@ def _show_workflow(cliver: Cliver, name: str):
 
 def _run_workflow(cliver: Cliver, name: str, inputs: tuple):
     """Execute a workflow."""
+    import threading
+
+    wf_info = {}
+
+    def _on_start(info):
+        wf_info.update(info)
+        cliver.output(f"  Execution ID:  {info['execution_id']}")
+        cliver.output(f"  Thread ID:    {info['thread_id']}")
+        cliver.output(f"  Outputs:      {info['outputs_dir']}")
+        cliver.output(f"  Steps:        {info['steps']}")
+        if info.get("inputs"):
+            for k, v in info["inputs"].items():
+                cliver.output(f"  Input {k}:    {v}")
+        cliver.output("")
+
     executor, store = _make_executor(cliver)
+    executor.on_execution_start = _on_start
     wf = store.load_workflow(name)
 
     if not wf:
@@ -157,26 +190,27 @@ def _run_workflow(cliver: Cliver, name: str, inputs: tuple):
             key, value = inp.split("=", 1)
             parsed_inputs[key.strip()] = value.strip()
 
-    cliver.output(f"[bold]Running workflow: {name}[/bold]\n")
+    cliver.output(f"Running workflow: {name}")
+    if wf.description:
+        cliver.output(f"{wf.description}")
+    cliver.output("")
 
-    # Resolve outputs directory for log tailing
-    outputs_dir = None
+    # Resolve base outputs directory for log tailing
+    outputs_base = None
     if wf.outputs_dir:
-        outputs_dir = wf.outputs_dir
+        outputs_base = wf.outputs_dir
     else:
         app_config = cliver.config_manager.config
         runs_dir = getattr(app_config, "workflow_runs_dir", None)
         if runs_dir:
-            outputs_dir = str(Path(runs_dir) / name)
+            outputs_base = str(Path(runs_dir) / name)
         else:
-            outputs_dir = str(cliver.agent_profile.agent_dir / "workflow-runs" / name)
-
-    import threading
+            outputs_base = str(cliver.agent_profile.agent_dir / "workflow-runs" / name)
 
     stop_event = threading.Event()
     tailer = threading.Thread(
         target=_tail_log_files,
-        args=(cliver, outputs_dir, stop_event),
+        args=(cliver, outputs_base, stop_event),
         daemon=True,
     )
     tailer.start()
@@ -187,7 +221,13 @@ def _run_workflow(cliver: Cliver, name: str, inputs: tuple):
         finally:
             await executor.close()
 
-    result = _run_async(_execute())
+    try:
+        result = _run_async(_execute())
+    except KeyboardInterrupt:
+        tid = wf_info.get("thread_id", "<thread_id>")
+        cliver.output("\nWorkflow interrupted. Progress saved to checkpoint.")
+        cliver.output(f"Resume with: /workflow resume {name} --thread {tid}")
+        result = None
     stop_event.set()
     tailer.join(timeout=2)
 
@@ -206,20 +246,19 @@ def _history_workflow(cliver: Cliver, name: str):
         cliver.output(f"No executions found for workflow '{name}'.")
         return
 
-    cliver.output(f"[bold]Execution history for '{name}':[/bold]\n")
+    cliver.output(f"Execution history for '{name}':\n")
     for ex in executions:
         thread = ex["thread_id"]
         status = ex["status"]
         started = ex.get("started_at", "?")
         finished = ex.get("finished_at")
 
-        status_color = {"completed": "green", "failed": "red", "running": "yellow"}.get(status, "dim")
-        cliver.output(f"  [{status_color}]{status:>11}[/{status_color}]  {thread}")
+        cliver.output(f"  {status:>11}  {thread}")
         cliver.output(f"             started: {started}")
         if finished:
             cliver.output(f"             finished: {finished}")
         if ex.get("error"):
-            cliver.output(f"             [red]error: {ex['error']}[/red]")
+            cliver.output(f"             error: {ex['error']}")
         cliver.output("")
 
 
@@ -239,30 +278,65 @@ def _status_workflow(cliver: Cliver, name: str, thread_id: str):
         cliver.output(f"No execution found for thread '{thread_id}'.")
         return
 
-    cliver.output(f"[bold]Execution status: {thread_id}[/bold]\n")
+    cliver.output(f"Execution status: {thread_id}\n")
 
     for step in status["steps"]:
         sid = step["id"]
         st = step["status"]
-        color = {"completed": "green", "failed": "red", "pending": "dim"}.get(st, "white")
         time_str = f" ({step['execution_time']:.1f}s)" if step.get("execution_time") else ""
-        error_str = f"\n             [red]Error: {step['error']}[/red]" if step.get("error") else ""
-        cliver.output(f"  [{color}]{st:>9}[/{color}]  {sid}{time_str}{error_str}")
+        error_str = f"\n             Error: {step['error']}" if step.get("error") else ""
+        cliver.output(f"  {st:>9}  {sid}{time_str}{error_str}")
 
     if status["next_steps"]:
-        cliver.output(f"\n[bold]Next:[/bold] {', '.join(status['next_steps'])}")
+        cliver.output(f"\nNext: {', '.join(status['next_steps'])}")
     if status["has_interrupts"]:
-        cliver.output("[yellow]Workflow is paused at a human step.[/yellow]")
+        cliver.output("Workflow is paused at a human step.")
 
 
 def _resume_workflow(cliver: Cliver, name: str, thread: str, answer: str | None, step: str | None):
     """Resume a paused workflow or replay from a specific step."""
+    import threading
+
     executor, store = _make_executor(cliver)
     wf = store.load_workflow(name)
 
     if not wf:
         cliver.output(f"Workflow '{name}' not found.")
         return
+
+    # Extract execution_id from thread_id (format: workflow_id_execution_id)
+    execution_id = thread.split("_")[-1] if "_" in thread else thread
+
+    # Resolve outputs directory
+    outputs_base = None
+    if wf.outputs_dir:
+        outputs_base = wf.outputs_dir
+    else:
+        app_config = cliver.config_manager.config
+        runs_dir = getattr(app_config, "workflow_runs_dir", None)
+        if runs_dir:
+            outputs_base = str(Path(runs_dir) / name)
+        else:
+            outputs_base = str(cliver.agent_profile.agent_dir / "workflow-runs" / name)
+
+    outputs_dir = str(Path(outputs_base) / execution_id)
+
+    if step:
+        cliver.output(f"Resuming workflow '{name}' from step '{step}'")
+    else:
+        cliver.output(f"Resuming workflow: {name}")
+    cliver.output(f"  Thread ID:    {thread}")
+    cliver.output(f"  Execution ID:  {execution_id}")
+    cliver.output(f"  Outputs:      {outputs_dir}")
+    cliver.output("")
+
+    stop_event = threading.Event()
+    tailer = threading.Thread(
+        target=_tail_log_files,
+        args=(cliver, outputs_base, stop_event),
+        daemon=True,
+    )
+    tailer.start()
 
     async def _execute():
         try:
@@ -272,12 +346,14 @@ def _resume_workflow(cliver: Cliver, name: str, thread: str, answer: str | None,
         finally:
             await executor.close()
 
-    if step:
-        cliver.output(f"[bold]Resuming workflow '{name}' from step '{step}'[/bold]\n")
-    else:
-        cliver.output(f"[bold]Resuming workflow: {name}[/bold]\n")
-
-    result = _run_async(_execute())
+    try:
+        result = _run_async(_execute())
+    except KeyboardInterrupt:
+        cliver.output("\nWorkflow interrupted. Progress saved to checkpoint.")
+        cliver.output(f"Resume with: /workflow resume {name} --thread {thread}")
+        result = None
+    stop_event.set()
+    tailer.join(timeout=2)
 
     if result:
         _display_result(cliver, result)
@@ -342,21 +418,20 @@ def _get_sync_checkpointer(db_path):
 def _display_result(cliver: Cliver, result: dict):
     """Display workflow execution result."""
     if result.get("error"):
-        cliver.output(f"[red]Error: {result['error']}[/red]")
+        cliver.output(f"Error: {result['error']}")
 
     steps = result.get("steps", {})
     if steps and isinstance(steps, dict):
-        cliver.output("[bold]Steps:[/bold]")
+        cliver.output("Steps:")
         for step_id, step_data in steps.items():
             status = step_data.get("status", "unknown")
-            color = {"completed": "green", "failed": "red"}.get(status, "white")
             time_str = f" ({step_data.get('execution_time', 0):.1f}s)" if step_data.get("execution_time") else ""
-            cliver.output(f"  [{color}]{status:>9}[/{color}]  {step_id}{time_str}")
+            cliver.output(f"  {status:>9}  {step_id}{time_str}")
             if step_data.get("outputs", {}).get("error"):
-                cliver.output(f"             [red]Error: {step_data['outputs']['error']}[/red]")
+                cliver.output(f"             Error: {step_data['outputs']['error']}")
 
     if result.get("outputs_dir"):
-        cliver.output(f"\n[dim]Outputs: {result['outputs_dir']}[/dim]")
+        cliver.output(f"\nOutputs: {result['outputs_dir']}")
 
 
 # ── Dispatch ──
@@ -463,11 +538,11 @@ def dispatch(cliver: Cliver, args: str):
             try:
                 days = int(rest.strip())
             except ValueError:
-                cliver.output("[red]Invalid number of days.[/red]")
+                cliver.output("Invalid number of days.")
                 return
         _prune_workflow(cliver, days)
     else:
-        cliver.output(f"[yellow]Unknown: /workflow {sub}[/yellow]")
+        cliver.output(f"Unknown: /workflow {sub}")
 
 
 @click.group(name="workflow", help="Manage and execute LangGraph-powered multi-step workflows with checkpointing")

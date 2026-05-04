@@ -17,23 +17,23 @@ def _validate_config(cliver: Cliver):
         # Check if config is valid by attempting to load it
         config_manager = cliver.config_manager
         if config_manager.config:
-            cliver.output("[green]✓ Configuration is valid[/green]")
+            cliver.output("✓ Configuration is valid")
         else:
-            cliver.output("[red]✗ Configuration is not valid[/red]")
+            cliver.output("✗ Configuration is not valid")
     except Exception as e:
-        cliver.output(f"[red]✗ Configuration validation error: {e}[/red]")
+        cliver.output(f"✗ Configuration validation error: {e}")
 
 
 def _set_config(cliver: Cliver, user_agent: str):
     """Update general configuration settings."""
     if not user_agent:
-        cliver.output("[dim]Usage: config set --user-agent VALUE[/dim]")
-        cliver.output("[dim]Use /agent to manage agent instances.[/dim]")
+        cliver.output("Usage: config set --user-agent VALUE")
+        cliver.output("Use /agent to manage agent instances.")
         return
 
     if user_agent:
         cliver.config_manager.set_user_agent(user_agent)
-        cliver.output(f"User-Agent set to: [green]{user_agent}[/green]")
+        cliver.output(f"User-Agent set to: {user_agent}")
 
 
 def _show_config(cliver: Cliver):
@@ -52,16 +52,16 @@ def _show_config(cliver: Cliver):
         general_table.add_column("Value", style="white")
 
         general_table.add_row("Default Agent", cfg.default_agent_name)
-        general_table.add_row("Active Agent", f"[bold green]{cliver.agent_name}[/bold green]")
+        general_table.add_row("Active Agent", f"{cliver.agent_name}")
         if cfg.default_model:
-            general_table.add_row("Default Model", f"[green]{cfg.default_model}[/green]")
+            general_table.add_row("Default Model", f"{cfg.default_model}")
         if cfg.user_agent:
             general_table.add_row("User-Agent", cfg.user_agent)
 
         console.print(
             Panel(
                 general_table,
-                title="[bold cyan]General Settings[/bold cyan]",
+                title="General Settings",
                 border_style="cyan",
                 padding=(0, 1),
             )
@@ -85,7 +85,7 @@ def _show_config(cliver: Cliver):
             console.print(
                 Panel(
                     prov_table,
-                    title="[bold blue]Providers[/bold blue]",
+                    title="Providers",
                     border_style="blue",
                     padding=(0, 1),
                 )
@@ -96,22 +96,18 @@ def _show_config(cliver: Cliver):
             model_panels = []
             for name, model in cfg.models.items():
                 is_default = name == cfg.default_model
-                title_label = (
-                    f"[bold green]{name}[/bold green] [dim](default)[/dim]"
-                    if is_default
-                    else f"[bold yellow]{name}[/bold yellow]"
-                )
+                title_label = f"{name} (default)" if is_default else f"{name}"
 
                 t = Table(box=None, show_header=False, padding=(0, 2))
                 t.add_column("Key", style="dim", min_width=14)
                 t.add_column("Value")
 
-                t.add_row("Provider", f"[magenta]{model.provider}[/magenta]")
+                t.add_row("Provider", f"{model.provider}")
                 url = model.get_resolved_url()
                 if url:
-                    t.add_row("URL", f"[blue]{url}[/blue]")
+                    t.add_row("URL", f"{url}")
                 if model.think_mode is not None:
-                    t.add_row("Think Mode", "[green]on[/green]" if model.think_mode else "[red]off[/red]")
+                    t.add_row("Think Mode", "on" if model.think_mode else "off")
                 if model.context_window:
                     t.add_row("Context Window", f"{model.context_window:,} tokens")
 
@@ -133,7 +129,7 @@ def _show_config(cliver: Cliver):
             console.print(
                 Panel(
                     Columns(model_panels, equal=True, expand=True) if len(model_panels) > 1 else model_panels[0],
-                    title="[bold yellow]Models[/bold yellow]",
+                    title="Models",
                     border_style="yellow",
                     padding=(0, 1),
                 )
@@ -171,7 +167,7 @@ def _show_config(cliver: Cliver):
             console.print(
                 Panel(
                     server_table,
-                    title="[bold magenta]MCP Servers[/bold magenta]",
+                    title="MCP Servers",
                     border_style="magenta",
                     padding=(0, 1),
                 )
@@ -182,7 +178,7 @@ def _show_config(cliver: Cliver):
         console.print(Text(f"  Config file: {config_path}", style="dim"))
 
     except Exception as e:
-        cliver.output(f"[red]Error showing configuration: {e}[/red]")
+        cliver.output(f"Error showing configuration: {e}")
 
 
 def _config_rate_limit(cliver: Cliver, provider_name: str, limit: str | None):
@@ -228,13 +224,13 @@ def _set_theme(cliver: Cliver, name: str | None):
     if not name:
         current = get_theme()
         available = list_themes()
-        cliver.output(f"Current theme: [bold]{current.name}[/bold]")
+        cliver.output(f"Current theme: {current.name}")
         cliver.output(f"Available: {', '.join(available)}")
         return
 
     available = list_themes()
     if name not in available:
-        cliver.output(f"[red]Unknown theme '{name}'. Available: {', '.join(available)}[/red]")
+        cliver.output(f"Unknown theme '{name}'. Available: {', '.join(available)}")
         return
 
     theme = load_theme(name)
@@ -252,7 +248,7 @@ def _set_theme(cliver: Cliver, name: str | None):
     cliver.config_manager.config.theme = name
     cliver.config_manager._save_config()
 
-    cliver.output(f"Theme set to [bold]{name}[/bold].")
+    cliver.output(f"Theme set to {name}.")
 
 
 # ── Dispatch ──
@@ -305,7 +301,7 @@ def dispatch(cliver: Cliver, args: str):
         theme_name = rest.strip() if rest.strip() else None
         _set_theme(cliver, theme_name)
     else:
-        cliver.output(f"[yellow]Unknown: /config {sub}[/yellow]")
+        cliver.output(f"Unknown: /config {sub}")
 
 
 # ── Click Group ──
@@ -358,7 +354,7 @@ def show_config(cliver: Cliver):
 def _mask_value(value: str) -> str:
     """Mask a single secret value for display."""
     if value.startswith("keyring:"):
-        return f"[dim]{value}[/dim]"
+        return f"{value}"
     if len(value) > 8:
         return f"{value[:3]}***{value[-3:]}"
     return "***"

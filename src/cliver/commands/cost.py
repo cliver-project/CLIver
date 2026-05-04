@@ -63,36 +63,36 @@ def dispatch(cliver: Cliver, args: str):
                     model_name = parts[i + 1]
                     i += 2
                 else:
-                    cliver.output("[red]--model requires a value[/red]")
+                    cliver.output("--model requires a value")
                     return
             elif parts[i] in ("-a", "--agent"):
                 if i + 1 < len(parts):
                     agent_name = parts[i + 1]
                     i += 2
                 else:
-                    cliver.output("[red]--agent requires a value[/red]")
+                    cliver.output("--agent requires a value")
                     return
             elif parts[i] == "--from":
                 if i + 1 < len(parts):
                     date_from = parts[i + 1]
                     i += 2
                 else:
-                    cliver.output("[red]--from requires a value[/red]")
+                    cliver.output("--from requires a value")
                     return
             elif parts[i] == "--to":
                 if i + 1 < len(parts):
                     date_to = parts[i + 1]
                     i += 2
                 else:
-                    cliver.output("[red]--to requires a value[/red]")
+                    cliver.output("--to requires a value")
                     return
             else:
-                cliver.output(f"[yellow]Unknown option: {parts[i]}[/yellow]")
+                cliver.output(f"Unknown option: {parts[i]}")
                 return
 
         _show_total_cost(cliver, model_name, agent_name, date_from, date_to)
     else:
-        cliver.output(f"[yellow]Unknown subcommand: /cost {sub}[/yellow]")
+        cliver.output(f"Unknown subcommand: /cost {sub}")
         cliver.output("Run '/cost help' for usage.")
 
 
@@ -259,7 +259,7 @@ def _print_usage_line(cliver: Cliver, label: str, usage: TokenUsage) -> None:
     """Print a formatted usage line."""
     cache_part = ""
     if usage.cached_tokens > 0:
-        cache_part = f"  [green]cached: {format_tokens(usage.cached_tokens):>7s}[/green]"
+        cache_part = f"  cached: {format_tokens(usage.cached_tokens):>7s}"
     cliver.output(
         f"  {label:20s}  in: {format_tokens(usage.input_tokens):>7s}  "
         f"out: {format_tokens(usage.output_tokens):>7s}  "

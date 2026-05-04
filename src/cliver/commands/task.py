@@ -91,8 +91,8 @@ def _create_task(
         try:
             datetime.fromisoformat(run_at)
         except ValueError:
-            cliver.output(f"[red]Invalid datetime format: {run_at}[/red]")
-            cliver.output("[dim]Use ISO 8601 format, e.g. 2026-04-25T14:30:00[/dim]")
+            cliver.output(f"Invalid datetime format: {run_at}")
+            cliver.output("Use ISO 8601 format, e.g. 2026-04-25T14:30:00")
             return 1
 
     # Capture current CLI session if available
@@ -129,9 +129,7 @@ def _save_reply_to_origin(cliver: Cliver, task_name: str, reply_to: str) -> str:
 
     parts = reply_to.split(":", 2)
     if len(parts) < 2:
-        cliver.output(
-            f"[yellow]Warning: invalid --reply-to format '{reply_to}', expected platform:channel[:thread][/yellow]"
-        )
+        cliver.output(f"Warning: invalid --reply-to format '{reply_to}', expected platform:channel[:thread]")
         return ""
 
     platform = parts[0]
@@ -410,7 +408,7 @@ def dispatch(cliver: Cliver, args: str):
         if not prompt:
             prompt = cliver.ui.ask_input(f"  Enter prompt for task '{task_name}': ")
             if not prompt or not prompt.strip():
-                cliver.output("[yellow]Cancelled — prompt is required.[/yellow]")
+                cliver.output("Cancelled — prompt is required.")
                 return
             prompt = prompt.strip()
 
@@ -426,7 +424,7 @@ def dispatch(cliver: Cliver, args: str):
             reply_to=reply_to,
         )
     else:
-        cliver.output(f"[yellow]Unknown: /task {sub}[/yellow]")
+        cliver.output(f"Unknown: /task {sub}")
 
 
 # Click wrappers (thin — just call logic functions)

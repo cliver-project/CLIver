@@ -447,7 +447,7 @@ def _create_permission_prompt(console: Console, cliver_inst: "Cliver" = None):
         console.print(
             Panel(
                 body,
-                title="[bold yellow]Permission Required[/bold yellow]",
+                title="Permission Required",
                 border_style="yellow",
                 padding=(0, 1),
                 width=min(shutil.get_terminal_size().columns, 120),

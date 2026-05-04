@@ -20,7 +20,7 @@ def _show_rules(cliver: Cliver):
     """Display all permission rules with their source file."""
     pm = cliver.permission_manager
     if not pm.rules:
-        cliver.output("[dim]No permission rules configured.[/dim]")
+        cliver.output("No permission rules configured.")
         _show_mode_info(cliver)
         return
 
@@ -35,12 +35,11 @@ def _show_rules(cliver: Cliver):
         source = pm._rule_sources[i] if i < len(pm._rule_sources) else "?"
         # Shorten source path for display
         source_short = _shorten_path(source)
-        action_style = "green" if rule.action == PermissionAction.ALLOW else "red"
         table.add_row(
             str(i),
             rule.tool,
-            rule.resource or "[dim]—[/dim]",
-            f"[{action_style}]{rule.action.value}[/{action_style}]",
+            rule.resource or "—",
+            rule.action.value,
             source_short,
         )
 
@@ -60,7 +59,7 @@ def _set_mode(cliver: Cliver, new_mode: str = None):
     if target is None:
         return
     pm.save_mode(mode, target)
-    cliver.output(f"[green]Permission mode set to '{new_mode}' ({target})[/green]")
+    cliver.output(f"Permission mode set to '{new_mode}' ({target})")
 
 
 def _add_rule(cliver: Cliver):
@@ -68,27 +67,27 @@ def _add_rule(cliver: Cliver):
     pm = cliver.permission_manager
     console = cliver.console
 
-    console.print("[bold]Permission Builder[/bold]")
-    console.print("[dim]─────────────────[/dim]")
+    console.print("Permission Builder")
+    console.print("─────────────────")
 
     # 1. Tool pattern
-    console.print("\n[bold]1. Tool pattern[/bold]")
-    console.print("   [dim]Examples: Read, github#.*, Bash, .*[/dim]")
+    console.print("\n1. Tool pattern")
+    console.print("   Examples: Read, github#.*, Bash, .*")
     tool = cliver.ui.ask_input("   > ")
     if not tool:
-        console.print("[yellow]Cancelled.[/yellow]")
+        console.print("Cancelled.")
         return
 
     # 2. Resource constraint
-    console.print("\n[bold]2. Resource constraint[/bold] [dim](optional, leave empty for all)[/dim]")
-    console.print("   [dim]Examples: /data/**, git *, https://api.github.com/**[/dim]")
+    console.print("\n2. Resource constraint (optional, leave empty for all)")
+    console.print("   Examples: /data/**, git *, https://api.github.com/**")
     resource = cliver.ui.ask_input("   > ") or None
 
     # 3. Action
-    console.print("\n[bold]3. Action[/bold]")
+    console.print("\n3. Action")
     action_input = cliver.ui.ask_input("   [a]llow or [d]eny? > ", choices=["a", "allow", "d", "deny"])
     if not action_input:
-        console.print("[yellow]Cancelled.[/yellow]")
+        console.print("Cancelled.")
         return
     if action_input.lower() in ("a", "allow"):
         action = PermissionAction.ALLOW
@@ -103,12 +102,8 @@ def _add_rule(cliver: Cliver):
     rule = PermissionRule(tool=tool, resource=resource, action=action)
     pm.save_rule(rule, target)
 
-    resource_str = f" on [cyan]{resource}[/cyan]" if resource else ""
-    action_style = "green" if action == PermissionAction.ALLOW else "red"
-    console.print(
-        f"\n[green]✔[/green] Rule added: [{action_style}]{action.value}[/{action_style}] "
-        f"[bold]{tool}[/bold]{resource_str}"
-    )
+    resource_str = f" on {resource}" if resource else ""
+    console.print(f"\n+ Rule added: {action.value} {tool}{resource_str}")
     console.print(f"  Saved to {target} settings.")
 
 
@@ -116,7 +111,7 @@ def _remove_rule(cliver: Cliver, index: int):
     """Remove a rule by its index (shown in /permissions rules)."""
     pm = cliver.permission_manager
     if index < 0 or index >= len(pm.rules):
-        cliver.output(f"[red]Invalid index {index}. Use /permissions rules to see available rules.[/red]")
+        cliver.output(f"Invalid index {index}. Use /permissions rules to see available rules.")
         return
 
     rule = pm.rules[index]
@@ -127,11 +122,11 @@ def _remove_rule(cliver: Cliver, index: int):
 
     response = cliver.ui.ask_input("  Confirm? [y/n] > ", choices=["y", "yes", "n", "no"])
     if response.lower() not in ("y", "yes"):
-        cliver.output("[yellow]Cancelled.[/yellow]")
+        cliver.output("Cancelled.")
         return
 
     pm.remove_rule(index)
-    cliver.output("[green]Rule removed.[/green]")
+    cliver.output("Rule removed.")
 
 
 # TUI dispatch entry point
@@ -168,9 +163,9 @@ def dispatch(cliver: Cliver, args: str):
             index = int(rest.strip())
             _remove_rule(cliver, index)
         except ValueError:
-            cliver.output("[red]Index must be a number[/red]")
+            cliver.output("Index must be a number")
     else:
-        cliver.output(f"[yellow]Unknown: /permissions {sub}[/yellow]")
+        cliver.output(f"Unknown: /permissions {sub}")
 
 
 # --- Helpers ---
@@ -179,7 +174,7 @@ def dispatch(cliver: Cliver, args: str):
 def _show_mode_info(cliver: Cliver):
     pm = cliver.permission_manager
     source = pm._mode_source or "default"
-    cliver.output(f"\nPermission mode: [bold]{pm.mode.value}[/bold] [dim]({source})[/dim]")
+    cliver.output(f"\nPermission mode: {pm.mode.value} ({source})")
 
 
 def _prompt_save_target(cliver: Cliver) -> str | None:
@@ -190,13 +185,13 @@ def _prompt_save_target(cliver: Cliver) -> str | None:
     global_path = pm._global_settings_path or "N/A"
     local_path = pm._local_settings_path or "N/A"
 
-    console.print("\n[bold]Save to:[/bold]")
+    console.print("\nSave to:")
     console.print(f"  [g]lobal ({global_path})")
     console.print(f"  [l]ocal  ({local_path})")
 
     choice = cliver.ui.ask_input("  > ", choices=["g", "global", "l", "local"])
     if not choice:
-        console.print("[yellow]Cancelled.[/yellow]")
+        console.print("Cancelled.")
         return None
 
     if choice.lower() in ("g", "global"):
