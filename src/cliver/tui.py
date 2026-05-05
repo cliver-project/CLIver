@@ -347,24 +347,19 @@ def run_tui(cliver: "Cliver") -> None:
         # Echo user input
         _echo_user_input(cliver, line)
 
-        # Slash commands
+        # Slash commands — always accepted, even while other tasks run
         if line.startswith("/"):
             parts = line[1:].split(None, 1)
             if not parts:
                 return
             cmd_name = parts[0].lower()
             cmd_args = parts[1] if len(parts) > 1 else ""
-            if router.is_busy:
-                cliver.output("[yellow]A task is running. Ctrl+C to cancel.[/yellow]")
-                return
             app.create_background_task(router.command(cmd_name, cmd_args))
             return
 
-        # Plain text -> LLM query or follow-up
-        if router.is_query_active:
+        # Plain text -> LLM query or mid-loop follow-up
+        if router.has_active_query:
             router.inject_input(line)
-        elif router.is_busy:
-            cliver.output("[yellow]A task is running. Ctrl+C to cancel.[/yellow]")
         else:
             cliver._cancel_requested = False
             app.create_background_task(router.query(line))
@@ -397,11 +392,8 @@ def run_tui(cliver: "Cliver") -> None:
             cliver._user_input_response = ""
             cliver._user_input_pending.set()
             return
-        # Cancel active router task
-        if router.is_busy:
-            if router._active_future:
-                router._active_future.cancel()
-            cliver._cancel_requested = True
+        # Cancel newest active task (LIFO)
+        if router.cancel_newest():
             return
         event.app.exit()
 

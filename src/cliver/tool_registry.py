@@ -8,7 +8,7 @@ via config if they want fewer/more tools.
 Toolsets:
 - core: Read, Write, LS, Grep, Bash, Exec, Transcribe, ImageGenerate (always included)
 - memory: MemoryRead, MemoryWrite, Identity, SearchSessions (always included)
-- automation: Skill, TodoRead, TodoWrite, Ask, Parallel (always included)
+- automation: Skill, TodoRead, TodoWrite, Ask (always included)
 - web: WebFetch, WebSearch, Browse (Browse requires FIRECRAWL_API_KEY)
 - browser: Browser (requires playwright installed)
 - container: Docker (requires docker/podman)
@@ -49,7 +49,6 @@ TOOLSETS: Dict[str, Set[str]] = {
         "TodoRead",
         "TodoWrite",
         "Ask",
-        "Parallel",
         "WorkflowValidate",
         "CliverHelp",
     },

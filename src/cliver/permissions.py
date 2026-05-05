@@ -96,7 +96,6 @@ TOOL_META_REGISTRY: Dict[str, ToolMeta] = {
     "MemoryRead": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
     "MemoryWrite": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
     "SearchSessions": ToolMeta(ActionKind.READ, ResourceType.NONE),
-    "Parallel": ToolMeta(ActionKind.EXECUTE, ResourceType.NONE),
     "Identity": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
     "Ask": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
     "WorkflowValidate": ToolMeta(ActionKind.SAFE, ResourceType.NONE),

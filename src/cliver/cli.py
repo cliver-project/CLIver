@@ -94,6 +94,11 @@ class Cliver:
 
     def output(self, *args, **kwargs) -> None:
         """Centralized output method. All CLI display should go through this."""
+        from cliver.command_router import get_current_task_label
+
+        label = get_current_task_label()
+        if label and label != "chat":
+            self.console.print(f"[dim]\\[{label}][/dim]", end=" ")
         self.console.print(*args, **kwargs)
 
     def echo_user_input(self, text: str) -> None:
