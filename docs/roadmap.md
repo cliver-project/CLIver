@@ -1,32 +1,38 @@
 ---
 title: Roadmap
-description: Future development plans
+description: Development status and future plans for CLIver
 ---
 
 # Roadmap
 
-This document outlines the development status and future plans for CLIver.
+## Current Release: v0.1.4 (Alpha)
 
-## Completed Features
+### Completed
+- 17 built-in tools (file I/O, shell, web, planning, memory, identity, skills)
+- Multi-provider LLM support (OpenAI-compatible, Ollama, vLLM)
+- MCP server integration
+- Skills system with LLM-driven activation
+- LangGraph-powered workflow engine
+- Layered permission system (default, auto-edit, yolo)
+- Memory and identity profiles with multi-agent isolation
+- Session management with LLM-based compression
+- Cost tracking per provider and model
+- Gateway daemon with Telegram, Discord, Slack, Feishu adapters
+- Docker support (GHCR)
+- Embeddable AgentCore Python API
 
-- **Builtin Tools** (17 total): File I/O, shell, web search/fetch, planning (todo), memory, identity, skill activation, workflow creation, Docker, ask user
-- **Skills System**: LLM-driven skill activation from SKILL.md files (project and global scopes)
-- **Planner**: Complexity-aware planning — Simple (direct), Medium (todo_write), Complex (create_workflow)
-- **Agent Profile**: Instance-scoped resources with multi-agent isolation
-- **Memory & Identity**: Persistent memory (append/rewrite) and identity profiles
-- **Workflow Simplification**: Streamlined workflow engine with LLM-driven workflow generation
-- **Skill-Workflow Integration**: Skills can be activated within workflow LLM steps
-- **Task Scheduling**: CRUD task management with cron scheduling support
-- **Conversation History**: Session persistence with LLM-based compression
-- **Token Usage Statistics**: Per-model and per-session token tracking
-- **Permissions System**: Layered permission system (persistent rules, session grants, workflow-scoped)
-- **Keyring Security**: System keyring integration for API key management
-- **Multi-provider Support**: Ollama, OpenAI-compatible, vLLM providers
+### In Progress
+- Documentation improvements
+- Media generation support (image, audio)
 
-## Planned Features
+### Planned
+- **Deep Search** — `cliver deep-search "question"` multi-step research workflow
+- **Multi-Model Orchestration** — route different capabilities to different models
+- **Remote Workflow Definitions** — fetch workflows from remote sources
+- **Plugin System** — installable capability packages
 
-- **Deep Search**: `cliver deep-search "questions"` — multi-step research workflow with caching and resume
-- **Multi-Model Orchestration**: Different models assigned to different capabilities via `model_routing` config
-- **Remote Workflow Definitions**: Support for fetching workflow definitions from remote sources
+## Contributing
 
-Thank you for your interest in contributing to CLIver!
+See [CONTRIBUTING.md](https://github.com/cliver-project/CLIver/blob/main/CONTRIBUTING.md) for how to get involved.
+
+Have an idea? Open a [feature request](https://github.com/cliver-project/CLIver/issues/new?template=feature_request.md) or start a [discussion](https://github.com/cliver-project/CLIver/discussions).
