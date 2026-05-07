@@ -12,7 +12,7 @@ This guide will walk you through installing CLIver on your system, whether you w
 Before installing CLIver, ensure your system meets the following requirements:
 
 - **Python Version**: Python 3.10 or higher
-- **Operating System**: Linux
+- **Operating System**: Linux, macOS (Windows via WSL2)
 
 ## Quick Installation
 
@@ -76,7 +76,7 @@ CLIver is also available as a Docker image from GitHub Container Registry.
 docker run --rm -it -v ~/.cliver:/home/cliver/.cliver ghcr.io/cliver-project/cliver
 
 # Specific version
-docker run --rm -it -v ~/.cliver:/home/cliver/.cliver ghcr.io/cliver-project/cliver:0.0.3
+docker run --rm -it -v ~/.cliver:/home/cliver/.cliver ghcr.io/cliver-project/cliver:0.1.4
 ```
 
 ### Volume mount
