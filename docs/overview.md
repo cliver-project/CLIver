@@ -13,6 +13,20 @@ CLIver is a **general-purpose AI agent** — it is not bound to coding or any sp
 
 **Safe and controlled by default.** Autonomous agents are powerful but can behave unpredictably. CLIver addresses this with a layered permission system that governs every tool execution and a structured workflow engine that keeps complex tasks focused and auditable. You decide what the agent can do, and it stays within those boundaries.
 
+## Why CLIver Over Alternatives?
+
+| Feature | CLIver | Claude Code | Cursor | Aider |
+|---------|--------|-------------|--------|-------|
+| Model-agnostic | Yes — any OpenAI-compatible, Ollama, vLLM | Anthropic only | OpenAI/Anthropic | Multiple, but coding-focused |
+| Domain | General-purpose | Coding | Coding | Coding |
+| Embeddable API | Yes (`AgentCore`) | No | No | No |
+| Permission system | 3-tier with resource scoping | Basic | N/A | N/A |
+| Workflow engine | LangGraph-powered | No | No | No |
+| Gateway / Chat integrations | Telegram, Discord, Slack, Feishu | No | No | No |
+| Open source | Apache 2.0 | Proprietary | Proprietary | Apache 2.0 |
+
+CLIver is not a coding assistant — it is a **general-purpose agent framework** that happens to also be good at coding. If you need an AI that can manage infrastructure, automate workflows, conduct research, AND write code — all through the same interface — CLIver is built for that.
+
 ## Design Goals
 
 CLIver is built as a **dual-layer system**:
