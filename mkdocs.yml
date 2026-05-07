@@ -110,6 +110,7 @@ nav:
   - 'Session Management': 'session-management.md'
   - 'Permissions': 'permissions.md'
   - 'Workflows': 'workflow.md'
+  - 'Gateway': 'gateway.md'
   - 'Extensibility': 'extensibility.md'
   - 'Session Options': 'session.md'
   - 'Roadmap': 'roadmap.md'
