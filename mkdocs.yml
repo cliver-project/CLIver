@@ -10,7 +10,7 @@ repo_url: https://github.com/cliver-project/CLIver
 edit_uri: edit/main/docs/
 
 # Copyright
-copyright: 'Copyright &copy; 2025 CLIver Team'
+copyright: 'Copyright &copy; 2025-2026 Leo Gao'
 
 theme:
   name: material

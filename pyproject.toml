@@ -5,7 +5,7 @@ description = "General-purpose AI agent for your terminal — safe, controlled, 
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [
-    { name = "Lin Gao", email = "aoingl@gmail.com" }
+    { name = "Leo Gao", email = "aoingl@gmail.com" }
 ]
 requires-python = ">=3.10"
 classifiers = [
