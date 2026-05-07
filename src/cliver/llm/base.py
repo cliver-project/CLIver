@@ -1,6 +1,5 @@
 import logging
 from abc import ABC, abstractmethod
-from pathlib import Path
 from typing import Any, AsyncIterator, List, Optional, Set
 
 from langchain_core.language_models import BaseChatModel
@@ -104,13 +103,6 @@ class LLMInferenceEngine(ABC):
         # Default implementation returns empty list
         # Specific engines should override this method
         return []
-
-    async def transcribe_audio(self, file_path: Path, language: Optional[str] = None) -> Optional[str]:
-        """Transcribe audio to text. Override in subclasses that support it.
-
-        Returns the transcribed text, or None if not supported by this engine.
-        """
-        return None
 
     def parse_tool_calls(self, response: BaseMessage, model: str) -> list[dict] | None:
         """Parse tool calls from the LLM response.

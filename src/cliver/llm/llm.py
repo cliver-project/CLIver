@@ -27,13 +27,11 @@ from langchain_core.tools import BaseTool
 from cliver.config import ModelConfig
 from cliver.llm.base import LLMInferenceEngine
 from cliver.llm.call_context import CallContext
-from cliver.llm.deepseek_engine import DeepSeekInferenceEngine
 from cliver.llm.errors import TaskTimeoutError, get_friendly_error_message
 from cliver.llm.llm_utils import is_thinking, normalize_tool_calls
 from cliver.llm.media_generation import get_image_helper
-from cliver.llm.ollama_engine import OllamaLlamaInferenceEngine
-from cliver.llm.openai_engine import OpenAICompatibleInferenceEngine
 from cliver.llm.rate_limiter import RateLimiter, parse_period
+from cliver.llm.unified_engine import UnifiedInferenceEngine
 from cliver.mcp_server_caller import MCPServersCaller
 from cliver.media import load_media_file
 from cliver.model_capabilities import ModelCapability
@@ -51,23 +49,8 @@ logger = logging.getLogger(__name__)
 MAX_CONSECUTIVE_ERRORS = 3
 
 
-def create_llm_engine(
-    model: ModelConfig, user_agent: str = None, agent_name: str = "CLIver"
-) -> Optional[LLMInferenceEngine]:
-    provider_type = model.get_provider_type()
-    if provider_type == "ollama":
-        return OllamaLlamaInferenceEngine(model, user_agent=user_agent, agent_name=agent_name)
-    elif provider_type == "openai":
-        # Route to model-specific engines for providers with API quirks
-        name = model.api_model_name.lower()
-        if name.startswith("deepseek"):
-            return DeepSeekInferenceEngine(model, user_agent=user_agent, agent_name=agent_name)
-        return OpenAICompatibleInferenceEngine(model, user_agent=user_agent, agent_name=agent_name)
-    elif provider_type == "anthropic":
-        from cliver.llm.anthropic_engine import AnthropicInferenceEngine
-
-        return AnthropicInferenceEngine(model, user_agent=user_agent, agent_name=agent_name)
-    return None
+def create_llm_engine(model: ModelConfig, user_agent: str = None, agent_name: str = "CLIver") -> LLMInferenceEngine:
+    return UnifiedInferenceEngine(model, user_agent=user_agent, agent_name=agent_name)
 
 
 ## TODO: we need to improve this to take consideration of user_input and even call some mcp tools
@@ -212,29 +195,6 @@ class AgentCore:
                 )
             )
         await self.rate_limiter.wait(provider_name)
-
-    def _find_capable_model(self, capability: ModelCapability) -> Optional[ModelConfig]:
-        """Find the first configured model with the given capability."""
-        for _name, mc in self.llm_models.items():
-            if capability in mc.get_capabilities():
-                return mc
-        return None
-
-    async def transcribe_audio(self, file_path: str, language: Optional[str] = None) -> Optional[str]:
-        """Transcribe an audio file to text via the appropriate engine.
-
-        Finds a model with AUDIO_TO_TEXT capability, gets its engine,
-        and delegates to engine.transcribe_audio(). Returns None if
-        no capable model is configured or transcription fails.
-        """
-        from pathlib import Path
-
-        model_config = self._find_capable_model(ModelCapability.AUDIO_TO_TEXT)
-        if not model_config:
-            return None
-        await self._wait_for_rate_limit(model_config.name)
-        engine = self._select_llm_engine(model_config.name)
-        return await engine.transcribe_audio(Path(file_path), language)
 
     async def generate_image(self, prompt: str, model: str = None, *, ctx: "CallContext", **params) -> BaseMessage:
         """Generate images from a text prompt via the provider's image API.
@@ -724,15 +684,6 @@ class AgentCore:
         params=None,
         conversation_history=None,
     ):
-        # Check file upload capability early, before any processing
-        if files:
-            logger.debug(f"_prepare_messages_and_tools called with files: {files}")
-            llm_engine = self._select_llm_engine(model)
-            if hasattr(llm_engine, "config"):
-                capabilities = llm_engine.config.get_capabilities()
-                if ModelCapability.FILE_UPLOAD not in capabilities:
-                    logger.info("File upload is not supported for this model. Will use content embedding as fallback.")
-
         llm_engine = self._select_llm_engine(model)
         logger.debug(f"Selected LLM engine: {type(llm_engine)}")
 
@@ -853,78 +804,33 @@ class AgentCore:
                 except Exception as e:
                     logger.warning(f"Could not load video file {video_path}: {e}")
 
-        # Handle file uploads for tools like code interpreter
-        uploaded_file_ids = []
+        # Embed file contents directly in the prompt
         embedded_files_content = []
         if files:
-            logger.info(f"Processing file uploads for files: {files}")
-            # Check if the model supports file uploads through its capabilities
-            file_upload_supported = False
-            model_config = self._get_llm_model(model)
-            if model_config:
-                capabilities = model_config.get_capabilities()
-                file_upload_supported = ModelCapability.FILE_UPLOAD in capabilities
+            logger.info(f"Processing files for embedding: {files}")
+            for file_path in files:
+                try:
+                    from cliver.util import read_file_content
 
-            if not file_upload_supported:
-                logger.info(
-                    "File upload is not supported for this model. Will embed file contents in the prompt instead."
-                )
-                # Fallback: embed file contents directly in the prompt
-                for file_path in files:
-                    try:
-                        # Import here to avoid circular imports
-                        from cliver.util import read_file_content
-
-                        file_content = read_file_content(file_path)
-                        embedded_files_content.append((file_path, file_content))
-                        logger.info(f"Embedded content of file {file_path} in prompt")
-                    except Exception as e:
-                        logger.warning(f"Could not read file {file_path} for embedding: {e}")
-            else:
-                # Original file upload logic
-                for file_path in files:
-                    try:
-                        # Check if this is an OpenAI engine that supports file uploads
-                        if hasattr(llm_engine, "upload_file"):
-                            file_id = llm_engine.upload_file(file_path)
-                            if file_id:
-                                uploaded_file_ids.append(file_id)
-                                logger.info(f"Uploaded file {file_path} with ID {file_id}")
-                            else:
-                                logger.warning(f"Failed to upload file {file_path}")
-                        else:
-                            logger.info(f"LLM engine doesn't support file uploads, skipping {file_path}")
-                    except Exception as e:
-                        logger.warning(
-                            f"Could not upload file {file_path}: {e}. Please check the "
-                            f"configuration if the capability is enabled."
-                        )
-                logger.info(f"Completed file uploads. Uploaded file IDs: {uploaded_file_ids}")
+                    file_content = read_file_content(file_path)
+                    embedded_files_content.append((file_path, file_content))
+                    logger.info(f"Embedded content of file {file_path} in prompt")
+                except Exception as e:
+                    logger.warning(f"Could not read file {file_path} for embedding: {e}")
 
         # Insert conversation history (prior turns) before the current user input
         if conversation_history:
             messages.extend(conversation_history)
 
         # Add the user input with media content and file references
-        if media_content or uploaded_file_ids or embedded_files_content:
-            # Create a human message with media content and file references
+        if media_content or embedded_files_content:
             content_parts = [{"type": "text", "text": user_input}]
 
-            # Add media content using shared utility function
             from cliver.media import add_media_content_to_message_parts
 
             add_media_content_to_message_parts(content_parts, media_content)
 
-            # Add file references for uploaded files
-            if uploaded_file_ids:
-                content_parts.append(
-                    {
-                        "type": "text",
-                        "text": f"\n\nUploaded files for reference: {', '.join(uploaded_file_ids)}",
-                    }
-                )
-
-            # Add embedded file contents for models that don't support file uploads
+            # Add embedded file contents
             if embedded_files_content:
                 content_parts.append(
                     {

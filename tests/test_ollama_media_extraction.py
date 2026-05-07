@@ -3,13 +3,13 @@ Test module for Ollama-specific media extraction in CLIver.
 """
 
 import json
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from langchain_core.messages import AIMessage
 
 from cliver.config import ModelConfig
-from cliver.llm.ollama_engine import OllamaLlamaInferenceEngine
+from cliver.llm.unified_engine import UnifiedInferenceEngine
 from cliver.media import MediaType
 from cliver.model_capabilities import ModelCapability
 
@@ -18,17 +18,20 @@ class TestOllamaSpecificMediaExtraction:
     """Test Ollama-specific media extraction functionality."""
 
     @pytest.fixture
-    def ollama_engine(self):
+    @patch("cliver.llm.unified_engine.init_chat_model")
+    def ollama_engine(self, mock_init):
         """Create a mock Ollama engine."""
+        mock_init.return_value = AsyncMock()
+
         config = Mock(spec=ModelConfig)
         config.name = "ollama/llava"
         config.provider = "ollama"
         config.api_model_name = "llava"
         config.get_resolved_url = Mock(return_value="http://localhost:11434")
-        config.options = None  # Add the missing options attribute
+        config.get_provider_type = Mock(return_value="ollama")
+        config.options = None
         config.model_dump = Mock(return_value={})
 
-        # Mock capabilities
         config.get_capabilities = Mock(
             return_value={
                 ModelCapability.TEXT_TO_TEXT,
@@ -37,12 +40,10 @@ class TestOllamaSpecificMediaExtraction:
             }
         )
 
-        engine = OllamaLlamaInferenceEngine(config)
-        return engine
+        return UnifiedInferenceEngine(config)
 
     def test_ollama_text_response_no_media(self, ollama_engine):
         """Test Ollama engine with text-only response (most common case)."""
-        # LLM models typically return text responses
         content = "The image shows a beautiful landscape with mountains and a lake."
         response = AIMessage(content=content)
 
@@ -51,7 +52,6 @@ class TestOllamaSpecificMediaExtraction:
 
     def test_ollama_data_url_in_text(self, ollama_engine):
         """Test Ollama engine extracts data URL from text content."""
-        # Response containing a data URL
         content = "Here's the image I generated: data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg=="
         response = AIMessage(content=content)
 
@@ -63,7 +63,6 @@ class TestOllamaSpecificMediaExtraction:
 
     def test_ollama_image_generation_response(self, ollama_engine):
         """Test Ollama engine handles image generation response with base64 data."""
-        # Ollama image generation response format with base64 data
         image_response = {
             "images": [
                 "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==",
@@ -81,7 +80,6 @@ class TestOllamaSpecificMediaExtraction:
 
     def test_ollama_additional_kwargs_with_images(self, ollama_engine):
         """Test Ollama engine handles images in additional_kwargs."""
-        # Response with images in additional_kwargs (similar to input format)
         response = AIMessage(
             content="Here are the images you requested",
             additional_kwargs={
@@ -101,7 +99,6 @@ class TestOllamaSpecificMediaExtraction:
 
     def test_ollama_structured_content_response(self, ollama_engine):
         """Test Ollama engine handles structured content responses."""
-        # Structured content response (more for input messages, but we handle it)
         structured_content = [
             {"type": "text", "text": "What's in this image?"},
             {
@@ -120,7 +117,6 @@ class TestOllamaSpecificMediaExtraction:
 
     def test_ollama_structured_content_with_http_url(self, ollama_engine):
         """Test Ollama engine handles structured content with HTTP URLs."""
-        # Structured content with HTTP URL
         structured_content = [
             {"type": "text", "text": "What's in this image?"},
             {
@@ -133,7 +129,7 @@ class TestOllamaSpecificMediaExtraction:
         media_content = ollama_engine.extract_media_from_response(response)
         assert len(media_content) == 1
         assert media_content[0].type == MediaType.IMAGE
-        assert "Ollama image URL" in media_content[0].data
+        assert "ollama image URL" in media_content[0].data
         assert "ollama_image_from_url.png" == media_content[0].filename
 
 

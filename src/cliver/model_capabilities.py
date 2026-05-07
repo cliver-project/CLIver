@@ -14,6 +14,7 @@ class ProviderEnum(str, Enum):
     OLLAMA = "ollama"
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
+    DEEPSEEK = "deepseek"
     VLLM = "vllm"
 
 
@@ -42,7 +43,11 @@ PROVIDER_CAPABILITIES = {
         ModelCapability.TOOL_CALLING,
         ModelCapability.FUNCTION_CALLING,
         ModelCapability.JSON_MODE,
-        ModelCapability.FILE_UPLOAD,
+    },
+    "deepseek": {
+        ModelCapability.TEXT_TO_TEXT,
+        ModelCapability.TOOL_CALLING,
+        ModelCapability.JSON_MODE,
     },
     "ollama": {
         ModelCapability.TEXT_TO_TEXT,

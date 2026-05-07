@@ -6,7 +6,7 @@ Default toolsets are auto-determined — no config required. Users can override
 via config if they want fewer/more tools.
 
 Toolsets:
-- core: Read, Write, LS, Grep, Bash, Exec, Transcribe, ImageGenerate (always included)
+- core: Read, Write, LS, Grep, Bash, Exec, ImageGenerate (always included)
 - memory: MemoryRead, MemoryWrite, Identity, SearchSessions (always included)
 - automation: Skill, TodoRead, TodoWrite, Ask (always included)
 - web: WebFetch, WebSearch, Browse (Browse requires FIRECRAWL_API_KEY)
@@ -35,7 +35,6 @@ TOOLSETS: Dict[str, Set[str]] = {
         "Grep",
         "Bash",
         "Exec",
-        "Transcribe",
         "ImageGenerate",
     },
     "memory": {

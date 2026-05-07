@@ -2,15 +2,14 @@
 Test module for multi-media support in CLIver.
 """
 
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from langchain_core.messages import HumanMessage
 
 from cliver.config import ModelConfig
 from cliver.llm.llm import AgentCore
-from cliver.llm.ollama_engine import OllamaLlamaInferenceEngine
-from cliver.llm.openai_engine import OpenAICompatibleInferenceEngine
+from cliver.llm.unified_engine import UnifiedInferenceEngine
 from cliver.media import MediaContent, MediaType, load_media_file
 from cliver.model_capabilities import ModelCapability
 
@@ -41,17 +40,20 @@ class TestOpenAIEngine:
     """Test OpenAI engine multimedia support."""
 
     @pytest.fixture
-    def openai_engine(self):
+    @patch("cliver.llm.unified_engine.init_chat_model")
+    def openai_engine(self, mock_init):
         """Create a mock OpenAI engine."""
+        mock_init.return_value = AsyncMock()
+
         config = Mock(spec=ModelConfig)
         config.name = "openai/gpt-4-vision"
         config.provider = "openai"
         config.api_model_name = "gpt-4-vision"
         config.get_api_key = Mock(return_value="test-key")
         config.get_resolved_url = Mock(return_value="https://api.openai.com/v1")
+        config.get_provider_type = Mock(return_value="openai")
         config.options = None
 
-        # Mock capabilities
         config.get_capabilities = Mock(
             return_value={
                 ModelCapability.TEXT_TO_TEXT,
@@ -60,7 +62,7 @@ class TestOpenAIEngine:
             }
         )
 
-        engine = OpenAICompatibleInferenceEngine(config)
+        engine = UnifiedInferenceEngine(config)
         engine.llm = AsyncMock()
         return engine
 
@@ -87,17 +89,20 @@ class TestOllamaEngine:
     """Test Ollama engine multimedia support."""
 
     @pytest.fixture
-    def ollama_engine(self):
+    @patch("cliver.llm.unified_engine.init_chat_model")
+    def ollama_engine(self, mock_init):
         """Create a mock Ollama engine."""
+        mock_init.return_value = AsyncMock()
+
         config = Mock(spec=ModelConfig)
         config.name = "ollama/llava"
         config.provider = "ollama"
         config.api_model_name = "llava"
         config.get_resolved_url = Mock(return_value="http://localhost:11434")
-        config.options = None  # Add the missing options attribute
+        config.get_provider_type = Mock(return_value="ollama")
+        config.options = None
         config.model_dump = Mock(return_value={})
 
-        # Mock capabilities
         config.get_capabilities = Mock(
             return_value={
                 ModelCapability.TEXT_TO_TEXT,
@@ -106,13 +111,12 @@ class TestOllamaEngine:
             }
         )
 
-        engine = OllamaLlamaInferenceEngine(config)
+        engine = UnifiedInferenceEngine(config)
         engine.llm = AsyncMock()
         return engine
 
     def test_convert_messages_to_ollama_format(self, ollama_engine):
         """Test converting messages to Ollama format."""
-        # Create a human message with media content
         media = MediaContent(
             type=MediaType.IMAGE,
             data="base64image",
@@ -146,7 +150,6 @@ class TestAgentCore:
 
     def test_process_user_input_accepts_specific_media_types(self, agent_core):
         """Test that process_user_input method accepts specific media type parameters."""
-        # Check that the method signature includes specific media type parameters
         import inspect
 
         sig = inspect.signature(agent_core.process_user_input)
@@ -156,7 +159,6 @@ class TestAgentCore:
 
     def test_stream_user_input_accepts_specific_media_types(self, agent_core):
         """Test that stream_user_input method accepts specific media type parameters."""
-        # Check that the method signature includes specific media type parameters
         import inspect
 
         sig = inspect.signature(agent_core.stream_user_input)
@@ -166,7 +168,6 @@ class TestAgentCore:
 
     def test_prepare_messages_and_tools_accepts_specific_media_types(self, agent_core):
         """Test that _prepare_messages_and_tools accepts specific media type parameters."""
-        # Check that the method signature includes specific media type parameters
         import inspect
 
         sig = inspect.signature(agent_core._prepare_messages_and_tools)

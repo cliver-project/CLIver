@@ -149,8 +149,6 @@ def _format_features(capabilities: set) -> str:
         features.append("fn-call")
     if ModelCapability.THINK_MODE in capabilities:
         features.append("think")
-    if ModelCapability.FILE_UPLOAD in capabilities:
-        features.append("upload")
     return " ".join(features) if features else "-"
 
 
