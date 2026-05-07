@@ -1,63 +1,64 @@
-# Welcome to CLIver Documentation
+---
+title: Home
+description: CLIver — a general-purpose AI agent for your terminal
+---
 
-CLIver is a command-line interface (CLI) and Python library designed to provide seamless integration with large language models (LLMs) and Model Context Protocol (MCP) servers. The project emphasizes flexibility, extensibility, and secure operations, making it suitable for both interactive use and programmatic integration.
+# CLIver Documentation
+
+CLIver is a general-purpose AI agent for your terminal. It is model-agnostic, extensible, and safe by design.
 
 ## Getting Started
 
-To start using CLIver, we recommend following these steps:
+<div class="grid cards" markdown>
 
-1. [Overview](overview.md) - Introduction to CLIver and its design goals
-2. [Installation Guide](installation.md) - How to install and set up CLIver
-3. [Configuration](configuration.md) - Configure CLIver for LLM providers and MCP servers
-4. [Chat Usage](chat.md) - Learn how to use CLIver for interactive chat
-5. [Skills](skills.md) - LLM-driven skill activation for specialized tasks
-6. [Memory & Identity](memory-identity.md) - Agent memory, identity profiles, and multi-agent isolation
-7. [Session Management](session-management.md) - Conversation sessions, history, and compression
-8. [Permissions](permissions.md) - Control tool execution permissions and resource access
-9. [Workflow Definition](workflow.md) - Define and execute complex workflows
-10. [Extensibility Guide](extensibility.md) - Extend CLIver functionality and use as a Python library
-11. [Roadmap](roadmap.md) - Future development plans and contribution guidelines
+- :material-download: **[Installation](installation.md)**
 
-## Quick Start
+    Install CLIver via pip, Docker, or from source.
 
-Install CLIver with pip:
+- :material-cog: **[Configuration](configuration.md)**
+
+    Set up LLM providers, MCP servers, and permissions.
+
+- :material-chat: **[Chat Usage](chat.md)**
+
+    Learn interactive and batch chat modes.
+
+- :material-lightning-bolt: **[Skills](skills.md)**
+
+    Teach CLIver new domains with skill files.
+
+</div>
+
+## Core Guides
+
+| Guide | What You'll Learn |
+|-------|-------------------|
+| [Memory & Identity](memory-identity.md) | Persistent knowledge and agent profiles |
+| [Permissions](permissions.md) | Control what tools CLIver can execute |
+| [Workflows](workflow.md) | Multi-step task orchestration with LangGraph |
+| [Session Management](session-management.md) | Conversation history and compression |
+| [Gateway](gateway.md) | Deploy with Telegram, Discord, Slack, Feishu |
+
+## Extend & Integrate
+
+| Guide | What You'll Learn |
+|-------|-------------------|
+| [Extensibility & API](extensibility.md) | Use AgentCore as a Python library |
+| [Roadmap](roadmap.md) | Planned features and how to contribute |
+
+## Quick Example
 
 ```bash
+# Install and start
 pip install cliver
-```
-
-Start a chat session:
-
-```bash
 cliver
+
+# Add a model
+cliver model add --name deepseek --provider openai --url https://api.deepseek.com
+
+# Add an MCP server
+cliver mcp add --name filesystem --transport stdio --command uvx -- mcp-server-filesystem
+
+# Chat with tools
+cliver "List all Python files in this directory and summarize the largest one"
 ```
-> This will start an interactive CLI in which you can start the sub commands using slash(`/`) like `/mcp`, etc.
-
-Manage MCP servers:
-
-```bash
-cliver mcp list
-cliver mcp add --name my-server --transport stdio --command uvx
-```
-
-Manage LLM models:
-
-```bash
-cliver model list
-cliver model add --name my-model --provider ollama --url http://localhost:11434
-cliver model add --name deepseek --provider openai --url http://192.168.1.100:8080
-```
-
-## Key Features
-
-- **Multi-LLM Support**: Connect to various language models served by various providers (DeepSeek, OpenAI, Qwen3-coder on OpenAI compatible servers, vLLM, and more in the future)
-- **MCP Integration**: Seamless integration with Model Context Protocol servers for enhanced functionality
-- **Skills**: LLM-driven skill activation from SKILL.md files for specialized tasks
-- **Memory & Identity**: Agent memory (append/rewrite) and identity profiles with multi-agent isolation
-- **Session Management**: Conversation history with LLM-based compression and session persistence
-- **Tool Permissions**: Resource-aware permission system with persistent rules, session grants, and workflow-scoped overrides
-- **Configurable Workflows**: Define and execute complex workflows using YAML configuration files
-- **Task Scheduling**: Schedule workflows with cron expressions
-- **Token Usage**: Track and view token usage statistics per model and session
-- **Extensible Architecture**: Easy to extend with custom commands and backends — usable as both a CLI and a Python library
-- **Secure Operations**: Secrets management via keyring integration and secure API key handling
