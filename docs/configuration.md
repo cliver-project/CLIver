@@ -11,13 +11,13 @@ This guide covers how to configure CLIver for different LLM providers, Model Con
 
 CLIver supports flexible configuration through multiple methods:
 
-1. **Configuration File**: YAML file (default: `~/.config/cliver/config.yaml`), users can override it by setting `CLIVER_CONF_DIR` environment variable.
+1. **Configuration File**: YAML file (default: `~/.cliver/config.yaml`), users can override it by setting `CLIVER_CONF_DIR` environment variable.
 2. **Environment Variables**: For sensitive information like API keys
 3. **Keyring**: System keyring integration for secure secret storage
 
 ## Basic Configuration File
 
-The default configuration file is located at `~/.config/cliver/config.yaml`. You can create this file manually or let CLIver generate it on first run:
+The default configuration file is located at `~/.cliver/config.yaml`. You can create this file manually or let CLIver generate it on first run:
 
 ```yaml
 --8<-- "examples/cliver_config.yaml"
@@ -160,7 +160,7 @@ cliver model default my-model
 ## Configuration Directory Structure
 
 ```
-~/.config/cliver/
+~/.cliver/
 ├── config.yaml                  # Main configuration (YAML)
 ├── cliver-settings.yaml         # Global permission rules
 ├── audit_logs/                  # Token usage logs

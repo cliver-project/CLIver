@@ -205,7 +205,7 @@ def _run_workflow(cliver: Cliver, name: str, inputs: tuple):
         if runs_dir:
             outputs_base = str(Path(runs_dir) / name)
         else:
-            outputs_base = str(cliver.agent_profile.agent_dir / "workflow-runs" / name)
+            outputs_base = str(cliver.agent_profile.config_dir / "workflow-runs" / name)
 
     stop_event = threading.Event()
     tailer = threading.Thread(
@@ -317,7 +317,7 @@ def _resume_workflow(cliver: Cliver, name: str, thread: str, answer: str | None,
         if runs_dir:
             outputs_base = str(Path(runs_dir) / name)
         else:
-            outputs_base = str(cliver.agent_profile.agent_dir / "workflow-runs" / name)
+            outputs_base = str(cliver.agent_profile.config_dir / "workflow-runs" / name)
 
     outputs_dir = str(Path(outputs_base) / execution_id)
 

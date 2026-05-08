@@ -77,13 +77,6 @@ class MemoryWriteInput(BaseModel):
             "consolidating, or reorganizing existing memories."
         ),
     )
-    scope: Optional[Literal["agent", "global"]] = Field(
-        default="agent",
-        description=(
-            "Where to store: 'agent' for your personal memory "
-            "(default), 'global' for knowledge shared across all agents."
-        ),
-    )
 
 
 class MemoryWriteTool(BaseTool):
@@ -116,17 +109,17 @@ class MemoryWriteTool(BaseTool):
     args_schema: Type[BaseModel] = MemoryWriteInput
     tags: list = ["memory", "context"]
 
-    def _run(self, content: str, comment: str = None, mode: str = "append", scope: str = "agent") -> str:
+    def _run(self, content: str, comment: str = None, mode: str = "append") -> str:
         profile = get_current_profile()
         if profile is None:
             return "Memory is not available in this session."
 
         if mode == "rewrite":
-            profile.save_memory(content, scope=scope)
-            return f"Rewrote {scope} memory."
+            profile.save_memory(content)
+            return "Rewrote memory."
         else:
-            profile.append_memory(content, scope=scope, comment=comment or "")
-            return f"Saved to {scope} memory: {content}"
+            profile.append_memory(content, comment=comment or "")
+            return f"Saved to memory: {content}"
 
 
 # ---------------------------------------------------------------------------

@@ -58,8 +58,8 @@ class Cliver:
         # Thinking spinner shown while LLM is processing
         self.thinking = ThinkingIndicator(self.console)
 
-        # Initialize agent (may be overridden by --agent flag before run)
-        self._init_agent(self.config_manager.config.default_agent_name)
+        # Initialize profile
+        self._init_profile()
 
         # prepare console for interaction
         self.config_dir.mkdir(parents=True, exist_ok=True)
@@ -108,30 +108,20 @@ class Cliver:
         tw = shutil.get_terminal_size().columns
         self.console.print(get_theme().user_input_markup(text, tw))
 
-    def _init_agent(self, agent_name: str) -> None:
-        """Initialize (or reinitialize) all agent-scoped components.
-
-        Ensures the agent directory and a default identity.md exist.
-        """
+    def _init_profile(self) -> None:
+        """Initialize profile and all scoped components."""
+        from cliver.agent_profile import _DEFAULT_IDENTITY
         from cliver.token_tracker import TokenTracker
 
-        self.agent_profile = CliverProfile(agent_name, self.config_dir)
+        self.agent_profile = CliverProfile(self.config_dir)
         self.agent_profile.ensure_dirs()
 
-        # Create a default identity file if it doesn't exist yet
         if not self.agent_profile.identity_file.exists():
-            self.agent_profile.save_identity(
-                f"# Agent: {agent_name}\n\n"
-                f"## Agent Persona\n"
-                f"- Name: {agent_name}\n"
-                f"- Style: Helpful, professional\n\n"
-                f"## User Profile\n"
-                f"- *(Update via `/identity chat` or `/agent create`)*\n"
-            )
+            self.agent_profile.save_identity(_DEFAULT_IDENTITY)
 
         self.token_tracker = TokenTracker(
             audit_dir=self.config_dir / "audit_logs",
-            agent_name=agent_name,
+            agent_name=self.agent_profile.profile_name,
         )
         from cliver.util import configure_timezone
 
@@ -142,7 +132,7 @@ class Cliver:
             mcp_servers=self.config_manager.list_mcp_servers_for_mcp_caller(),
             default_model=self.config_manager.get_llm_model().name if self.config_manager.get_llm_model() else None,
             user_agent=self.config_manager.config.user_agent,
-            agent_name=agent_name,
+            agent_name=self.agent_profile.profile_name,
             on_tool_event=create_tool_progress_handler(self.console, thinking=self.thinking),
             agent_profile=self.agent_profile,
             token_tracker=self.token_tracker,
@@ -164,20 +154,10 @@ class Cliver:
 
         self.cost_tracker = CostTracker(pricing=pricing)
 
-    def switch_agent(self, agent_name: str) -> None:
-        """Switch to a different agent, updating all scoped resources."""
-        self._init_agent(agent_name)
-        # Clear conversation state (different agent = fresh context)
-        self.conversation_messages = []
-        self.session_history = []
-        self.current_session_id = None
-        # Persist as the new default
-        self.config_manager.set_default_agent_name(agent_name)
-
     @property
     def agent_name(self) -> str:
-        """Current active agent name."""
-        return self.agent_profile.agent_name
+        """Profile name from identity.md."""
+        return self.agent_profile.profile_name
 
     def load_commands_names(self, group: click.Group) -> list[str]:
         return commands.list_commands_names(group)
@@ -244,7 +224,6 @@ pass_cliver = click.make_pass_decorator(Cliver)
 
 @click.group(invoke_without_command=True)
 @click.version_option(version=__version__, prog_name="cliver")
-@click.option("--agent", type=str, default=None, help="Agent instance to use")
 @click.option("--model", "-m", type=str, default=None, help="LLM model to use")
 @click.option("--prompt", "-p", type=str, default=None, help="Prompt to send to the LLM")
 @click.option("--image", multiple=True, help="Image files to send with the prompt")
@@ -274,7 +253,6 @@ pass_cliver = click.make_pass_decorator(Cliver)
 @click.pass_context
 def cliver_cli(
     ctx: click.Context,
-    agent: str | None,
     model: str | None,
     prompt: str | None,
     image: tuple,
@@ -292,9 +270,6 @@ def cliver_cli(
     cli = None
     if ctx.obj is None:
         cli = Cliver()
-        if agent:
-            cli._init_agent(agent)
-            cli.config_manager.set_default_agent_name(agent)
         ctx.obj = cli
     else:
         cli = ctx.obj

@@ -12,14 +12,14 @@ CLIver provides persistent memory and identity systems that allow the agent to r
 Each agent has an isolated profile managed by the `AgentProfile` class. Profiles are scoped by `agent_name` (configured in `config.yaml`):
 
 ```
-~/.config/cliver/agents/{agent_name}/
+~/.cliver/agents/{agent_name}/
 ├── identity.md     # Agent identity profile
 ├── memory.md       # Agent-scoped memory
 ├── sessions/       # Conversation history
 └── tasks/          # Task definitions
 ```
 
-A global memory file also exists at `~/.config/cliver/memory.md` for cross-agent information.
+A global memory file also exists at `~/.cliver/memory.md` for cross-agent information.
 
 ### Multi-Agent Isolation
 
@@ -118,7 +118,7 @@ from cliver.agent_profile import AgentProfile, set_current_profile
 
 profile = AgentProfile(
     agent_name="MyAgent",
-    config_dir=Path("~/.config/cliver").expanduser(),
+    config_dir=Path("~/.cliver").expanduser(),
 )
 set_current_profile(profile)
 ```

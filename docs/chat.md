@@ -98,7 +98,7 @@ CLIver has an LLM-driven skill system. During a chat session, the LLM can discov
 /skills run brainstorm design a login page
 ```
 
-Skills are defined as SKILL.md files discovered from `.cliver/skills/` (project), `~/.config/cliver/skills/` (global), and other compatible directories.
+Skills are defined as SKILL.md files discovered from `.cliver/skills/` (project), `~/.cliver/skills/` (global), and other compatible directories.
 
 See [Skills](skills.md) for details on creating and using skills.
 

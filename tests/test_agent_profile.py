@@ -1,14 +1,14 @@
-"""Tests for AgentProfile — instance-scoped resource management."""
+"""Tests for CliverProfile — instance-scoped resource management."""
 
 import pytest
 
-from cliver.agent_profile import MAX_MEMORY_CHARS, AgentProfile
+from cliver.agent_profile import MAX_MEMORY_CHARS, CliverProfile, _parse_frontmatter
 
 
 @pytest.fixture
 def profile(tmp_path):
-    """Create an AgentProfile with a temp config directory."""
-    return AgentProfile("TestBot", config_dir=tmp_path)
+    """Create a CliverProfile with a temp config directory."""
+    return CliverProfile(config_dir=tmp_path)
 
 
 # ---------------------------------------------------------------------------
@@ -17,20 +17,18 @@ def profile(tmp_path):
 
 
 class TestDirectoryStructure:
-    def test_paths_use_agent_name(self, profile, tmp_path):
-        assert profile.agent_dir == tmp_path / "agents" / "TestBot"
-        assert profile.memory_file == tmp_path / "agents" / "TestBot" / "memory.md"
-        assert profile.identity_file == tmp_path / "agents" / "TestBot" / "identity.md"
-        assert profile.tasks_dir == tmp_path / "agents" / "TestBot" / "tasks"
-        assert profile.sessions_dir == tmp_path / "agents" / "TestBot" / "sessions"
+    def test_paths_are_flat(self, profile, tmp_path):
+        assert profile.memory_file == tmp_path / "memory.md"
+        assert profile.identity_file == tmp_path / "identity.md"
+        assert profile.tasks_dir == tmp_path / "tasks"
+        assert profile.sessions_dir == tmp_path / "sessions"
+        assert profile.workflows_dir == tmp_path / "workflows"
+        assert profile.gateway_db == tmp_path / "gateway.db"
 
-    def test_global_memory_path(self, profile, tmp_path):
-        assert profile.global_memory_file == tmp_path / "memory.md"
-
-    def test_ensure_dirs_creates_agent_dir(self, profile):
-        assert not profile.agent_dir.exists()
+    def test_ensure_dirs_creates_config_dir(self, profile, tmp_path):
         profile.ensure_dirs()
-        assert profile.agent_dir.exists()
+        assert tmp_path.exists()
+        assert profile.workflows_dir.exists()
 
 
 # ---------------------------------------------------------------------------
@@ -42,47 +40,17 @@ class TestLoadMemory:
     def test_empty_when_no_files(self, profile):
         assert profile.load_memory() == ""
 
-    def test_loads_global_memory_only(self, profile, tmp_path):
-        (tmp_path / "memory.md").write_text("Global note")
+    def test_loads_memory(self, profile, tmp_path):
+        (tmp_path / "memory.md").write_text("User prefers dark mode")
         result = profile.load_memory()
-        assert "Global Memory" in result
-        assert "Global note" in result
-
-    def test_loads_agent_memory_only(self, profile):
-        profile.ensure_dirs()
-        profile.memory_file.write_text("Agent note")
-        result = profile.load_memory()
-        assert "Agent Memory: TestBot" in result
-        assert "Agent note" in result
-
-    def test_loads_both_memories(self, profile, tmp_path):
-        (tmp_path / "memory.md").write_text("Global info")
-        profile.ensure_dirs()
-        profile.memory_file.write_text("Agent info")
-
-        result = profile.load_memory()
-        assert "Global Memory" in result
-        assert "Global info" in result
-        assert "Agent Memory: TestBot" in result
-        assert "Agent info" in result
-
-    def test_global_comes_before_agent(self, profile, tmp_path):
-        (tmp_path / "memory.md").write_text("Global")
-        profile.ensure_dirs()
-        profile.memory_file.write_text("Agent")
-
-        result = profile.load_memory()
-        global_pos = result.index("Global Memory")
-        agent_pos = result.index("Agent Memory")
-        assert global_pos < agent_pos
+        assert "User prefers dark mode" in result
 
     def test_truncates_long_memory(self, profile, tmp_path):
-        # Create memory that exceeds MAX_MEMORY_CHARS
         long_content = "x" * (MAX_MEMORY_CHARS + 1000)
         (tmp_path / "memory.md").write_text(long_content)
 
         result = profile.load_memory()
-        assert len(result) <= MAX_MEMORY_CHARS + 100  # some overhead for headers
+        assert len(result) <= MAX_MEMORY_CHARS + 100
         assert result.startswith("...(truncated)")
 
 
@@ -92,13 +60,13 @@ class TestLoadMemory:
 
 
 class TestAppendMemory:
-    def test_append_creates_agent_memory_file(self, profile):
+    def test_append_creates_memory_file(self, profile):
         assert not profile.memory_file.exists()
         profile.append_memory("User prefers dark mode")
         assert profile.memory_file.exists()
 
         content = profile.memory_file.read_text()
-        assert "Memory: TestBot" in content
+        assert "Memory" in content
         assert "User prefers dark mode" in content
 
     def test_append_adds_timestamp(self, profile):
@@ -116,24 +84,11 @@ class TestAppendMemory:
         assert "First entry" in content
         assert "Second entry" in content
 
-    def test_append_global_memory(self, profile, tmp_path):
-        profile.append_memory("Shared knowledge", scope="global")
-        assert (tmp_path / "memory.md").exists()
-
-        content = (tmp_path / "memory.md").read_text()
-        assert "Global Memory" in content
-        assert "Shared knowledge" in content
-
-    def test_append_global_does_not_create_agent_dir(self, profile):
-        profile.append_memory("Global only", scope="global")
-        assert not profile.agent_dir.exists()
-
     def test_append_with_comment(self, profile):
         profile.append_memory("Timezone is UTC+9", comment="Corrected from UTC+8")
         content = profile.memory_file.read_text()
         assert "Timezone is UTC+9" in content
         assert "Corrected from UTC+8" in content
-        assert "UTC" in content  # timestamp still present
 
     def test_save_memory_replaces_entirely(self, profile):
         profile.append_memory("Old entry")
@@ -152,7 +107,7 @@ class TestIdentity:
     def test_empty_identity_when_no_file(self, profile):
         assert profile.load_identity() == ""
 
-    def test_load_identity(self, profile):
+    def test_load_identity(self, profile, tmp_path):
         profile.ensure_dirs()
         profile.identity_file.write_text("# User Profile\n\n- Name: Alice\n- Location: Tokyo\n")
         identity = profile.load_identity()
@@ -173,96 +128,83 @@ class TestIdentity:
         assert "New info" in loaded
         assert "Old info" not in loaded
 
-    def test_save_creates_agent_dir(self, profile):
-        assert not profile.agent_dir.exists()
-        profile.save_identity("# Test")
-        assert profile.agent_dir.exists()
-
     def test_identity_file_is_markdown(self, profile):
         assert profile.identity_file.name == "identity.md"
 
 
 # ---------------------------------------------------------------------------
-# Multiple agents — isolation
+# Profile — YAML frontmatter
 # ---------------------------------------------------------------------------
 
 
-class TestAgentIsolation:
-    def test_different_agents_have_separate_memory(self, tmp_path):
-        bot_a = AgentProfile("BotA", config_dir=tmp_path)
-        bot_b = AgentProfile("BotB", config_dir=tmp_path)
+class TestProfile:
+    def test_empty_profile_when_no_file(self, profile):
+        assert profile.load_profile() == {}
 
-        bot_a.append_memory("I am Bot A")
-        bot_b.append_memory("I am Bot B")
+    def test_load_profile_from_frontmatter(self, profile):
+        profile.save_identity("---\nname: Alice\nrole: Engineer\n---\n\n## Notes\nSome text")
+        data = profile.load_profile()
+        assert data["name"] == "Alice"
+        assert data["role"] == "Engineer"
 
-        mem_a = bot_a.load_memory()
-        mem_b = bot_b.load_memory()
+    def test_set_profile_field(self, profile):
+        profile.save_identity("---\nname: CLIver\n---\n")
+        profile.set_profile_field("role", "Engineer")
+        data = profile.load_profile()
+        assert data["name"] == "CLIver"
+        assert data["role"] == "Engineer"
 
-        assert "I am Bot A" in mem_a
-        assert "I am Bot B" not in mem_a
-        assert "I am Bot B" in mem_b
-        assert "I am Bot A" not in mem_b
+    def test_set_nested_field(self, profile):
+        profile.save_identity("---\nname: CLIver\n---\n")
+        profile.set_profile_field("preferences.language", "zh-CN")
+        data = profile.load_profile()
+        assert data["preferences"]["language"] == "zh-CN"
 
-    def test_agents_share_global_memory(self, tmp_path):
-        bot_a = AgentProfile("BotA", config_dir=tmp_path)
-        bot_b = AgentProfile("BotB", config_dir=tmp_path)
+    def test_set_preserves_body(self, profile):
+        profile.save_identity("---\nname: CLIver\n---\n\n## My Notes\nKeep this text")
+        profile.set_profile_field("role", "Dev")
+        content = profile.load_identity()
+        assert "My Notes" in content
+        assert "Keep this text" in content
+        assert "role: Dev" in content
 
-        bot_a.append_memory("Shared fact", scope="global")
+    def test_profile_name_property(self, profile):
+        assert profile.profile_name == "CLIver"  # default
+        profile.save_identity("---\nname: Alice\n---\n")
+        assert profile.profile_name == "Alice"
 
-        mem_a = bot_a.load_memory()
-        mem_b = bot_b.load_memory()
-
-        assert "Shared fact" in mem_a
-        assert "Shared fact" in mem_b
-
-    def test_agents_have_separate_identity(self, tmp_path):
-        bot_a = AgentProfile("BotA", config_dir=tmp_path)
-        bot_b = AgentProfile("BotB", config_dir=tmp_path)
-
-        bot_a.save_identity("# BotA\nPersona: helpful")
-        bot_b.save_identity("# BotB\nPersona: concise")
-
-        assert "helpful" in bot_a.load_identity()
-        assert "concise" in bot_b.load_identity()
-        assert "helpful" not in bot_b.load_identity()
+    def test_set_creates_file_if_missing(self, profile):
+        assert not profile.identity_file.exists()
+        profile.set_profile_field("name", "Bob")
+        assert profile.identity_file.exists()
+        assert profile.load_profile()["name"] == "Bob"
 
 
 # ---------------------------------------------------------------------------
-# Rename
+# Frontmatter parsing
 # ---------------------------------------------------------------------------
 
 
-class TestRename:
-    def test_rename_moves_data(self, tmp_path):
-        old = AgentProfile("OldName", config_dir=tmp_path)
-        old.append_memory("Remember this")
-        old.save_identity("# Profile\nPersona: original")
+class TestFrontmatter:
+    def test_parse_empty(self):
+        fm, body = _parse_frontmatter("")
+        assert fm == {}
+        assert body == ""
 
-        new = old.rename("NewName")
+    def test_parse_no_frontmatter(self):
+        fm, body = _parse_frontmatter("# Just markdown")
+        assert fm == {}
+        assert body == "# Just markdown"
 
-        assert new.agent_name == "NewName"
-        assert new.agent_dir == tmp_path / "agents" / "NewName"
-        assert not old.agent_dir.exists()
-        assert new.agent_dir.exists()
+    def test_parse_with_frontmatter(self):
+        content = "---\nname: Test\nrole: Dev\n---\n\n## Body"
+        fm, body = _parse_frontmatter(content)
+        assert fm["name"] == "Test"
+        assert fm["role"] == "Dev"
+        assert "## Body" in body
 
-        # Data is preserved
-        mem = new.load_memory()
-        assert "Remember this" in mem
-        assert "original" in new.load_identity()
-
-    def test_rename_target_exists_raises(self, tmp_path):
-        a = AgentProfile("AgentA", config_dir=tmp_path)
-        b = AgentProfile("AgentB", config_dir=tmp_path)
-        a.ensure_dirs()
-        b.ensure_dirs()
-
-        with pytest.raises(FileExistsError):
-            a.rename("AgentB")
-
-    def test_rename_no_existing_data_returns_fresh(self, tmp_path):
-        old = AgentProfile("Ghost", config_dir=tmp_path)
-        # Don't create any data
-        new = old.rename("Fresh")
-        assert new.agent_name == "Fresh"
-        assert new.load_memory() == ""
-        assert new.load_identity() == ""
+    def test_parse_frontmatter_only(self):
+        content = "---\nname: Test\n---"
+        fm, body = _parse_frontmatter(content)
+        assert fm["name"] == "Test"
+        assert body == ""

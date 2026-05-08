@@ -99,7 +99,7 @@ def _render_page(page_name, context, extra_replacements=None):
     base_html = base_path.read_text(encoding="utf-8")
     page_html = page_path.read_text(encoding="utf-8")
     html = base_html.replace("{{CONTENT}}", page_html)
-    html = html.replace("{{AGENT_NAME}}", context.get("agent_name", "CLIver"))
+    html = html.replace("{{AGENT_NAME}}", context.get("profile_name", "CLIver"))
     html = html.replace("{{BASE_URL}}", "/admin")
     html = html.replace("{{CURRENT_PAGE}}", page_name.split("_")[0])
     if extra_replacements:
@@ -114,7 +114,7 @@ def _render_login_page(context, error=None):
     if not page_path.exists():
         return "<html><body><h1>Login page not found</h1></body></html>"
     html = page_path.read_text(encoding="utf-8")
-    html = html.replace("{{AGENT_NAME}}", context.get("agent_name", "CLIver"))
+    html = html.replace("{{AGENT_NAME}}", context.get("profile_name", "CLIver"))
     html = html.replace("{{ERROR}}", error or "")
     html = html.replace("{{ERROR_DISPLAY}}", "block" if error else "none")
     return html
@@ -135,8 +135,8 @@ def _get_tasks(ctx: dict) -> list:
         config_dir = ctx.get("config_dir")
         if not config_dir:
             return []
-        profile = CliverProfile(ctx["agent_name"], config_dir)
-        store = TaskStore(profile.agent_dir / "gateway.db")
+        profile = CliverProfile(config_dir)
+        store = TaskStore(profile.gateway_db)
         tm = TaskManager(profile.tasks_dir, store)
         entries = tm.list_task_entries()
 
@@ -183,8 +183,8 @@ async def _run_task(ctx: dict, task_name: str) -> dict:
         if not config_dir or not gateway:
             return {"status": "error", "message": "gateway or config_dir not available"}
 
-        profile = CliverProfile(ctx["agent_name"], config_dir)
-        store = TaskStore(profile.agent_dir / "gateway.db")
+        profile = CliverProfile(config_dir)
+        store = TaskStore(profile.gateway_db)
         tm = TaskManager(profile.tasks_dir, store)
         task = tm.get_task(task_name)
         if not task:
@@ -284,8 +284,8 @@ def _get_task_detail(ctx, task_name):
         config_dir = ctx.get("config_dir")
         if not config_dir:
             return None
-        profile = CliverProfile(ctx["agent_name"], config_dir)
-        store = TaskStore(profile.agent_dir / "gateway.db")
+        profile = CliverProfile(config_dir)
+        store = TaskStore(profile.gateway_db)
         tm = TaskManager(profile.tasks_dir, store)
         task_entry = tm.get_task_entry(task_name)
         if not task_entry:
@@ -325,7 +325,7 @@ def _get_workflow_detail(ctx, workflow_id):
         config_dir = ctx.get("config_dir")
         if not config_dir:
             return None
-        profile = CliverProfile(ctx["agent_name"], config_dir)
+        profile = CliverProfile(config_dir)
         store = WorkflowStore(profile.workflows_dir)
         # Get default model and model list from gateway config
         default_model = None
@@ -356,7 +356,7 @@ def _get_workflow_detail(ctx, workflow_id):
                         if config_runs_dir:
                             default_runs = Path(config_runs_dir) / stem
                         else:
-                            default_runs = profile.agent_dir / "workflow-runs" / stem
+                            default_runs = profile.config_dir / "workflow-runs" / stem
                         data["_default_outputs_dir"] = str(default_runs)
                     return data
         return None
@@ -374,7 +374,7 @@ def _get_workflows(ctx: dict) -> list:
         config_dir = ctx.get("config_dir")
         if not config_dir:
             return []
-        profile = CliverProfile(ctx["agent_name"], config_dir)
+        profile = CliverProfile(config_dir)
         store = WorkflowStore(profile.workflows_dir)
         entries = store.list_all_workflows()
         result = []
@@ -409,7 +409,7 @@ def _get_workflow_executions(ctx: dict, workflow_id: str = None) -> list:
         config_dir = ctx.get("config_dir")
         if not config_dir:
             return []
-        profile = CliverProfile(ctx["agent_name"], config_dir)
+        profile = CliverProfile(config_dir)
         if not workflow_id:
             return WorkflowStore.list_executions(profile.workflow_checkpoints_db)
 
@@ -440,7 +440,7 @@ async def _get_execution_status(ctx: dict, workflow_id: str, thread_id: str) -> 
         config_dir = ctx.get("config_dir")
         if not config_dir:
             return None
-        profile = CliverProfile(ctx["agent_name"], config_dir)
+        profile = CliverProfile(config_dir)
         gateway = ctx.get("gateway")
         agent_core = getattr(gateway, "_agent_core", None) if gateway else None
         if not agent_core:
@@ -487,7 +487,7 @@ def _save_workflow(ctx: dict, workflow_id: str, data: dict) -> Optional[str]:
         config_dir = ctx.get("config_dir")
         if not config_dir:
             return "No config dir"
-        profile = CliverProfile(ctx["agent_name"], config_dir)
+        profile = CliverProfile(config_dir)
         store = WorkflowStore(profile.workflows_dir)
 
         # Find the file path
@@ -609,7 +609,7 @@ def _get_agent_info(ctx: dict) -> dict:
         info = {"name": agent_name, "identity": "", "memory": ""}
 
         if config_dir:
-            profile = CliverProfile(agent_name, config_dir)
+            profile = CliverProfile(config_dir)
             if profile.identity_file.exists():
                 content = profile.identity_file.read_text(encoding="utf-8")
                 info["identity"] = content[:2000]
@@ -825,8 +825,8 @@ def get_admin_routes(
             if not config_dir:
                 return JSONResponse({"error": "No config dir"}, status_code=500)
 
-            profile = CliverProfile(context["agent_name"], config_dir)
-            store = TaskStore(profile.agent_dir / "gateway.db")
+            profile = CliverProfile(config_dir)
+            store = TaskStore(profile.gateway_db)
             tm = TaskManager(profile.tasks_dir, store)
             removed = tm.remove_task(task_name)
 
@@ -992,8 +992,7 @@ def get_admin_routes(
             from cliver.workflow.workflow_executor import WorkflowExecutor
 
             config_dir = context.get("config_dir")
-            agent_name = context.get("agent_name", "CLIver")
-            profile = CliverProfile(agent_name, config_dir)
+            profile = CliverProfile(config_dir)
             store = WorkflowStore(profile.workflows_dir)
             db_path = profile.workflow_checkpoints_db
             config_manager = gateway._get_config_manager()
@@ -1087,7 +1086,7 @@ def get_admin_routes(
             config_dir = context.get("config_dir")
             if not config_dir:
                 return JSONResponse({"error": "No config dir"}, status_code=500)
-            profile = CliverProfile(context["agent_name"], config_dir)
+            profile = CliverProfile(config_dir)
             deleted = WorkflowStore.delete_execution(tid, profile.workflow_checkpoints_db)
             if deleted:
                 return JSONResponse({"status": "deleted"})

@@ -59,7 +59,7 @@ def classify_error(error: Exception) -> ClassifiedError:
     if status == 400:
         if _is_context_overflow(message):
             return ClassifiedError(ErrorAction.FAILOVER, "context_overflow", True, error)
-        return ClassifiedError(ErrorAction.FAILOVER, "bad_request", False, error)
+        return ClassifiedError(ErrorAction.FATAL, "bad_request", False, error)
 
     if isinstance(error, TimeoutException):
         return ClassifiedError(ErrorAction.RETRY, "timeout", False, error)

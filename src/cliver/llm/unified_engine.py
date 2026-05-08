@@ -11,17 +11,14 @@ Unknown types fall back to openai-compatible behavior.
 
 import json
 import logging
-from typing import Any, AsyncIterator, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List
 
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import (
-    AIMessage,
     BaseMessage,
-    BaseMessageChunk,
     HumanMessage,
     SystemMessage,
 )
-from langchain_core.tools import BaseTool
 
 from cliver.config import ModelConfig
 from cliver.llm.base import LLMInferenceEngine
@@ -29,38 +26,6 @@ from cliver.llm.media_utils import data_url_to_media_content, extract_data_urls
 from cliver.media import MediaContent, MediaType
 
 logger = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Provider-specific parameter sanitization (ported from openai_engine.py)
-# ---------------------------------------------------------------------------
-
-_STRIP_PENALTY_PREFIXES = ("minimax",)
-_CLAMP_TEMP_PREFIXES = ("minimax",)
-_MIN_TEMPERATURE = 0.01
-
-
-def _sanitize_options(model_name: str, options: dict) -> dict:
-    """Adjust inference options for provider-specific restrictions."""
-    if not options:
-        return options
-
-    opts = dict(options)
-
-    if any(model_name.startswith(p) for p in _STRIP_PENALTY_PREFIXES):
-        opts.pop("frequency_penalty", None)
-        opts.pop("presence_penalty", None)
-        opts.pop("logit_bias", None)
-
-    if any(model_name.startswith(p) for p in _CLAMP_TEMP_PREFIXES):
-        temp = opts.get("temperature")
-        if temp is not None:
-            if temp <= 0:
-                opts["temperature"] = _MIN_TEMPERATURE
-            elif temp > 1.0:
-                opts["temperature"] = 1.0
-
-    return opts
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +145,6 @@ def _extract_options(config: ModelConfig, exclude_unset: bool = True) -> dict:
 
 def _build_openai_kwargs(config: ModelConfig, user_agent: str | None) -> dict:
     options = _extract_options(config)
-    options = _sanitize_options(config.api_model_name.lower(), options)
 
     kwargs: Dict[str, Any] = {
         **options,
@@ -437,7 +401,6 @@ class UnifiedInferenceEngine(LLMInferenceEngine):
     ):
         super().__init__(config, user_agent=user_agent, agent_name=agent_name)
         self._provider_type = config.get_provider_type()
-        self._model_name_lower = config.api_model_name.lower()
 
         builder = _KWARG_BUILDERS.get(self._provider_type, _build_openai_kwargs)
         kwargs = builder(config, user_agent)
@@ -447,27 +410,6 @@ class UnifiedInferenceEngine(LLMInferenceEngine):
             model_provider=self._provider_type,
             **kwargs,
         )
-
-    async def infer(
-        self,
-        messages: list[BaseMessage],
-        tools: Optional[list[BaseTool]],
-        **kwargs: Any,
-    ) -> BaseMessage:
-        if self._provider_type == "openai":
-            kwargs = _sanitize_options(self._model_name_lower, kwargs)
-        return await super().infer(messages, tools, **kwargs)
-
-    async def stream(
-        self,
-        messages: List[BaseMessage],
-        tools: Optional[list[BaseTool]],
-        **kwargs: Any,
-    ) -> AsyncIterator[BaseMessageChunk]:
-        if self._provider_type == "openai":
-            kwargs = _sanitize_options(self._model_name_lower, kwargs)
-        async for chunk in super().stream(messages, tools, **kwargs):
-            yield chunk
 
     def convert_messages_to_engine_specific(self, messages: List[BaseMessage]) -> List[BaseMessage]:
         # Always merge system messages for all providers

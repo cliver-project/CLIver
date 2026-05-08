@@ -34,11 +34,11 @@ _STATIC_TOPICS = {
 
 
 _COMMAND_SUMMARIES = {
-    "agent": "Manage agent instances (list, create, switch, rename, delete)",
     "config": "Manage CLIver configuration (show, validate, set, theme, rate-limit)",
     "cost": "View token usage and cost statistics (session or all-time)",
     "gateway": "Manage the gateway daemon (start, stop, status, platform adapters)",
     "identity": "Manage the agent's identity profile (show, chat, clear)",
+    "profile": "View or update your CLIver profile (name, role, preferences)",
     "mcp": "Manage MCP server connections (list, add, set, remove)",
     "model": "Manage LLM model configurations (list, add, set, default, remove)",
     "permissions": "Manage persistent permission rules (rules, mode, add, remove)",

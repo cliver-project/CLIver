@@ -345,7 +345,7 @@ def run_skill(cliver: Cliver, name: str, message: tuple, prompt_file: str | None
     "save_global",
     is_flag=True,
     default=False,
-    help="Save to global skills directory (~/.config/cliver/skills/) instead of project-local .cliver/skills/",
+    help="Save to global skills directory (~/.cliver/skills/) instead of project-local .cliver/skills/",
 )
 @pass_cliver
 def create_skill(cliver: Cliver, name: str, description: tuple, save_global: bool):

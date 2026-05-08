@@ -65,7 +65,7 @@ def _start_gateway(cliver: Cliver):
     # The child process handles its own secret resolution and AgentCore init.
     log_path = get_config_dir() / "gateway.log"
     proc = subprocess.Popen(
-        [sys.executable, "-m", "cliver.gateway.main", "--agent", cliver.agent_name],
+        [sys.executable, "-m", "cliver.gateway.main"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True,

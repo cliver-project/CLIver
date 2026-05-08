@@ -70,11 +70,9 @@ class Gateway:
     def __init__(
         self,
         config_dir: Path,
-        agent_name: str = "CLIver",
         resolved_config=None,
     ):
         self.config_dir = Path(config_dir)
-        self.agent_name = agent_name
         self._resolved_config = resolved_config
         self._pid_path = self.config_dir / "cliver-gateway.pid"
         self._pid_file = None
@@ -163,7 +161,7 @@ class Gateway:
 
             cli_sm = None
             try:
-                cli_sessions_dir = CliverProfile(self.agent_name, self.config_dir).sessions_dir
+                cli_sessions_dir = CliverProfile(self.config_dir).sessions_dir
                 if cli_sessions_dir.exists():
                     from cliver.session_manager import SessionManager as SM
 
@@ -171,9 +169,10 @@ class Gateway:
             except Exception as e:
                 logger.debug("CLI sessions not available: %s", e)
 
+            profile = CliverProfile(self.config_dir)
             admin_ctx = {
                 "get_status": self._get_status_async,
-                "agent_name": self.agent_name,
+                "profile_name": profile.profile_name,
                 "config_dir": self.config_dir,
                 "gateway": self,
                 "cli_session_manager": cli_sm,
@@ -203,7 +202,7 @@ class Gateway:
 
     async def _on_startup(self) -> None:
         """Lifecycle hook: acquire flock, init components."""
-        logger.info(f"Gateway starting (agent: {self.agent_name})")
+        logger.info("Gateway starting")
         self._start_time = time.monotonic()
 
         # Singleton flock
@@ -228,9 +227,9 @@ class Gateway:
 
         # Cron scheduler
         try:
-            agent_profile = CliverProfile(self.agent_name, self.config_dir)
+            agent_profile = CliverProfile(self.config_dir)
             agent_profile.ensure_dirs()
-            self._run_store = TaskStore(agent_profile.agent_dir / "gateway.db")
+            self._run_store = TaskStore(agent_profile.gateway_db)
             self._task_manager = TaskManager(agent_profile.tasks_dir, self._run_store)
 
             self._scheduler = CronScheduler(
@@ -263,8 +262,8 @@ class Gateway:
 
         # Initialize session manager (single instance for the gateway lifetime)
         try:
-            agent_profile = CliverProfile(self.agent_name, self.config_dir)
-            gw_sessions_dir = agent_profile.agent_dir / "gateway-sessions"
+            agent_profile = CliverProfile(self.config_dir)
+            gw_sessions_dir = self.config_dir / "gateway-sessions"
             self._session_manager = SessionManager(gw_sessions_dir)
             sc = self._get_config_manager().config.session
             deleted = self._session_manager.delete_stale_sessions(max_age_days=sc.max_age_days)
@@ -520,7 +519,7 @@ class Gateway:
         """Save execution result as a JSON file for non-IM tasks."""
         import json
 
-        agent_profile = CliverProfile(self.agent_name, self.config_dir)
+        agent_profile = CliverProfile(self.config_dir)
         task_results_dir = agent_profile.tasks_dir / task_name
         task_results_dir.mkdir(parents=True, exist_ok=True)
 
@@ -553,7 +552,7 @@ class Gateway:
             logger.error("Gateway not started — cannot run workflow")
             return None
 
-        agent_profile = CliverProfile(self.agent_name, self.config_dir)
+        agent_profile = CliverProfile(self.config_dir)
         store = WorkflowStore(agent_profile.workflows_dir)
         db_path = agent_profile.workflow_checkpoints_db
 
@@ -579,7 +578,7 @@ class Gateway:
 
         configure_timezone(config_manager.config.timezone)
 
-        agent_profile = CliverProfile(self.agent_name, self.config_dir)
+        agent_profile = CliverProfile(self.config_dir)
         agent_profile.ensure_dirs()
 
         tool_handler = _create_gateway_tool_handler()
@@ -589,7 +588,7 @@ class Gateway:
             mcp_servers=config_manager.list_mcp_servers_for_mcp_caller(),
             default_model=(config_manager.get_llm_model().name if config_manager.get_llm_model() else None),
             user_agent=config_manager.config.user_agent,
-            agent_name=self.agent_name,
+            agent_name=agent_profile.profile_name,
             agent_profile=agent_profile,
             enabled_toolsets=config_manager.config.enabled_toolsets,
             on_tool_event=tool_handler,
@@ -956,7 +955,7 @@ class Gateway:
         if not self._run_store:
             return
 
-        agent_profile = CliverProfile(self.agent_name, self.config_dir)
+        agent_profile = CliverProfile(self.config_dir)
         task_manager = TaskManager(agent_profile.tasks_dir, self._run_store)
 
         suspended = self._run_store.get_tasks_by_status("suspended")

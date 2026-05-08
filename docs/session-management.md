@@ -34,7 +34,7 @@ cliver session compress
 ### How Sessions Work
 
 - Each interactive chat session is automatically saved as a JSONL file
-- Sessions are stored per-agent at `~/.config/cliver/agents/{agent_name}/sessions/`
+- Sessions are stored per-agent at `~/.cliver/agents/{agent_name}/sessions/`
 - Loading a session restores the conversation history, allowing you to continue where you left off
 - Session history is converted to LangChain `BaseMessage` objects and passed to the LLM
 

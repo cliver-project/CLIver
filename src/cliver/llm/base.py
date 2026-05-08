@@ -194,17 +194,17 @@ class LLMInferenceEngine(ABC):
             f"- Config: `{config_dir}/config.yaml` — models, providers, gateway, session settings",
         ]
         if _has("Identity"):
-            lines.append(f"- Identity: `{config_dir}/agents/*/identity.md` — your persona and behavior")
+            lines.append(f"- Identity: `{config_dir}/identity.md` — your persona and behavior (YAML frontmatter)")
         if _has("MemoryRead", "MemoryWrite"):
-            lines.append(f"- Memory: `{config_dir}/agents/*/memory.md` — persistent knowledge")
+            lines.append(f"- Memory: `{config_dir}/memory.md` — persistent knowledge")
         if _has("Skill"):
             lines.append(f"- Skills: `.cliver/skills/` (project) or `{config_dir}/skills/` (global) — SKILL.md files")
-        lines.append(f"- Tasks: `{config_dir}/agents/*/tasks/` — YAML task definitions with cron schedules")
+        lines.append(f"- Tasks: `{config_dir}/tasks/` — YAML task definitions with cron schedules")
         lines.append("")
         lines.append(
             "## Commands\n\n"
             "Slash commands: model, config, gateway, session, permissions, "
-            "mcp, skills, identity, agent, cost, provider, task, workflow. "
+            "mcp, skills, identity, profile, cost, provider, task, workflow. "
             "Use the CliverHelp tool for syntax."
         )
         return "\n".join(lines)

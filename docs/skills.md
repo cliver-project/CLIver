@@ -85,7 +85,7 @@ Provide your review in sections:
 Skills are loaded from multiple locations (later entries override earlier ones):
 
 1. **Builtin**: shipped with the CLIver package (`src/cliver/skills/`)
-2. **Global (CLIver)**: `~/.config/cliver/skills/`
+2. **Global (CLIver)**: `~/.cliver/skills/`
 3. **Global (agent-agnostic)**: `~/.agents/skills/`
 4. **Project (CLIver)**: `.cliver/skills/`
 5. **Project (agent-agnostic)**: `.agent/skills/`

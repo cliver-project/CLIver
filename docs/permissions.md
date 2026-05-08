@@ -23,7 +23,7 @@ Three modes control the baseline behavior:
 
 Permissions are configured in `cliver-settings.yaml` at two levels:
 
-- **Global**: `~/.config/cliver/cliver-settings.yaml` — user-wide defaults
+- **Global**: `~/.cliver/cliver-settings.yaml` — user-wide defaults
 - **Local**: `.cliver/cliver-settings.yaml` — project-specific overrides
 
 Local settings take precedence over global.
@@ -190,7 +190,7 @@ from cliver.llm import AgentCore
 
 # Create permission manager with custom settings
 pm = PermissionManager(
-    global_config_dir=Path("~/.config/cliver").expanduser(),
+    global_config_dir=Path("~/.cliver").expanduser(),
     local_dir=Path(".cliver"),
 )
 pm.set_mode(PermissionMode.AUTO_EDIT)

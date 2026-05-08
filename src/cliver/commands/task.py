@@ -17,7 +17,7 @@ from cliver.task_manager import TaskDefinition, TaskManager, TaskRun
 
 
 def _get_store(cliver: Cliver) -> TaskStore:
-    return TaskStore(cliver.agent_profile.agent_dir / "gateway.db")
+    return TaskStore(cliver.agent_profile.gateway_db)
 
 
 def _get_manager(cliver: Cliver) -> TaskManager:

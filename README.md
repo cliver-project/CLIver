@@ -34,7 +34,7 @@ docker run --rm -it --user $UID:0 -v ~/.cliver:/home/cliver/.cliver \
   -e OPENAI_API_KEY ghcr.io/cliver-project/cliver
 
 # Start chatting
-cliver "What time is it in Beijing and London?"
+cliver -p "What time is it in Beijing and London?"
 
 # Interactive mode
 cliver
@@ -128,9 +128,9 @@ Persistent knowledge and `CliverProfile` management across sessions. CLIver reme
 
 ```bash
 # Set your profile
-cliver profile set name "Jane Doe"
+cliver profile set name "Leo Gao"
 cliver profile set role "Platform Engineer"
-cliver profile set preferences "Prefer kubectl over oc"
+cliver profile set preferences.style "concise"
 
 # Add persistent knowledge
 cliver memory add "Production cluster endpoint: https://api.prod.example.com"

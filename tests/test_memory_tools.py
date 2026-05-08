@@ -3,14 +3,14 @@
 import pytest
 
 import cliver.agent_profile as ap
-from cliver.agent_profile import AgentProfile
+from cliver.agent_profile import CliverProfile
 from cliver.tools.memory import IdentityUpdateTool, MemoryReadTool, MemoryWriteTool
 
 
 @pytest.fixture
 def profile(tmp_path):
-    """Create an AgentProfile with a temp config directory."""
-    return AgentProfile("TestBot", config_dir=tmp_path)
+    """Create a CliverProfile with a temp config directory."""
+    return CliverProfile(config_dir=tmp_path)
 
 
 @pytest.fixture(autouse=True)
@@ -38,14 +38,6 @@ class TestMemoryRead:
         result = tool._run()
         assert "dark mode" in result
 
-    def test_reads_global_and_agent(self, profile):
-        profile.append_memory("Global fact", scope="global")
-        profile.append_memory("Agent fact", scope="agent")
-        tool = MemoryReadTool()
-        result = tool._run()
-        assert "Global fact" in result
-        assert "Agent fact" in result
-
     def test_no_profile_returns_message(self, monkeypatch):
         monkeypatch.setattr(ap, "_current_profile", None)
         tool = MemoryReadTool()
@@ -59,29 +51,13 @@ class TestMemoryRead:
 
 
 class TestMemoryWrite:
-    def test_write_agent_memory(self, profile):
+    def test_write_memory(self, profile):
         tool = MemoryWriteTool()
         result = tool._run(content="User uses uv, not pip")
-        assert "Saved to agent memory" in result
+        assert "Saved to memory" in result
 
         content = profile.memory_file.read_text()
         assert "User uses uv, not pip" in content
-
-    def test_write_global_memory(self, profile, tmp_path):
-        tool = MemoryWriteTool()
-        result = tool._run(content="Shared knowledge", scope="global")
-        assert "Saved to global memory" in result
-
-        content = (tmp_path / "memory.md").read_text()
-        assert "Shared knowledge" in content
-
-    def test_default_scope_is_agent(self, profile):
-        tool = MemoryWriteTool()
-        tool._run(content="Should be agent-scoped")
-
-        assert profile.memory_file.exists()
-        content = profile.memory_file.read_text()
-        assert "Should be agent-scoped" in content
 
     def test_no_profile_returns_message(self, monkeypatch):
         monkeypatch.setattr(ap, "_current_profile", None)
@@ -135,17 +111,6 @@ class TestMemoryRoundTrip:
         result = read._run()
         assert "Python 3.13" in result
 
-    def test_agent_and_global_roundtrip(self):
-        write = MemoryWriteTool()
-        read = MemoryReadTool()
-
-        write._run(content="Agent-specific: prefers YAML", scope="agent")
-        write._run(content="Global: proxy blocks DuckDuckGo", scope="global")
-
-        result = read._run()
-        assert "prefers YAML" in result
-        assert "proxy blocks DuckDuckGo" in result
-
     def test_rewrite_then_read(self):
         write = MemoryWriteTool()
         read = MemoryReadTool()
@@ -155,11 +120,6 @@ class TestMemoryRoundTrip:
         result = read._run()
         assert "Consolidated entry" in result
         assert "Old entry" not in result
-
-
-# ---------------------------------------------------------------------------
-# System prompt includes memory section
-# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------

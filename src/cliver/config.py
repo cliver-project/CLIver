@@ -72,11 +72,11 @@ class ProviderConfig(BaseModel):
 
 
 class ModelOptions(BaseModel):
-    temperature: float = Field(default=0.7, description="Sampling temperature")
-    top_p: float = Field(default=0.3, description="Top-p sampling cutoff")
-    max_tokens: int = Field(default=16384, description="Maximum number of tokens")
-    frequency_penalty: float = Field(default=0.1, description="Model’s tendency to repeat tokens")
-    # special class-level variable to allow extra fields
+    temperature: Optional[float] = Field(default=None, description="Sampling temperature")
+    top_p: Optional[float] = Field(default=None, description="Top-p sampling cutoff")
+    max_tokens: Optional[int] = Field(default=None, description="Maximum number of tokens")
+    frequency_penalty: Optional[float] = Field(default=None, description="Frequency penalty")
+    presence_penalty: Optional[float] = Field(default=None, description="Presence penalty")
     model_config = {"extra": "allow"}
 
 
@@ -314,7 +314,6 @@ class SessionConfig(BaseModel):
 
 
 class AppConfig(BaseModel):
-    default_agent_name: str = Field(default="CLIver", description="The default agent instance name")
     providers: Dict[str, ProviderConfig] = Field(default_factory=dict)
     mcpServers: Dict[str, MCPServerConfig] = {}
     models: Dict[str, ModelConfig] = {}
@@ -348,7 +347,7 @@ class AppConfig(BaseModel):
     workflow_runs_dir: Optional[str] = Field(
         default=None,
         description="Base directory for workflow execution outputs. "
-        "Default: {agent_dir}/workflow-runs. Each execution creates a subdirectory.",
+        "Default: {config_dir}/workflow-runs. Each execution creates a subdirectory.",
     )
 
     def resolve_secrets(self) -> None:
@@ -447,9 +446,9 @@ class ConfigManager:
             if not config_data:
                 return AppConfig()
 
-            # Migrate old agent_name → default_agent_name
-            if "agent_name" in config_data and "default_agent_name" not in config_data:
-                config_data["default_agent_name"] = config_data.pop("agent_name")
+            # Remove legacy agent_name fields
+            config_data.pop("agent_name", None)
+            config_data.pop("default_agent_name", None)
 
             # Parse providers and flatten their nested models
             flat_models: Dict[str, ModelConfig] = {}
@@ -790,11 +789,6 @@ class ConfigManager:
         self.config.default_model = mc.name
         self._save_config()
         return True
-
-    def set_default_agent_name(self, name: str) -> None:
-        """Set the default agent name."""
-        self.config.default_agent_name = name
-        self._save_config()
 
     def set_user_agent(self, user_agent: str) -> None:
         """Set the User-Agent header string."""

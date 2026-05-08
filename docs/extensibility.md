@@ -317,7 +317,7 @@ You can add custom commands to CLIver's CLI interface by creating command module
 
 ### Creating a Custom Command
 
-Create a Python file in `~/.config/cliver/commands/my_command.py`:
+Create a Python file in `~/.cliver/commands/my_command.py`:
 
 ```python
 """

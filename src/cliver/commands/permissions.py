@@ -202,7 +202,10 @@ def _prompt_save_target(cliver: Cliver) -> str | None:
 
 def _shorten_path(path: str) -> str:
     """Shorten a file path for display."""
-    if "/.config/cliver/" in path:
+    from pathlib import Path
+
+    home = str(Path.home())
+    if path.startswith(home) and "/.cliver/" in path:
         return "global"
     elif "/.cliver/" in path:
         return "local"
