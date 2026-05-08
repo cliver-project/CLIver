@@ -88,6 +88,31 @@ def _show_skill(cliver: Cliver, name: str):
     cliver.output(skill.body)
 
 
+def _edit_skill(cliver: Cliver, name: str):
+    """Open a skill's SKILL.md in $EDITOR."""
+    import os
+    import subprocess
+
+    manager = SkillManager()
+    skill = manager.get_skill(name)
+    if not skill:
+        cliver.output(f"Skill '{name}' not found.")
+        _suggest_available(cliver, manager)
+        return
+
+    skill_file = skill.base_dir / "SKILL.md"
+    if not skill_file.exists():
+        cliver.output(f"Skill file not found: {skill_file}")
+        return
+
+    editor = os.environ.get("EDITOR", "vi")
+    try:
+        subprocess.run([editor, str(skill_file)], check=True)
+        cliver.output(f"Saved {skill_file}")
+    except Exception as e:
+        cliver.output(f"Error: {e}")
+
+
 def _update_skill(cliver: Cliver, name: str, instructions: str):
     """Update an existing skill using LLM generation."""
     manager = SkillManager()
@@ -285,6 +310,11 @@ def dispatch(cliver: Cliver, args: str):
         if save_global:
             desc = desc.replace("--global", "").strip()
         _create_skill(cliver, skill_name, desc, save_global)
+    elif sub == "edit":
+        if not rest:
+            cliver.output("Usage: /skills edit <name>")
+            return
+        _edit_skill(cliver, rest.strip())
     elif sub == "update":
         if not rest:
             cliver.output(click_help(_SUBCOMMANDS["update"], "/skills update"))
@@ -380,6 +410,13 @@ def update_skill(cliver: Cliver, name: str, instructions: tuple):
     _update_skill(cliver, name, improvement_text)
 
 
+@skills.command(name="edit", help="Open a skill's SKILL.md in $EDITOR for direct editing")
+@click.argument("name", type=str)
+@pass_cliver
+def edit_skill(cliver: Cliver, name: str):
+    _edit_skill(cliver, name)
+
+
 # Populate subcommand map for dispatch help generation.
 _SUBCOMMANDS.update(
     {
@@ -388,6 +425,7 @@ _SUBCOMMANDS.update(
         "show": show_skill,
         "create": create_skill,
         "update": update_skill,
+        "edit": edit_skill,
     }
 )
 

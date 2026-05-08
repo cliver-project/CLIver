@@ -31,7 +31,7 @@ pip install cliver
 
 # Or run with Docker
 docker run --rm -it --user $UID:0 -v ~/.cliver:/home/cliver/.cliver \
-  -e OPENAI_API_KEY ghcr.io/cliver-project/cliver
+  -e DEEPSEEK_API_KEY ghcr.io/cliver-project/cliver
 
 # Start chatting
 cliver -p "What time is it in Beijing and London?"
@@ -94,9 +94,10 @@ providers:
 Connect to any [Model Context Protocol (MCP)](https://modelcontextprotocol.io) server for extended tool capabilities. File systems, databases, APIs, and more — all through a standardized protocol.
 
 ```yaml
-# ~/.cliver/mcp_config.yaml
+# ~/.cliver/config.yaml
 mcpServers:
   filesystem:
+    transport: stdio
     command: npx
     args: ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/workspace"]
   

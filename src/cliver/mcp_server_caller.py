@@ -27,9 +27,7 @@ def _get_mcp_server_connection(
     server_config: Dict,
 ) -> StdioConnection | SSEConnection | StreamableHttpConnection | WebsocketConnection:
     """Get the connection configuration for an MCP server."""
-    if "transport" not in server_config:
-        raise ValueError(f"Transport not defined in {str(server_config)}")
-    transport = server_config["transport"]
+    transport = server_config.get("transport", "stdio")
     if transport == "stdio":
         stdio_dict = filter_dict_for_typed_dict(server_config, StdioConnection)
         return StdioConnection(**stdio_dict)
