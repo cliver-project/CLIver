@@ -47,7 +47,7 @@ def _show_rules(cliver: Cliver):
     _show_mode_info(cliver)
 
 
-def _set_mode(cliver: Cliver, new_mode: str = None):
+def _set_mode(cliver: Cliver, new_mode: str = None, target: str = None):
     """Show current mode or set a new one (saves to file)."""
     pm = cliver.permission_manager
     if new_mode is None:
@@ -55,7 +55,8 @@ def _set_mode(cliver: Cliver, new_mode: str = None):
         return
 
     mode = PermissionMode(new_mode)
-    target = _prompt_save_target(cliver)
+    if target not in ("global", "local"):
+        target = _prompt_save_target(cliver)
     if target is None:
         return
     pm.save_mode(mode, target)
@@ -149,8 +150,15 @@ def dispatch(cliver: Cliver, args: str):
     if sub == "rules":
         _show_rules(cliver)
     elif sub == "mode":
-        if rest and rest.strip() in ("default", "auto-edit", "yolo"):
-            _set_mode(cliver, rest.strip())
+        mode_parts = rest.strip().split() if rest else []
+        mode_val = mode_parts[0] if mode_parts else None
+        target = None
+        for i, p in enumerate(mode_parts):
+            if p == "--target" and i + 1 < len(mode_parts):
+                target = mode_parts[i + 1]
+                break
+        if mode_val in ("default", "auto-edit", "yolo"):
+            _set_mode(cliver, mode_val, target=target)
         else:
             _set_mode(cliver)
     elif sub == "add":
@@ -186,8 +194,8 @@ def _prompt_save_target(cliver: Cliver) -> str | None:
     local_path = pm._local_settings_path or "N/A"
 
     console.print("\nSave to:")
-    console.print(f"  [g]lobal ({global_path})")
-    console.print(f"  [l]ocal  ({local_path})")
+    console.print(f"  \\[g]lobal ({global_path})")
+    console.print(f"  \\[l]ocal  ({local_path})")
 
     choice = cliver.ui.ask_input("  > ", choices=["g", "global", "l", "local"])
     if not choice:
@@ -237,9 +245,10 @@ def show_rules(cliver: Cliver):
 
 @permissions.command(name="mode", help="Show or set permission mode (default, auto-edit, or yolo)")
 @click.argument("new_mode", required=False, type=click.Choice(["default", "auto-edit", "yolo"]))
+@click.option("--target", type=click.Choice(["global", "local"]), default=None, help="Save target (skip prompt)")
 @pass_cliver
-def set_mode(cliver: Cliver, new_mode: str):
-    _set_mode(cliver, new_mode)
+def set_mode(cliver: Cliver, new_mode: str, target: str):
+    _set_mode(cliver, new_mode, target=target)
 
 
 @permissions.command(

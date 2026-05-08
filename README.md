@@ -51,21 +51,42 @@ Connect to any OpenAI-compatible API, Ollama, or vLLM endpoint. Configure multip
 ```yaml
 # ~/.cliver/config.yaml
 providers:
-  - name: openai
+  minimax:
     type: openai
-    api_key: ${OPENAI_API_KEY}
-    default_model: gpt-4o
-  
-  - name: ollama
-    type: ollama
-    base_url: http://localhost:11434
-    default_model: qwen2.5-coder:32b
-  
-  - name: deepseek
+    api_url: https://api.minimaxi.com/v1
+    api_key: '{{ keyring("cliver", "minimax.api_key") }}'
+    rate_limit:
+      requests: 1500
+      period: 5h
+      margin: 0.1
+    image_url: https://api.minimaxi.com/v1/image_generation
+    image_model: image-01
+    models:
+    - MiniMax-M2.7
+  minimax-anthropic:
+    type: anthropic
+    api_url: https://api.minimaxi.com/anthropic
+    api_key: '{{ keyring("cliver", "minimax.api_key") }}'
+    rate_limit:
+      requests: 1500
+      period: 5h
+      margin: 0.1
+    image_url: https://api.minimaxi.com/v1/image_generation
+    image_model: image-01
+    models:
+    - MiniMax-M2.7
+  deepseek-anthropic:
+    type: anthropic
+    api_url: https://api.deepseek.com/anthropic
+    api_key: "{{ env.DEEPSEEK_API_KEY }}"
+    models:
+    - deepseek-v4-flash
+  deepseek-openai:
     type: openai
-    base_url: https://api.deepseek.com
-    api_key: ${DEEPSEEK_API_KEY}
-    default_model: deepseek-chat
+    api_url: https://api.deepseek.com
+    api_key: "{{ env.DEEPSEEK_API_KEY }}"
+    models:
+    - deepseek-v4-flash
 ```
 
 ### MCP Integration
@@ -145,15 +166,20 @@ Layered tool permission system with three modes:
 - **yolo** — Auto-approve all tool executions (use with caution)
 
 ```yaml
-# ~/.cliver/config.yaml
+# ~/.cliver/cliver-settings.yaml
 permission_mode: auto-edit
 
 # Per-tool overrides
 permissions:
-  file_read: allow
-  file_write: allow
-  bash_exec: confirm
-  network_request: deny
+    - tool: Read
+      action: allow
+    - tool: Write
+      action: allow
+    - tool: Bash
+      resource: "git *"
+      action: allow
+    - tool: "github#.*
+      action: deny
 ```
 
 ### Gateway Mode
