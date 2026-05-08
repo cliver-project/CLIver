@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import click
+
 if TYPE_CHECKING:
     from cliver.cli import Cliver
 
@@ -19,3 +21,9 @@ def dispatch(cliver: "Cliver", args: str) -> None:
     cliver.session_history = []
     cliver.current_session_id = None
     cliver.output("Conversation cleared.")
+
+
+@click.command(name="clear", help="Clear the conversation history and start fresh")
+def clear_cmd():
+    """Clear conversation — TUI only, this Click stub is for --help display."""
+    pass

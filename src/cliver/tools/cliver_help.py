@@ -34,14 +34,16 @@ _STATIC_TOPICS = {
 
 
 _COMMAND_SUMMARIES = {
+    "clear": "Clear the conversation history and start fresh",
     "config": "Manage CLIver configuration (show, validate, set, theme, rate-limit)",
     "cost": "View token usage and cost statistics (session or all-time)",
     "gateway": "Manage the gateway daemon (start, stop, status, platform adapters)",
     "identity": "Manage the agent's identity profile (show, chat, clear)",
-    "profile": "View or update your CLIver profile (name, role, preferences)",
+    "memory": "Manage persistent memory (show, add, clear)",
     "mcp": "Manage MCP server connections (list, add, set, remove)",
     "model": "Manage LLM model configurations (list, add, set, default, remove)",
     "permissions": "Manage persistent permission rules (rules, mode, add, remove)",
+    "profile": "View or update your CLIver profile (name, role, preferences)",
     "provider": "Manage LLM provider endpoints (list, add, set, remove)",
     "session": "Manage conversation sessions (list, load, search, compress, options, permissions)",
     "skills": "Manage agent skills — SKILL.md files (list, show, run, create, update)",

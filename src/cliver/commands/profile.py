@@ -154,3 +154,6 @@ _SUBCOMMANDS.update(
         "edit": edit,
     }
 )
+
+# Module-level alias for auto-discovery (filename stem must match)
+profile = profile_group

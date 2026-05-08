@@ -35,6 +35,7 @@ HANDLERS: dict[str, str] = {
     "permissions": "cliver.commands.permissions",
     "skills": "cliver.commands.skills",
     "identity": "cliver.commands.identity",
+    "memory": "cliver.commands.memory",
     "profile": "cliver.commands.profile",
     "cost": "cliver.commands.cost",
     "provider": "cliver.commands.provider",
