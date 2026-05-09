@@ -1,35 +1,42 @@
-"""Tests for workflow CLI commands."""
+"""Basic smoke tests for workflow CLI dispatch."""
 
-from click.testing import CliRunner
+from unittest.mock import MagicMock, patch
 
 
-class TestWorkflowCommands:
-    def test_workflow_list_empty(self, load_cliver, init_config):
-        result = CliRunner().invoke(load_cliver, ["workflow", "list"])
-        assert result.exit_code == 0
-        assert "No workflows" in result.output or "workflow" in result.output.lower()
+def test_dispatch_list():
+    from cliver.commands.workflow_cmd import dispatch
 
-    def test_workflow_show_nonexistent(self, load_cliver, init_config):
-        result = CliRunner().invoke(load_cliver, ["workflow", "show", "nope"])
-        assert "not found" in result.output.lower()
+    cliver = MagicMock()
+    cliver.agent_profile.workflows_dir = "/tmp/workflows"
+    with patch("cliver.commands.workflow_cmd._list_workflows") as mock_list:
+        dispatch(cliver, "list")
+        mock_list.assert_called_once_with(cliver)
 
-    def test_workflow_delete_nonexistent(self, load_cliver, init_config):
-        result = CliRunner().invoke(load_cliver, ["workflow", "delete", "nope"])
-        assert "not found" in result.output.lower()
 
-    def test_workflow_command_exists(self, load_cliver, init_config):
-        result = CliRunner().invoke(load_cliver, ["workflow", "--help"])
-        assert result.exit_code == 0
-        assert "list" in result.output
-        assert "run" in result.output
-        assert "show" in result.output
+def test_dispatch_unknown():
+    from cliver.commands.workflow_cmd import dispatch
 
-    def test_workflow_history_subcommand(self, load_cliver, init_config):
-        result = CliRunner().invoke(load_cliver, ["workflow", "history", "nonexistent"])
-        assert result.exit_code == 0
-        assert "no executions" in result.output.lower() or "nonexistent" in result.output.lower()
+    cliver = MagicMock()
+    dispatch(cliver, "foobar")
+    calls = [str(c) for c in cliver.output.call_args_list]
+    assert any("Unknown subcommand: foobar" in c for c in calls)
+    assert any("Usage:" in c for c in calls)
 
-    def test_workflow_status_subcommand(self, load_cliver, init_config):
-        result = CliRunner().invoke(load_cliver, ["workflow", "status", "nope", "--thread", "t1"])
-        assert result.exit_code == 0
-        assert "no execution" in result.output.lower() or "not found" in result.output.lower()
+
+def test_dispatch_empty():
+    from cliver.commands.workflow_cmd import dispatch
+
+    cliver = MagicMock()
+    dispatch(cliver, "")
+    calls = [str(c) for c in cliver.output.call_args_list]
+    assert any("Usage:" in c for c in calls)
+
+
+def test_dispatch_help():
+    from cliver.commands.workflow_cmd import dispatch
+
+    cliver = MagicMock()
+    dispatch(cliver, "--help")
+    calls = [str(c) for c in cliver.output.call_args_list]
+    assert any("Usage:" in c for c in calls)
+    assert any("delete" in c for c in calls)

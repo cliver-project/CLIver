@@ -10,7 +10,7 @@ init: ## Init CLIver development dependencies
 ##@ Development
 
 .PHONY: build
-build: ## Build CLIver distribution packages
+build: admin-build ## Build CLIver distribution packages
 	uv build
 
 .PHONY: test
@@ -32,8 +32,33 @@ clean: ## Clean build artifacts
 	rm -rf dist/
 	rm -rf build/
 	rm -rf *.egg-info/
+	rm -rf admin/dist src/cliver/gateway/admin_dist
 	find . -type d -name __pycache__ -delete
 	find . -type f -name "*.pyc" -delete
+
+##@ Admin Portal
+
+.PHONY: admin-install
+admin-install: ## Install admin portal dependencies
+	cd admin && npm install
+
+.PHONY: admin-dev
+admin-dev: ## Start admin portal dev server (Vite)
+	cd admin && npm run dev
+
+.PHONY: admin-build
+admin-build: ## Build admin portal for production
+	cd admin && npm run build
+	rm -rf src/cliver/gateway/admin_dist
+	cp -r admin/dist src/cliver/gateway/admin_dist
+
+.PHONY: admin-lint
+admin-lint: ## Lint admin portal TypeScript
+	cd admin && npm run lint
+
+.PHONY: admin-clean
+admin-clean: ## Clean admin portal build artifacts
+	rm -rf admin/dist admin/node_modules
 
 ##@ Documentation
 

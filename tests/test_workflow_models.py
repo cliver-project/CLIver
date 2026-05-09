@@ -1,215 +1,154 @@
-"""Tests for workflow model definitions."""
-
+# tests/test_workflow_models.py
 import pytest
-from pydantic import ValidationError
 
 from cliver.workflow.workflow_models import (
-    Branch,
-    DecisionStep,
-    ExecutionContext,
-    ExecutionResult,
-    FunctionStep,
-    HumanStep,
     LLMStep,
-    StepType,
+    PythonStep,
     Workflow,
-    WorkflowExecutionState,
-    WorkflowStep,
 )
 
 
-class TestStepTypes:
-    def test_llm_step(self):
-        step = LLMStep(id="s1", name="Ask LLM", prompt="Hello")
-        assert step.type == StepType.LLM
+class TestLLMStep:
+    def test_minimal_llm_step(self):
+        step = LLMStep(id="s1", prompt="Hello")
+        assert step.type == "llm"
         assert step.prompt == "Hello"
+        assert step.model is None
+        assert step.role is None
+        assert step.tools is None
+        assert step.output_format == "json"
         assert step.depends_on == []
         assert step.condition is None
-        assert step.retry == 0
 
-    def test_function_step(self):
-        step = FunctionStep(id="s2", name="Run func", function="mymodule.func")
-        assert step.type == StepType.FUNCTION
-
-    def test_human_step(self):
-        step = HumanStep(id="s3", name="Ask user", prompt="Confirm?")
-        assert step.type == StepType.HUMAN
-
-    def test_workflow_step(self):
-        step = WorkflowStep(id="s4", name="Sub workflow", workflow="deploy")
-        assert step.type == StepType.WORKFLOW
-
-    def test_decision_step(self):
-        step = DecisionStep(
-            id="s5",
-            name="Branch",
-            branches=[
-                Branch(condition="True", next_step="s1"),
-                Branch(condition="False", next_step="s2"),
-            ],
-            default="s2",
+    def test_full_llm_step(self):
+        step = LLMStep(
+            id="research",
+            prompt="Research ${inputs.topic}",
+            model="qwen",
+            role="Research analyst",
+            tools=["web_search", "read_file"],
+            output_format="markdown",
+            depends_on=["prior"],
+            condition="prior.done == true",
         )
-        assert step.type == StepType.DECISION
-        assert len(step.branches) == 2
-        assert step.default == "s2"
+        assert step.model == "qwen"
+        assert step.role == "Research analyst"
+        assert step.tools == ["web_search", "read_file"]
+        assert step.output_format == "markdown"
+        assert step.depends_on == ["prior"]
+        assert step.condition == "prior.done == true"
 
-    def test_step_with_depends_on(self):
-        step = LLMStep(id="s1", name="Step", prompt="p", depends_on=["s0"])
-        assert step.depends_on == ["s0"]
+    def test_llm_step_invalid_output_format(self):
+        with pytest.raises(ValueError):
+            LLMStep(id="s1", prompt="Hi", output_format="xml")
 
-    def test_step_with_condition(self):
-        step = LLMStep(id="s1", name="Step", prompt="p", condition="True")
-        assert step.condition == "True"
 
-    def test_step_with_retry(self):
-        step = LLMStep(id="s1", name="Step", prompt="p", retry=3)
-        assert step.retry == 3
+class TestPythonStep:
+    def test_minimal_python_step(self):
+        step = PythonStep(id="s1", file="./scripts/run.py")
+        assert step.type == "python"
+        assert step.file == "./scripts/run.py"
+        assert step.depends_on == []
+
+    def test_python_step_with_deps(self):
+        step = PythonStep(
+            id="transform",
+            file="./transform.py",
+            depends_on=["research"],
+            condition="research.count > 0",
+        )
+        assert step.depends_on == ["research"]
+        assert step.condition == "research.count > 0"
 
 
 class TestWorkflow:
-    def test_create_workflow(self):
+    def test_minimal_workflow(self):
         wf = Workflow(
-            name="test",
-            description="Test workflow",
-            steps=[LLMStep(id="s1", name="Step 1", prompt="Hello")],
+            name="test-wf",
+            steps=[{"id": "s1", "type": "llm", "prompt": "Hello"}],
         )
-        assert wf.name == "test"
+        assert wf.name == "test-wf"
         assert len(wf.steps) == 1
+        assert isinstance(wf.steps[0], LLMStep)
+        assert wf.inputs is None
+        assert wf.permissions is None
 
     def test_workflow_with_inputs(self):
         wf = Workflow(
             name="test",
-            inputs={"branch": "main"},
-            steps=[],
+            inputs={
+                "topic": {"type": "string", "description": "Topic"},
+                "lang": {"type": "string", "default": "English"},
+            },
+            steps=[{"id": "s1", "type": "llm", "prompt": "Hello"}],
         )
-        result = wf.get_initial_inputs({"branch": "dev"})
-        assert result["branch"] == "dev"
+        assert wf.inputs["lang"]["default"] == "English"
 
-    def test_workflow_default_inputs(self):
+    def test_workflow_mixed_step_types(self):
+        wf = Workflow(
+            name="mixed",
+            steps=[
+                {"id": "s1", "type": "llm", "prompt": "Analyze"},
+                {"id": "s2", "type": "python", "file": "./run.py", "depends_on": ["s1"]},
+            ],
+        )
+        assert isinstance(wf.steps[0], LLMStep)
+        assert isinstance(wf.steps[1], PythonStep)
+
+    def test_workflow_rejects_unknown_step_type(self):
+        with pytest.raises(ValueError):
+            Workflow(
+                name="bad",
+                steps=[{"id": "s1", "type": "human", "prompt": "Hello"}],
+            )
+
+    def test_get_initial_inputs_defaults(self):
         wf = Workflow(
             name="test",
-            inputs={"branch": "main", "env": "staging"},
-            steps=[],
+            inputs={
+                "topic": {"type": "string", "default": "AI"},
+                "lang": {"type": "string"},
+            },
+            steps=[{"id": "s1", "type": "llm", "prompt": "Hi"}],
         )
-        result = wf.get_initial_inputs(None)
-        assert result["branch"] == "main"
-        assert result["env"] == "staging"
+        result = wf.get_initial_inputs({"lang": "French"})
+        assert result == {"topic": "AI", "lang": "French"}
 
-
-class TestExecutionContext:
-    def test_empty_context(self):
-        ctx = ExecutionContext(workflow_name="test")
-        assert ctx.inputs == {}
-        assert ctx.steps == {}
-
-    def test_context_with_step_outputs(self):
-        ctx = ExecutionContext(
-            workflow_name="test",
-            steps={"s1": {"outputs": {"result": "hello"}, "status": "completed"}},
+    def test_get_initial_inputs_override(self):
+        wf = Workflow(
+            name="test",
+            inputs={"topic": {"type": "string", "default": "AI"}},
+            steps=[{"id": "s1", "type": "llm", "prompt": "Hi"}],
         )
-        assert ctx.steps["s1"]["outputs"]["result"] == "hello"
+        result = wf.get_initial_inputs({"topic": "ML"})
+        assert result == {"topic": "ML"}
 
+    def test_workflow_from_yaml(self):
+        import yaml
 
-class TestExecutionResult:
-    def test_success_result(self):
-        r = ExecutionResult(step_id="s1", outputs={"result": "ok"})
-        assert r.success is True
-
-    def test_failure_result(self):
-        r = ExecutionResult(step_id="s1", success=False, error="boom")
-        assert r.error == "boom"
-
-
-class TestWorkflowExecutionState:
-    def test_initial_state(self):
-        state = WorkflowExecutionState(
-            workflow_name="test",
-            execution_id="abc123",
-            context=ExecutionContext(workflow_name="test"),
-        )
-        assert state.status == "running"
-        assert state.completed_steps == []
-        assert state.skipped_steps == []
-
-    def test_state_statuses(self):
-        state = WorkflowExecutionState(
-            workflow_name="test",
-            execution_id="abc123",
-            context=ExecutionContext(workflow_name="test"),
-            status="paused",
-        )
-        assert state.status == "paused"
-
-
-class TestWorkflowStepFile:
-    def test_workflow_step_with_name(self):
-        step = WorkflowStep(id="s1", name="Sub", workflow="deploy")
-        assert step.workflow == "deploy"
-        assert step.workflow_file is None
-
-    def test_workflow_step_with_file(self):
-        step = WorkflowStep(id="s1", name="Sub", workflow_file="sub-workflows/deploy.yaml")
-        assert step.workflow_file == "sub-workflows/deploy.yaml"
-        assert step.workflow is None
-
-    def test_workflow_step_both_allowed(self):
-        step = WorkflowStep(id="s1", name="Sub", workflow="deploy", workflow_file="deploy.yaml")
-        assert step.workflow == "deploy"
-        assert step.workflow_file == "deploy.yaml"
-
-    def test_workflow_step_neither_raises(self):
-        with pytest.raises(ValidationError, match="At least one"):
-            WorkflowStep(id="s1", name="Sub")
-
-    def test_workflow_step_with_inputs(self):
-        step = WorkflowStep(
-            id="s1",
-            name="Sub",
-            workflow_file="sub.yaml",
-            workflow_inputs={"key": "{{ inputs.value }}"},
-        )
-        assert step.workflow_inputs == {"key": "{{ inputs.value }}"}
-
-
-class TestWorkflowCreateSkill:
-    def test_skill_exists(self):
-        from cliver.skill_manager import SkillManager
-
-        manager = SkillManager()
-        names = manager.get_skill_names()
-        assert "workflow-create" in names
-
-    def test_skill_has_content(self):
-        from cliver.skill_manager import SkillManager
-
-        manager = SkillManager()
-        skill = manager.get_skill("workflow-create")
-        assert skill is not None
-        assert skill.body and len(skill.body) > 100
-
-
-class TestWBSPlannerSkill:
-    def test_skill_exists(self):
-        from cliver.skill_manager import SkillManager
-
-        manager = SkillManager()
-        names = manager.get_skill_names()
-        assert "wbs-planner" in names
-
-    def test_skill_has_content(self):
-        from cliver.skill_manager import SkillManager
-
-        manager = SkillManager()
-        skill = manager.get_skill("wbs-planner")
-        assert skill is not None
-        assert skill.body and len(skill.body) > 100
-
-    def test_skill_allowed_tools(self):
-        from cliver.skill_manager import SkillManager
-
-        manager = SkillManager()
-        skill = manager.get_skill("wbs-planner")
-        assert skill is not None
-        assert "WorkflowValidate" in skill.allowed_tools
-        assert "Write" in skill.allowed_tools
-        assert "Ask" in skill.allowed_tools
+        yaml_str = """
+name: test-wf
+description: A test workflow
+inputs:
+  topic:
+    type: string
+    default: AI
+steps:
+  - id: research
+    type: llm
+    model: qwen
+    role: "Analyst"
+    prompt: "Research ${inputs.topic}"
+    output_format: json
+  - id: transform
+    type: python
+    file: ./transform.py
+    depends_on: [research]
+"""
+        data = yaml.safe_load(yaml_str)
+        wf = Workflow(**data)
+        assert wf.name == "test-wf"
+        assert isinstance(wf.steps[0], LLMStep)
+        assert isinstance(wf.steps[1], PythonStep)
+        assert wf.steps[0].model == "qwen"
+        assert wf.steps[1].depends_on == ["research"]

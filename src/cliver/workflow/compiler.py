@@ -1,57 +1,21 @@
-"""
-WorkflowCompiler — translates CLIver YAML Workflow definitions into LangGraph StateGraphs.
-"""
+"""Workflow compiler -- converts Workflow model into LangGraph CompiledStateGraph."""
 
 import logging
 import time
+from collections import defaultdict
 from pathlib import Path
-from typing import Annotated, Any, Dict, Optional, TypedDict
+from typing import Annotated, Any, Dict, List, Optional, TypedDict
 
 from langgraph.graph import END, StateGraph
-from langgraph.types import interrupt
 
-from cliver.workflow.context_renderer import evaluate_condition, render_template
-from cliver.workflow.workflow_models import (
-    AgentConfig,
-    DecisionStep,
-    ExecutionContext,
-    FunctionStep,
-    HumanStep,
-    LLMStep,
-    Workflow,
-    WorkflowStep,
-)
+from cliver.workflow.condition_eval import evaluate_condition
+from cliver.workflow.ref_resolver import build_auto_context, resolve_refs
+from cliver.workflow.workflow_models import LLMStep, PythonStep, Step, Workflow
 
 logger = logging.getLogger(__name__)
 
-# Tools excluded from workflow step execution — each step is a focused
-# execution unit, not a planning session.
-_WORKFLOW_EXCLUDED_TOOLS = frozenset(
-    {
-        "TodoWrite",
-        "TodoRead",
-        "Skill",
-        "CliverHelp",
-        "CreateTask",
-        "WorkflowValidate",
-        "SearchSessions",
-        "Ask",
-    }
-)
-
-_WORKFLOW_STEP_SYSTEM_INSTRUCTION = (
-    "You are executing a workflow step autonomously. "
-    "Do NOT ask for user confirmation or clarification. "
-    "Make the best decision based on the information available and proceed. "
-    "Do NOT use the Ask tool. Complete the task directly.\n\n"
-    "ALL output files (text, images, audio, video, code, data) MUST be saved "
-    "to the designated outputs directory provided below. Do NOT use any other directory. "
-    "Reference files from prior steps using the paths listed under Available Files."
-)
-
 
 def merge_steps(left: Optional[Dict[str, Any]], right: Dict[str, Any]) -> Dict[str, Any]:
-    """Reducer for WorkflowState.steps — merges new step results into existing."""
     if left is None:
         return dict(right)
     merged = dict(left)
@@ -60,672 +24,157 @@ def merge_steps(left: Optional[Dict[str, Any]], right: Dict[str, Any]) -> Dict[s
 
 
 class WorkflowState(TypedDict):
-    """LangGraph state schema for workflow execution."""
-
     inputs: Dict[str, Any]
     steps: Annotated[Dict[str, Dict[str, Any]], merge_steps]
+    workflow_id: str
+    thread_id: str
     outputs_dir: str
-    workflow_name: str
-    execution_id: str
     error: Optional[str]
 
 
-def _state_to_execution_context(state: dict) -> ExecutionContext:
-    """Convert LangGraph state to ExecutionContext for Jinja2 rendering."""
-    return ExecutionContext(
-        workflow_name=state.get("workflow_name", ""),
-        execution_id=state.get("execution_id"),
-        inputs=state.get("inputs", {}),
-        steps=state.get("steps", {}),
-    )
-
-
-def _save_step_output(outputs_dir: str, step_id: str, content: str, fmt: str) -> None:
-    """Save step output to a file in the run directory."""
-    if not outputs_dir:
-        return
-    dir_path = Path(outputs_dir)
-    dir_path.mkdir(parents=True, exist_ok=True)
-    ext_map = {"md": "md", "json": "json", "txt": "txt", "yaml": "yaml", "code": "txt"}
-    filename = f"{step_id}.{ext_map.get(fmt, 'md')}"
-    (dir_path / filename).write_text(content, encoding="utf-8")
-    logger.info("Saved step output: %s/%s", outputs_dir, filename)
-
-
-def _save_step_media(outputs_dir: str, step_id: str, response, agent_core, model: str) -> list[str]:
-    """Extract and save media files from an LLM response using MultimediaResponseHandler.
-
-    Returns list of saved file paths (empty if no media).
-    """
-    if not outputs_dir:
-        return []
-
-    from cliver.media_handler import MultimediaResponseHandler
-
-    try:
-        llm_engine = agent_core.get_llm_engine(model) if agent_core else None
-    except Exception:
-        llm_engine = None
-
-    handler = MultimediaResponseHandler(save_directory=outputs_dir)
-    multimedia = handler.process_response(response, llm_engine=llm_engine)
-
-    if not multimedia.has_media():
-        return []
-
-    saved = handler.save_media_content(multimedia, prefix=step_id)
-    return saved
-
-
-async def _validate_step_output(
-    subagent,
-    step,
-    result_text: str,
-    media_files: list,
-    model: str,
-) -> tuple[bool, str]:
-    """Use LLM to validate if step output meets expected result.
-
-    Passes generated images to the LLM for visual validation when the model
-    supports multimodal input. Audio/video files are described by path.
-
-    Returns (passed, feedback).
-    """
-    import mimetypes as _mt
-
-    media_section = ""
-    image_paths = []
-    other_media = []
-
-    if media_files:
-        for f in media_files:
-            mime = _mt.guess_type(f)[0] or ""
-            fname = Path(f).name
-            if mime.startswith("image/") and Path(f).exists():
-                image_paths.append(f)
-                other_media.append(f"- {fname} (image — attached for visual inspection)")
-            elif mime.startswith("audio/"):
-                other_media.append(f"- {fname} (audio file — verify file exists and format is correct)")
-            elif mime.startswith("video/"):
-                other_media.append(f"- {fname} (video file — verify file exists and format is correct)")
-            else:
-                other_media.append(f"- {fname}")
-        media_section = f"\n**Media files generated ({len(media_files)}):**\n" + "\n".join(other_media)
-
-    validation_prompt = (
-        f"Evaluate if the following step output meets the expected result.\n\n"
-        f"**Expected result:** {step.expected_result}\n\n"
-        f"**Text output:**\n{result_text[:3000]}\n"
-        f"{media_section}\n\n"
-        f"Validation rules:\n"
-        f"1. Check if the text output satisfies the expected result description\n"
-        f"2. If images were expected, verify they were generated (attached for inspection)\n"
-        f"3. If audio/video was expected, verify the files exist in the list above\n"
-        f"4. Check quantity — if multiple files were expected, verify the count\n\n"
-        f"Answer with exactly YES on the first line if ALL expectations are met, "
-        f"or NO on the first line followed by specifically what is missing or wrong."
-    )
-
-    async def _no_tools(_user_input, _tools):
-        return []
-
-    try:
-        response = await subagent.process_user_input(
-            user_input=validation_prompt,
-            model=model,
-            images=image_paths if image_paths else None,
-            filter_tools=_no_tools,
-        )
-        from cliver.media_handler import extract_response_text
-
-        answer = extract_response_text(response).strip()
-        first_line = answer.split("\n")[0].strip().upper()
-        if first_line.startswith("YES"):
-            return True, ""
-        feedback = answer[answer.find("\n") + 1 :].strip() if "\n" in answer else answer
-        return False, feedback
-    except Exception as e:
-        logger.warning("Validation LLM call failed: %s", e)
-        return True, ""
-
-
-def _load_overview(workflow: Workflow) -> Optional[str]:
-    """Load the workflow overview from inline text or file."""
-    if workflow.overview:
-        return workflow.overview
-    if workflow.overview_file:
-        try:
-            return Path(workflow.overview_file).read_text(encoding="utf-8")
-        except Exception as e:
-            logger.warning("Could not read overview file %s: %s", workflow.overview_file, e)
-    return None
-
-
-def create_step_logger(outputs_dir: str, step_id: str, upstream_handler=None):
-    """Create an event handler that writes step/tool events to a log file.
-
-    Log file: {outputs_dir}/{step_id}.log
-    Each line is a JSON object with timestamp and event data.
-    """
-    import json as _json
-    from datetime import datetime
-
-    log_path = Path(outputs_dir) / f"{step_id}.log"
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-
-    def handler(event):
-        entry = {
-            "ts": datetime.now().isoformat(timespec="milliseconds"),
-            "type": event.event_type.value,
-            "tool": event.tool_name,
-        }
-        if event.duration_ms is not None:
-            entry["duration_ms"] = round(event.duration_ms)
-        if event.result:
-            entry["result"] = event.result[:2000]
-        if event.error:
-            entry["error"] = event.error
-        if event.args:
-            summary = {}
-            for k, v in event.args.items():
-                val = str(v)
-                summary[k] = val[:200] + "..." if len(val) > 200 else val
-            entry["args"] = summary
-
-        try:
-            with open(log_path, "a", encoding="utf-8") as f:
-                f.write(_json.dumps(entry, ensure_ascii=False) + "\n")
-        except Exception:
-            pass
-
-        if upstream_handler:
-            try:
-                upstream_handler(event)
-            except Exception:
-                pass
-
-    return handler, str(log_path)
+_SKIP_SENTINEL = "__skip__"
 
 
 class WorkflowCompiler:
-    """Compiles a CLIver Workflow YAML model into a LangGraph CompiledStateGraph."""
+    """Compiles a Workflow into a LangGraph CompiledStateGraph."""
 
-    def compile(self, workflow: Workflow, checkpointer=None, store=None, base_dir=None):
-        """Compile a workflow definition into an executable LangGraph graph.
+    def compile(self, workflow: Workflow, checkpointer=None):
+        graph = StateGraph(WorkflowState)
+        steps_by_id: Dict[str, Step] = {s.id: s for s in workflow.steps}
+        dependents: Dict[str, List[str]] = defaultdict(list)
 
-        Args:
-            workflow: The workflow definition to compile.
-            checkpointer: LangGraph checkpointer for persistence.
-            store: WorkflowStore for resolving child workflows by name.
-            base_dir: Base directory for resolving relative workflow_file paths.
-        """
-        builder = StateGraph(WorkflowState)
-        agents = workflow.agents or {}
-        overview = _load_overview(workflow)
-        steps_by_id = {step.id: step for step in workflow.steps}
-
-        # Add nodes
-        for step in workflow.steps:
-            if isinstance(step, DecisionStep):
-                builder.add_node(step.id, self._make_passthrough_node(step))
-            elif isinstance(step, LLMStep):
-                agent_config = agents.get(step.agent) if step.agent else None
-                builder.add_node(step.id, self._make_llm_node(step, agent_config, overview))
-            elif isinstance(step, HumanStep):
-                builder.add_node(step.id, self._make_human_node(step))
-            elif isinstance(step, FunctionStep):
-                builder.add_node(step.id, self._make_function_node(step))
-            elif isinstance(step, WorkflowStep):
-                child_wf, child_base = self._resolve_child_workflow(step, store, base_dir)
-                child_graph = self.compile(child_wf, checkpointer=checkpointer, store=store, base_dir=child_base)
-                builder.add_node(step.id, self._make_workflow_node(step, child_wf, child_graph))
-
-        # Add edges based on depends_on
-        for step in workflow.steps:
-            if not step.depends_on:
-                builder.add_edge("__start__", step.id)
-            else:
-                for dep_id in step.depends_on:
-                    dep_step = steps_by_id.get(dep_id)
-                    if isinstance(dep_step, DecisionStep):
-                        pass  # handled by conditional edges
-                    else:
-                        builder.add_edge(dep_id, step.id)
-
-        # Add conditional edges for DecisionSteps
-        for step in workflow.steps:
-            if isinstance(step, DecisionStep):
-                targets = {b.next_step for b in step.branches}
-                if step.default:
-                    targets.add(step.default)
-                router = self._make_decision_router(step)
-                builder.add_conditional_edges(step.id, router, {t: t for t in targets})
-
-        # Connect terminal nodes to END
-        has_dependents = set()
         for step in workflow.steps:
             for dep in step.depends_on:
-                has_dependents.add(dep)
-        for step in workflow.steps:
-            if isinstance(step, DecisionStep):
-                has_dependents.add(step.id)
+                dependents[dep].append(step.id)
 
         for step in workflow.steps:
-            if step.id not in has_dependents and not isinstance(step, DecisionStep):
-                builder.add_edge(step.id, END)
+            node_fn = self._make_node(step, workflow)
+            graph.add_node(step.id, node_fn)
 
-        return builder.compile(checkpointer=checkpointer)
+        roots = [s for s in workflow.steps if not s.depends_on]
+        terminals = [s for s in workflow.steps if s.id not in dependents]
 
-    @staticmethod
-    def _resolve_child_workflow(step: WorkflowStep, store, base_dir):
-        """Load and validate a child workflow at compile time.
+        for step in roots:
+            graph.add_edge("__start__", step.id)
 
-        Returns (child_workflow, child_base_dir).
-        """
-        from cliver.workflow.persistence import WorkflowStore as _WFStore
+        for step in terminals:
+            graph.add_edge(step.id, END)
 
-        child_wf = None
-        child_base = base_dir
+        conditional_sources_handled = set()
 
-        if step.workflow and store:
-            child_wf = store.load_workflow(step.workflow)
-            if child_wf:
-                child_base = str(store.workflows_dir)
+        for step in workflow.steps:
+            if not step.depends_on:
+                continue
 
-        if not child_wf and step.workflow_file:
-            file_path = Path(step.workflow_file)
-            if not file_path.is_absolute() and base_dir:
-                file_path = Path(base_dir) / file_path
-            child_wf = _WFStore.load_workflow_from_file(file_path)
-            if child_wf:
-                child_base = str(file_path.parent.resolve())
+            for dep_id in step.depends_on:
+                if dep_id in conditional_sources_handled:
+                    continue
 
-        if not child_wf:
-            tried = []
-            if step.workflow:
-                tried.append(f"name '{step.workflow}'")
-            if step.workflow_file:
-                tried.append(f"file '{step.workflow_file}'")
-            raise ValueError(f"Workflow not found at compile time (tried {', '.join(tried)})")
+                siblings = dependents.get(dep_id, [])
+                conditional_siblings = [sid for sid in siblings if steps_by_id[sid].condition is not None]
 
-        return child_wf, child_base
-
-    @staticmethod
-    def _make_passthrough_node(step: DecisionStep):
-        async def node(state):
-            return {"steps": {step.id: {"outputs": {"status": "decided"}, "status": "completed"}}}
-
-        return node
-
-    @staticmethod
-    def _make_llm_node(step: LLMStep, agent_config: Optional[AgentConfig], overview: Optional[str]):
-        async def node(state, config):
-            from cliver.tool_events import ToolEvent, ToolEventType
-
-            if state.get("error"):
-                return {"steps": {step.id: {"outputs": {"error": "Skipped: prior step failed"}, "status": "skipped"}}}
-
-            factory = config["configurable"].get("subagent_factory")
-            upstream_handler = config["configurable"].get("on_tool_event")
-            context = _state_to_execution_context(state)
-            rendered_prompt = render_template(step.prompt, context)
-
-            # Create per-step log file and event handler
-            outputs_dir_val = state.get("outputs_dir", "")
-            emit_event = None
-            log_path = None
-            if outputs_dir_val:
-                emit_event, log_path = create_step_logger(outputs_dir_val, step.id, upstream_handler)
-            elif upstream_handler:
-                emit_event = upstream_handler
-
-            if factory:
-                effective_config = agent_config or AgentConfig(model=step.model)
-                subagent = factory.create(effective_config)
-            else:
-                subagent = config["configurable"]["agent_core"]
-
-            # Wire the step logger as the subagent's tool event handler
-            if emit_event:
-                subagent.on_tool_event = emit_event
-
-            def system_appender():
-                parts = [_WORKFLOW_STEP_SYSTEM_INSTRUCTION]
-                if overview:
-                    parts.append(f"# Workflow Overview\n\n{overview}")
-                if agent_config:
-                    if agent_config.role:
-                        parts.append(f"# Your Role\n\n{agent_config.role}")
-                    if agent_config.instructions:
-                        parts.append(f"# Instructions\n\n{agent_config.instructions}")
-                    if agent_config.system_message:
-                        parts.append(agent_config.system_message)
-
-                # Inject outputs directory and file context from prior steps
-                outputs_dir = state.get("outputs_dir", "")
-                file_section = []
-                if outputs_dir:
-                    file_section.append(f"**Outputs directory:** `{outputs_dir}`")
-                    file_section.append("Save ALL generated files to this directory.")
-                prior_files = []
-                for sid, sdata in state.get("steps", {}).items():
-                    s_outputs = sdata.get("outputs", {})
-                    if s_outputs.get("media_files"):
-                        for f in s_outputs["media_files"]:
-                            prior_files.append(f"- `{f}` (from step '{sid}')")
-                if prior_files:
-                    file_section.append("\n**Files from prior steps:**")
-                    file_section.extend(prior_files)
-                if file_section:
-                    parts.append("# Output Directory & Available Files\n\n" + "\n".join(file_section))
-
-                return "\n\n".join(parts)
-
-            effective_model = (agent_config.model if agent_config else None) or step.model
-
-            # Build tool filter: use agent's explicit tool list if set,
-            # otherwise exclude planning/meta tools from workflow steps.
-            agent_tools = agent_config.tools if agent_config and agent_config.tools else None
-
-            async def _filter_tools(_user_input, tools):
-                if agent_tools:
-                    return [t for t in tools if t.name in agent_tools]
-                return [t for t in tools if t.name not in _WORKFLOW_EXCLUDED_TOOLS]
-
-            start = time.time()
-            deadline = start + step.timeout
-            attempt = 0
-            current_prompt = rendered_prompt
-            result_text = ""
-            media_files = []
-            validation_status = None
-
-            if emit_event:
-                try:
-                    emit_event(
-                        ToolEvent(
-                            event_type=ToolEventType.STEP_START,
-                            tool_name=step.id,
-                            result=step.name or step.id,
-                        )
-                    )
-                except Exception:
-                    pass
-
-            try:
-                from cliver.media_handler import extract_response_text
-
-                while True:
-                    from langchain_core.messages import AIMessage
-
-                    chunks = []
-                    async for chunk in subagent.stream_user_input(
-                        user_input=current_prompt,
-                        model=effective_model,
-                        system_message_appender=system_appender,
-                        filter_tools=_filter_tools,
-                        outputs_dir=state.get("outputs_dir", ""),
-                        images=render_template(step.images, context) if step.images else None,
-                        audio_files=render_template(step.audio_files, context) if step.audio_files else None,
-                        video_files=render_template(step.video_files, context) if step.video_files else None,
-                        files=render_template(step.files, context) if step.files else None,
-                    ):
-                        if emit_event and hasattr(chunk, "content") and chunk.content:
-                            try:
-                                emit_event(
-                                    ToolEvent(
-                                        event_type=ToolEventType.STEP_CONTENT,
-                                        tool_name=step.id,
-                                        result=str(chunk.content),
-                                    )
-                                )
-                            except Exception:
-                                pass
-                        chunks.append(chunk)
-                    full_text = "".join(str(c.content) for c in chunks if hasattr(c, "content") and c.content)
-                    last_kwargs = {}
-                    for c in reversed(chunks):
-                        ck = getattr(c, "additional_kwargs", None)
-                        if ck and "media_content" in ck:
-                            last_kwargs = ck
-                            break
-                    response = AIMessage(content=full_text, additional_kwargs=last_kwargs)
-
-                    result_text = extract_response_text(response)
-                    _save_step_output(state["outputs_dir"], step.id, result_text, step.output_format)
-                    media_files = _save_step_media(state["outputs_dir"], step.id, response, subagent, effective_model)
-
-                    if not step.expected_result:
-                        break
-
-                    passed, feedback = await _validate_step_output(
-                        subagent,
-                        step,
-                        result_text,
-                        media_files,
-                        effective_model,
-                    )
-                    if passed:
-                        validation_status = "passed"
-                        logger.info("Step '%s' validation passed (attempt %d)", step.id, attempt + 1)
-                        break
-
-                    attempt += 1
-                    validation_status = f"failed (attempt {attempt}): {feedback}"
-                    logger.info("Step '%s' validation failed (attempt %d): %s", step.id, attempt, feedback)
-
-                    if step.retry > 0 and attempt >= step.retry:
-                        logger.warning("Step '%s' exhausted %d retries", step.id, step.retry)
-                        break
-                    if time.time() >= deadline:
-                        logger.warning("Step '%s' timed out after %ds", step.id, step.timeout)
-                        validation_status += " (timeout)"
-                        break
-
-                    current_prompt = (
-                        rendered_prompt + f"\n\n--- Previous attempt failed validation ---\n"
-                        f"Feedback: {feedback}\n"
-                        f"Please try again and ensure the output meets: {step.expected_result}"
-                    )
-
-                outputs = {"result": result_text, "outputs_dir": state["outputs_dir"]}
-                if log_path:
-                    outputs["log_file"] = log_path
-                if media_files:
-                    outputs["media_files"] = media_files
-                if validation_status:
-                    outputs["validation"] = validation_status
-                if step.outputs:
-                    for name in step.outputs:
-                        outputs[name] = result_text
-
-                elapsed = time.time() - start
-                if emit_event:
+                if len(conditional_siblings) > 1:
+                    self._add_conditional_edges(graph, dep_id, conditional_siblings, steps_by_id)
+                    conditional_sources_handled.add(dep_id)
+                elif step.condition is None:
                     try:
-                        emit_event(
-                            ToolEvent(
-                                event_type=ToolEventType.STEP_END,
-                                tool_name=step.id,
-                                result=step.name or step.id,
-                                duration_ms=elapsed * 1000,
-                            )
-                        )
-                    except Exception:
+                        graph.add_edge(dep_id, step.id)
+                    except ValueError:
                         pass
-                return {
-                    "steps": {
-                        step.id: {
-                            "outputs": outputs,
-                            "status": "completed",
-                            "execution_time": elapsed,
-                            "attempts": attempt + 1,
-                        }
-                    }
-                }
-            except Exception as e:
-                logger.error("LLM step '%s' failed: %s", step.id, e)
-                elapsed = time.time() - start
-                if emit_event:
-                    try:
-                        emit_event(
-                            ToolEvent(
-                                event_type=ToolEventType.STEP_ERROR,
-                                tool_name=step.id,
-                                error=str(e),
-                                duration_ms=elapsed * 1000,
-                            )
-                        )
-                    except Exception:
-                        pass
-                return {
-                    "steps": {
-                        step.id: {
-                            "outputs": {"error": str(e)},
-                            "status": "failed",
-                            "execution_time": elapsed,
-                        }
-                    },
-                    "error": f"Step '{step.id}' failed: {e}",
-                }
 
-        return node
+        return graph.compile(checkpointer=checkpointer)
+
+    def _add_conditional_edges(
+        self,
+        graph: StateGraph,
+        source_id: str,
+        target_ids: List[str],
+        steps_by_id: Dict[str, Step],
+    ):
+        conditions_map = {}
+        for tid in target_ids:
+            conditions_map[tid] = steps_by_id[tid].condition
+
+        def router(state: WorkflowState) -> List[str]:
+            results = []
+            for tid, condition in conditions_map.items():
+                if evaluate_condition(condition, state.get("steps", {})):
+                    results.append(tid)
+            if not results:
+                results.append(_SKIP_SENTINEL)
+            return results
+
+        destinations = {tid: tid for tid in target_ids}
+        destinations[_SKIP_SENTINEL] = END
+        graph.add_conditional_edges(source_id, router, destinations)
+
+    def _make_node(self, step: Step, workflow: Workflow):
+        if isinstance(step, LLMStep):
+            return self._make_llm_node(step, workflow)
+        elif isinstance(step, PythonStep):
+            return self._make_python_node(step, workflow)
+        raise ValueError(f"Unknown step type: {type(step)}")
 
     @staticmethod
-    def _make_human_node(step: HumanStep):
-        async def node(state, config):
-            if state.get("error"):
-                return {"steps": {step.id: {"outputs": {"error": "Skipped: prior step failed"}, "status": "skipped"}}}
-            context = _state_to_execution_context(state)
-            rendered_prompt = render_template(step.prompt, context)
+    def _make_llm_node(step: LLMStep, workflow: Workflow):
+        async def node(state: WorkflowState) -> dict:
+            from cliver.workflow.node_runners import run_llm_node
 
-            if step.auto_confirm:
-                result = "auto-confirmed"
-            else:
-                result = interrupt({"prompt": rendered_prompt, "step_id": step.id})
+            auto_ctx = build_auto_context(step.depends_on, state)
+            prompt = resolve_refs(step.prompt, state)
+            if auto_ctx:
+                prompt = f"{auto_ctx}\n\n{prompt}"
 
-            return {"steps": {step.id: {"outputs": {"result": result}, "status": "completed"}}}
-
-        return node
-
-    @staticmethod
-    def _make_function_node(step: FunctionStep):
-        async def node(state, config):
-            if state.get("error"):
-                return {"steps": {step.id: {"outputs": {"error": "Skipped: prior step failed"}, "status": "skipped"}}}
-            import importlib
-
-            context = _state_to_execution_context(state)
             start = time.time()
-
             try:
-                module_path, func_name = step.function.rsplit(".", 1)
-                module = importlib.import_module(module_path)
-                func = getattr(module, func_name)
-
-                rendered_inputs = render_template(step.inputs, context) if step.inputs else {}
-                result = func(**rendered_inputs) if rendered_inputs else func()
-
-                outputs = {"result": result}
-                if step.outputs and isinstance(result, dict):
-                    for name in step.outputs:
-                        if name in result:
-                            outputs[name] = result[name]
-
-                return {
-                    "steps": {
-                        step.id: {
-                            "outputs": outputs,
-                            "status": "completed",
-                            "execution_time": time.time() - start,
-                        }
-                    }
-                }
+                result = await run_llm_node(
+                    prompt=prompt,
+                    model=step.model,
+                    role=step.role,
+                    tools=step.tools,
+                    output_format=step.output_format,
+                    outputs_dir=state["outputs_dir"],
+                    step_id=step.id,
+                    app_config=state.get("_app_config"),
+                    on_tool_event=state.get("_on_tool_event"),
+                )
             except Exception as e:
-                return {
-                    "steps": {
-                        step.id: {
-                            "outputs": {"error": str(e)},
-                            "status": "failed",
-                            "execution_time": time.time() - start,
-                        }
-                    },
-                    "error": f"Function step '{step.id}' failed: {e}",
-                }
+                logger.error("LLM node %s failed: %s", step.id, e)
+                result = {"error": str(e)}
 
+            elapsed = time.time() - start
+            result["_execution_time"] = round(elapsed, 2)
+            return {"steps": {step.id: result}}
+
+        node.__name__ = f"llm_{step.id}"
         return node
 
     @staticmethod
-    def _make_workflow_node(step: WorkflowStep, child_workflow: Workflow, child_graph):
-        """Create a node that invokes a pre-compiled child workflow graph.
+    def _make_python_node(step: PythonStep, workflow: Workflow):
+        async def node(state: WorkflowState) -> dict:
+            from cliver.workflow.node_runners import run_python_node
 
-        The child graph shares the parent's checkpointer (passed at compile time)
-        and gets a derived thread_id for its own checkpoint chain.
-        """
+            node_inputs = dict(state.get("inputs", {}))
+            for dep_id in step.depends_on:
+                dep_output = state.get("steps", {}).get(dep_id)
+                if dep_output:
+                    node_inputs[dep_id] = dep_output
 
-        async def node(state, config):
-            if state.get("error"):
-                return {"steps": {step.id: {"outputs": {"error": "Skipped: prior step failed"}, "status": "skipped"}}}
-            context = _state_to_execution_context(state)
+            base_dir = state.get("_workflow_base_dir", ".")
+            file_path = step.file
+            if not Path(file_path).is_absolute():
+                file_path = str(Path(base_dir) / file_path)
+
             start = time.time()
-
             try:
-                rendered_inputs = render_template(step.workflow_inputs, context) if step.workflow_inputs else None
-
-                child_state = {
-                    "inputs": child_workflow.get_initial_inputs(rendered_inputs),
-                    "steps": {},
-                    "outputs_dir": str(Path(state["outputs_dir"]) / step.id),
-                    "workflow_name": child_workflow.name,
-                    "execution_id": state["execution_id"],
-                    "error": None,
-                }
-
-                parent_thread = config["configurable"]["thread_id"]
-                child_config = {
-                    "configurable": {
-                        "thread_id": f"{parent_thread}:{step.id}",
-                        "agent_core": config["configurable"].get("agent_core"),
-                        "subagent_factory": config["configurable"].get("subagent_factory"),
-                        "workflow_store": config["configurable"].get("workflow_store"),
-                        "db_path": config["configurable"].get("db_path"),
-                        "app_config": config["configurable"].get("app_config"),
-                        "skill_manager": config["configurable"].get("skill_manager"),
-                        "workflow_base_dir": config["configurable"].get("workflow_base_dir"),
-                    }
-                }
-
-                sub_result = await child_graph.ainvoke(child_state, child_config)
-
-                return {
-                    "steps": {
-                        step.id: {
-                            "outputs": {"result": sub_result},
-                            "status": "completed",
-                            "execution_time": time.time() - start,
-                        }
-                    }
-                }
+                result = run_python_node(file_path, node_inputs)
             except Exception as e:
-                return {
-                    "steps": {
-                        step.id: {
-                            "outputs": {"error": str(e)},
-                            "status": "failed",
-                            "execution_time": time.time() - start,
-                        }
-                    },
-                    "error": f"Workflow step '{step.id}' failed: {e}",
-                }
+                logger.error("Python node %s failed: %s", step.id, e)
+                result = {"error": str(e)}
 
+            elapsed = time.time() - start
+            result["_execution_time"] = round(elapsed, 2)
+            return {"steps": {step.id: result}}
+
+        node.__name__ = f"python_{step.id}"
         return node
-
-    @staticmethod
-    def _make_decision_router(step: DecisionStep):
-        def route(state) -> str:
-            context = _state_to_execution_context(state)
-            for branch in step.branches:
-                if evaluate_condition(branch.condition, context):
-                    return branch.next_step
-            return step.default or END
-
-        return route

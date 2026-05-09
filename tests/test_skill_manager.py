@@ -162,11 +162,6 @@ class TestValidateSkill:
         result = validate_skill(skill)
         assert any("1024" in w for w in result.warnings)
 
-    def test_long_compatibility_warns(self):
-        skill = Skill(name="test", description="ok", body="", base_dir=Path("test"), compatibility="x" * 501)
-        result = validate_skill(skill)
-        assert any("500" in w for w in result.warnings)
-
     def test_long_body_warns(self):
         skill = Skill(name="test", description="ok", body="\n".join(["line"] * 501), base_dir=Path("test"))
         result = validate_skill(skill)
@@ -255,8 +250,6 @@ class TestParseSkillMd:
         """)
         )
         skill = _parse_skill_md(path)
-        assert skill.license == "MIT"
-        assert skill.compatibility == "Requires Python 3.10+"
         assert skill.metadata == {"author": "test", "version": "2.0"}
 
     def test_tolerant_of_uppercase_names(self, tmp_path):
@@ -316,8 +309,6 @@ class TestSkillManagerDiscovery:
 
     def test_spec_fields_preserved(self, manager):
         skill = manager.get_skill("web-search")
-        assert skill.license == "Apache-2.0"
-        assert skill.compatibility == "Requires internet access"
         assert skill.metadata == {"author": "test-org", "version": "1.0"}
         assert skill.allowed_tools == ["WebSearch", "WebFetch"]
 

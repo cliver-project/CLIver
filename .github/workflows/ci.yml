@@ -8,6 +8,7 @@ on:
     paths:
       - "src/**"
       - "tests/**"
+      - "admin/**"
 
 jobs:
   test:
@@ -26,6 +27,12 @@ jobs:
         with:
           python-version: '3.13'
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: admin/package-lock.json
+
       - name: Install dependencies
         run: make init
 
@@ -34,3 +41,12 @@ jobs:
 
       - name: Run tests
         run: make test
+
+      - name: Install admin dependencies
+        run: make admin-install
+
+      - name: Lint admin portal
+        run: make admin-lint
+
+      - name: Build admin portal
+        run: make admin-build

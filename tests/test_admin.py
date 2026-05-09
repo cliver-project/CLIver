@@ -28,33 +28,23 @@ def _make_admin_app(username="admin", password="secret"):
 
 
 class TestAdminAuth:
-    def test_admin_root_redirects_to_gateway(self):
-        client = TestClient(_make_admin_app(), follow_redirects=False)
+    def test_admin_root_serves_spa(self):
+        """SPA serves index.html for /admin (no redirect)."""
+        client = TestClient(_make_admin_app())
         resp = client.get("/admin", headers=_auth_header())
-        assert resp.status_code == 302
-        assert resp.headers["Location"] == "/admin/gateway"
+        assert resp.status_code == 200
 
-    def test_admin_page_requires_auth(self):
-        client = TestClient(_make_admin_app(), follow_redirects=False)
-        resp = client.get("/admin/gateway")
-        assert resp.status_code == 302
-        assert "/admin/login" in resp.headers["Location"]
-
-    def test_admin_page_wrong_password(self):
-        client = TestClient(_make_admin_app(), follow_redirects=False)
-        resp = client.get("/admin/gateway", headers=_auth_header("admin", "wrong"))
-        assert resp.status_code == 302
-
-    def test_admin_page_succeeds_with_correct_auth(self):
+    def test_admin_page_serves_spa(self):
+        """SPA catch-all serves index.html for any page route."""
         client = TestClient(_make_admin_app())
         resp = client.get("/admin/gateway", headers=_auth_header())
         assert resp.status_code == 200
-        assert "Admin Portal" in resp.text
 
-    def test_admin_unknown_page_returns_404(self):
+    def test_admin_login_serves_spa(self):
+        """Login page is handled by the SPA."""
         client = TestClient(_make_admin_app())
-        resp = client.get("/admin/nonexistent", headers=_auth_header())
-        assert resp.status_code == 404
+        resp = client.get("/admin/login")
+        assert resp.status_code == 200
 
     def test_api_status_requires_auth(self):
         client = TestClient(_make_admin_app())
@@ -70,9 +60,10 @@ class TestAdminAuth:
 
 
 class TestAdminDisabled:
-    def test_admin_disabled_returns_403(self):
+    def test_admin_disabled_api_returns_403(self):
+        """API routes return 403 when admin portal is disabled (no credentials)."""
         client = TestClient(_make_admin_app(username=None, password=None))
-        resp = client.get("/admin/gateway")
+        resp = client.get("/admin/api/status")
         assert resp.status_code == 403
 
 

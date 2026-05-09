@@ -183,7 +183,8 @@ class Cliver:
             self.current_session_id = sm.create_session()
 
         sm = self.get_session_manager()
-        sm.append_turn(self.current_session_id, role, content)
+        msg_type = "human" if role == "user" else "ai" if role == "assistant" else role
+        sm.append_turn(self.current_session_id, role, content, msg_type=msg_type)
         self.session_history.append({"role": role, "content": content})
 
     def _get_commands(self) -> set[str]:

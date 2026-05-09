@@ -15,6 +15,7 @@ from typing import Any, Callable, Dict, List
 
 from langchain.chat_models import init_chat_model
 from langchain_core.messages import (
+    AIMessage,
     BaseMessage,
     HumanMessage,
     SystemMessage,
@@ -67,9 +68,10 @@ def _convert_deepseek_messages(messages: List[BaseMessage]) -> List[BaseMessage]
     Flattens multipart HumanMessage content to plain strings (DeepSeek
     rejects content arrays).
 
-    Preserves reasoning_content on AIMessages — DeepSeek's API requires
-    it on tool-call turns and ignores it on non-tool-call turns, so
-    keeping it always is the safest approach.
+    Ensures every AIMessage has reasoning_content in additional_kwargs —
+    DeepSeek's API requires it on all assistant messages when thinking
+    mode is active.  Messages loaded from session storage lose this
+    field, so we backfill with an empty string to prevent 400 errors.
     """
     converted = []
     for message in messages:
@@ -86,6 +88,20 @@ def _convert_deepseek_messages(messages: List[BaseMessage]) -> List[BaseMessage]
                 elif isinstance(part, str):
                     text_parts.append(part)
             converted.append(HumanMessage(content="\n\n".join(text_parts)))
+        elif isinstance(message, AIMessage):
+            kwargs = getattr(message, "additional_kwargs", {}) or {}
+            if "reasoning_content" not in kwargs:
+                tool_calls = getattr(message, "tool_calls", None)
+                new_kwargs = {**kwargs, "reasoning_content": ""}
+                converted.append(
+                    AIMessage(
+                        content=message.content,
+                        additional_kwargs=new_kwargs,
+                        **({"tool_calls": tool_calls} if tool_calls else {}),
+                    )
+                )
+            else:
+                converted.append(message)
         else:
             converted.append(message)
     return converted
@@ -240,7 +256,6 @@ _KWARG_BUILDERS: Dict[str, Callable[[ModelConfig, str | None], dict]] = {
     "deepseek": _build_deepseek_kwargs,
     "anthropic": _build_anthropic_kwargs,
     "ollama": _build_ollama_kwargs,
-    "vllm": _build_openai_kwargs,
 }
 
 
@@ -384,6 +399,41 @@ def _extract_media_generic(response: BaseMessage, provider_name: str) -> List[Me
 # Providers that never return inline media
 _NO_MEDIA_PROVIDERS = {"anthropic", "deepseek"}
 
+_deepseek_patched = False
+
+
+def _patch_deepseek_message_serialization():
+    """Monkey-patch langchain's message-to-dict conversion to include
+    reasoning_content for DeepSeek assistant messages.
+
+    DeepSeek's API requires reasoning_content on assistant messages when
+    thinking mode is active, but langchain's _convert_message_to_dict
+    strips additional_kwargs. This patch injects reasoning_content into
+    the serialized dict after the original conversion.
+    """
+    global _deepseek_patched
+    if _deepseek_patched:
+        return
+    _deepseek_patched = True
+
+    try:
+        import langchain_openai.chat_models.base as openai_base
+
+        _original = openai_base._convert_message_to_dict
+
+        def _patched(message, api="chat/completions"):
+            result = _original(message, api)
+            if isinstance(message, AIMessage) and result.get("role") == "assistant":
+                kwargs = getattr(message, "additional_kwargs", {}) or {}
+                if "reasoning_content" in kwargs:
+                    result["reasoning_content"] = kwargs["reasoning_content"]
+            return result
+
+        openai_base._convert_message_to_dict = _patched
+        logger.debug("Patched _convert_message_to_dict for DeepSeek reasoning_content")
+    except Exception as e:
+        logger.warning("Failed to patch DeepSeek message serialization: %s", e)
+
 
 # ---------------------------------------------------------------------------
 # UnifiedInferenceEngine
@@ -401,22 +451,39 @@ class UnifiedInferenceEngine(LLMInferenceEngine):
     ):
         super().__init__(config, user_agent=user_agent, agent_name=agent_name)
         self._provider_type = config.get_provider_type()
+        self._effective_provider = self._detect_effective_provider(config)
 
-        builder = _KWARG_BUILDERS.get(self._provider_type, _build_openai_kwargs)
+        builder = _KWARG_BUILDERS.get(self._effective_provider, _build_openai_kwargs)
         kwargs = builder(config, user_agent)
 
         self.llm = init_chat_model(
             model=config.api_model_name,
-            model_provider=self._provider_type,
+            model_provider=self._effective_provider,
             **kwargs,
         )
 
+        if self._effective_provider == "deepseek":
+            _patch_deepseek_message_serialization()
+
+    @staticmethod
+    def _detect_effective_provider(config: ModelConfig) -> str:
+        """Detect the actual API provider for message conversion.
+
+        Some providers (e.g. DeepSeek) are configured with type "openai"
+        for compatibility but need provider-specific message handling.
+        """
+        provider_type = config.get_provider_type()
+        if provider_type not in _MESSAGE_CONVERTERS:
+            hints = [config.provider, config.api_model_name, config.get_resolved_url() or ""]
+            for hint in hints:
+                if hint and "deepseek" in hint.lower():
+                    return "deepseek"
+        return provider_type
+
     def convert_messages_to_engine_specific(self, messages: List[BaseMessage]) -> List[BaseMessage]:
-        # Always merge system messages for all providers
         messages = _merge_system_messages(messages)
 
-        # Apply provider-specific conversion if needed
-        converter = _MESSAGE_CONVERTERS.get(self._provider_type)
+        converter = _MESSAGE_CONVERTERS.get(self._effective_provider)
         if converter:
             messages = converter(messages)
 

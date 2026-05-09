@@ -1,0 +1,61 @@
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router";
+import { QueryClient, QueryClientProvider, QueryCache } from "@tanstack/react-query";
+import { I18nProvider } from "@/i18n";
+import { App } from "@/App";
+import { AuthError } from "@/lib/api";
+import LoginPage from "@/pages/login";
+import DashboardPage from "@/pages/dashboard";
+import SkillsPage from "@/pages/skills";
+import SkillDetailPage from "@/pages/skills/detail";
+import SkillCreatePage from "@/pages/skills/create";
+import ConfigPage from "@/pages/config";
+import SessionsPage from "@/pages/sessions";
+import SessionDetailPage from "@/pages/session-detail";
+import TaskListPage from "@/pages/tasks/list";
+import TaskCreatePage from "@/pages/tasks/create";
+import TaskDetailPage from "@/pages/tasks/detail";
+import WorkflowListPage from "@/pages/workflows/list";
+import WorkflowDetailPage from "@/pages/workflows/detail";
+import "./globals.css";
+
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { retry: 1, staleTime: 30_000 } },
+  queryCache: new QueryCache({
+    onError: (error) => {
+      if (error instanceof AuthError) {
+        window.location.href = "/admin/login";
+      }
+    },
+  }),
+});
+
+createRoot(document.getElementById("root")!).render(
+  <StrictMode>
+    <I18nProvider>
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/admin/login" element={<LoginPage />} />
+            <Route path="/admin" element={<App />}>
+              <Route index element={<Navigate to="dashboard" replace />} />
+              <Route path="dashboard" element={<DashboardPage />} />
+              <Route path="workflows" element={<WorkflowListPage />} />
+              <Route path="workflows/:name" element={<WorkflowDetailPage />} />
+              <Route path="tasks" element={<TaskListPage />} />
+              <Route path="tasks/new" element={<TaskCreatePage />} />
+              <Route path="tasks/:name" element={<TaskDetailPage />} />
+              <Route path="sessions" element={<SessionsPage />} />
+              <Route path="sessions/:source/:id" element={<SessionDetailPage />} />
+              <Route path="skills" element={<SkillsPage />} />
+              <Route path="skills/new" element={<SkillCreatePage />} />
+              <Route path="skills/:name" element={<SkillDetailPage />} />
+              <Route path="config" element={<ConfigPage />} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </QueryClientProvider>
+    </I18nProvider>
+  </StrictMode>,
+);

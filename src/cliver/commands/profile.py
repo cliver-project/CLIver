@@ -48,6 +48,10 @@ def _set_field(cliver: Cliver, key: str, value: str):
     """Set a profile field in identity.md frontmatter."""
     profile = cliver.agent_profile
 
+    # Strip surrounding quotes (user may type: /profile set name "CLIver")
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+        value = value[1:-1]
+
     # Try to parse value as YAML (handles booleans, numbers, lists)
     try:
         parsed = yaml.safe_load(value)

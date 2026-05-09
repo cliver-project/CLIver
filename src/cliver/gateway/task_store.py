@@ -45,7 +45,8 @@ CREATE TABLE IF NOT EXISTS task_runs (
     started_at TEXT NOT NULL,
     finished_at TEXT,
     error TEXT,
-    result TEXT
+    result TEXT,
+    session_id TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_task_runs_task_name
@@ -63,6 +64,17 @@ class TaskStore:
         self.db_path = Path(db_path)
         self._store = SQLiteStore(db_path)
         self._store.execute_schema(_SCHEMA)
+        self._migrate()
+
+    def _migrate(self):
+        """Apply schema migrations for columns added after initial release."""
+        try:
+            with self._store.write() as db:
+                cols = {r["name"] for r in db.execute("PRAGMA table_info(task_runs)").fetchall()}
+                if "session_id" not in cols:
+                    db.execute("ALTER TABLE task_runs ADD COLUMN session_id TEXT")
+        except Exception:
+            pass
 
     # -- Task registry --------------------------------------------------------
 
@@ -241,8 +253,8 @@ class TaskStore:
         with self._store.write() as db:
             db.execute(
                 """INSERT INTO task_runs
-                   (task_name, execution_id, status, started_at, finished_at, error, result)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                   (task_name, execution_id, status, started_at, finished_at, error, result, session_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     run.task_name,
                     run.execution_id,
@@ -251,6 +263,7 @@ class TaskStore:
                     run.finished_at,
                     run.error,
                     run.result,
+                    run.session_id,
                 ),
             )
 
@@ -258,7 +271,7 @@ class TaskStore:
         with self._store.read() as db:
             rows = db.execute(
                 """SELECT task_name, execution_id, status,
-                          started_at, finished_at, error, result
+                          started_at, finished_at, error, result, session_id
                    FROM task_runs
                    WHERE task_name = ?
                    ORDER BY id DESC

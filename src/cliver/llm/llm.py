@@ -1063,10 +1063,11 @@ class AgentCore:
 
                     classified = classify_error(e)
                     logger.info(
-                        "LLM error: reason=%s action=%s model=%s",
+                        "LLM error: reason=%s action=%s model=%s error=%s",
                         classified.reason,
                         classified.action.value,
                         current_model,
+                        repr(e),
                     )
 
                     # RETRY: transient error
@@ -1700,10 +1701,11 @@ class AgentCore:
 
                     classified = classify_error(e)
                     logger.info(
-                        "LLM streaming error: reason=%s action=%s model=%s",
+                        "LLM streaming error: reason=%s action=%s model=%s error=%s",
                         classified.reason,
                         classified.action.value,
                         current_model,
+                        repr(e),
                     )
 
                     # If content was already yielded to the user, don't retry

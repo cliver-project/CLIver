@@ -1,175 +1,76 @@
-"""
-Workflow models for CLIver Workflow Engine.
+"""Workflow models — simplified for LangGraph-native execution."""
 
-Model hierarchy:
-- Workflow: definition (steps, inputs, permissions)
-- Step types: LLMStep, FunctionStep, HumanStep, WorkflowStep, DecisionStep
-- ExecutionContext: runtime state (inputs + step outputs)
-- ExecutionResult: per-step result
-- WorkflowExecutionState: full execution state (for persistence/resume)
-"""
-
-from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, model_validator
 
 
-class AgentConfig(BaseModel):
-    """Agent profile configuration within a workflow.
+class LLMStep(BaseModel):
+    """A step that invokes an LLM with a prompt."""
 
-    Defines the configuration for a subagent — NOT the same as
-    CliverProfile (identity/memory system).
-    """
-
-    role: Optional[str] = Field(None, description="Agent role description")
-    instructions: Optional[str] = Field(None, description="Behavioral instructions for the agent")
-    model: Optional[str] = Field(None, description="LLM model to use")
-    system_message: Optional[str] = Field(None, description="System prompt for this agent")
-    tools: Optional[List[str]] = Field(None, description="Builtin tools to enable")
-    skills: Optional[List[str]] = Field(None, description="Skills to pre-recommend")
-    permissions: Optional[Any] = Field(None, description="Permission overrides")
+    id: str
+    type: Literal["llm"] = "llm"
+    prompt: str
+    model: Optional[str] = None
+    role: Optional[str] = None
+    tools: Optional[List[str]] = None
+    output_format: Literal["json", "text", "markdown"] = "json"
+    depends_on: List[str] = Field(default_factory=list)
+    condition: Optional[str] = None
 
 
-class StepType(str, Enum):
-    FUNCTION = "function"
-    LLM = "llm"
-    WORKFLOW = "workflow"
-    HUMAN = "human"
-    DECISION = "decision"
+class PythonStep(BaseModel):
+    """A step that runs a Python file's run(inputs) function."""
+
+    id: str
+    type: Literal["python"] = "python"
+    file: str
+    depends_on: List[str] = Field(default_factory=list)
+    condition: Optional[str] = None
 
 
-# ---------------------------------------------------------------------------
-# Step definitions
-# ---------------------------------------------------------------------------
+Step = Union[LLMStep, PythonStep]
 
 
-class BaseStep(BaseModel):
-    id: str = Field(..., description="Unique identifier for the step")
-    name: str = Field(..., description="Descriptive name of the step")
-    type: StepType = Field(..., description="Type of the step")
-    description: Optional[str] = Field(None, description="Description of the step")
-    inputs: Optional[Dict[str, Any]] = Field(None, description="Input variables for the step")
-    outputs: Optional[List[str]] = Field(None, description="Output variable names from the step")
-    skipped: bool = Field(False, description="Whether the step is skipped")
-    depends_on: List[str] = Field(default_factory=list, description="Step IDs that must complete first")
-    condition: Optional[str] = Field(None, description="Jinja2 expression — skip step if false")
-    expected_result: Optional[str] = Field(
-        None, description="Description of expected output — step retries until this is met or timeout"
-    )
-    retry: int = Field(0, description="Max retries (0 = unlimited until expected result or timeout)")
-    timeout: int = Field(1800, description="Step timeout in seconds (default 30 minutes)")
-
-
-class LLMStep(BaseStep):
-    type: StepType = StepType.LLM
-    prompt: str = Field(..., description="Prompt for the LLM")
-    model: Optional[str] = Field(None, description="LLM model to use")
-    skills: Optional[List[str]] = Field(None, description="Skills to activate for this step")
-    images: Optional[List[str]] = Field(None, description="Image files")
-    audio_files: Optional[List[str]] = Field(None, description="Audio files")
-    video_files: Optional[List[str]] = Field(None, description="Video files")
-    files: Optional[List[str]] = Field(None, description="General files")
-    template: Optional[str] = Field(None, description="Template name")
-    params: Optional[Dict[str, Any]] = Field(None, description="Template parameters")
-    permissions: Optional[Any] = Field(None, description="Permission overrides")
-    agent: Optional[str] = Field(None, description="Agent profile name from workflow agents section")
-    output_format: str = Field("md", description="Output file format: md, json, txt, yaml, code")
-
-
-class FunctionStep(BaseStep):
-    type: StepType = StepType.FUNCTION
-    function: str = Field(..., description="Module path to the function")
-
-
-class HumanStep(BaseStep):
-    type: StepType = StepType.HUMAN
-    prompt: str = Field(..., description="Prompt to show to the user")
-    auto_confirm: bool = Field(False, description="Auto-confirm without input")
-
-
-class WorkflowStep(BaseStep):
-    type: StepType = StepType.WORKFLOW
-    workflow: Optional[str] = Field(None, description="Workflow name to execute (from store)")
-    workflow_file: Optional[str] = Field(None, description="Path to workflow YAML file to execute")
-    workflow_inputs: Optional[Dict[str, Any]] = Field(None, description="Inputs for sub-workflow")
-
-    @model_validator(mode="after")
-    def check_workflow_or_file(self):
-        if not self.workflow and not self.workflow_file:
-            raise ValueError("At least one of 'workflow' or 'workflow_file' must be set")
-        return self
-
-
-class Branch(BaseModel):
-    condition: str = Field(..., description="Jinja2 condition expression")
-    next_step: str = Field(..., description="Step ID to jump to if condition is true")
-
-
-class DecisionStep(BaseStep):
-    type: StepType = StepType.DECISION
-    branches: List[Branch] = Field(..., description="Branches evaluated in order")
-    default: Optional[str] = Field(None, description="Fallback step ID if no branch matches")
-
-
-Step = Union[LLMStep, FunctionStep, HumanStep, WorkflowStep, DecisionStep]
-
-
-# ---------------------------------------------------------------------------
-# Workflow definition
-# ---------------------------------------------------------------------------
+def _parse_step(data: dict) -> Step:
+    """Discriminate step type from the 'type' field."""
+    step_type = data.get("type")
+    if step_type == "llm":
+        return LLMStep(**data)
+    elif step_type == "python":
+        return PythonStep(**data)
+    raise ValueError(f"Unknown step type: {step_type!r}. Must be 'llm' or 'python'.")
 
 
 class Workflow(BaseModel):
-    name: str = Field(..., description="Unique name of the workflow")
-    description: Optional[str] = Field(None, description="Description")
-    overview: Optional[str] = Field(None, description="High-level context shared with all subagents")
-    overview_file: Optional[str] = Field(None, description="Path to overview markdown file")
-    agents: Optional[Dict[str, AgentConfig]] = Field(None, description="Reusable agent profile configs")
-    outputs_dir: Optional[str] = Field(None, description="Directory for step output files")
-    inputs: Optional[Dict[str, Any]] = Field(None, description="Input parameter defaults")
-    steps: List[Step] = Field(default_factory=list, description="Steps in the workflow")
-    permissions: Optional[Any] = Field(None, description="Permission overrides")
+    """Top-level workflow definition."""
+
+    name: str
+    description: Optional[str] = None
+    inputs: Optional[Dict[str, Any]] = None
+    steps: List[Step]
+    permissions: Optional[Any] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _parse_steps(cls, values):
+        raw_steps = values.get("steps", [])
+        parsed = []
+        for s in raw_steps:
+            if isinstance(s, dict):
+                parsed.append(_parse_step(s))
+            else:
+                parsed.append(s)
+        values["steps"] = parsed
+        return values
 
     def get_initial_inputs(self, provided_inputs: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        result = dict(self.inputs or {})
+        """Merge provided inputs with defaults from the inputs schema."""
+        result = {}
+        if self.inputs:
+            for key, schema in self.inputs.items():
+                if isinstance(schema, dict) and "default" in schema:
+                    result[key] = schema["default"]
         if provided_inputs:
             result.update(provided_inputs)
         return result
-
-
-# ---------------------------------------------------------------------------
-# Execution state
-# ---------------------------------------------------------------------------
-
-
-class ExecutionContext(BaseModel):
-    workflow_name: str = Field(..., description="Name of the workflow being executed")
-    execution_id: Optional[str] = Field(None, description="Unique execution identifier")
-    inputs: Dict[str, Any] = Field(default_factory=dict, description="Workflow input variables")
-    steps: Dict[str, Dict[str, Any]] = Field(
-        default_factory=dict,
-        description="Step results keyed by step ID",
-    )
-
-
-class ExecutionResult(BaseModel):
-    step_id: str = Field(..., description="ID of the executed step")
-    outputs: Dict[str, Any] = Field(default_factory=dict, description="Output variables")
-    success: bool = Field(True, description="Whether the step succeeded")
-    error: Optional[str] = Field(None, description="Error message if failed")
-    execution_time: Optional[float] = Field(None, description="Execution time in seconds")
-
-
-class WorkflowExecutionState(BaseModel):
-    workflow_name: str
-    execution_id: str
-    completed_steps: List[str] = Field(default_factory=list)
-    skipped_steps: List[str] = Field(default_factory=list)
-    status: str = Field(
-        "running",
-        description="running | paused | completed | failed | cancelled",
-    )
-    error: Optional[str] = None
-    execution_time: Optional[float] = None
-    context: ExecutionContext

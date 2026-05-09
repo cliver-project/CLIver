@@ -22,8 +22,16 @@ jobs:
         with:
           python-version: '3.13'
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: admin/package-lock.json
+
       - name: Install dependencies
-        run: make init
+        run: |
+          make init
+          make admin-install
 
       - name: Build and release to PyPI
         env:
