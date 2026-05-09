@@ -129,7 +129,7 @@ class LLMInferenceEngine(ABC):
         This method can be overridden by engine subclasses.
         User-provided system messages are appended separately by AgentCore.
         """
-        sections = [self._section_identity(self.agent_name)]
+        sections = [self._section_identity(self.agent_name, getattr(self, "_agent_role", None))]
         sections.append(self._section_self_awareness(available_tools))
         sections.append(self._section_tool_usage())
         sections.append(self._section_interaction_guidelines(available_tools))
@@ -140,7 +140,7 @@ class LLMInferenceEngine(ABC):
     # -- System prompt sections ------------------------------------------------
 
     @staticmethod
-    def _section_identity(agent_name: str) -> str:
+    def _section_identity(agent_name: str, agent_role: str = None) -> str:
         import os
         from datetime import datetime, timezone
 
@@ -157,15 +157,23 @@ class LLMInferenceEngine(ABC):
             tz_name = "unknown"
             utc_offset = ""
             now_local = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+
+        if agent_role:
+            identity_text = f"You are **{agent_name}**. {agent_role}\n\n"
+        else:
+            identity_text = (
+                f"You are **{agent_name}**, a general-purpose AI agent. "
+                "You help users accomplish a wide variety of tasks — answering questions, "
+                "searching the web, reading and writing files, running commands, managing containers, "
+                "and anything else the user asks for.\n\n"
+                "You can operate in different environments: command-line interfaces, "
+                "embedded applications, or as a backend service. "
+                "Adapt your tone, depth, and approach to whatever the user needs.\n\n"
+            )
+
         return (
             "# Identity\n\n"
-            f"You are **{agent_name}**, a general-purpose AI agent. "
-            "You help users accomplish a wide variety of tasks — answering questions, "
-            "searching the web, reading and writing files, running commands, managing containers, "
-            "and anything else the user asks for.\n\n"
-            "You can operate in different environments: command-line interfaces, "
-            "embedded applications, or as a backend service. "
-            "Adapt your tone, depth, and approach to whatever the user needs.\n\n"
+            + identity_text +
             "## Environment\n\n"
             f"- Working directory: `{cwd}`\n"
             f"- Local time: {now_local}\n"

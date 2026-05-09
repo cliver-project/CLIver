@@ -16,6 +16,8 @@ import SessionDetailPage from "@/pages/session-detail";
 import TaskListPage from "@/pages/tasks/list";
 import TaskCreatePage from "@/pages/tasks/create";
 import TaskDetailPage from "@/pages/tasks/detail";
+import AgentListPage from "@/pages/agents/list";
+import AgentDetailPage from "@/pages/agents/detail";
 import WorkflowListPage from "@/pages/workflows/list";
 import WorkflowDetailPage from "@/pages/workflows/detail";
 import "./globals.css";
@@ -41,6 +43,9 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/admin" element={<App />}>
               <Route index element={<Navigate to="dashboard" replace />} />
               <Route path="dashboard" element={<DashboardPage />} />
+              <Route path="agents" element={<AgentListPage />} />
+              <Route path="agents/new" element={<AgentDetailPage />} />
+              <Route path="agents/:name" element={<AgentDetailPage />} />
               <Route path="workflows" element={<WorkflowListPage />} />
               <Route path="workflows/:name" element={<WorkflowDetailPage />} />
               <Route path="tasks" element={<TaskListPage />} />

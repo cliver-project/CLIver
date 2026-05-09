@@ -205,6 +205,14 @@ export function useSaveSkill(name: string) {
   });
 }
 
+// --- Agents ---
+export function useAgents() {
+  return useQuery({
+    queryKey: ["agents"],
+    queryFn: () => api<Array<Record<string, unknown>>>("/agents"),
+  });
+}
+
 // --- Config ---
 export function useConfig() {
   return useQuery({

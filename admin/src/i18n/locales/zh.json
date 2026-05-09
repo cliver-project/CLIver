@@ -16,6 +16,7 @@
   },
   "sidebar": {
     "dashboard": "仪表盘",
+    "agents": "智能体",
     "workflows": "工作流",
     "tasks": "任务",
     "sessions": "会话",
@@ -129,7 +130,32 @@
     "createError": "创建任务失败：{error}",
     "updateSuccess": "任务更新成功。",
     "updateError": "更新任务失败：{error}",
-    "taskNameExists": "同名任务已存在。"
+    "taskNameExists": "同名任务已存在。",
+    "taskAgent": "智能体",
+    "taskAgentDefault": "— 默认智能体 —"
+  },
+  "agents": {
+    "title": "智能体",
+    "name": "名称",
+    "description": "描述",
+    "role": "角色",
+    "systemPrompt": "系统提示",
+    "model": "模型",
+    "skills": "技能",
+    "isDefault": "默认",
+    "noAgents": "暂无已配置的智能体。",
+    "createAgent": "创建智能体",
+    "editAgent": "编辑",
+    "saveAgent": "保存",
+    "agentName": "名称",
+    "agentNamePlaceholder": "my-agent",
+    "rolePlaceholder": "你是一位专家...",
+    "systemPromptPlaceholder": "此智能体的额外指令...",
+    "descriptionPlaceholder": "此智能体的专长",
+    "deleteAgent": "删除智能体",
+    "deleteAgentDescription": "删除智能体「{name}」？此操作无法撤销。",
+    "noneSelected": "— 无 —",
+    "defaultBadge": "默认"
   },
   "workflows": {
     "title": "工作流",

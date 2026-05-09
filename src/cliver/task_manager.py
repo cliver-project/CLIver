@@ -52,6 +52,7 @@ class TaskDefinition(BaseModel):
     workflow_inputs: Optional[Dict[str, Any]] = Field(None, description="Extra inputs for workflow execution")
     skills: Optional[List[str]] = Field(None, description="Skills to pre-activate in system prompt")
     model: Optional[str] = Field(None, description="Model override for this task")
+    agent: Optional[str] = Field(None, description="Agent name to use (null = default_agent)")
     schedule: Optional[str] = Field(None, description="Cron expression for recurring execution")
     run_at: Optional[str] = Field(None, description="ISO 8601 datetime for one-shot execution")
     permissions: Optional[Any] = Field(None, description="Permission overrides for this task")

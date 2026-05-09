@@ -1,6 +1,7 @@
 import { NavLink } from "react-router";
 import {
   LayoutDashboard,
+  Users,
   Workflow,
   ListTodo,
   MessageSquare,
@@ -21,6 +22,7 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
   { to: "/admin/dashboard", icon: LayoutDashboard, labelKey: "sidebar.dashboard" },
+  { to: "/admin/agents", icon: Users, labelKey: "sidebar.agents" },
   { to: "/admin/workflows", icon: Workflow, labelKey: "sidebar.workflows" },
   { to: "/admin/tasks", icon: ListTodo, labelKey: "sidebar.tasks" },
   { to: "/admin/sessions", icon: MessageSquare, labelKey: "sidebar.sessions" },

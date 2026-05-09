@@ -539,6 +539,42 @@ class AgentCore:
         ):
             yield chunk
 
+    def _apply_agent_config(self, agent_config, model, system_message_appender, filter_tools):
+        """Apply agent config: override model, compose system prompt with role/system_prompt, activate skills."""
+        if agent_config.model and not model:
+            model = agent_config.model
+
+        # Compose agent role + system_prompt into appender
+        agent_parts = []
+        if agent_config.role:
+            agent_parts.append(f"# Agent Role\n\n{agent_config.role}")
+        if agent_config.system_prompt:
+            agent_parts.append(f"# Agent Instructions\n\n{agent_config.system_prompt}")
+
+        if agent_parts:
+            agent_text = "\n\n".join(agent_parts)
+            outer_appender = system_message_appender
+
+            def composed_appender():
+                parts = [agent_text]
+                if outer_appender:
+                    parts.append(outer_appender())
+                return "\n\n".join(parts)
+
+            system_message_appender = composed_appender
+
+        # Activate agent skills
+        if agent_config.skills:
+            from cliver.skill_manager import SkillManager, build_skill_appender, build_skill_tool_filter
+
+            manager = SkillManager()
+            skill_objs = [s for name in agent_config.skills if (s := manager.get_skill(name))]
+            if skill_objs:
+                system_message_appender = build_skill_appender(skill_objs, system_message_appender)
+                filter_tools = build_skill_tool_filter(skill_objs, filter_tools)
+
+        return model, system_message_appender, filter_tools
+
     def _resolve_skill_context(
         self,
         skill_name: str,
@@ -567,7 +603,7 @@ class AgentCore:
         images: List[str] = None,
         audio_files: List[str] = None,
         video_files: List[str] = None,
-        files: List[str] = None,  # General files for tools like code interpreter
+        files: List[str] = None,
         max_iterations: int = 50,
         confirm_tool_exec: Optional[Callable[[str], bool]] = None,
         model: str = None,
@@ -583,6 +619,7 @@ class AgentCore:
         auto_fallback: Optional[bool] = None,
         on_pending_input: Optional[Callable[[], Optional[str]]] = None,
         outputs_dir: Optional[str] = None,
+        agent_config=None,
     ) -> AsyncIterator[BaseMessageChunk]:
         """
         Stream user input through the LLM, handling tool calls if needed.
@@ -605,9 +642,15 @@ class AgentCore:
             template: Template name to apply.
             params: Parameters for templates.
             options: Dictionary of additional options to override LLM configurations.
+            agent_config: Optional AgentConfig to apply (role, system_prompt, model, skills).
         """
         if auto_fallback is None:
             auto_fallback = self.model_auto_fallback
+
+        if agent_config:
+            model, system_message_appender, filter_tools = self._apply_agent_config(
+                agent_config, model, system_message_appender, filter_tools,
+            )
 
         (
             llm_engine,
@@ -861,7 +904,7 @@ class AgentCore:
         images: List[str] = None,
         audio_files: List[str] = None,
         video_files: List[str] = None,
-        files: List[str] = None,  # General files for tools like code interpreter
+        files: List[str] = None,
         max_iterations: int = 50,
         confirm_tool_exec: Optional[Callable[[str], bool]] = None,
         model: str = None,
@@ -877,6 +920,7 @@ class AgentCore:
         auto_fallback: Optional[bool] = None,
         on_pending_input: Optional[Callable[[], Optional[str]]] = None,
         outputs_dir: Optional[str] = None,
+        agent_config=None,
     ) -> BaseMessage:
         """
         Process user input through the LLM, handling tool calls if needed.
@@ -900,9 +944,15 @@ class AgentCore:
             params: Parameters for templates.
             options: Additional options for LLM inference that can override what the ModelConfig is defined.
             outputs_dir: Directory for saving generated files. Passed to CallContext for tools.
+            agent_config: Optional AgentConfig to apply (role, system_prompt, model, skills).
         """
         if auto_fallback is None:
             auto_fallback = self.model_auto_fallback
+
+        if agent_config:
+            model, system_message_appender, filter_tools = self._apply_agent_config(
+                agent_config, model, system_message_appender, filter_tools,
+            )
 
         (
             llm_engine,

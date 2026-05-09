@@ -372,6 +372,12 @@ export default function TaskDetailPage() {
                   <dd><Badge variant="secondary">{String(data.model)}</Badge></dd>
                 </>
               )}
+              {data.agent && (
+                <>
+                  <dt className="text-muted-foreground">{t("tasks.taskAgent")}</dt>
+                  <dd><Badge variant="outline">{String(data.agent)}</Badge></dd>
+                </>
+              )}
               {data.skills && (data.skills as string[]).length > 0 && (
                 <>
                   <dt className="text-muted-foreground">{t("tasks.taskSkill")}</dt>

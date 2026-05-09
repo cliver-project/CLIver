@@ -16,6 +16,7 @@
   },
   "sidebar": {
     "dashboard": "Dashboard",
+    "agents": "Agents",
     "workflows": "Workflows",
     "tasks": "Tasks",
     "sessions": "Sessions",
@@ -129,7 +130,32 @@
     "createError": "Failed to create task: {error}",
     "updateSuccess": "Task updated successfully.",
     "updateError": "Failed to update task: {error}",
-    "taskNameExists": "A task with this name already exists."
+    "taskNameExists": "A task with this name already exists.",
+    "taskAgent": "Agent",
+    "taskAgentDefault": "— Default Agent —"
+  },
+  "agents": {
+    "title": "Agents",
+    "name": "Name",
+    "description": "Description",
+    "role": "Role",
+    "systemPrompt": "System Prompt",
+    "model": "Model",
+    "skills": "Skills",
+    "isDefault": "Default",
+    "noAgents": "No agents configured.",
+    "createAgent": "Create Agent",
+    "editAgent": "Edit",
+    "saveAgent": "Save",
+    "agentName": "Name",
+    "agentNamePlaceholder": "my-agent",
+    "rolePlaceholder": "You are an expert...",
+    "systemPromptPlaceholder": "Additional instructions for this agent...",
+    "descriptionPlaceholder": "What this agent specializes in",
+    "deleteAgent": "Delete Agent",
+    "deleteAgentDescription": "Delete agent \"{name}\"? This cannot be undone.",
+    "noneSelected": "— None —",
+    "defaultBadge": "default"
   },
   "workflows": {
     "title": "Workflows",

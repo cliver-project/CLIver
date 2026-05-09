@@ -871,8 +871,13 @@ def _get_config(ctx: dict) -> dict:
 
         from cliver.gateway.adapters import BUILTIN_ADAPTERS
 
+        agents = {}
+        for aname, ac in cfg.agents.items():
+            agents[aname] = ac.model_dump(exclude_none=True)
+
         return {
             "default_model": cfg.default_model or "",
+            "default_agent": cfg.default_agent or "",
             "user_agent": cfg.user_agent or "",
             "timezone": cfg.timezone or "",
             "search_engines": cfg.search_engines or [],
@@ -881,6 +886,7 @@ def _get_config(ctx: dict) -> dict:
             "workflow_runs_dir": cfg.workflow_runs_dir or "",
             "default_workflow_runs_dir": str(config_dir / "workflow-runs"),
             "adapter_types": sorted(BUILTIN_ADAPTERS.keys()),
+            "agents": agents,
             "providers": providers,
             "mcpServers": mcp_servers,
             "gateway": gateway,
@@ -937,6 +943,25 @@ def _save_config_data(ctx: dict, data: dict) -> Optional[str]:
             cfg.model_auto_fallback = bool(data["model_auto_fallback"])
         if "workflow_runs_dir" in data:
             cfg.workflow_runs_dir = data["workflow_runs_dir"] or None
+        if "default_agent" in data:
+            cfg.default_agent = data["default_agent"] or None
+
+        # Agents
+        if "agents" in data:
+            from cliver.config import AgentConfig
+
+            incoming = data["agents"]
+            removed = set(cfg.agents.keys()) - set(incoming.keys())
+            for name in removed:
+                cfg.agents.pop(name, None)
+            for aname, adata in incoming.items():
+                cfg.agents[aname] = AgentConfig(
+                    description=adata.get("description") or None,
+                    role=adata.get("role") or None,
+                    system_prompt=adata.get("system_prompt") or None,
+                    model=adata.get("model") or None,
+                    skills=adata.get("skills") or [],
+                )
 
         # Providers & models
         if "providers" in data:
@@ -1265,6 +1290,7 @@ def get_admin_routes(
                 prompt=prompt,
                 description=data.get("description") or None,
                 model=data.get("model") or None,
+                agent=data.get("agent") or None,
                 schedule=data.get("schedule") or None,
                 run_at=data.get("run_at") or None,
                 skills=data.get("skills") or None,
@@ -1313,6 +1339,8 @@ def get_admin_routes(
                 task.description = data["description"] or None
             if "model" in data:
                 task.model = data["model"] or None
+            if "agent" in data:
+                task.agent = data["agent"] or None
             if "schedule" in data:
                 task.schedule = data["schedule"] or None
             if "run_at" in data:
@@ -1715,6 +1743,25 @@ def get_admin_routes(
     async def handle_agent(request: Request):
         info = _get_agent_info(context)
         return JSONResponse(info)
+
+    @require_auth
+    async def handle_agents_list(request: Request):
+        """GET /admin/api/agents — list configured agents."""
+        from cliver.config import ConfigManager
+
+        config_dir = context.get("config_dir")
+        if not config_dir:
+            return JSONResponse([])
+        cm = ConfigManager(config_dir)
+        cfg = cm.config
+        cfg.ensure_default_agent()
+        result = []
+        for name, ac in cfg.agents.items():
+            entry = ac.model_dump(exclude_none=True)
+            entry["name"] = name
+            entry["is_default"] = name == cfg.default_agent
+            result.append(entry)
+        return JSONResponse(result)
 
     @require_auth
     async def handle_config(request: Request):
@@ -2393,6 +2440,7 @@ def get_admin_routes(
         Route("/admin/api/skills", handle_skills),
         Route("/admin/api/adapters", handle_adapters),
         Route("/admin/api/agent", handle_agent),
+        Route("/admin/api/agents", handle_agents_list),
         Route("/admin/api/config", handle_config),
         Route("/admin/api/config", handle_update_config, methods=["PUT"]),
         Route("/admin/api/restart", handle_restart, methods=["POST"]),

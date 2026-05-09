@@ -416,12 +416,18 @@ class Gateway:
                         system_appender = build_skill_appender(skill_objs)
                         tool_filter = build_skill_tool_filter(skill_objs, _task_filter_tools)
 
+                # Resolve agent config
+                agent_config = None
+                cfg = self._get_config_manager().config
+                agent_config = cfg.get_agent(task.agent)
+
                 response = await self._agent_core.process_user_input(
                     user_input=task.prompt,
                     model=task.model,
                     system_message_appender=system_appender,
                     conversation_history=conversation_history,
                     filter_tools=tool_filter,
+                    agent_config=agent_config,
                 )
                 from cliver.media_handler import extract_response_text
 
