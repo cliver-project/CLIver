@@ -471,9 +471,10 @@ class UnifiedInferenceEngine(LLMInferenceEngine):
 
         Some providers (e.g. DeepSeek) are configured with type "openai"
         for compatibility but need provider-specific message handling.
+        Only override when the explicit type has no dedicated builder.
         """
         provider_type = config.get_provider_type()
-        if provider_type not in _MESSAGE_CONVERTERS:
+        if provider_type not in _MESSAGE_CONVERTERS and provider_type not in _KWARG_BUILDERS:
             hints = [config.provider, config.api_model_name, config.get_resolved_url() or ""]
             for hint in hints:
                 if hint and "deepseek" in hint.lower():

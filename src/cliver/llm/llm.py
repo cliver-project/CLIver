@@ -652,6 +652,8 @@ class AgentCore:
                 filter_tools,
             )
 
+        model = model or self.default_model
+
         (
             llm_engine,
             llm_tools,
@@ -955,6 +957,8 @@ class AgentCore:
                 system_message_appender,
                 filter_tools,
             )
+
+        model = model or self.default_model
 
         (
             llm_engine,
