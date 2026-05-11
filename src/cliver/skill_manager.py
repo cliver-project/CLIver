@@ -371,9 +371,20 @@ class SkillManager:
                 msg += f" Available skills: {', '.join(available)}"
             return msg
 
-        parts = [f"Base directory for this skill: {skill.base_dir}/\n\n{skill.body}"]
+        preamble = (
+            "[Skill activated] Follow the instructions below directly. "
+            "Do NOT summarize, echo, or explain the skill content to the user. "
+            "Just start executing the skill's steps as if continuing a normal conversation."
+        )
+        parts = [preamble, f"Base directory for this skill: {skill.base_dir}/\n\n{skill.body}"]
         if prompt:
             parts.append(f"# User's Request\n\n{prompt}")
+        else:
+            parts.append(
+                "# User's Request\n\n"
+                "(No prompt provided. If the skill requires user input to proceed, "
+                "ask the user what they need help with before starting.)"
+            )
         return "\n\n".join(parts)
 
     def reload(self) -> None:

@@ -12,7 +12,8 @@
     "back": "返回",
     "steps": "{count} 个步骤",
     "noDescription": "暂无描述",
-    "add": "添加"
+    "add": "添加",
+    "running": "运行中..."
   },
   "sidebar": {
     "dashboard": "仪表盘",
@@ -119,8 +120,6 @@
     "cronExpression": "Cron 表达式",
     "cronPlaceholder": "0 9 * * 1-5",
     "runAtLabel": "运行时间",
-    "taskModel": "模型",
-    "taskModelDefault": "— 默认 —",
     "taskSkill": "技能",
     "taskSkills": "技能",
     "taskWorkflow": "工作流",
@@ -132,7 +131,10 @@
     "updateError": "更新任务失败：{error}",
     "taskNameExists": "同名任务已存在。",
     "taskAgent": "智能体",
-    "taskAgentDefault": "— 默认智能体 —"
+    "taskAgentDefault": "— 默认智能体 —",
+    "taskContext": "上下文",
+    "taskContextPlaceholder": "https://... 或 /path/to/file",
+    "taskContextHelp": "URL 或文件路径 — 执行时读取内容并附加到提示词"
   },
   "agents": {
     "title": "智能体",
@@ -167,15 +169,28 @@
     "llmStep": "LLM 步骤",
     "pythonStep": "Python 步骤",
     "saving": "保存中...",
+    "saved": "已保存",
+    "stepName": "步骤名称",
     "type": "类型",
-    "model": "模型",
-    "role": "角色",
     "outputFormat": "输出格式",
     "prompt": "提示词",
     "file": "文件",
+    "code": "代码",
+    "codeHelp": "定义 run(inputs) -> dict 函数。设置文件路径时禁用。",
     "dependsOn": "依赖",
     "noneRootNode": "无（根节点）",
-    "runToSeeOutput": "运行工作流后可在此查看步骤输出。"
+    "runToSeeOutput": "运行工作流后可在此查看步骤输出。",
+    "textResult": "文本结果",
+    "outputFiles": "输出文件",
+    "noOutput": "步骤已完成，无输出。",
+    "createWorkflow": "创建工作流",
+    "deleteWorkflow": "删除工作流",
+    "deleteWorkflowDescription": "确定要删除工作流 '{name}' 吗？此操作不可撤销。",
+    "workflowName": "工作流名称",
+    "workflowNamePlaceholder": "my_workflow",
+    "description": "描述",
+    "descriptionPlaceholder": "这个工作流做什么",
+    "createError": "创建工作流失败：{error}"
   },
   "skills": {
     "title": "技能",
@@ -311,6 +326,7 @@
     "platformAllowedUsers": "允许的用户",
     "platformStatus": "状态",
     "platformCustomType": "自定义模块路径...",
+    "checkHealth": "检查状态",
     "addPlatform": "添加平台",
     "platformName": "平台名称",
     "maxSessions": "最大会话数",

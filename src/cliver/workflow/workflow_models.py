@@ -11,8 +11,7 @@ class LLMStep(BaseModel):
     id: str
     type: Literal["llm"] = "llm"
     prompt: str
-    model: Optional[str] = None
-    role: Optional[str] = None
+    agent: Optional[str] = None
     tools: Optional[List[str]] = None
     output_format: Literal["json", "text", "markdown"] = "json"
     depends_on: List[str] = Field(default_factory=list)
@@ -20,13 +19,34 @@ class LLMStep(BaseModel):
 
 
 class PythonStep(BaseModel):
-    """A step that runs a Python file's run(inputs) function."""
+    """A step that runs Python code — from a file or inline snippet.
+
+    Provide either ``file`` (path to a .py file) or ``code`` (inline Python).
+    The code must define ``run(inputs, state) -> dict``.
+
+    - ``inputs``: upstream step results + workflow inputs (keyed by step id)
+    - ``state``: full workflow state (outputs_dir, workflow_id, steps, etc.)
+    - Return a dict — it becomes this step's result.
+
+    For backward compat, ``run(inputs) -> dict`` (1-arg) is also accepted.
+    """
 
     id: str
     type: Literal["python"] = "python"
-    file: str
+    file: Optional[str] = None
+    code: Optional[str] = None
     depends_on: List[str] = Field(default_factory=list)
     condition: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_empty_strings(cls, values):
+        if isinstance(values, dict):
+            if not values.get("file"):
+                values["file"] = None
+            if not values.get("code"):
+                values["code"] = None
+        return values
 
 
 Step = Union[LLMStep, PythonStep]
@@ -50,6 +70,9 @@ class Workflow(BaseModel):
     inputs: Optional[Dict[str, Any]] = None
     steps: List[Step]
     permissions: Optional[Any] = None
+    layout: Optional[Dict[str, Any]] = Field(
+        default=None, description="Node positions for the visual editor, keyed by step id"
+    )
 
     @model_validator(mode="before")
     @classmethod

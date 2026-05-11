@@ -38,7 +38,7 @@ _SKIP_SENTINEL = "__skip__"
 class WorkflowCompiler:
     """Compiles a Workflow into a LangGraph CompiledStateGraph."""
 
-    def compile(self, workflow: Workflow, checkpointer=None):
+    def compile(self, workflow: Workflow, checkpointer=None, app_config=None, on_tool_event=None, base_dir="."):
         graph = StateGraph(WorkflowState)
         steps_by_id: Dict[str, Step] = {s.id: s for s in workflow.steps}
         dependents: Dict[str, List[str]] = defaultdict(list)
@@ -48,7 +48,7 @@ class WorkflowCompiler:
                 dependents[dep].append(step.id)
 
         for step in workflow.steps:
-            node_fn = self._make_node(step, workflow)
+            node_fn = self._make_node(step, workflow, app_config, on_tool_event, base_dir)
             graph.add_node(step.id, node_fn)
 
         roots = [s for s in workflow.steps if not s.depends_on]
@@ -108,15 +108,15 @@ class WorkflowCompiler:
         destinations[_SKIP_SENTINEL] = END
         graph.add_conditional_edges(source_id, router, destinations)
 
-    def _make_node(self, step: Step, workflow: Workflow):
+    def _make_node(self, step: Step, workflow: Workflow, app_config=None, on_tool_event=None, base_dir="."):
         if isinstance(step, LLMStep):
-            return self._make_llm_node(step, workflow)
+            return self._make_llm_node(step, workflow, app_config, on_tool_event)
         elif isinstance(step, PythonStep):
-            return self._make_python_node(step, workflow)
+            return self._make_python_node(step, workflow, base_dir)
         raise ValueError(f"Unknown step type: {type(step)}")
 
     @staticmethod
-    def _make_llm_node(step: LLMStep, workflow: Workflow):
+    def _make_llm_node(step: LLMStep, workflow: Workflow, app_config=None, on_tool_event=None):
         async def node(state: WorkflowState) -> dict:
             from cliver.workflow.node_runners import run_llm_node
 
@@ -129,14 +129,13 @@ class WorkflowCompiler:
             try:
                 result = await run_llm_node(
                     prompt=prompt,
-                    model=step.model,
-                    role=step.role,
+                    agent_name=step.agent,
                     tools=step.tools,
                     output_format=step.output_format,
                     outputs_dir=state["outputs_dir"],
                     step_id=step.id,
-                    app_config=state.get("_app_config"),
-                    on_tool_event=state.get("_on_tool_event"),
+                    app_config=app_config,
+                    on_tool_event=on_tool_event,
                 )
             except Exception as e:
                 logger.error("LLM node %s failed: %s", step.id, e)
@@ -150,7 +149,7 @@ class WorkflowCompiler:
         return node
 
     @staticmethod
-    def _make_python_node(step: PythonStep, workflow: Workflow):
+    def _make_python_node(step: PythonStep, workflow: Workflow, base_dir: str = "."):
         async def node(state: WorkflowState) -> dict:
             from cliver.workflow.node_runners import run_python_node
 
@@ -160,20 +159,29 @@ class WorkflowCompiler:
                 if dep_output:
                     node_inputs[dep_id] = dep_output
 
-            base_dir = state.get("_workflow_base_dir", ".")
-            file_path = step.file
-            if not Path(file_path).is_absolute():
-                file_path = str(Path(base_dir) / file_path)
+            file_path = None
+            if step.file:
+                file_path = step.file
+                if not Path(file_path).is_absolute():
+                    file_path = str(Path(base_dir) / file_path)
+
+            step_output_dir = Path(state["outputs_dir"]) / step.id
+            step_output_dir.mkdir(parents=True, exist_ok=True)
 
             start = time.time()
             try:
-                result = run_python_node(file_path, node_inputs)
+                result = run_python_node(node_inputs, file_path=file_path, code=step.code, state=dict(state))
             except Exception as e:
                 logger.error("Python node %s failed: %s", step.id, e)
                 result = {"error": str(e)}
 
             elapsed = time.time() - start
             result["_execution_time"] = round(elapsed, 2)
+
+            result_text = result.get("result", "")
+            if result_text:
+                (step_output_dir / "result.txt").write_text(str(result_text), encoding="utf-8")
+
             return {"steps": {step.id: result}}
 
         node.__name__ = f"python_{step.id}"

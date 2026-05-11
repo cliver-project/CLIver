@@ -172,9 +172,7 @@ class LLMInferenceEngine(ABC):
             )
 
         return (
-            "# Identity\n\n"
-            + identity_text +
-            "## Environment\n\n"
+            "# Identity\n\n" + identity_text + "## Environment\n\n"
             f"- Working directory: `{cwd}`\n"
             f"- Local time: {now_local}\n"
             f"- Timezone: {tz_name} (UTC{utc_offset})\n\n"
@@ -201,8 +199,6 @@ class LLMInferenceEngine(ABC):
             "## Key files you can read and edit\n",
             f"- Config: `{config_dir}/config.yaml` — models, providers, gateway, session settings",
         ]
-        if _has("Identity"):
-            lines.append(f"- Identity: `{config_dir}/identity.md` — your persona and behavior (YAML frontmatter)")
         if _has("MemoryRead", "MemoryWrite"):
             lines.append(f"- Memory: `{config_dir}/memory.md` — persistent knowledge")
         if _has("Skill"):
@@ -212,7 +208,7 @@ class LLMInferenceEngine(ABC):
         lines.append(
             "## Commands\n\n"
             "Slash commands: model, config, gateway, session, permissions, "
-            "mcp, skills, identity, profile, cost, provider, task, workflow. "
+            "mcp, skills, agent, memory, cost, provider, task, workflow. "
             "Use the CliverHelp tool for syntax."
         )
         return "\n".join(lines)
@@ -308,28 +304,18 @@ class LLMInferenceEngine(ABC):
                 )
             parts.append("\n".join(planning))
 
-        if _has("MemoryRead", "MemoryWrite", "Identity"):
-            memory_parts = ["## Memory & Identity\n"]
-            if _has("MemoryRead", "MemoryWrite"):
-                memory_parts.append(
-                    "You have persistent memory that survives across conversations.\n\n"
-                    "**Memory** (`MemoryRead` / `MemoryWrite`): a curated knowledge base organized by topic.\n"
-                    "- Organize by topic headings (`## Project Setup`, `## User Preferences`), not chronologically\n"
-                    "- Before appending, read existing memory to avoid duplicates\n"
-                    "- Periodically consolidate: use `rewrite` mode to merge related entries, remove outdated ones, "
-                    "and keep the document concise\n"
-                    "- Keep entries factual and concise — no narratives or session-specific details\n"
-                    "- Do **not** save trivial, temporary, or obvious information"
-                )
-            if _has("Identity"):
-                memory_parts.append(
-                    "**Identity** (`Identity`): a living markdown document describing who "
-                    "the user is (name, location, role, preferences) and how you should behave. "
-                    "Unlike memory, identity is **rewritten as a whole** — always include all existing "
-                    "information plus updates. Read the current identity first to avoid losing data.\n\n"
-                    "Update identity when the user shares personal info or states behavior preferences. "
-                    "Use memory for everything else — facts, events, decisions."
-                )
+        if _has("MemoryRead", "MemoryWrite"):
+            memory_parts = ["## Memory\n"]
+            memory_parts.append(
+                "You have persistent memory that survives across conversations.\n\n"
+                "**Memory** (`MemoryRead` / `MemoryWrite`): a curated knowledge base organized by topic.\n"
+                "- Organize by topic headings (`## Project Setup`, `## User Preferences`), not chronologically\n"
+                "- Before appending, read existing memory to avoid duplicates\n"
+                "- Periodically consolidate: use `rewrite` mode to merge related entries, remove outdated ones, "
+                "and keep the document concise\n"
+                "- Keep entries factual and concise — no narratives or session-specific details\n"
+                "- Do **not** save trivial, temporary, or obvious information"
+            )
             parts.append("\n".join(memory_parts))
 
         parts.append(

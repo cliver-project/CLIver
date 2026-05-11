@@ -56,7 +56,7 @@ export default function DashboardPage() {
                   <CardContent className="pt-4">
                     <div className="flex items-center justify-between">
                       <span className="font-medium">{String(a.name ?? a.type)}</span>
-                      <StatusPill status={String(a.status ?? "unknown")} />
+                      <StatusPill status={a.state === "connected" ? "active" : "inactive"} />
                     </div>
                   </CardContent>
                 </Card>

@@ -150,15 +150,11 @@ class AgentCore:
         # Per-provider rate limiter (configured via configure_rate_limits)
         self.rate_limiter = RateLimiter()
 
-        # Set the active profile and executor so builtin tools can access them
+        # Set the active profile so builtin tools can access it
         if agent_profile:
             from cliver.agent_profile import set_current_profile
 
             set_current_profile(agent_profile)
-
-        from cliver.agent_profile import set_agent_core
-
-        set_agent_core(self)
 
     def _emit_tool_event(self, event: ToolEvent) -> None:
         """Emit a tool event to the registered handler, if any."""
@@ -454,7 +450,9 @@ class AgentCore:
         auto_fallback: Optional[bool] = None,
         on_pending_input: Optional[Callable[[], Optional[str]]] = None,
     ) -> BaseMessage:
-        return asyncio.run(
+        from cliver.util import run_async
+
+        return run_async(
             self.process_user_input(
                 user_input,
                 images,
@@ -540,23 +538,21 @@ class AgentCore:
             yield chunk
 
     def _apply_agent_config(self, agent_config, model, system_message_appender, filter_tools):
-        """Apply agent config: override model, compose system prompt with role/system_prompt, activate skills."""
+        """Apply agent config: set role on engines, override model, append system_prompt, activate skills."""
         if agent_config.model and not model:
             model = agent_config.model
 
-        # Compose agent role + system_prompt into appender
-        agent_parts = []
+        # Set agent role on all LLM engines so _section_identity uses it
         if agent_config.role:
-            agent_parts.append(f"# Agent Role\n\n{agent_config.role}")
-        if agent_config.system_prompt:
-            agent_parts.append(f"# Agent Instructions\n\n{agent_config.system_prompt}")
+            for engine in self.llm_models.values():
+                engine._agent_role = agent_config.role
 
-        if agent_parts:
-            agent_text = "\n\n".join(agent_parts)
+        # Append agent system_prompt (not role — role goes into identity section)
+        if agent_config.system_prompt and agent_config.system_prompt.strip():
             outer_appender = system_message_appender
 
             def composed_appender():
-                parts = [agent_text]
+                parts = [f"# Agent Instructions\n\n{agent_config.system_prompt}"]
                 if outer_appender:
                     parts.append(outer_appender())
                 return "\n\n".join(parts)
@@ -620,6 +616,7 @@ class AgentCore:
         on_pending_input: Optional[Callable[[], Optional[str]]] = None,
         outputs_dir: Optional[str] = None,
         agent_config=None,
+        on_message: Optional[Callable[["BaseMessage"], None]] = None,
     ) -> AsyncIterator[BaseMessageChunk]:
         """
         Stream user input through the LLM, handling tool calls if needed.
@@ -649,7 +646,10 @@ class AgentCore:
 
         if agent_config:
             model, system_message_appender, filter_tools = self._apply_agent_config(
-                agent_config, model, system_message_appender, filter_tools,
+                agent_config,
+                model,
+                system_message_appender,
+                filter_tools,
             )
 
         (
@@ -757,12 +757,8 @@ class AgentCore:
             if isinstance(msg, SystemMessage) and isinstance(msg.content, str):
                 system_parts.append(msg.content)
 
-        # Merge agent identity and memory
+        # Merge agent memory (persistent cross-session knowledge)
         if self.agent_profile:
-            identity_content = self.agent_profile.load_identity()
-            if identity_content:
-                system_parts.append(f"# Identity Profile\n\n{identity_content}")
-
             memory_content = self.agent_profile.load_memory()
             if memory_content:
                 system_parts.append(f"# Agent Memory\n\n{memory_content}")
@@ -921,6 +917,7 @@ class AgentCore:
         on_pending_input: Optional[Callable[[], Optional[str]]] = None,
         outputs_dir: Optional[str] = None,
         agent_config=None,
+        on_message: Optional[Callable[["BaseMessage"], None]] = None,
     ) -> BaseMessage:
         """
         Process user input through the LLM, handling tool calls if needed.
@@ -945,13 +942,18 @@ class AgentCore:
             options: Additional options for LLM inference that can override what the ModelConfig is defined.
             outputs_dir: Directory for saving generated files. Passed to CallContext for tools.
             agent_config: Optional AgentConfig to apply (role, system_prompt, model, skills).
+            on_message: Optional callback invoked for each message in the Re-Act loop
+                       (AI responses, tool calls, tool results). Used for session recording.
         """
         if auto_fallback is None:
             auto_fallback = self.model_auto_fallback
 
         if agent_config:
             model, system_message_appender, filter_tools = self._apply_agent_config(
-                agent_config, model, system_message_appender, filter_tools,
+                agent_config,
+                model,
+                system_message_appender,
+                filter_tools,
             )
 
         (
@@ -1004,6 +1006,7 @@ class AgentCore:
             auto_fallback=auto_fallback,
             tried_models={model} if model else set(),
             on_pending_input=on_pending_input,
+            on_message=on_message,
         )
 
         # Attach any media generated by tools (e.g., ImageGenerate) to the final response
@@ -1034,6 +1037,7 @@ class AgentCore:
         auto_fallback: bool = True,
         tried_models: Optional[set] = None,
         on_pending_input: Optional[Callable[[], Optional[str]]] = None,
+        on_message: Optional[Callable[["BaseMessage"], None]] = None,
     ) -> BaseMessage:
         """Handle processing messages with tool calling using a while loop."""
 
@@ -1201,9 +1205,17 @@ class AgentCore:
                 # Track token usage from this LLM call
                 self._track_tokens(response, current_model)
 
+                # Record the LLM response (AI reasoning + potential tool calls)
+                if on_message:
+                    try:
+                        on_message(response)
+                    except Exception:
+                        pass
+
                 raw_tool_calls = llm_engine.parse_tool_calls(response, current_model)
                 tool_calls = normalize_tool_calls(raw_tool_calls) if raw_tool_calls else None
                 if tool_calls:
+                    msg_count_before = len(messages)
                     stop, result = await self._execute_tool_calls(
                         tool_calls,
                         messages,
@@ -1212,6 +1224,13 @@ class AgentCore:
                         ctx,
                         llm_response=response,
                     )
+                    # Record tool call + result messages added during execution
+                    if on_message:
+                        for msg in messages[msg_count_before:]:
+                            try:
+                                on_message(msg)
+                            except Exception:
+                                pass
                     if stop:
                         return AIMessage(content=result)
 
@@ -1366,6 +1385,8 @@ class AgentCore:
 
             # All tool calls processed, continue to next LLM iteration
             return False, "Tool calls executed successfully"
+        except KeyboardInterrupt:
+            return True, "User cancelled."
         except Exception as e:
             logger.error(f"Error processing tool call: {str(e)}", exc_info=True)
             # Don't hard-stop on tool execution exceptions — feed the error back
@@ -1402,9 +1423,27 @@ class AgentCore:
                 return False, None
             elif decision == PermissionDecision.ASK:
                 user_choice, extra_context = self._prompt_user_permission(full_tool_name, args)
-                if user_choice in ("deny", "deny_always"):
-                    if user_choice == "deny_always":
-                        self.permission_manager.grant_session(full_tool_name, PermissionAction.DENY)
+                if user_choice == "cancel":
+                    self._append_denied_tool_message(
+                        full_tool_name,
+                        args,
+                        tool_call_id,
+                        messages,
+                        llm_response,
+                    )
+                    return True, None
+                elif user_choice == "deny_always":
+                    self.permission_manager.grant_session(full_tool_name, PermissionAction.DENY)
+                    self._append_denied_tool_message(
+                        full_tool_name,
+                        args,
+                        tool_call_id,
+                        messages,
+                        llm_response,
+                        user_note=extra_context,
+                    )
+                    return True, None
+                elif user_choice == "deny":
                     self._append_denied_tool_message(
                         full_tool_name,
                         args,
@@ -2133,7 +2172,7 @@ def _default_permission_prompt(tool_name: str, args: dict) -> str:
         try:
             response = input("    > ").strip().lower()
         except (EOFError, KeyboardInterrupt):
-            return "deny"
+            return "cancel"
         if response in ("y", "yes"):
             return "allow"
         elif response in ("a", "always"):

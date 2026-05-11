@@ -9,10 +9,8 @@ Saving behavior:
 - URL images: returned as URLs without downloading
 """
 
-import asyncio
 import logging
 import os
-import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Type
@@ -27,23 +25,9 @@ logger = logging.getLogger(__name__)
 
 def _run_async(coro):
     """Run an async coroutine from sync context, even inside a running event loop."""
-    result = None
-    exception = None
+    from cliver.util import run_async
 
-    def _thread_target():
-        nonlocal result, exception
-        try:
-            result = asyncio.run(coro)
-        except Exception as e:
-            exception = e
-
-    thread = threading.Thread(target=_thread_target)
-    thread.start()
-    thread.join()
-
-    if exception:
-        raise exception
-    return result
+    return run_async(coro)
 
 
 class ImageGenerateInput(BaseModel):

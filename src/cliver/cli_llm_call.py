@@ -10,7 +10,6 @@ Handles the full request/response lifecycle including:
 This is a CLI-layer component — AgentCore and API layer have no dependency on it.
 """
 
-import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
@@ -20,8 +19,8 @@ from langchain_core.messages import BaseMessage
 from cliver.llm.errors import TaskTimeoutError
 
 if TYPE_CHECKING:
+    from cliver.agent import Agent
     from cliver.cli import Cliver
-    from cliver.llm import AgentCore
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +75,7 @@ class LLMCallOptions:
     timeout_s: Optional[int] = None
     auto_fallback: Optional[bool] = None
     on_pending_input: Optional[Callable[[], Optional[str]]] = None
+    agent_name: Optional[str] = None
 
 
 def llm_call(cliver: "Cliver", opts: LLMCallOptions) -> LLMCallResult:
@@ -83,6 +83,8 @@ def llm_call(cliver: "Cliver", opts: LLMCallOptions) -> LLMCallResult:
 
     Handles spinner, streaming/sync dispatch, multimedia, token display, errors.
     This is the single entry point for all CLI commands that need LLM interaction.
+    Routes through the default Agent (via AgentFactory) so agent config
+    (model, auto_fallback) is applied consistently.
 
     Args:
         cliver: The Cliver CLI instance (provides console, thinking, token_tracker).
@@ -91,9 +93,9 @@ def llm_call(cliver: "Cliver", opts: LLMCallOptions) -> LLMCallResult:
     Returns:
         LLMCallResult with the response text and metadata.
     """
-    agent_core = cliver.agent_core
+    agent = cliver.agent_factory.create(opts.agent_name)
     console = cliver.console
-    thinking = getattr(cliver, "thinking", None)
+    thinking = cliver.thinking
 
     # Start spinner
     if thinking:
@@ -101,9 +103,9 @@ def llm_call(cliver: "Cliver", opts: LLMCallOptions) -> LLMCallResult:
 
     try:
         if opts.stream:
-            result = _stream_call(agent_core, opts, thinking, console)
+            result = _stream_call(agent, opts, thinking, console)
         else:
-            result = _sync_call(agent_core, opts, thinking, console)
+            result = _sync_call(agent, opts, thinking, console)
     except TaskTimeoutError:
         if thinking:
             thinking.stop()
@@ -127,13 +129,49 @@ def llm_call(cliver: "Cliver", opts: LLMCallOptions) -> LLMCallResult:
     return result
 
 
+def _build_agent_kwargs(opts: LLMCallOptions) -> dict:
+    """Build kwargs dict for Agent.run() / Agent.stream() from LLMCallOptions."""
+    kwargs: dict = {}
+    if opts.skill_name:
+        kwargs["skill_name"] = opts.skill_name
+    if opts.images:
+        kwargs["images"] = opts.images
+    if opts.audio_files:
+        kwargs["audio_files"] = opts.audio_files
+    if opts.video_files:
+        kwargs["video_files"] = opts.video_files
+    if opts.files:
+        kwargs["files"] = opts.files
+    if opts.model:
+        kwargs["model"] = opts.model
+    if opts.template:
+        kwargs["template"] = opts.template
+    if opts.params:
+        kwargs["params"] = opts.params
+    if opts.options:
+        kwargs["options"] = opts.options
+    if opts.tools_filter:
+        kwargs["filter_tools"] = opts.tools_filter
+    if opts.system_message_appender:
+        kwargs["system_message_appender"] = opts.system_message_appender
+    if opts.conversation_history is not None:
+        kwargs["conversation_history"] = opts.conversation_history
+    if opts.timeout_s is not None:
+        kwargs["timeout_s"] = opts.timeout_s
+    if opts.auto_fallback is not None:
+        kwargs["auto_fallback"] = opts.auto_fallback
+    if opts.on_pending_input:
+        kwargs["on_pending_input"] = opts.on_pending_input
+    return kwargs
+
+
 def _stream_call(
-    agent_core: "AgentCore",
+    agent: "Agent",
     opts: LLMCallOptions,
     thinking,
     console,
 ) -> LLMCallResult:
-    """Execute a streaming LLM call."""
+    """Execute a streaming LLM call via Agent."""
     from cliver.media_handler import MultimediaResponseHandler
 
     response_handler = MultimediaResponseHandler(opts.media_dir)
@@ -153,62 +191,38 @@ def _stream_call(
         accumulated_chunk = None
 
         async def _run():
-            nonlocal accumulated_chunk
-            if opts.skill_name:
-                stream = agent_core.stream_skill(
-                    skill_name=opts.skill_name,
-                    user_input=opts.user_input,
-                    images=opts.images or None,
-                    audio_files=opts.audio_files or None,
-                    video_files=opts.video_files or None,
-                    files=opts.files or None,
-                    model=opts.model,
-                    template=opts.template,
-                    params=opts.params,
-                    options=opts.options,
-                    filter_tools=opts.tools_filter,
-                    system_message_appender=opts.system_message_appender,
-                    conversation_history=opts.conversation_history,
-                    timeout_s=opts.timeout_s,
-                    auto_fallback=opts.auto_fallback,
-                    on_pending_input=opts.on_pending_input,
-                )
-            else:
-                stream = agent_core.stream_user_input(
-                    user_input=opts.user_input,
-                    images=opts.images or None,
-                    audio_files=opts.audio_files or None,
-                    video_files=opts.video_files or None,
-                    files=opts.files or None,
-                    model=opts.model,
-                    template=opts.template,
-                    params=opts.params,
-                    options=opts.options,
-                    filter_tools=opts.tools_filter,
-                    system_message_appender=opts.system_message_appender,
-                    conversation_history=opts.conversation_history,
-                    timeout_s=opts.timeout_s,
-                    auto_fallback=opts.auto_fallback,
-                    on_pending_input=opts.on_pending_input,
-                )
-            async for chunk in stream:
+            nonlocal accumulated_chunk, first_token_emitted
+            kwargs = _build_agent_kwargs(opts)
+            async for chunk in agent.stream(opts.user_input, **kwargs):
                 if accumulated_chunk is None:
                     accumulated_chunk = chunk
                 else:
-                    accumulated_chunk = accumulated_chunk + chunk
+                    try:
+                        accumulated_chunk = accumulated_chunk + chunk
+                    except Exception:
+                        pass
 
                 if hasattr(chunk, "content") and chunk.content:
                     on_first_token()
                     print(str(chunk.content), end="")
+                elif first_token_emitted and not (hasattr(chunk, "content") and chunk.content):
+                    # Between tool calls — LLM is thinking again. Reset so
+                    # the next text chunk triggers the separator + color.
+                    if thinking:
+                        thinking.start(opts.model or "")
+                    first_token_emitted = False
+                    print("", flush=True)
 
             # Reset color and flush
             print(_response_color_reset(), flush=True)
 
-        asyncio.run(_run())
+        from cliver.util import run_async
+
+        run_async(_run())
 
         text = ""
         if accumulated_chunk:
-            llm_engine = agent_core.get_llm_engine(opts.model)
+            llm_engine = agent._agent_core.get_llm_engine(opts.model)
             multimedia_response = response_handler.process_response(
                 accumulated_chunk, llm_engine=llm_engine, auto_save_media=opts.save_media
             )
@@ -241,55 +255,20 @@ def _stream_call(
 
 
 def _sync_call(
-    agent_core: "AgentCore",
+    agent: "Agent",
     opts: LLMCallOptions,
     thinking,
     console,
 ) -> LLMCallResult:
-    """Execute a synchronous (non-streaming) LLM call."""
+    """Execute a synchronous (non-streaming) LLM call via Agent."""
     from cliver.media_handler import MultimediaResponseHandler
 
     response_handler = MultimediaResponseHandler(opts.media_dir)
 
-    if opts.skill_name:
-        response = asyncio.run(
-            agent_core.process_skill(
-                skill_name=opts.skill_name,
-                user_input=opts.user_input,
-                images=opts.images or None,
-                audio_files=opts.audio_files or None,
-                video_files=opts.video_files or None,
-                files=opts.files or None,
-                model=opts.model,
-                template=opts.template,
-                params=opts.params,
-                options=opts.options,
-                filter_tools=opts.tools_filter,
-                system_message_appender=opts.system_message_appender,
-                conversation_history=opts.conversation_history,
-                timeout_s=opts.timeout_s,
-                auto_fallback=opts.auto_fallback,
-                on_pending_input=opts.on_pending_input,
-            )
-        )
-    else:
-        response = agent_core.process_user_input_sync(
-            user_input=opts.user_input,
-            images=opts.images or None,
-            audio_files=opts.audio_files or None,
-            video_files=opts.video_files or None,
-            files=opts.files or None,
-            model=opts.model,
-            template=opts.template,
-            params=opts.params,
-            options=opts.options,
-            filter_tools=opts.tools_filter,
-            system_message_appender=opts.system_message_appender,
-            conversation_history=opts.conversation_history,
-            timeout_s=opts.timeout_s,
-            auto_fallback=opts.auto_fallback,
-            on_pending_input=opts.on_pending_input,
-        )
+    from cliver.util import run_async
+
+    kwargs = _build_agent_kwargs(opts)
+    response = run_async(agent.run(opts.user_input, **kwargs))
 
     # Stop spinner before printing response
     if thinking:
@@ -299,7 +278,7 @@ def _sync_call(
 
     text = ""
     if response:
-        llm_engine = agent_core.get_llm_engine(opts.model)
+        llm_engine = agent._agent_core.get_llm_engine(opts.model)
         multimedia_response = response_handler.process_response(
             response, llm_engine=llm_engine, auto_save_media=opts.save_media
         )
@@ -324,7 +303,7 @@ def _sync_call(
 
 def _show_token_usage(cliver: "Cliver") -> None:
     """Display token usage after a chat response using Rich formatting."""
-    tracker = getattr(cliver, "token_tracker", None)
+    tracker = cliver.token_tracker
     if not tracker or not tracker.last_usage:
         return
 
@@ -341,7 +320,7 @@ def _show_token_usage(cliver: "Cliver") -> None:
 
     # Cost estimation
     cost_info = ""
-    cost_tracker = getattr(cliver, "cost_tracker", None)
+    cost_tracker = cliver.cost_tracker
     if cost_tracker is None:
         return
 

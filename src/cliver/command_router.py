@@ -34,9 +34,8 @@ HANDLERS: dict[str, str] = {
     "session": "cliver.commands.session_cmd",
     "permissions": "cliver.commands.permissions",
     "skills": "cliver.commands.skills",
-    "identity": "cliver.commands.identity",
+    "agent": "cliver.commands.agent_cmd",
     "memory": "cliver.commands.memory",
-    "profile": "cliver.commands.profile",
     "cost": "cliver.commands.cost",
     "provider": "cliver.commands.provider",
     "task": "cliver.commands.task",
@@ -100,16 +99,11 @@ class CommandRouter:
         return self._register_task(future, name, "command")
 
     async def command(self, name: str, args: str) -> None:
-        loop = asyncio.get_running_loop()
-        future = loop.run_in_executor(
-            self._executor,
-            self._dispatch_command,
-            name,
-            args,
-        )
-        task_id = self._register_task(future, name, "command")
+        cf_future = self._executor.submit(self._dispatch_command, name, args)
+        task_id = self._register_task(cf_future, name, "command")
         try:
-            await future
+            loop = asyncio.get_running_loop()
+            await asyncio.wrap_future(cf_future, loop=loop)
         except Exception as e:
             logger.error(f"Command /{name} failed: {e}")
             self._cliver.output(f"[red]Error: {e}[/red]")
@@ -118,15 +112,11 @@ class CommandRouter:
                 self._tasks.pop(task_id, None)
 
     async def query(self, text: str) -> None:
-        loop = asyncio.get_running_loop()
-        future = loop.run_in_executor(
-            self._executor,
-            self._dispatch_query,
-            text,
-        )
-        task_id = self._register_task(future, "chat", "query")
+        cf_future = self._executor.submit(self._dispatch_query, text)
+        task_id = self._register_task(cf_future, "chat", "query")
         try:
-            await future
+            loop = asyncio.get_running_loop()
+            await asyncio.wrap_future(cf_future, loop=loop)
         except Exception as e:
             logger.error(f"Query failed: {e}")
             self._cliver.output(f"[red]Error: {e}[/red]")

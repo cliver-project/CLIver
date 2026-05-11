@@ -12,7 +12,7 @@ from cliver.tools.execute_code import execute_code  # noqa: F401
 from cliver.tools.grep_search import grep_search  # noqa: F401
 from cliver.tools.image_generate import image_generate  # noqa: F401
 from cliver.tools.list_directory import list_directory  # noqa: F401
-from cliver.tools.memory import identity_update, memory_read, memory_write  # noqa: F401
+from cliver.tools.memory import memory_read, memory_write  # noqa: F401
 from cliver.tools.read_file import read_file  # noqa: F401
 from cliver.tools.run_shell_command import run_shell_command  # noqa: F401
 from cliver.tools.search_sessions import search_sessions  # noqa: F401

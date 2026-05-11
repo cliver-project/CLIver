@@ -13,8 +13,7 @@ class TestLLMStep:
         step = LLMStep(id="s1", prompt="Hello")
         assert step.type == "llm"
         assert step.prompt == "Hello"
-        assert step.model is None
-        assert step.role is None
+        assert step.agent is None
         assert step.tools is None
         assert step.output_format == "json"
         assert step.depends_on == []
@@ -24,15 +23,13 @@ class TestLLMStep:
         step = LLMStep(
             id="research",
             prompt="Research ${inputs.topic}",
-            model="qwen",
-            role="Research analyst",
+            agent="researcher",
             tools=["web_search", "read_file"],
             output_format="markdown",
             depends_on=["prior"],
             condition="prior.done == true",
         )
-        assert step.model == "qwen"
-        assert step.role == "Research analyst"
+        assert step.agent == "researcher"
         assert step.tools == ["web_search", "read_file"]
         assert step.output_format == "markdown"
         assert step.depends_on == ["prior"]
@@ -136,8 +133,7 @@ inputs:
 steps:
   - id: research
     type: llm
-    model: qwen
-    role: "Analyst"
+    agent: researcher
     prompt: "Research ${inputs.topic}"
     output_format: json
   - id: transform
@@ -150,5 +146,5 @@ steps:
         assert wf.name == "test-wf"
         assert isinstance(wf.steps[0], LLMStep)
         assert isinstance(wf.steps[1], PythonStep)
-        assert wf.steps[0].model == "qwen"
+        assert wf.steps[0].agent == "researcher"
         assert wf.steps[1].depends_on == ["research"]

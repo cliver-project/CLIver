@@ -50,14 +50,63 @@ class TaskDefinition(BaseModel):
         None, description="Workflow name to execute (if set, runs workflow instead of chat)"
     )
     workflow_inputs: Optional[Dict[str, Any]] = Field(None, description="Extra inputs for workflow execution")
+    context: Optional[str] = Field(
+        None,
+        description="URL or file path with additional context, read and appended to prompt at run time.",
+    )
     skills: Optional[List[str]] = Field(None, description="Skills to pre-activate in system prompt")
-    model: Optional[str] = Field(None, description="Model override for this task")
     agent: Optional[str] = Field(None, description="Agent name to use (null = default_agent)")
     schedule: Optional[str] = Field(None, description="Cron expression for recurring execution")
     run_at: Optional[str] = Field(None, description="ISO 8601 datetime for one-shot execution")
     permissions: Optional[Any] = Field(None, description="Permission overrides for this task")
     origin: Optional[TaskOrigin] = Field(None, description="Where the task was created from")
     session_id: Optional[str] = Field(None, description="Linked conversation session ID")
+
+
+def resolve_task_prompt(task: TaskDefinition) -> str:
+    """Build the effective prompt by appending context and skill info."""
+    parts = [task.prompt]
+    if task.skills:
+        names = ", ".join(f"'{s}'" for s in task.skills)
+        parts.append(
+            f"## Active Skills\n\n"
+            f"The following skills are active for this task: {names}.\n"
+            f"Their instructions are loaded — follow them as you work."
+        )
+    if task.context:
+        content = _read_context(task.context)
+        if content:
+            parts.append(f"## Context\n\n{content}")
+    return "\n\n".join(parts)
+
+
+def _read_context(ref: str) -> Optional[str]:
+    """Read content from a URL or file path. Returns None on failure."""
+    if ref.startswith(("http://", "https://")):
+        return _fetch_url(ref)
+    return _read_file(ref)
+
+
+def _fetch_url(url: str) -> Optional[str]:
+    try:
+        import urllib.request
+
+        with urllib.request.urlopen(url, timeout=30) as resp:
+            data = resp.read()
+            encoding = resp.headers.get_content_charset() or "utf-8"
+            return data.decode(encoding)
+    except Exception as e:
+        logger.warning("Failed to fetch context URL %s: %s", url, e)
+        return None
+
+
+def _read_file(path_str: str) -> Optional[str]:
+    try:
+        p = Path(path_str).expanduser()
+        return p.read_text(encoding="utf-8")
+    except Exception as e:
+        logger.warning("Failed to read context file %s: %s", path_str, e)
+        return None
 
 
 class TaskRun(BaseModel):

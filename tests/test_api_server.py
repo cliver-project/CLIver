@@ -29,15 +29,25 @@ def _mock_executor(models=None, default_model="qwen"):
     return executor
 
 
+def _mock_agent_factory(executor=None):
+    """Create a mock AgentFactory wrapping an executor."""
+    factory = MagicMock()
+    factory.agent_core = executor or _mock_executor()
+    factory.create = MagicMock(return_value=MagicMock())
+    return factory
+
+
 def _mock_status():
     """Return a status dict like the Gateway would."""
     return {"uptime": 42, "tasks_run": 3, "platforms": ["slack"]}
 
 
-def _make_app(executor=None, api_key=None, get_status=None):
+def _make_app(executor=None, agent_factory=None, api_key=None, get_status=None):
     """Create a Starlette app with routes registered."""
+    if agent_factory is None:
+        agent_factory = _mock_agent_factory(executor)
     routes = get_api_routes(
-        executor or _mock_executor(),
+        agent_factory,
         get_status or _mock_status,
         api_key=api_key,
     )

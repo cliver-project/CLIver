@@ -30,7 +30,7 @@ export function useWorkflow(name: string) {
   return useQuery({
     queryKey: ["workflow", name],
     queryFn: () =>
-      api<{ workflow: Record<string, unknown>; models: string[] }>(
+      api<Record<string, unknown>>(
         `/workflows/${encodeURIComponent(name)}`,
       ),
     enabled: !!name,
@@ -49,13 +49,37 @@ export function useSaveWorkflow(name: string) {
   });
 }
 
+export function useCreateWorkflow() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Record<string, unknown>) => apiPost("/workflows", data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["workflows"] });
+    },
+  });
+}
+
+export function useDeleteWorkflow(name: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => apiDelete(`/workflows/${encodeURIComponent(name)}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["workflows"] });
+    },
+  });
+}
+
 export function useRunWorkflow(name: string) {
+  const qc = useQueryClient();
   return useMutation({
     mutationFn: (inputs?: Record<string, string>) =>
       apiPost(
         `/workflows/${encodeURIComponent(name)}/run`,
         inputs ? { inputs } : undefined,
       ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["executions", name] });
+    },
   });
 }
 
@@ -68,6 +92,7 @@ export function useExecutions(name?: string) {
             `/workflows/${encodeURIComponent(name)}/executions`,
           )
         : api<Array<Record<string, unknown>>>("/workflow-executions"),
+    refetchInterval: 5_000,
   });
 }
 
@@ -80,6 +105,19 @@ export function useExecutionStatus(name: string, executionId: string) {
       ),
     enabled: !!executionId,
     refetchInterval: 3_000,
+  });
+}
+
+export function useRunStep(workflowName: string, stepId: string) {
+  return useMutation({
+    mutationFn: () => apiPost(`/workflows/${encodeURIComponent(workflowName)}/steps/${encodeURIComponent(stepId)}/run`),
+  });
+}
+
+export function useResumeFromStep(workflowName: string) {
+  return useMutation({
+    mutationFn: (params: { stepId: string; executionId: string }) =>
+      apiPost(`/workflows/${encodeURIComponent(workflowName)}/steps/${encodeURIComponent(params.stepId)}/resume`, { thread_id: params.executionId }),
   });
 }
 

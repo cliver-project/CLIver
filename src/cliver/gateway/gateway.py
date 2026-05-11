@@ -14,7 +14,10 @@ import time
 import uuid
 from contextvars import ContextVar
 from pathlib import Path
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
+
+if TYPE_CHECKING:
+    from cliver.agent import AgentFactory
 
 from cliver.agent_profile import CliverProfile
 from cliver.config import ConfigManager
@@ -30,7 +33,7 @@ from cliver.gateway.scheduler import CronScheduler
 from cliver.gateway.task_store import TaskStore
 from cliver.llm import AgentCore
 from cliver.session_manager import SessionManager
-from cliver.task_manager import TaskDefinition, TaskManager, TaskRun
+from cliver.task_manager import TaskDefinition, TaskManager, TaskRun, resolve_task_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +80,7 @@ class Gateway:
         self._pid_path = self.config_dir / "cliver-gateway.pid"
         self._pid_file = None
         self._agent_core: Optional[AgentCore] = None
+        self._agent_factory: Optional["AgentFactory"] = None
         self._scheduler: Optional[CronScheduler] = None
         self._run_store: Optional[TaskStore] = None
         self._task_manager: Optional[TaskManager] = None
@@ -113,6 +117,15 @@ class Gateway:
             except Exception as e:
                 logger.error(f"Failed to create AgentCore in create_app: {e}")
 
+        if not self._agent_factory and self._agent_core:
+            from cliver.agent import AgentFactory
+
+            config_manager = self._get_config_manager()
+            self._agent_factory = AgentFactory(
+                config=config_manager.config,
+                agent_core=self._agent_core,
+            )
+
         routes = self._build_routes()
 
         gateway_ref = self
@@ -141,7 +154,7 @@ class Gateway:
         if self._agent_core:
             from cliver.gateway.api_server import get_api_routes
 
-            routes.extend(get_api_routes(self._agent_core, self._get_status, api_key=api_key))
+            routes.extend(get_api_routes(self._agent_factory, self._get_status, api_key=api_key))
         else:
             # Fallback health endpoint when AgentCore is not ready
             from starlette.responses import JSONResponse
@@ -395,7 +408,9 @@ class Gateway:
 
             if task.workflow:
                 inputs = dict(task.workflow_inputs or {})
-                inputs["prompt"] = task.prompt
+                inputs["prompt"] = resolve_task_prompt(task)
+                if task.agent:
+                    inputs["agent"] = task.agent
                 await self.run_workflow(task.workflow, inputs=inputs)
                 response_text = "Workflow completed."
             else:
@@ -416,18 +431,23 @@ class Gateway:
                         system_appender = build_skill_appender(skill_objs)
                         tool_filter = build_skill_tool_filter(skill_objs, _task_filter_tools)
 
-                # Resolve agent config
-                agent_config = None
-                cfg = self._get_config_manager().config
-                agent_config = cfg.get_agent(task.agent)
+                # Session recorder — captures all Re-Act loop messages
+                def _record_msg(msg):
+                    if self._session_manager and run_session_id:
+                        self._session_manager.append_turn_from_message(run_session_id, msg)
 
-                response = await self._agent_core.process_user_input(
-                    user_input=task.prompt,
-                    model=task.model,
+                agent = self._agent_factory.create(task.agent)
+                effective_prompt = resolve_task_prompt(task)
+
+                # Record the user prompt as the first turn
+                if self._session_manager and run_session_id:
+                    self._session_manager.append_turn(run_session_id, "user", effective_prompt, msg_type="human")
+                response = await agent.run(
+                    effective_prompt,
                     system_message_appender=system_appender,
                     conversation_history=conversation_history,
                     filter_tools=tool_filter,
-                    agent_config=agent_config,
+                    on_message=_record_msg,
                 )
                 from cliver.media_handler import extract_response_text
 
@@ -442,22 +462,6 @@ class Gateway:
                 await self._deliver_to_origin(task, response_text)
             else:
                 self._save_result_json(task.name, run_record)
-                if self._session_manager and run_session_id:
-                    self._session_manager.append_turn(
-                        run_session_id,
-                        "user",
-                        task.prompt,
-                        msg_type="human",
-                    )
-                    if hasattr(response, "additional_kwargs") or hasattr(response, "tool_calls"):
-                        self._session_manager.append_turn_from_message(run_session_id, response)
-                    else:
-                        self._session_manager.append_turn(
-                            run_session_id,
-                            "assistant",
-                            response_text,
-                            msg_type="ai",
-                        )
 
         except Exception as e:
             run_record.status = "failed"
@@ -473,6 +477,7 @@ class Gateway:
 
         finally:
             run_record.finished_at = TaskManager.timestamp_now()
+            self._tasks_run += 1
             if self._run_store:
                 self._run_store.record_run(run_record)
                 self._run_store.set_task_state(task.name, run_record.status)
@@ -590,7 +595,7 @@ class Gateway:
         )
         logger.info("Task result saved to %s", result_path)
 
-    async def run_workflow(self, workflow_name: str, inputs: dict = None) -> Optional[dict]:
+    async def run_workflow(self, workflow_name: str, inputs: dict = None, execution_id: str = None) -> Optional[dict]:
         """Execute a workflow headlessly via the gateway."""
         from cliver.workflow.executor import WorkflowExecutor
         from cliver.workflow.persistence import WorkflowStore
@@ -606,7 +611,9 @@ class Gateway:
             if not wf:
                 logger.error("Workflow '%s' not found", workflow_name)
                 return None
-            return await executor.execute(wf, inputs=inputs or {})
+            if not execution_id:
+                execution_id = WorkflowExecutor.generate_execution_id()
+            return await executor.execute(wf, inputs=inputs or {}, execution_id=execution_id)
         except Exception as e:
             logger.error("Workflow '%s' failed: %s", workflow_name, e)
             return None
@@ -637,6 +644,16 @@ class Gateway:
             model_auto_fallback=config_manager.config.model_auto_fallback,
         )
         executor.configure_rate_limits(config_manager.config.providers)
+
+        from cliver.agent import AgentFactory
+        from cliver.agent_profile import set_agent_factory
+
+        self._agent_factory = AgentFactory(
+            config=config_manager.config,
+            agent_core=executor,
+        )
+        set_agent_factory(self._agent_factory)
+
         return executor
 
     # -- Session & adapter resolution -----------------------------------------
@@ -890,14 +907,20 @@ class Gateway:
             async def _im_filter_tools(user_input, tools):
                 return [t for t in tools if t.name != "Ask"]
 
+            def _im_record_msg(msg):
+                if sm and session_id:
+                    sm.append_turn_from_message(session_id, msg)
+
             try:
-                response = await self._agent_core.process_user_input(
-                    user_input=event.text,
+                agent = self._agent_factory.create()
+                response = await agent.run(
+                    event.text,
                     images=images or None,
                     audio_files=audio_files or None,
                     conversation_history=conversation_history or None,
                     system_message_appender=_im_system_appender,
                     filter_tools=_im_filter_tools,
+                    on_message=_im_record_msg,
                 )
 
                 from cliver.media_handler import MultimediaResponseHandler, extract_response_text
@@ -912,10 +935,6 @@ class Gateway:
             finally:
                 im_context.set(None)
 
-            if response and hasattr(response, "additional_kwargs"):
-                sm.append_turn_from_message(session_id, response)
-            else:
-                sm.append_turn(session_id, "assistant", response_text, msg_type="ai")
             sc = self._get_config_manager().config.session
             trimmed = sm.trim_turns(session_id, keep_last=sc.max_turns_per_session)
             if trimmed:

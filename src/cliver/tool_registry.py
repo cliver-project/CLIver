@@ -7,7 +7,7 @@ via config if they want fewer/more tools.
 
 Toolsets:
 - core: Read, Write, LS, Grep, Bash, Exec, ImageGenerate (always included)
-- memory: MemoryRead, MemoryWrite, Identity, SearchSessions (always included)
+- memory: MemoryRead, MemoryWrite, SearchSessions (always included)
 - automation: Skill, TodoRead, TodoWrite, Ask (always included)
 - web: WebFetch, WebSearch, Browse (Browse requires FIRECRAWL_API_KEY)
 - browser: Browser (requires playwright installed)
@@ -40,7 +40,6 @@ TOOLSETS: Dict[str, Set[str]] = {
     "memory": {
         "MemoryRead",
         "MemoryWrite",
-        "Identity",
         "SearchSessions",
     },
     "automation": {

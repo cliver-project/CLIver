@@ -1,6 +1,5 @@
 """Built-in tool for browser automation via Playwright."""
 
-import asyncio
 import base64
 import logging
 from typing import Optional, Type
@@ -95,20 +94,9 @@ class BrowserActionTool(BaseTool):
     tags: list = ["browser", "web", "execute"]
 
     def _run(self, action: str, selector: str = None, value: str = None) -> str:
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
+        from cliver.util import run_async
 
-        if loop and loop.is_running():
-            # We're inside an async context — create a new thread to run the coroutine
-            import concurrent.futures
-
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                future = pool.submit(asyncio.run, self._async_run(action, selector, value))
-                return future.result()
-        else:
-            return asyncio.run(self._async_run(action, selector, value))
+        return run_async(self._async_run(action, selector, value))
 
     async def _async_run(self, action: str, selector: str = None, value: str = None) -> str:
         session = get_browser_session()

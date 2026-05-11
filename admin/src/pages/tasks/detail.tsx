@@ -28,21 +28,15 @@ interface ScheduleInfo {
   timezone?: string;
 }
 
-function ScheduleCard({ info }: { info: ScheduleInfo }) {
+function ScheduleInline({ info }: { info: ScheduleInfo }) {
   const { t } = useTranslation();
+
   if (info.type === "manual") {
     return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Zap className="w-4 h-4" />
-            {t("tasks.scheduleTitle")}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">{t("tasks.manualDescription")}</p>
-        </CardContent>
-      </Card>
+      <div className="flex items-center gap-2 text-sm text-muted-foreground border-t pt-3">
+        <Zap className="w-4 h-4" />
+        <span>{t("tasks.manualDescription")}</span>
+      </div>
     );
   }
 
@@ -50,90 +44,46 @@ function ScheduleCard({ info }: { info: ScheduleInfo }) {
     const isPast = info.status === "completed";
     const isOverdue = info.status === "overdue";
     return (
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Timer className="w-4 h-4" />
-            {t("tasks.oneShotSchedule")}
-            {info.timezone && (
-              <Badge variant="outline" className="text-[10px] font-normal ml-auto">{info.timezone}</Badge>
-            )}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2 text-sm">
-            <div className="flex items-center gap-2">
-              <CalendarClock className="w-4 h-4 text-muted-foreground" />
-              <span className="font-mono">{info.run_at}</span>
-              {isPast && (
-                <Badge variant="secondary">{t("tasks.completed")}</Badge>
-              )}
-              {isOverdue && (
-                <Badge className="bg-amber-500/20 text-amber-600 border-amber-500/30">
-                  {t("tasks.overdue")}
-                </Badge>
-              )}
-            </div>
-            {info.time_until && (
-              <p className="text-muted-foreground">
-                {t("tasks.runsIn", { time: info.time_until })}
-              </p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+      <div className="flex items-center gap-2 flex-wrap text-sm border-t pt-3">
+        <Timer className="w-4 h-4 text-muted-foreground" />
+        <span className="font-mono text-xs">{info.run_at}</span>
+        {isPast && <Badge variant="secondary">{t("tasks.completed")}</Badge>}
+        {isOverdue && (
+          <Badge className="bg-amber-500/20 text-amber-600 border-amber-500/30">
+            {t("tasks.overdue")}
+          </Badge>
+        )}
+        {info.time_until && (
+          <span className="text-muted-foreground text-xs">
+            {t("tasks.runsIn", { time: info.time_until })}
+          </span>
+        )}
+        {info.timezone && (
+          <Badge variant="outline" className="text-[10px] font-normal ml-auto">{info.timezone}</Badge>
+        )}
+      </div>
     );
   }
 
   // cron
   return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base flex items-center gap-2">
-          <Repeat className="w-4 h-4" />
-          {t("tasks.recurringSchedule")}
-          {info.timezone && (
-            <Badge variant="outline" className="text-[10px] font-normal ml-auto">{info.timezone}</Badge>
-          )}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-3 text-sm">
-          <div className="flex items-center gap-3">
-            <code className="px-2 py-1 rounded bg-muted text-xs font-mono">
-              {info.expression}
-            </code>
-            {info.summary && (
-              <span className="text-muted-foreground">{info.summary}</span>
-            )}
-          </div>
-          {info.next_run && (
-            <div className="flex items-center gap-2">
-              <CalendarClock className="w-4 h-4 text-muted-foreground shrink-0" />
-              <span>
-                {t("tasks.nextRun", { time: fmtDatetime(info.next_run) })}
-              </span>
-              {info.time_until && (
-                <Badge variant="secondary">{info.time_until}</Badge>
-              )}
-            </div>
-          )}
-          {info.upcoming && info.upcoming.length > 1 && (
-            <div>
-              <p className="text-xs text-muted-foreground mb-1">{t("tasks.upcomingRuns")}</p>
-              <ul className="text-xs text-muted-foreground space-y-0.5">
-                {info.upcoming.map((upcomingTime, i) => (
-                  <li key={i} className="font-mono">{fmtDatetime(upcomingTime)}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {info.status === "invalid" && (
-            <p className="text-red-500 text-xs">{t("tasks.invalidCron")}</p>
-          )}
+    <div className="space-y-2 text-sm border-t pt-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        <Repeat className="w-4 h-4 text-muted-foreground" />
+        <code className="px-2 py-0.5 rounded bg-muted text-xs font-mono">{info.expression}</code>
+        {info.summary && <span className="text-muted-foreground text-xs">{info.summary}</span>}
+        {info.timezone && (
+          <Badge variant="outline" className="text-[10px] font-normal ml-auto">{info.timezone}</Badge>
+        )}
+      </div>
+      {info.next_run && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <CalendarClock className="w-3.5 h-3.5 shrink-0" />
+          <span>{t("tasks.nextRun", { time: fmtDatetime(info.next_run) })}</span>
+          {info.time_until && <Badge variant="secondary" className="text-[10px]">{info.time_until}</Badge>}
         </div>
-      </CardContent>
-    </Card>
+      )}
+    </div>
   );
 }
 
@@ -285,8 +235,8 @@ export default function TaskDetailPage() {
         </div>
       )}
 
-      {/* Live status */}
-      {liveStatus && (
+      {/* Live status & schedule */}
+      {(liveStatus || scheduleInfo) && (
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center gap-2">
@@ -294,37 +244,39 @@ export default function TaskDetailPage() {
               {isRunning && <Loader2 className="w-4 h-4 animate-spin text-amber-500" />}
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-              <div>
-                <p className="text-muted-foreground text-xs">{t("tasks.state")}</p>
-                <StatusPill status={String(liveStatus.status ?? "unknown")} />
+          <CardContent className="space-y-4">
+            {liveStatus && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div>
+                  <p className="text-muted-foreground text-xs">{t("tasks.state")}</p>
+                  <StatusPill status={String(liveStatus.status ?? "unknown")} />
+                </div>
+                {liveStatus.started_at && (
+                  <div>
+                    <p className="text-muted-foreground text-xs">{t("tasks.started")}</p>
+                    <p>{String(liveStatus.started_at)}</p>
+                  </div>
+                )}
+                {liveStatus.finished_at && (
+                  <div>
+                    <p className="text-muted-foreground text-xs">{t("tasks.finished")}</p>
+                    <p>{String(liveStatus.finished_at)}</p>
+                  </div>
+                )}
+                {liveStatus.error && (
+                  <div className="col-span-full">
+                    <p className="text-muted-foreground text-xs">{t("tasks.error")}</p>
+                    <p className="text-red-500 text-xs">{String(liveStatus.error)}</p>
+                  </div>
+                )}
               </div>
-              {liveStatus.started_at && (
-                <div>
-                  <p className="text-muted-foreground text-xs">{t("tasks.started")}</p>
-                  <p>{String(liveStatus.started_at)}</p>
-                </div>
-              )}
-              {liveStatus.finished_at && (
-                <div>
-                  <p className="text-muted-foreground text-xs">{t("tasks.finished")}</p>
-                  <p>{String(liveStatus.finished_at)}</p>
-                </div>
-              )}
-              {liveStatus.error && (
-                <div className="col-span-full">
-                  <p className="text-muted-foreground text-xs">{t("tasks.error")}</p>
-                  <p className="text-red-500 text-xs">{String(liveStatus.error)}</p>
-                </div>
-              )}
-            </div>
+            )}
+            {scheduleInfo && (
+              <ScheduleInline info={scheduleInfo} />
+            )}
           </CardContent>
         </Card>
       )}
-
-      {/* Schedule */}
-      {scheduleInfo && <ScheduleCard info={scheduleInfo} />}
 
       {/* Definition / Edit form */}
       {editing ? (
@@ -366,16 +318,16 @@ export default function TaskDetailPage() {
                   <dd>{String(data.description)}</dd>
                 </>
               )}
-              {data.model && (
-                <>
-                  <dt className="text-muted-foreground">{t("tasks.model")}</dt>
-                  <dd><Badge variant="secondary">{String(data.model)}</Badge></dd>
-                </>
-              )}
               {data.agent && (
                 <>
                   <dt className="text-muted-foreground">{t("tasks.taskAgent")}</dt>
                   <dd><Badge variant="outline">{String(data.agent)}</Badge></dd>
+                </>
+              )}
+              {data.context && (
+                <>
+                  <dt className="text-muted-foreground">{t("tasks.taskContext")}</dt>
+                  <dd className="font-mono text-xs break-all">{String(data.context)}</dd>
                 </>
               )}
               {data.skills && (data.skills as string[]).length > 0 && (

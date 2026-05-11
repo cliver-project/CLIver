@@ -414,9 +414,15 @@ class TestActivateSkill:
         assert "# User's Request" in result
         assert "Find docs about Python asyncio" in result
 
-    def test_activate_without_prompt_has_no_request_section(self, manager):
+    def test_activate_includes_preamble(self, manager):
         result = manager.activate_skill("web-search")
-        assert "# User's Request" not in result
+        assert "[Skill activated]" in result
+        assert "Do NOT summarize" in result
+
+    def test_activate_without_prompt_asks_user(self, manager):
+        result = manager.activate_skill("web-search")
+        assert "# User's Request" in result
+        assert "No prompt provided" in result
 
     def test_activate_nonexistent_lists_available(self, manager):
         result = manager.activate_skill("nonexistent")

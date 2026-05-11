@@ -3,6 +3,8 @@
 import threading
 from unittest.mock import patch
 
+import pytest
+
 from cliver.ui_bridge import CLIBridge, FieldSpec, TUIBridge
 
 
@@ -63,11 +65,11 @@ class TestCLIBridge:
             result = bridge.ask_input("Enter: ")
         assert result == ""
 
-    def test_ask_input_keyboard_interrupt_returns_empty(self):
+    def test_ask_input_keyboard_interrupt_propagates(self):
         bridge = CLIBridge()
         with patch("builtins.input", side_effect=KeyboardInterrupt):
-            result = bridge.ask_input("Enter: ")
-        assert result == ""
+            with pytest.raises(KeyboardInterrupt):
+                bridge.ask_input("Enter: ")
 
 
 class TestCLIBridgeAskFields:
@@ -128,11 +130,11 @@ class TestCLIBridgePermission:
             result = bridge.ask_permission("run_shell", {"cmd": "x"}, {})
         assert result == ("deny_always", "")
 
-    def test_ask_permission_eof_denies(self):
+    def test_ask_permission_eof_cancels(self):
         bridge = CLIBridge()
         with patch("builtins.input", side_effect=EOFError):
             result = bridge.ask_permission("run_shell", {"cmd": "x"}, {})
-        assert result == ("deny", "")
+        assert result == ("cancel", "")
 
     def test_ask_permission_with_extra_context(self):
         bridge = CLIBridge()
@@ -221,12 +223,15 @@ class TestTUIBridge:
         t.join(timeout=1)
         assert result[0] == ("allow", "just this once")
 
-    def test_cancel_pending(self):
+    def test_cancel_pending_raises_keyboard_interrupt(self):
         bridge = TUIBridge()
-        result = [None]
+        exc = [None]
 
         def worker():
-            result[0] = bridge.ask_input("Name: ")
+            try:
+                bridge.ask_input("Name: ")
+            except KeyboardInterrupt:
+                exc[0] = KeyboardInterrupt
 
         t = threading.Thread(target=worker)
         t.start()
@@ -235,7 +240,7 @@ class TestTUIBridge:
         time.sleep(0.05)
         bridge.cancel_pending()
         t.join(timeout=1)
-        assert result[0] == ""
+        assert exc[0] is KeyboardInterrupt
 
     def test_ask_fields_via_tui(self):
         bridge = TUIBridge()

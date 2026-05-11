@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 _current_profile: Optional["CliverProfile"] = None
 
-_agent_core = None
+_agent_factory = None
 
 _input_fn = input
 _output_fn = print
@@ -42,13 +42,20 @@ def get_current_profile() -> Optional["CliverProfile"]:
     return _current_profile
 
 
-def set_agent_core(executor) -> None:
-    global _agent_core
-    _agent_core = executor
+def set_agent_factory(factory) -> None:
+    global _agent_factory
+    _agent_factory = factory
+
+
+def get_agent_factory():
+    return _agent_factory
 
 
 def get_agent_core():
-    return _agent_core
+    """Backward-compat shim — returns AgentCore from the current factory."""
+    if _agent_factory is not None:
+        return _agent_factory.agent_core
+    return None
 
 
 def set_input_fn(fn) -> None:

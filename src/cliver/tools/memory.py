@@ -122,54 +122,5 @@ class MemoryWriteTool(BaseTool):
             return f"Saved to memory: {content}"
 
 
-# ---------------------------------------------------------------------------
-# identity_update
-# ---------------------------------------------------------------------------
-
-
-class IdentityUpdateInput(BaseModel):
-    """Input schema for identity_update."""
-
-    content: str = Field(
-        description=(
-            "The complete identity document in markdown format. "
-            "This replaces the entire identity — include ALL information, "
-            "not just the new parts."
-        )
-    )
-
-
-class IdentityUpdateTool(BaseTool):
-    """Update the identity profile — a living document about the agent and user."""
-
-    name: str = "Identity"
-    description: str = (
-        "Update the identity profile — a living markdown document that describes "
-        "who you are (agent persona) and who the user is (their profile).\n\n"
-        "Unlike memory (append-only), identity is **rewritten as a whole** each time. "
-        "Always include all existing information plus any updates.\n\n"
-        "The identity document typically contains:\n"
-        "- User profile: name, location, role, preferences, environment\n"
-        "- Agent persona: communication style, behavior preferences\n"
-        "- Key context: timezone, language, tools the user prefers\n\n"
-        "When to update:\n"
-        "- User shares personal info (name, location, role)\n"
-        "- User states a preference about how you should behave\n"
-        "- You learn about the user's environment or workflow\n\n"
-        "Read the current identity first to avoid losing existing information."
-    )
-    args_schema: Type[BaseModel] = IdentityUpdateInput
-    tags: list = ["memory", "identity", "context"]
-
-    def _run(self, content: str) -> str:
-        profile = get_current_profile()
-        if profile is None:
-            return "Identity is not available in this session."
-
-        profile.save_identity(content)
-        return "Identity profile updated."
-
-
 memory_read = MemoryReadTool()
 memory_write = MemoryWriteTool()
-identity_update = IdentityUpdateTool()

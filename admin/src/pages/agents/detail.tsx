@@ -146,10 +146,12 @@ export default function AgentDetailPage() {
               <Pencil className="w-4 h-4 mr-1" />
               {t("agents.editAgent")}
             </Button>
-            <Button size="sm" variant="destructive" onClick={() => setConfirmDelete(true)}>
-              <Trash2 className="w-4 h-4 mr-1" />
-              {t("common.delete")}
-            </Button>
+            {!isDefault && (
+              <Button size="sm" variant="destructive" onClick={() => setConfirmDelete(true)}>
+                <Trash2 className="w-4 h-4 mr-1" />
+                {t("common.delete")}
+              </Button>
+            )}
           </>
         )}
         {editing && (

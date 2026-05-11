@@ -32,6 +32,7 @@ class WorkflowExecutor:
             self._runs_dir = Path.home() / ".cliver" / "workflow-runs"
 
         self._compiler = WorkflowCompiler()
+        self._workflows_dir = workflows_dir
         self._store = WorkflowStore(workflows_dir) if workflows_dir else None
 
     def _workflow_dir(self, workflow_id: str) -> Path:
@@ -54,11 +55,9 @@ class WorkflowExecutor:
             path.mkdir(parents=True, exist_ok=True)
         return path / "executions.db"
 
-    async def _get_checkpointer(self, workflow_id: str):
-        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-
+    def _checkpointer_conn_string(self, workflow_id: str) -> str:
         db_path = self._checkpoints_db_path(workflow_id, create=True)
-        return AsyncSqliteSaver.from_conn_string(str(db_path))
+        return str(db_path)
 
     @staticmethod
     def generate_execution_id() -> str:
@@ -81,52 +80,54 @@ class WorkflowExecutor:
         exec_db = self._executions_db_path(workflow_id, create=True)
         merged_inputs = workflow.get_initial_inputs(inputs)
 
-        checkpointer = await self._get_checkpointer(workflow_id)
+        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
-        try:
-            graph = self._compiler.compile(workflow, checkpointer=checkpointer)
+        WorkflowStore.record_execution_start(exec_db, execution_id, workflow_id, execution_id, merged_inputs)
 
-            initial_state = {
-                "inputs": merged_inputs,
-                "steps": {},
-                "workflow_id": workflow_id,
-                "thread_id": execution_id,
-                "outputs_dir": str(outputs_dir),
-                "error": None,
-                "_app_config": self.app_config,
-                "_on_tool_event": self.on_tool_event,
-                "_workflow_base_dir": base_dir or ".",
-            }
+        conn_string = self._checkpointer_conn_string(workflow_id)
+        async with AsyncSqliteSaver.from_conn_string(conn_string) as checkpointer:
+            try:
+                graph = self._compiler.compile(
+                    workflow,
+                    checkpointer=checkpointer,
+                    app_config=self.app_config,
+                    on_tool_event=self.on_tool_event,
+                    base_dir=base_dir or ".",
+                )
 
-            config = {"configurable": {"thread_id": execution_id}}
-
-            WorkflowStore.record_execution_start(exec_db, execution_id, workflow_id, execution_id, merged_inputs)
-
-            self._log_event(
-                outputs_dir,
-                "workflow_start",
-                {
-                    "workflow_id": workflow_id,
-                    "execution_id": execution_id,
+                initial_state = {
                     "inputs": merged_inputs,
-                },
-            )
+                    "steps": {},
+                    "workflow_id": workflow_id,
+                    "thread_id": execution_id,
+                    "outputs_dir": str(outputs_dir),
+                    "error": None,
+                }
 
-            result = await graph.ainvoke(initial_state, config)
+                config = {"configurable": {"thread_id": execution_id}}
 
-            WorkflowStore.record_execution_end(exec_db, execution_id, "completed")
-            self._log_event(outputs_dir, "workflow_end", {"status": "completed"})
+                self._log_event(
+                    outputs_dir,
+                    "workflow_start",
+                    {
+                        "workflow_id": workflow_id,
+                        "execution_id": execution_id,
+                        "inputs": merged_inputs,
+                    },
+                )
 
-            return result
+                result = await graph.ainvoke(initial_state, config)
 
-        except Exception as e:
-            logger.error("Workflow %s failed: %s", workflow_id, e)
-            WorkflowStore.record_execution_end(exec_db, execution_id, "failed", str(e))
-            self._log_event(outputs_dir, "workflow_end", {"status": "failed", "error": str(e)})
-            raise
-        finally:
-            if hasattr(checkpointer, "conn") and checkpointer.conn:
-                await checkpointer.conn.close()
+                WorkflowStore.record_execution_end(exec_db, execution_id, "completed")
+                self._log_event(outputs_dir, "workflow_end", {"status": "completed"})
+
+                return result
+
+            except Exception as e:
+                logger.error("Workflow %s failed: %s", workflow_id, e)
+                WorkflowStore.record_execution_end(exec_db, execution_id, "failed", str(e))
+                self._log_event(outputs_dir, "workflow_end", {"status": "failed", "error": str(e)})
+                raise
 
     async def execute_by_name(
         self,
@@ -159,17 +160,22 @@ class WorkflowExecutor:
         if not wf:
             raise ValueError(f"Workflow '{workflow_name}' not found")
 
-        checkpointer = await self._get_checkpointer(workflow_name)
-        try:
-            graph = self._compiler.compile(wf, checkpointer=checkpointer)
+        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+        conn_string = self._checkpointer_conn_string(workflow_name)
+        async with AsyncSqliteSaver.from_conn_string(conn_string) as checkpointer:
+            graph = self._compiler.compile(
+                wf,
+                checkpointer=checkpointer,
+                app_config=self.app_config,
+                on_tool_event=self.on_tool_event,
+                base_dir=str(self._store.workflows_dir) if self._store else ".",
+            )
             config = {"configurable": {"thread_id": execution_id}}
             result = await graph.ainvoke(None, config)
             exec_db = self._executions_db_path(workflow_name)
             WorkflowStore.record_execution_end(exec_db, execution_id, "completed")
             return result
-        finally:
-            if hasattr(checkpointer, "conn") and checkpointer.conn:
-                await checkpointer.conn.close()
 
     async def get_history(self, workflow_name: Optional[str] = None) -> List[Dict[str, Any]]:
         """List execution history."""
@@ -203,13 +209,74 @@ class WorkflowExecutor:
             return None
 
         outputs_dir = self._runs_dir / workflow_name / execution_id
-        step_statuses = {}
+        completed_steps = set()
+        step_outputs: Dict[str, Dict[str, Any]] = {}
         if outputs_dir.exists():
             for f in outputs_dir.iterdir():
                 if f.is_dir():
-                    step_statuses[f.name] = "completed"
+                    completed_steps.add(f.name)
+                    step_out: Dict[str, Any] = {}
+                    files = []
+                    for sf in f.iterdir():
+                        if not sf.is_file():
+                            continue
+                        suffix = sf.suffix.lower()
+                        if sf.name == "result.txt":
+                            try:
+                                step_out["result"] = sf.read_text(encoding="utf-8")[:2000]
+                            except Exception:
+                                pass
+                        elif sf.name.endswith(".log"):
+                            continue
+                        else:
+                            file_type = "file"
+                            if suffix in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"):
+                                file_type = "image"
+                            elif suffix in (".mp3", ".wav", ".ogg", ".flac"):
+                                file_type = "audio"
+                            elif suffix in (".mp4", ".webm", ".avi"):
+                                file_type = "video"
+                            files.append({"type": file_type, "name": sf.name, "path": str(sf)})
+                    if files:
+                        step_out["files"] = files
+                    step_outputs[f.name] = step_out
+
+        # Load workflow to get full step list and infer running step
+        store = WorkflowStore(self._workflows_dir)
+        wf = store.load_workflow(workflow_name)
+        all_step_ids = [s.id for s in wf.steps] if wf else []
+        is_running = match.get("status") == "running"
+        is_failed = match.get("status") == "failed"
+
+        step_statuses = {}
+        for sid in all_step_ids:
+            if sid in completed_steps:
+                step_statuses[sid] = "completed"
+            else:
+                step_statuses[sid] = "pending"
+
+        # If execution is running, the first pending step whose deps are all
+        # completed is the one currently executing
+        if is_running and wf:
+            deps_map = {s.id: set(s.depends_on) for s in wf.steps}
+            for sid in all_step_ids:
+                if step_statuses[sid] != "pending":
+                    continue
+                deps = deps_map.get(sid, set())
+                if all(step_statuses.get(d) == "completed" for d in deps):
+                    step_statuses[sid] = "running"
+                    break
+
+        # If execution failed, mark the first non-completed step as failed
+        if is_failed and wf:
+            for sid in all_step_ids:
+                if step_statuses[sid] == "pending":
+                    step_statuses[sid] = "failed"
+                    break
 
         match["step_statuses"] = step_statuses
+        match["step_outputs"] = step_outputs
+        match["outputs_dir"] = str(outputs_dir)
         return match
 
     async def delete_run(self, execution_id: str, workflow_name: str) -> bool:

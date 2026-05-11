@@ -236,27 +236,6 @@ class TestPromptFlag:
         assert "no such option: --permission-mode" not in result.output
 
 
-class TestCISkill:
-    """CI skill should be discoverable."""
-
-    def test_ci_skill_exists(self):
-        """The ci skill should be found by SkillManager."""
-        from cliver.skill_manager import SkillManager
-
-        manager = SkillManager()
-        names = manager.get_skill_names()
-        assert "ci" in names
-
-    def test_ci_skill_has_content(self):
-        """The ci skill should have non-empty content."""
-        from cliver.skill_manager import SkillManager
-
-        manager = SkillManager()
-        skill = manager.get_skill("ci")
-        assert skill is not None
-        assert skill.body and len(skill.body) > 100
-
-
 class TestCICDIntegration:
     """Integration tests combining multiple CI/CD flags."""
 

@@ -478,18 +478,17 @@ def _get_workflow_detail(ctx, workflow_id):
                     if default_model:
                         data["_default_model"] = default_model
                     data["_models"] = model_names
-                    if not wf.outputs_dir:
-                        # Check app config for workflow_runs_dir
-                        config_runs_dir = None
-                        if gateway:
-                            ac = getattr(gateway, "_agent_core", None)
-                            if ac and hasattr(ac, "_app_config") and ac._app_config:
-                                config_runs_dir = getattr(ac._app_config, "workflow_runs_dir", None)
-                        if config_runs_dir:
-                            default_runs = Path(config_runs_dir) / stem
-                        else:
-                            default_runs = profile.config_dir / "workflow-runs" / stem
-                        data["_default_outputs_dir"] = str(default_runs)
+                    # Resolve default outputs directory
+                    config_runs_dir = None
+                    if gateway and gateway._agent_core:
+                        app_cfg = getattr(gateway._agent_core, "_app_config", None)
+                        if app_cfg:
+                            config_runs_dir = app_cfg.workflow_runs_dir
+                    if config_runs_dir:
+                        default_runs = Path(config_runs_dir) / stem
+                    else:
+                        default_runs = profile.config_dir / "workflow-runs" / stem
+                    data["_default_outputs_dir"] = str(default_runs)
                     return data
         return None
     except Exception as e:
@@ -528,8 +527,7 @@ def _get_workflows(ctx: dict) -> list:
         return []
 
 
-def _get_workflow_executions(ctx: dict, workflow_id: str = None) -> list:
-    """List workflow executions from per-workflow databases."""
+async def _get_workflow_executions_async(ctx: dict, workflow_id: str = None) -> list:
     try:
         from cliver.workflow.executor import WorkflowExecutor
 
@@ -538,27 +536,10 @@ def _get_workflow_executions(ctx: dict, workflow_id: str = None) -> list:
             return []
         config_manager = gateway._get_config_manager()
         executor = WorkflowExecutor(app_config=config_manager.config)
-        import asyncio
-
-        return asyncio.get_event_loop().run_until_complete(executor.get_history(workflow_id))
-    except RuntimeError:
-        import asyncio
-
-        return asyncio.run(_get_workflow_executions_async(ctx, workflow_id))
+        return await executor.get_history(workflow_id)
     except Exception as e:
         logger.warning("Failed to get workflow executions: %s", e)
         return []
-
-
-async def _get_workflow_executions_async(ctx: dict, workflow_id: str = None) -> list:
-    from cliver.workflow.executor import WorkflowExecutor
-
-    gateway = ctx.get("gateway")
-    if not gateway:
-        return []
-    config_manager = gateway._get_config_manager()
-    executor = WorkflowExecutor(app_config=config_manager.config)
-    return await executor.get_history(workflow_id)
 
 
 async def _get_execution_status(ctx: dict, workflow_id: str, thread_id: str) -> Optional[dict]:
@@ -653,6 +634,31 @@ def _save_workflow(ctx: dict, workflow_id: str, data: dict) -> Optional[str]:
     except Exception as e:
         logger.warning("Failed to save workflow: %s", e)
         return str(e)
+
+
+def _validate_skill_content(content: str) -> Optional[str]:
+    """Validate SKILL.md content has proper frontmatter. Returns error or None."""
+    if not content or not content.strip():
+        return "Skill content cannot be empty"
+    text = content.strip()
+    if not text.startswith("---"):
+        return "SKILL.md must start with YAML frontmatter (---)"
+    parts = text.split("---", 2)
+    if len(parts) < 3:
+        return "SKILL.md must have closing frontmatter (---)"
+    try:
+        import yaml as _yaml
+
+        fm = _yaml.safe_load(parts[1])
+    except Exception as e:
+        return f"Invalid YAML frontmatter: {e}"
+    if not isinstance(fm, dict):
+        return "Frontmatter must be a YAML mapping"
+    if not fm.get("name"):
+        return "Frontmatter must include 'name'"
+    if not fm.get("description"):
+        return "Frontmatter must include 'description'"
+    return None
 
 
 def _get_skills() -> list:
@@ -1289,8 +1295,8 @@ def get_admin_routes(
                 name=name,
                 prompt=prompt,
                 description=data.get("description") or None,
-                model=data.get("model") or None,
                 agent=data.get("agent") or None,
+                context=data.get("context") or None,
                 schedule=data.get("schedule") or None,
                 run_at=data.get("run_at") or None,
                 skills=data.get("skills") or None,
@@ -1334,17 +1340,32 @@ def get_admin_routes(
                 return JSONResponse({"error": "Task not found"}, status_code=404)
 
             if "prompt" in data:
+                if not data["prompt"]:
+                    store.close()
+                    return JSONResponse({"error": "prompt cannot be empty"}, status_code=400)
                 task.prompt = data["prompt"]
             if "description" in data:
                 task.description = data["description"] or None
-            if "model" in data:
-                task.model = data["model"] or None
             if "agent" in data:
                 task.agent = data["agent"] or None
+            if "context" in data:
+                task.context = data["context"] or None
             if "schedule" in data:
                 task.schedule = data["schedule"] or None
             if "run_at" in data:
-                task.run_at = data["run_at"] or None
+                run_at = data["run_at"] or None
+                if run_at:
+                    from datetime import datetime
+
+                    try:
+                        datetime.fromisoformat(run_at)
+                    except ValueError:
+                        store.close()
+                        return JSONResponse(
+                            {"error": f"Invalid run_at format: {run_at}. Use ISO 8601."},
+                            status_code=400,
+                        )
+                task.run_at = run_at
             if "skills" in data:
                 task.skills = data["skills"] or None
             if "workflow" in data:
@@ -1474,14 +1495,93 @@ def get_admin_routes(
         return JSONResponse({"status": "saved"})
 
     @require_auth
+    async def handle_create_workflow(request: Request):
+        try:
+            data = await request.json()
+        except Exception:
+            return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+
+        name = data.get("name", "").strip()
+        if not name:
+            return JSONResponse({"error": "name is required"}, status_code=400)
+
+        try:
+            from cliver.agent_profile import CliverProfile
+            from cliver.workflow.persistence import WorkflowStore
+            from cliver.workflow.workflow_models import Workflow
+
+            config_dir = context.get("config_dir")
+            if not config_dir:
+                return JSONResponse({"error": "No config dir"}, status_code=500)
+            profile = CliverProfile(config_dir)
+            store = WorkflowStore(profile.workflows_dir)
+
+            if store.load_workflow(name):
+                return JSONResponse({"error": f"Workflow '{name}' already exists"}, status_code=409)
+
+            steps = data.get("steps")
+            if not steps:
+                steps = [{"id": "step_1", "type": "llm", "prompt": "TODO: add your prompt here"}]
+
+            wf_data = {
+                "name": name,
+                "description": data.get("description") or None,
+                "steps": steps,
+            }
+            wf = Workflow(**wf_data)
+
+            from cliver.tools.workflow_validate import _compile_check, _semantic_checks
+
+            errors = _semantic_checks(wf)
+            if errors:
+                return JSONResponse(
+                    {"error": "Validation errors:\n" + "\n".join(f"- {e}" for e in errors)},
+                    status_code=400,
+                )
+            compile_errors = _compile_check(wf)
+            if compile_errors:
+                return JSONResponse(
+                    {"error": "Compilation errors:\n" + "\n".join(f"- {e}" for e in compile_errors)},
+                    status_code=400,
+                )
+
+            store.save_workflow(wf)
+            detail = _get_workflow_detail(context, name)
+            return JSONResponse(detail, status_code=201)
+        except Exception as e:
+            logger.error("Failed to create workflow: %s", e)
+            return JSONResponse({"error": str(e)}, status_code=500)
+
+    @require_auth
+    async def handle_delete_workflow(request: Request):
+        name = request.path_params["name"]
+        try:
+            from cliver.agent_profile import CliverProfile
+            from cliver.workflow.persistence import WorkflowStore
+
+            config_dir = context.get("config_dir")
+            if not config_dir:
+                return JSONResponse({"error": "No config dir"}, status_code=500)
+            profile = CliverProfile(config_dir)
+            store = WorkflowStore(profile.workflows_dir)
+
+            if not store.delete_workflow(name):
+                return JSONResponse({"error": f"Workflow '{name}' not found"}, status_code=404)
+
+            return JSONResponse({"status": "deleted"})
+        except Exception as e:
+            logger.error("Failed to delete workflow: %s", e)
+            return JSONResponse({"error": str(e)}, status_code=500)
+
+    @require_auth
     async def handle_workflow_executions(request: Request):
         name = request.path_params.get("name")
-        execs = _get_workflow_executions(context, name)
+        execs = await _get_workflow_executions_async(context, name)
         return JSONResponse(execs)
 
     @require_auth
     async def handle_all_workflow_executions(request: Request):
-        execs = _get_workflow_executions(context)
+        execs = await _get_workflow_executions_async(context)
         return JSONResponse(execs)
 
     @require_auth
@@ -1506,10 +1606,13 @@ def get_admin_routes(
         except Exception:
             body = {}
         inputs = body.get("inputs")
-        task = asyncio.create_task(gateway.run_workflow(name, inputs=inputs))
+        from cliver.workflow.executor import WorkflowExecutor
+
+        execution_id = WorkflowExecutor.generate_execution_id()
+        task = asyncio.create_task(gateway.run_workflow(name, inputs=inputs, execution_id=execution_id))
         _running_workflow_tasks[name] = task
         task.add_done_callback(lambda _: _running_workflow_tasks.pop(name, None))
-        return JSONResponse({"status": "started", "workflow": name})
+        return JSONResponse({"status": "started", "workflow": name, "execution_id": execution_id})
 
     @require_auth
     async def handle_stop_workflow(request: Request):
@@ -1701,6 +1804,9 @@ def get_admin_routes(
 
         if str(skill_dir).startswith(str(_BUILTIN_SKILLS_DIR)):
             return Response("Cannot edit builtin skills", status_code=403)
+        error = _validate_skill_content(content)
+        if error:
+            return JSONResponse({"error": error}, status_code=400)
         try:
             skill_file.write_text(content, encoding="utf-8")
         except Exception as e:
@@ -1726,6 +1832,9 @@ def get_admin_routes(
         skills_dir = Path(work_dir) / ".cliver" / "skills" / skill_name
         if skills_dir.exists():
             return JSONResponse({"error": f"Skill '{skill_name}' already exists"}, status_code=409)
+        error = _validate_skill_content(content)
+        if error:
+            return JSONResponse({"error": error}, status_code=400)
         try:
             skills_dir.mkdir(parents=True, exist_ok=True)
             skill_file = skills_dir / "SKILL.md"
@@ -1738,6 +1847,24 @@ def get_admin_routes(
     async def handle_adapters(request: Request):
         adapters = _get_adapters(context)
         return JSONResponse(adapters)
+
+    @require_auth
+    async def handle_adapter_check(request: Request):
+        """POST /admin/api/adapters/{name}/check — check a single adapter's health."""
+        adapter_name = request.path_params["name"]
+        adapters = _get_adapters(context)
+        for a in adapters:
+            if a.get("name") == adapter_name:
+                is_active = a.get("state") in ("connected", "running")
+                return JSONResponse(
+                    {
+                        "name": adapter_name,
+                        "status": "active" if is_active else "inactive",
+                        "state": a.get("state", "unknown"),
+                        "error": a.get("error", ""),
+                    }
+                )
+        return JSONResponse({"error": f"Adapter '{adapter_name}' not found"}, status_code=404)
 
     @require_auth
     async def handle_agent(request: Request):
@@ -2420,6 +2547,7 @@ def get_admin_routes(
         Route("/admin/api/sessions/{source}/{id}", handle_delete_session, methods=["DELETE"]),
         Route("/admin/api/browse", handle_browse_files),
         Route("/admin/api/workflow-executions", handle_all_workflow_executions),
+        Route("/admin/api/workflows", handle_create_workflow, methods=["POST"]),
         Route("/admin/api/workflows", handle_workflows),
         # Step-level routes (before catch-all {name} routes)
         Route("/admin/api/workflows/{name}/steps/{step_id}/output", handle_save_step_output, methods=["POST"]),
@@ -2433,11 +2561,13 @@ def get_admin_routes(
         Route("/admin/api/workflows/{name}/stop", handle_stop_workflow, methods=["POST"]),
         Route("/admin/api/workflows/{name}", handle_workflow_detail_api),
         Route("/admin/api/workflows/{name}", handle_update_workflow, methods=["PUT"]),
+        Route("/admin/api/workflows/{name}", handle_delete_workflow, methods=["DELETE"]),
         Route("/admin/api/media/{path:path}", handle_workflow_media),
         Route("/admin/api/skills/{name}", handle_skill_detail_api),
         Route("/admin/api/skills/{name}", handle_update_skill, methods=["PUT"]),
         Route("/admin/api/skills", handle_create_skill, methods=["POST"]),
         Route("/admin/api/skills", handle_skills),
+        Route("/admin/api/adapters/{name}/check", handle_adapter_check, methods=["POST"]),
         Route("/admin/api/adapters", handle_adapters),
         Route("/admin/api/agent", handle_agent),
         Route("/admin/api/agents", handle_agents_list),

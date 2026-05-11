@@ -7,8 +7,6 @@ and inference options via /session option.
 Session recording happens automatically in chat.py after each LLM response.
 """
 
-import asyncio
-
 import click
 from langchain_core.messages import AIMessage, HumanMessage
 
@@ -190,7 +188,9 @@ def _compress_session(cliver: Cliver):
     before_count = len(cliver.conversation_messages)
 
     try:
-        compressed = asyncio.run(compressor.compress(cliver.conversation_messages, llm_engine, force=True))
+        from cliver.util import run_async
+
+        compressed = run_async(compressor.compress(cliver.conversation_messages, llm_engine, force=True))
     except Exception as e:
         cliver.output(f"Compression failed: {e}")
         return
@@ -242,7 +242,9 @@ def _compress_loaded_session(cliver):
     llm_engine = agent_core.get_llm_engine(model_name)
 
     try:
-        compressed = asyncio.run(compressor.compress(cliver.conversation_messages, llm_engine))
+        from cliver.util import run_async
+
+        compressed = run_async(compressor.compress(cliver.conversation_messages, llm_engine))
         cliver.conversation_messages = compressed
         after_tokens = estimate_tokens(cliver.conversation_messages)
         cliver.output(f"[Session compressed: ~{before_tokens} → ~{after_tokens} tokens]")

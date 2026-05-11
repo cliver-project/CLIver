@@ -33,7 +33,7 @@ _TIPS = [
     "Use [bold green]/model list[/bold green] to see configured models",
     "Use [bold green]/session list[/bold green] to browse past conversations",
     "Use [bold green]/permissions mode[/bold green] to change tool permissions",
-    "Use [bold green]/identity chat[/bold green] to set up your agent profile",
+    "Use [bold green]/agent list[/bold green] to see configured agents",
     "Use [bold green]/cost[/bold green] to check token usage",
 ]
 

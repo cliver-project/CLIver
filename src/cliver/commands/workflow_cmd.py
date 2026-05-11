@@ -1,21 +1,19 @@
 """Workflow management commands."""
 
-import asyncio
 import logging
 
+import click
 import yaml
 
-from cliver.cli import Cliver
+from cliver.cli import Cliver, pass_cliver
 
 logger = logging.getLogger(__name__)
 
 
 def _run_async(coro):
-    try:
-        return asyncio.run(coro)
-    except RuntimeError:
-        loop = asyncio.get_event_loop()
-        return loop.run_until_complete(coro)
+    from cliver.util import run_async
+
+    return run_async(coro)
 
 
 def _make_executor(cliver: Cliver):
@@ -256,6 +254,82 @@ def _prune(cliver: Cliver, rest: str):
     executor, _ = _make_executor(cliver)
     count = _run_async(executor.prune(days))
     cliver.output(f"Pruned {count} old execution(s).")
+
+
+# ---------------------------------------------------------------------------
+# Click commands (thin wrappers for CLI `cliver workflow ...`)
+# ---------------------------------------------------------------------------
+
+
+@click.group(
+    name="workflow",
+    help="Manage and run workflows (multi-step LLM + Python pipelines)",
+    invoke_without_command=True,
+)
+@pass_cliver
+@click.pass_context
+def workflow_cmd(ctx, cliver: Cliver):
+    if ctx.invoked_subcommand is None:
+        _list_workflows(cliver)
+
+
+@workflow_cmd.command(name="list", help="List all workflows (global + project)")
+@pass_cliver
+def list_workflows(cliver: Cliver):
+    _list_workflows(cliver)
+
+
+@workflow_cmd.command(name="show", help="Display workflow YAML definition")
+@click.argument("name")
+@pass_cliver
+def show_workflow(cliver: Cliver, name: str):
+    _show_workflow(cliver, name)
+
+
+@workflow_cmd.command(name="run", help="Execute a workflow with optional inputs")
+@click.argument("name")
+@click.option("-i", "--input", "input_pairs", multiple=True, help="Input as key=value (repeatable)")
+@pass_cliver
+def run_workflow(cliver: Cliver, name: str, input_pairs: tuple):
+    rest = name
+    for kv in input_pairs:
+        rest += f" -i {kv}"
+    _run_workflow(cliver, rest)
+
+
+@workflow_cmd.command(name="history", help="List past execution runs")
+@click.argument("name", required=False, default=None)
+@pass_cliver
+def history(cliver: Cliver, name: str):
+    _history(cliver, name)
+
+
+@workflow_cmd.command(name="status", help="Show per-step status of a run")
+@click.argument("name")
+@click.argument("execution_id")
+@pass_cliver
+def status(cliver: Cliver, name: str, execution_id: str):
+    _status(cliver, f"{name} {execution_id}")
+
+
+@workflow_cmd.command(name="resume", help="Resume from last checkpoint")
+@click.argument("name")
+@click.argument("execution_id")
+@pass_cliver
+def resume(cliver: Cliver, name: str, execution_id: str):
+    _resume(cliver, f"{name} {execution_id}")
+
+
+@workflow_cmd.command(name="delete", help="Delete workflow definition + all runs")
+@click.argument("name")
+@pass_cliver
+def delete_workflow(cliver: Cliver, name: str):
+    _delete_workflow(cliver, name)
+
+
+# ---------------------------------------------------------------------------
+# Display helpers
+# ---------------------------------------------------------------------------
 
 
 def _display_result(cliver: Cliver, result: dict):

@@ -19,6 +19,7 @@ import TaskDetailPage from "@/pages/tasks/detail";
 import AgentListPage from "@/pages/agents/list";
 import AgentDetailPage from "@/pages/agents/detail";
 import WorkflowListPage from "@/pages/workflows/list";
+import WorkflowCreatePage from "@/pages/workflows/create";
 import WorkflowDetailPage from "@/pages/workflows/detail";
 import "./globals.css";
 
@@ -47,6 +48,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="agents/new" element={<AgentDetailPage />} />
               <Route path="agents/:name" element={<AgentDetailPage />} />
               <Route path="workflows" element={<WorkflowListPage />} />
+              <Route path="workflows/new" element={<WorkflowCreatePage />} />
               <Route path="workflows/:name" element={<WorkflowDetailPage />} />
               <Route path="tasks" element={<TaskListPage />} />
               <Route path="tasks/new" element={<TaskCreatePage />} />

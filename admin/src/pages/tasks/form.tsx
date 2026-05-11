@@ -3,7 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { useModels, useSkills, useWorkflows, useAgents } from "@/hooks/use-api";
+import { useSkills, useWorkflows, useAgents } from "@/hooks/use-api";
 import { useTranslation } from "@/i18n";
 
 export interface TaskFormData {
@@ -13,8 +13,8 @@ export interface TaskFormData {
   scheduleType: "manual" | "one-shot" | "cron";
   schedule: string;
   run_at: string;
-  model: string;
   agent: string;
+  context: string;
   skill: string;
   workflow: string;
 }
@@ -33,8 +33,8 @@ export function taskFormDataFromTask(data: Record<string, unknown>): TaskFormDat
     scheduleType,
     schedule: String(data.schedule ?? ""),
     run_at: String(data.run_at ?? ""),
-    model: String(data.model ?? ""),
     agent: String(data.agent ?? ""),
+    context: String(data.context ?? ""),
     skill: skills?.[0] ?? "",
     workflow: String(data.workflow ?? ""),
   };
@@ -45,8 +45,8 @@ export function taskFormDataToPayload(form: TaskFormData): Record<string, unknow
     name: form.name,
     prompt: form.prompt,
     description: form.description || null,
-    model: form.model || null,
     agent: form.agent || null,
+    context: form.context || null,
     skills: form.skill ? [form.skill] : null,
     workflow: form.workflow || null,
     schedule: form.scheduleType === "cron" ? form.schedule || null : null,
@@ -64,12 +64,10 @@ interface TaskFormProps {
 
 export default function TaskForm({ mode, initialData, onSubmit, isPending, error }: TaskFormProps) {
   const { t } = useTranslation();
-  const { data: modelsData } = useModels();
   const { data: agentsData } = useAgents();
   const { data: skillsData } = useSkills();
   const { data: workflowsData } = useWorkflows();
 
-  const modelList = (modelsData as { models?: string[] })?.models ?? [];
   const agentList = ((agentsData ?? []) as Array<Record<string, unknown>>).map((a) => String(a.name));
   const skillList = ((skillsData ?? []) as Array<Record<string, unknown>>).map((s) => String(s.name));
   const workflowList = ((workflowsData ?? []) as Array<Record<string, unknown>>).map((w) => String(w.name));
@@ -78,7 +76,7 @@ export default function TaskForm({ mode, initialData, onSubmit, isPending, error
     initialData ?? {
       name: "", prompt: "", description: "",
       scheduleType: "manual", schedule: "", run_at: "",
-      model: "", agent: "", skill: "", workflow: "",
+      agent: "", context: "", skill: "", workflow: "",
     },
   );
 
@@ -146,19 +144,18 @@ export default function TaskForm({ mode, initialData, onSubmit, isPending, error
           </div>
 
           <div className="space-y-1">
-            <Label>{t("tasks.taskModel")}</Label>
-            <select className={selectClass} value={form.model} onChange={(e) => set("model", e.target.value)}>
-              <option value="">{t("tasks.taskModelDefault")}</option>
-              {modelList.map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
-          </div>
-
-          <div className="space-y-1">
             <Label>{t("tasks.taskAgent")}</Label>
             <select className={selectClass} value={form.agent} onChange={(e) => set("agent", e.target.value)}>
               <option value="">{t("tasks.taskAgentDefault")}</option>
               {agentList.map((a) => <option key={a} value={a}>{a}</option>)}
             </select>
+          </div>
+
+          <div className="space-y-1">
+            <Label>{t("tasks.taskContext")}</Label>
+            <Input value={form.context} onChange={(e) => set("context", e.target.value)}
+              placeholder={t("tasks.taskContextPlaceholder")} className="font-mono text-xs" />
+            <p className="text-xs text-muted-foreground">{t("tasks.taskContextHelp")}</p>
           </div>
 
           <div className="grid grid-cols-2 gap-4">

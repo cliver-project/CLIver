@@ -98,14 +98,16 @@ export default function AgentListPage() {
                     )}
                   </TableCell>
                   <TableCell>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => setDeleteTarget(name)}
-                      title={t("common.delete")}
-                    >
-                      <Trash2 className="w-4 h-4 text-destructive" />
-                    </Button>
+                    {!isDefault && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        onClick={() => setDeleteTarget(name)}
+                        title={t("common.delete")}
+                      >
+                        <Trash2 className="w-4 h-4 text-destructive" />
+                      </Button>
+                    )}
                   </TableCell>
                 </TableRow>
               );

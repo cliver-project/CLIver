@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { X, Play, SkipForward } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -14,19 +14,32 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useTranslation } from "@/i18n";
 import type { WorkflowNodeData } from "./workflow-node";
 
+interface StepOutput {
+  result?: string;
+  files?: Array<{ type: string; name: string; path: string }>;
+}
+
 interface NodeDetailPanelProps {
   data: WorkflowNodeData;
   dependsOn: string[];
-  models: string[];
+  agents: string[];
+  stepOutput?: StepOutput;
   onChange: (updates: Partial<WorkflowNodeData>) => void;
+  onRename: (oldId: string, newId: string) => void;
+  onRunStep?: () => void;
+  onResumeFromStep?: () => void;
   onClose: () => void;
 }
 
 export function NodeDetailPanel({
   data,
   dependsOn,
-  models,
+  agents,
+  stepOutput,
   onChange,
+  onRename,
+  onRunStep,
+  onResumeFromStep,
   onClose,
 }: NodeDetailPanelProps) {
   const { t } = useTranslation();
@@ -53,6 +66,19 @@ export function NodeDetailPanel({
 
         <TabsContent value="edit" className="flex-1 overflow-y-auto px-3 pb-3 space-y-3">
           <div>
+            <Label className="text-xs">{t("workflows.stepName")}</Label>
+            <Input
+              key={data.stepId}
+              defaultValue={data.stepId}
+              onBlur={(e) => {
+                const v = e.target.value.trim().replace(/[^a-z0-9_]/g, "_");
+                if (v && v !== data.stepId) onRename(data.stepId, v);
+              }}
+              onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+              className="h-8 text-xs font-mono"
+            />
+          </div>
+          <div>
             <Label className="text-xs">{t("workflows.type")}</Label>
             <Input value={data.type} readOnly className="h-8 text-xs bg-muted" />
           </div>
@@ -60,30 +86,21 @@ export function NodeDetailPanel({
           {isLlm && (
             <>
               <div>
-                <Label className="text-xs">{t("workflows.model")}</Label>
+                <Label className="text-xs">{t("tasks.taskAgent")}</Label>
                 <Select
-                  value={data.model ?? ""}
-                  onValueChange={(v) => onChange({ model: v })}
+                  value={data.agent ?? "__default__"}
+                  onValueChange={(v) => onChange({ agent: v === "__default__" ? undefined : v })}
                 >
                   <SelectTrigger className="h-8 text-xs">
-                    <SelectValue placeholder="Default" />
+                    <SelectValue placeholder={t("tasks.taskAgentDefault")} />
                   </SelectTrigger>
-                  <SelectContent>
-                    {models.map((m) => (
-                      <SelectItem key={m} value={m} className="text-xs">{m}</SelectItem>
+                  <SelectContent position="popper" className="z-[100] bg-card border shadow-lg">
+                    <SelectItem value="__default__" className="text-xs">{t("tasks.taskAgentDefault")}</SelectItem>
+                    {agents.map((a) => (
+                      <SelectItem key={a} value={a} className="text-xs">{a}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-              </div>
-
-              <div>
-                <Label className="text-xs">{t("workflows.role")}</Label>
-                <Input
-                  value={data.role ?? ""}
-                  onChange={(e) => onChange({ role: e.target.value })}
-                  className="h-8 text-xs"
-                  placeholder="Optional role description"
-                />
               </div>
 
               <div>
@@ -115,15 +132,28 @@ export function NodeDetailPanel({
           )}
 
           {!isLlm && (
-            <div>
-              <Label className="text-xs">{t("workflows.file")}</Label>
-              <Input
-                value={data.file ?? ""}
-                onChange={(e) => onChange({ file: e.target.value })}
-                className="h-8 text-xs font-mono"
-                placeholder="./scripts/run.py"
-              />
-            </div>
+            <>
+              <div>
+                <Label className="text-xs">{t("workflows.file")}</Label>
+                <Input
+                  value={data.file ?? ""}
+                  onChange={(e) => onChange({ file: e.target.value })}
+                  className="h-8 text-xs font-mono"
+                  placeholder="./scripts/run.py"
+                  disabled={!!data.code}
+                />
+              </div>
+              <div>
+                <Label className="text-xs">{t("workflows.code")}</Label>
+                <Textarea
+                  value={data.code ?? ""}
+                  onChange={(e) => onChange({ code: e.target.value })}
+                  className="text-xs font-mono min-h-[140px]"
+                  disabled={!!data.file}
+                />
+                <p className="text-[10px] text-muted-foreground mt-1">{t("workflows.codeHelp")}</p>
+              </div>
+            </>
           )}
 
           <div>
@@ -132,12 +162,76 @@ export function NodeDetailPanel({
               {dependsOn.length > 0 ? dependsOn.join(", ") : t("workflows.noneRootNode")}
             </p>
           </div>
+
+          {(onRunStep || onResumeFromStep) && (
+            <div className="flex gap-2 pt-2 border-t">
+              {onRunStep && (
+                <Button size="sm" variant="outline" className="text-xs flex-1" onClick={onRunStep}>
+                  <Play className="w-3 h-3 mr-1" /> Run Step
+                </Button>
+              )}
+              {onResumeFromStep && (
+                <Button size="sm" variant="outline" className="text-xs flex-1" onClick={onResumeFromStep}>
+                  <SkipForward className="w-3 h-3 mr-1" /> Resume
+                </Button>
+              )}
+            </div>
+          )}
         </TabsContent>
 
-        <TabsContent value="output" className="flex-1 overflow-y-auto px-3 pb-3">
-          <p className="text-xs text-muted-foreground">
-            {t("workflows.runToSeeOutput")}
-          </p>
+        <TabsContent value="output" className="flex-1 overflow-y-auto px-3 pb-3 space-y-3">
+          {!stepOutput ? (
+            <p className="text-xs text-muted-foreground">
+              {t("workflows.runToSeeOutput")}
+            </p>
+          ) : (
+            <>
+              {stepOutput.result && (
+                <div>
+                  <Label className="text-xs">{t("workflows.textResult")}</Label>
+                  <pre className="text-xs font-mono bg-muted rounded p-2 mt-1 whitespace-pre-wrap max-h-[200px] overflow-y-auto">
+                    {stepOutput.result}
+                  </pre>
+                </div>
+              )}
+              {stepOutput.files && stepOutput.files.length > 0 && (
+                <div>
+                  <Label className="text-xs">{t("workflows.outputFiles")}</Label>
+                  <div className="space-y-1 mt-1">
+                    {stepOutput.files.map((f, i) => (
+                      <div key={i} className="text-xs">
+                        {f.type === "image" ? (
+                          <div>
+                            <img
+                              src={`/admin/api/media/${encodeURIComponent(f.path)}`}
+                              alt={f.name}
+                              className="rounded max-w-full max-h-[150px] mt-1"
+                            />
+                            <span className="text-muted-foreground">{f.name}</span>
+                          </div>
+                        ) : f.type === "audio" ? (
+                          <div>
+                            <audio controls src={`/admin/api/media/${encodeURIComponent(f.path)}`} className="w-full h-8 mt-1" />
+                            <span className="text-muted-foreground">{f.name}</span>
+                          </div>
+                        ) : f.type === "video" ? (
+                          <div>
+                            <video controls src={`/admin/api/media/${encodeURIComponent(f.path)}`} className="rounded max-w-full max-h-[150px] mt-1" />
+                            <span className="text-muted-foreground">{f.name}</span>
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground font-mono">{f.name}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {!stepOutput.result && (!stepOutput.files || stepOutput.files.length === 0) && (
+                <p className="text-xs text-muted-foreground">{t("workflows.noOutput")}</p>
+              )}
+            </>
+          )}
         </TabsContent>
       </Tabs>
     </div>

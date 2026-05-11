@@ -316,10 +316,15 @@ class SessionConfig(BaseModel):
 class AgentConfig(BaseModel):
     """Configuration for a named agent persona."""
 
+    type: str = Field(default="cliver", description="Agent type: cliver (default)")
     description: Optional[str] = Field(default=None, description="Human-readable purpose")
     role: Optional[str] = Field(default=None, description="Short role definition for system prompt")
     system_prompt: Optional[str] = Field(default=None, description="Additional system prompt instructions")
     model: Optional[str] = Field(default=None, description="Model override (null = use default_model)")
+    auto_fallback: Optional[bool] = Field(
+        default=None,
+        description="Auto-fallback to another model on failure (null = use global model_auto_fallback)",
+    )
     skills: List[str] = Field(default_factory=list, description="Skills to always activate")
 
 
@@ -368,7 +373,9 @@ class AppConfig(BaseModel):
             self.agents["CLIver"] = AgentConfig(
                 description="General-purpose AI assistant",
                 role="You are CLIver, a general-purpose AI assistant.",
-                system_prompt="You help users with coding, research, automation, and general questions. Be concise and helpful.",
+                system_prompt=(
+                    "You help users with coding, research, automation, and general questions. Be concise and helpful."
+                ),
             )
         if not self.default_agent or self.default_agent not in self.agents:
             self.default_agent = next(iter(self.agents))

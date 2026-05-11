@@ -12,7 +12,8 @@
     "back": "Back",
     "steps": "{count} steps",
     "noDescription": "No description",
-    "add": "Add"
+    "add": "Add",
+    "running": "Running..."
   },
   "sidebar": {
     "dashboard": "Dashboard",
@@ -119,8 +120,6 @@
     "cronExpression": "Cron Expression",
     "cronPlaceholder": "0 9 * * 1-5",
     "runAtLabel": "Run At",
-    "taskModel": "Model",
-    "taskModelDefault": "— Default —",
     "taskSkill": "Skill",
     "taskSkills": "Skills",
     "taskWorkflow": "Workflow",
@@ -132,7 +131,10 @@
     "updateError": "Failed to update task: {error}",
     "taskNameExists": "A task with this name already exists.",
     "taskAgent": "Agent",
-    "taskAgentDefault": "— Default Agent —"
+    "taskAgentDefault": "— Default Agent —",
+    "taskContext": "Context",
+    "taskContextPlaceholder": "https://... or /path/to/file",
+    "taskContextHelp": "URL or file path — content is read and appended to the prompt at execution time"
   },
   "agents": {
     "title": "Agents",
@@ -167,15 +169,28 @@
     "llmStep": "LLM Step",
     "pythonStep": "Python Step",
     "saving": "Saving...",
+    "saved": "Saved",
+    "stepName": "Step Name",
     "type": "Type",
-    "model": "Model",
-    "role": "Role",
     "outputFormat": "Output Format",
     "prompt": "Prompt",
     "file": "File",
+    "code": "Code",
+    "codeHelp": "Define run(inputs) -> dict. Disabled when file is set.",
     "dependsOn": "Depends On",
     "noneRootNode": "None (root node)",
-    "runToSeeOutput": "Run the workflow to see step output here."
+    "runToSeeOutput": "Run the workflow to see step output here.",
+    "textResult": "Text Result",
+    "outputFiles": "Output Files",
+    "noOutput": "Step completed with no output.",
+    "createWorkflow": "Create Workflow",
+    "deleteWorkflow": "Delete Workflow",
+    "deleteWorkflowDescription": "Are you sure you want to delete workflow '{name}'? This cannot be undone.",
+    "workflowName": "Workflow Name",
+    "workflowNamePlaceholder": "my_workflow",
+    "description": "Description",
+    "descriptionPlaceholder": "What this workflow does",
+    "createError": "Failed to create workflow: {error}"
   },
   "skills": {
     "title": "Skills",
@@ -311,6 +326,7 @@
     "platformAllowedUsers": "Allowed Users",
     "platformStatus": "Status",
     "platformCustomType": "Custom module path...",
+    "checkHealth": "Check Health",
     "addPlatform": "Add Platform",
     "platformName": "Platform Name",
     "maxSessions": "Max Sessions",

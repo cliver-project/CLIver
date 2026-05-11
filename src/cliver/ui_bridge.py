@@ -104,7 +104,7 @@ class CLIBridge:
         try:
             response = input("  Allow? [y/n/a/d] > ").strip()
         except (EOFError, KeyboardInterrupt):
-            return "deny", ""
+            return "cancel", ""
         key, extra = _parse_permission_input(response)
         return PERMISSION_CHOICES.get(key, "deny"), extra
 
@@ -112,7 +112,7 @@ class CLIBridge:
         while True:
             try:
                 response = input(prompt).strip()
-            except (EOFError, KeyboardInterrupt):
+            except EOFError:
                 return ""
             if choices is None:
                 return response
@@ -141,6 +141,7 @@ class TUIBridge:
         self._response: Optional[str] = None
         self._valid_choices: Optional[list[str]] = None
         self._allow_extra_context: bool = False
+        self._cancelled: bool = False
 
     def output(self, text: str, style: str = "") -> None:
         print(text)
@@ -150,6 +151,7 @@ class TUIBridge:
         self.output(f"  Tool: {tool_name}({args_summary})")
         self._valid_choices = list(PERMISSION_CHOICES.keys())
         self._allow_extra_context = True
+        self._cancelled = False
         event = threading.Event()
         self._response = None
         self._pending = event
@@ -158,17 +160,25 @@ class TUIBridge:
         raw = self._response or ""
         self._valid_choices = None
         self._allow_extra_context = False
+        self._cancelled = False
+        if not raw:
+            return "cancel", ""
         key, extra = _parse_permission_input(raw)
         return PERMISSION_CHOICES.get(key, "deny"), extra
 
     def ask_input(self, prompt: str, choices: list[str] | None = None) -> str:
         self.output(prompt)
         self._valid_choices = [c.lower() for c in choices] if choices else None
+        self._cancelled = False
         event = threading.Event()
         self._response = None
         self._pending = event
         event.wait()
         self._pending = None
+        if self._cancelled:
+            self._cancelled = False
+            self._valid_choices = None
+            raise KeyboardInterrupt
         result = self._response or ""
         self._valid_choices = None
         return result
@@ -205,6 +215,7 @@ class TUIBridge:
 
     def cancel_pending(self) -> None:
         """Cancel any pending input prompt (Ctrl+C handler)."""
+        self._cancelled = True
         self._response = ""
         if self._pending:
             self._pending.set()

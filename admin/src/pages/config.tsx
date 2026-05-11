@@ -650,6 +650,8 @@ function PlatformsTab({ platforms, adapterTypes, onChange }: {
 }) {
   const { t } = useTranslation();
   const { data: adapterStatuses } = useAdapters();
+  const [healthResults, setHealthResults] = useState<Record<string, { status: string; error?: string }>>({});
+  const [checkingHealth, setCheckingHealth] = useState<Record<string, boolean>>({});
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
   const [newType, setNewType] = useState(adapterTypes[0] ?? "");
@@ -683,13 +685,29 @@ function PlatformsTab({ platforms, adapterTypes, onChange }: {
     setAdding(false);
   };
 
+  const checkAdapterHealth = async (name: string) => {
+    setCheckingHealth((prev) => ({ ...prev, [name]: true }));
+    try {
+      const res = await fetch(`/admin/api/adapters/${encodeURIComponent(name)}/check`, {
+        method: "POST", credentials: "include",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setHealthResults((prev) => ({ ...prev, [name]: { status: data.status, error: data.error } }));
+      }
+    } catch { /* ignore */ }
+    setCheckingHealth((prev) => ({ ...prev, [name]: false }));
+  };
+
   const statusBadge = (name: string) => {
-    const s = statusMap[name];
+    const hr = healthResults[name];
+    const s = hr || statusMap[name];
     if (!s) return null;
-    const variant = s.state === "running" ? "default" : s.state === "error" ? "destructive" : "secondary";
+    const isActive = hr ? hr.status === "active" : (s.state === "connected" || s.state === "running");
+    const label = isActive ? "active" : "inactive";
     return (
-      <Badge variant={variant} className="text-[10px] px-1.5 py-0">
-        {s.state}
+      <Badge variant={isActive ? "default" : "secondary"} className={`text-[10px] px-1.5 py-0 ${isActive ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" : ""}`}>
+        {label}
       </Badge>
     );
   };
@@ -756,6 +774,12 @@ function PlatformsTab({ platforms, adapterTypes, onChange }: {
             <div className="flex items-center gap-2 -mt-1 mb-2">
               <Badge variant="outline" className="text-[10px]">{plat.type}</Badge>
               {statusBadge(pname)}
+              <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px]"
+                onClick={() => checkAdapterHealth(pname)}
+                disabled={checkingHealth[pname]}>
+                <RotateCw className={`w-3 h-3 mr-0.5 ${checkingHealth[pname] ? "animate-spin" : ""}`} />
+                {t("config.checkHealth")}
+              </Button>
             </div>
             <Field label={t("config.platformType")}>
               <select

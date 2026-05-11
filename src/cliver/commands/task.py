@@ -2,7 +2,6 @@
 Task management commands for CLIver CLI.
 """
 
-import asyncio
 import uuid
 from typing import Optional
 
@@ -11,7 +10,7 @@ import click
 from cliver.cli import Cliver, pass_cliver
 from cliver.commands import click_help, wants_help
 from cliver.gateway.task_store import TaskStore
-from cliver.task_manager import TaskDefinition, TaskManager, TaskRun
+from cliver.task_manager import TaskDefinition, TaskManager, TaskRun, resolve_task_prompt
 
 # Business logic (plain functions — no Click, no async)
 
@@ -43,8 +42,9 @@ def _list_tasks(cliver: Cliver) -> int:
             continue
 
         t = entry.definition
+        agent = f"  agent: {t.agent}" if t.agent else ""
+        ctx = f"  context: {t.context}" if t.context else ""
         schedule = f"  schedule: {t.schedule}" if t.schedule else ""
-        model = f"  model: {t.model}" if t.model else ""
         workflow = f"  workflow: {t.workflow}" if t.workflow else ""
         skills = f"  skills: {', '.join(t.skills)}" if t.skills else ""
         desc = f"  — {t.description}" if t.description else ""
@@ -54,7 +54,7 @@ def _list_tasks(cliver: Cliver) -> int:
             origin = f"  origin: {task_origin.source}"
             if task_origin.channel_id:
                 origin += f" ({task_origin.channel_id})"
-        cliver.output(f"  {t.name}:{desc}{model}{workflow}{skills}{schedule}{origin}")
+        cliver.output(f"  {t.name}:{desc}{agent}{ctx}{workflow}{skills}{schedule}{origin}")
 
     return 0
 
@@ -64,7 +64,8 @@ def _create_task(
     name: str,
     prompt: str,
     description: Optional[str] = None,
-    model: Optional[str] = None,
+    agent: Optional[str] = None,
+    context: Optional[str] = None,
     schedule: Optional[str] = None,
     run_at: Optional[str] = None,
     workflow: Optional[str] = None,
@@ -102,10 +103,11 @@ def _create_task(
         name=name,
         description=description,
         prompt=prompt,
+        agent=agent,
+        context=context,
         workflow=workflow,
         workflow_inputs=parsed_inputs,
         skills=skills,
-        model=model,
         schedule=schedule,
         run_at=run_at,
         session_id=session_id,
@@ -147,7 +149,7 @@ def _save_reply_to_origin(cliver: Cliver, task_name: str, reply_to: str) -> str:
     return f" (reply-back: {platform})"
 
 
-def _run_task(cliver: Cliver, name: str, model: Optional[str] = None) -> int:
+def _run_task(cliver: Cliver, name: str) -> int:
     """Run a task by sending its prompt to the LLM."""
     manager = _get_manager(cliver)
     task_def = manager.get_task(name)
@@ -157,7 +159,6 @@ def _run_task(cliver: Cliver, name: str, model: Optional[str] = None) -> int:
 
     execution_id = str(uuid.uuid4())[:8]
     started_at = TaskManager.timestamp_now()
-    use_model = model or task_def.model
     store = _get_store(cliver)
 
     # Load origin from DB
@@ -180,18 +181,20 @@ def _run_task(cliver: Cliver, name: str, model: Optional[str] = None) -> int:
         task_perms_pushed = True
 
     try:
-        result = asyncio.run(
-            cliver.agent_core.process_user_input(
-                user_input=task_def.prompt,
-                model=use_model,
-            )
+        from cliver.cli_llm_call import LLMCallOptions, llm_call
+
+        effective_prompt = resolve_task_prompt(task_def)
+        llm_result = llm_call(
+            cliver,
+            LLMCallOptions(
+                user_input=effective_prompt,
+                agent_name=task_def.agent,
+            ),
         )
 
-        from cliver.media_handler import extract_response_text
-
-        response_text = extract_response_text(result, fallback=None) if result else None
+        response_text = llm_result.text if llm_result.success else None
         status = "completed" if response_text else "failed"
-        error = None if response_text else "No result returned"
+        error = llm_result.error if not llm_result.success else (None if response_text else "No result returned")
 
         run = TaskRun(
             task_name=name,
@@ -244,16 +247,33 @@ def _task_history(cliver: Cliver, name: str, limit: int = 10) -> int:
         cliver.output(f"No run history for task '{name}'.")
         return 0
 
+    tasks_dir = cliver.agent_profile.tasks_dir
     cliver.output(f"Run history for '{name}' (most recent first):")
-    task_origin = store.get_origin(name)
-    if task_origin:
-        cliver.output(f"  Origin: {task_origin.source}")
-        if task_origin.channel_id:
-            cliver.output(f"  Reply-to: {task_origin.channel_id} / {task_origin.thread_id}")
     for run in runs:
         status_icon = "+" if run.status == "completed" else "x"
-        error_info = f" — {run.error}" if run.error else ""
-        cliver.output(f"  [{status_icon}] {run.started_at}  {run.status}{error_info}")
+        duration = ""
+        if run.started_at and run.finished_at:
+            try:
+                from datetime import datetime
+
+                s = datetime.fromisoformat(run.started_at)
+                f = datetime.fromisoformat(run.finished_at)
+                secs = (f - s).total_seconds()
+                duration = f"  ({secs:.1f}s)" if secs < 60 else f"  ({secs / 60:.1f}m)"
+            except Exception:
+                pass
+        cliver.output(f"  [{status_icon}] {run.started_at}  {run.status}{duration}")
+        cliver.output(f"      id: {run.execution_id}")
+        if run.session_id:
+            cliver.output(f"      session: {run.session_id}")
+        if run.error:
+            cliver.output(f"      error: {run.error}")
+        if run.result:
+            preview = run.result[:120] + "..." if len(run.result) > 120 else run.result
+            cliver.output(f"      result: {preview}")
+        result_file = tasks_dir / name / f"{name}_execution_{run.execution_id}.json"
+        if result_file.exists():
+            cliver.output(f"      file: {result_file}")
 
     return 0
 
@@ -283,6 +303,76 @@ def _save_result_json(cliver: Cliver, task_name: str, run: TaskRun) -> None:
         encoding="utf-8",
     )
     cliver.output(f"Result saved: {result_path}")
+
+
+def _show_task(cliver: Cliver, name: str) -> int:
+    """Display a task's YAML definition."""
+    import yaml
+
+    manager = _get_manager(cliver)
+    task_def = manager.get_task(name)
+    if not task_def:
+        cliver.output(f"Task '{name}' not found.")
+        return 1
+
+    data = task_def.model_dump(exclude_none=True, exclude={"origin", "session_id"})
+    cliver.output(yaml.dump(data, default_flow_style=False, sort_keys=False, allow_unicode=True))
+    return 0
+
+
+def _edit_task(cliver: Cliver, name: str) -> int:
+    """Open a task's YAML file in $EDITOR, validate before saving."""
+    import os
+    import subprocess
+
+    import yaml
+
+    manager = _get_manager(cliver)
+    task_def = manager.get_task(name)
+    if not task_def:
+        cliver.output(f"Task '{name}' not found.")
+        return 1
+
+    yaml_path = cliver.agent_profile.tasks_dir / f"{name}.yaml"
+    if not yaml_path.exists():
+        cliver.output(f"Task file not found: {yaml_path}")
+        return 1
+
+    original = yaml_path.read_text(encoding="utf-8")
+    editor = os.environ.get("EDITOR", "vi")
+    try:
+        subprocess.run([editor, str(yaml_path)], check=True)
+    except Exception as e:
+        cliver.output(f"Editor failed: {e}")
+        return 1
+
+    edited = yaml_path.read_text(encoding="utf-8")
+    if edited == original:
+        cliver.output("No changes.")
+        return 0
+
+    # Validate the edited YAML
+    try:
+        data = yaml.safe_load(edited)
+        if not isinstance(data, dict):
+            raise ValueError("YAML must be a mapping")
+        if not data.get("name"):
+            raise ValueError("'name' is required")
+        if not data.get("prompt"):
+            raise ValueError("'prompt' is required")
+        if data.get("run_at"):
+            from datetime import datetime
+
+            datetime.fromisoformat(data["run_at"])
+        TaskDefinition(**data)
+    except Exception as e:
+        yaml_path.write_text(original, encoding="utf-8")
+        cliver.output(f"Validation failed: {e}")
+        cliver.output("Changes reverted.")
+        return 1
+
+    cliver.output(f"Task '{name}' updated: {yaml_path}")
+    return 0
 
 
 def _remove_task(cliver: Cliver, name: str) -> int:
@@ -324,20 +414,22 @@ def dispatch(cliver: Cliver, args: str):
 
     if sub == "list":
         _list_tasks(cliver)
+    elif sub == "show":
+        if not rest:
+            cliver.output("Usage: /task show <name>")
+            return
+        _show_task(cliver, rest.strip())
+    elif sub == "edit":
+        if not rest:
+            cliver.output("Usage: /task edit <name>")
+            return
+        _edit_task(cliver, rest.strip())
     elif sub == "run":
         if not rest:
             cliver.output(click_help(_SUBCOMMANDS["run"], "/task run"))
             return
-        # Parse name and optional --model
         task_name = rest.split()[0]
-        model = None
-        if "--model" in rest or "-m" in rest:
-            parts_split = rest.split()
-            for i, part in enumerate(parts_split):
-                if part in ("--model", "-m") and i + 1 < len(parts_split):
-                    model = parts_split[i + 1]
-                    break
-        _run_task(cliver, task_name, model)
+        _run_task(cliver, task_name)
     elif sub == "history":
         if not rest:
             cliver.output(click_help(_SUBCOMMANDS["history"], "/task history"))
@@ -373,7 +465,8 @@ def dispatch(cliver: Cliver, args: str):
             parts_split = rest.split()
         task_name = parts_split[0]
         prompt = None
-        model = None
+        agent = None
+        context = None
         schedule = None
         run_at = None
         workflow = None
@@ -384,8 +477,11 @@ def dispatch(cliver: Cliver, args: str):
             if parts_split[i] == "--prompt" and i + 1 < len(parts_split):
                 prompt = parts_split[i + 1]
                 i += 2
-            elif parts_split[i] == "--model" and i + 1 < len(parts_split):
-                model = parts_split[i + 1]
+            elif parts_split[i] == "--agent" and i + 1 < len(parts_split):
+                agent = parts_split[i + 1]
+                i += 2
+            elif parts_split[i] == "--context" and i + 1 < len(parts_split):
+                context = parts_split[i + 1]
                 i += 2
             elif parts_split[i] == "--schedule" and i + 1 < len(parts_split):
                 schedule = parts_split[i + 1]
@@ -416,7 +512,8 @@ def dispatch(cliver: Cliver, args: str):
             cliver,
             task_name,
             prompt,
-            model=model,
+            agent=agent,
+            context=context,
             schedule=schedule,
             run_at=run_at,
             workflow=workflow,
@@ -441,7 +538,7 @@ def task():
 
 @task.command(
     name="list",
-    help="List all tasks for the current agent with status, schedule, model, and origin",
+    help="List all tasks for the current agent with status, schedule, and origin",
 )
 @pass_cliver
 def list_tasks(cliver: Cliver):
@@ -463,10 +560,16 @@ def list_tasks(cliver: Cliver):
     help="Human-readable task description (optional, for display only)",
 )
 @click.option(
-    "--model",
-    "-m",
+    "--agent",
+    "-a",
     default=None,
-    help="Model override for this task. Must match a name from 'model list'",
+    help="Agent name to run this task (null = default agent). Must match a name from 'agent list'",
+)
+@click.option(
+    "--context",
+    "-c",
+    default=None,
+    help="URL or file path with additional context (read and appended to prompt at execution time)",
 )
 @click.option(
     "--schedule",
@@ -506,7 +609,8 @@ def create_task(
     name: str,
     prompt: str,
     description: Optional[str],
-    model: Optional[str],
+    agent: Optional[str],
+    context: Optional[str],
     schedule: Optional[str],
     run_at: Optional[str],
     workflow: Optional[str],
@@ -519,27 +623,22 @@ def create_task(
         name,
         prompt,
         description,
-        model,
-        schedule,
-        run_at,
-        workflow,
-        workflow_inputs,
-        list(skills) if skills else None,
+        agent=agent,
+        context=context,
+        schedule=schedule,
+        run_at=run_at,
+        workflow=workflow,
+        workflow_inputs=workflow_inputs,
+        skills=list(skills) if skills else None,
         reply_to=reply_to,
     )
 
 
 @task.command(name="run", help="Execute a task immediately by sending its prompt to the LLM")
 @click.argument("name")
-@click.option(
-    "--model",
-    "-m",
-    default=None,
-    help="Override the task's model for this run only (e.g. 'deepseek/deepseek-chat')",
-)
 @pass_cliver
-def run_task(cliver: Cliver, name: str, model: Optional[str]):
-    _run_task(cliver, name, model)
+def run_task(cliver: Cliver, name: str):
+    _run_task(cliver, name)
 
 
 @task.command(name="history", help="Show execution history for a task, most recent first")
@@ -548,6 +647,20 @@ def run_task(cliver: Cliver, name: str, model: Optional[str]):
 @pass_cliver
 def task_history(cliver: Cliver, name: str, limit: int):
     _task_history(cliver, name, limit)
+
+
+@task.command(name="show", help="Display a task's YAML definition")
+@click.argument("name")
+@pass_cliver
+def show_task(cliver: Cliver, name: str):
+    _show_task(cliver, name)
+
+
+@task.command(name="edit", help="Open a task's YAML file in $EDITOR for editing (validates before saving)")
+@click.argument("name")
+@pass_cliver
+def edit_task(cliver: Cliver, name: str):
+    _edit_task(cliver, name)
 
 
 @task.command(name="remove", help="Remove a task, its run history, origin, and result files permanently")
@@ -560,6 +673,8 @@ def remove_task(cliver: Cliver, name: str):
 # Subcommand lookup for dispatch help
 _SUBCOMMANDS = {
     "list": list_tasks,
+    "show": show_task,
+    "edit": edit_task,
     "create": create_task,
     "run": run_task,
     "history": task_history,
