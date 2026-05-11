@@ -108,9 +108,9 @@ export function useExecutionStatus(name: string, executionId: string) {
   });
 }
 
-export function useRunStep(workflowName: string, stepId: string) {
+export function useRunStep(workflowName: string) {
   return useMutation({
-    mutationFn: () => apiPost(`/workflows/${encodeURIComponent(workflowName)}/steps/${encodeURIComponent(stepId)}/run`),
+    mutationFn: (stepId: string) => apiPost(`/workflows/${encodeURIComponent(workflowName)}/steps/${encodeURIComponent(stepId)}/run`),
   });
 }
 

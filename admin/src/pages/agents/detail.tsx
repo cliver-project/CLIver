@@ -207,25 +207,25 @@ export default function AgentDetailPage() {
           </CardHeader>
           <CardContent>
             <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-3 text-sm">
-              {agent.description && (
+              {!!agent.description && (
                 <>
                   <dt className="text-muted-foreground">{t("agents.description")}</dt>
                   <dd>{String(agent.description)}</dd>
                 </>
               )}
-              {agent.role && (
+              {!!agent.role && (
                 <>
                   <dt className="text-muted-foreground">{t("agents.role")}</dt>
                   <dd>{String(agent.role)}</dd>
                 </>
               )}
-              {agent.system_prompt && (
+              {!!agent.system_prompt && (
                 <>
                   <dt className="text-muted-foreground">{t("agents.systemPrompt")}</dt>
                   <dd><MarkdownView content={String(agent.system_prompt)} /></dd>
                 </>
               )}
-              {agent.model && (
+              {!!agent.model && (
                 <>
                   <dt className="text-muted-foreground">{t("agents.model")}</dt>
                   <dd><Badge variant="secondary">{String(agent.model)}</Badge></dd>

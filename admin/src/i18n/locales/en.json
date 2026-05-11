@@ -183,6 +183,8 @@
     "textResult": "Text Result",
     "outputFiles": "Output Files",
     "noOutput": "Step completed with no output.",
+    "running": "Running…",
+    "waitingForOutput": "Waiting for output…",
     "createWorkflow": "Create Workflow",
     "deleteWorkflow": "Delete Workflow",
     "deleteWorkflowDescription": "Are you sure you want to delete workflow '{name}'? This cannot be undone.",

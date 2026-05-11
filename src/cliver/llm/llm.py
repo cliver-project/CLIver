@@ -1329,18 +1329,27 @@ class AgentCore:
                     return denied
 
                 # Append the tool execution to messages using AIMessage with tool_calls.
-                # Preserve additional_kwargs from the original LLM response on the
-                # first tool call so that provider-specific fields like DeepSeek's
-                # reasoning_content are retained in conversation history.
+                # Preserve additional_kwargs and thinking content blocks from the
+                # original LLM response on the first tool call so that provider-
+                # specific fields (DeepSeek reasoning_content, content[].thinking
+                # blocks) are retained in conversation history.
                 extra_kwargs: Dict[str, Any] = {}
+                preserved_content: str | list = ""
                 if llm_response is not None:
                     resp_kwargs = getattr(llm_response, "additional_kwargs", None)
                     if resp_kwargs:
                         extra_kwargs = dict(resp_kwargs)
+                    resp_content = getattr(llm_response, "content", None)
+                    if isinstance(resp_content, list):
+                        thinking_blocks = [
+                            b for b in resp_content if isinstance(b, dict) and b.get("type") == "thinking"
+                        ]
+                        if thinking_blocks:
+                            preserved_content = thinking_blocks
                     # Only attach to the first tool call message
                     llm_response = None
                 tool_execution_message = AIMessage(
-                    content="",
+                    content=preserved_content,
                     tool_calls=[
                         {
                             "name": full_tool_name,

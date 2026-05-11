@@ -43,7 +43,7 @@ interface Step {
   tools?: string[];
 }
 
-interface LayoutData {
+export interface LayoutData {
   nodes?: Record<string, { x: number; y: number }>;
   edges?: Record<string, { sourceHandle?: string; targetHandle?: string }>;
 }
@@ -64,6 +64,9 @@ interface WorkflowCanvasProps {
   saving?: boolean;
   saved?: boolean;
   running?: boolean;
+  runningStepId?: string | null;
+  streamStepId?: string | null;
+  stepStreamOutput?: string;
   executions?: Array<Record<string, unknown>>;
   selectedExecutionId?: string | null;
   onSelectExecution?: (id: string) => void;
@@ -161,6 +164,9 @@ function WorkflowCanvasInner({
   saving,
   saved,
   running,
+  runningStepId,
+  streamStepId,
+  stepStreamOutput,
   executions,
   selectedExecutionId,
   onSelectExecution,
@@ -189,7 +195,7 @@ function WorkflowCanvasInner({
     setNodes((nds) =>
       nds.map((n) => ({
         ...n,
-        data: { ...n.data, status: stepStatuses[n.id] ?? "pending" },
+        data: { ...n.data, status: (stepStatuses[n.id] ?? "pending") as WorkflowNodeData["status"] },
       })),
     );
   }, [stepStatuses, setNodes]);
@@ -355,7 +361,7 @@ function WorkflowCanvasInner({
 
   // --- Connect start/end for drop-to-create ---
 
-  const onConnectStart = useCallback((_: React.MouseEvent | React.TouchEvent, params: { nodeId: string | null; handleId: string | null }) => {
+  const onConnectStart = useCallback((_: MouseEvent | TouchEvent, params: { nodeId: string | null; handleId: string | null }) => {
     connectingRef.current = { nodeId: params.nodeId ?? "", handleId: params.handleId };
   }, []);
 
@@ -364,8 +370,8 @@ function WorkflowCanvasInner({
     if (target.closest(".react-flow__handle") || target.closest(".react-flow__node")) return;
     if (!connectingRef.current.nodeId) return;
 
-    const clientX = "changedTouches" in event ? event.changedTouches[0].clientX : event.clientX;
-    const clientY = "changedTouches" in event ? event.changedTouches[0].clientY : event.clientY;
+    const clientX = "changedTouches" in event ? event.changedTouches[0]!.clientX : event.clientX;
+    const clientY = "changedTouches" in event ? event.changedTouches[0]!.clientY : event.clientY;
 
     dropMenuSetAt.current = Date.now();
     setDropMenu({
@@ -581,6 +587,8 @@ function WorkflowCanvasInner({
           onRename={handleRename}
           onRunStep={onRunStep ? () => onRunStep(selectedNodeId!) : undefined}
           onResumeFromStep={onResumeFromStep ? () => onResumeFromStep(selectedNodeId!) : undefined}
+          isRunning={runningStepId === selectedNodeId}
+          streamOutput={streamStepId === selectedNodeId ? stepStreamOutput : undefined}
           onClose={() => setSelectedNodeId(null)}
         />
       )}

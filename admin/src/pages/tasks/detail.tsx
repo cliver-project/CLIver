@@ -3,7 +3,7 @@ import { useParams, Link, useNavigate } from "react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowLeft, Play, Loader2, Trash2, Clock, CheckCircle, XCircle,
-  MessageSquare, ExternalLink, CalendarClock, Timer, Repeat, Zap, Pencil,
+  MessageSquare, CalendarClock, Timer, Repeat, Zap, Pencil,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -149,7 +149,7 @@ export default function TaskDetailPage() {
         <div className="flex-1">
           <h1 className="text-2xl font-bold">{name}</h1>
           <div className="flex items-center gap-2 mt-1">
-            {data.task_status && (
+            {!!data.task_status && (
               <StatusPill status={String(data.task_status)} />
             )}
             {scheduleInfo && (
@@ -213,7 +213,7 @@ export default function TaskDetailPage() {
         <div className="flex items-center gap-3 p-3 rounded-md bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-sm animate-pulse">
           <Loader2 className="w-4 h-4 animate-spin shrink-0" />
           <span className="font-medium">{t("tasks.taskRunning")}</span>
-          {liveStatus?.started_at && (
+          {!!liveStatus?.started_at && (
             <span className="text-xs opacity-75 ml-auto">
               {t("tasks.started")}: {String(liveStatus.started_at)}
             </span>
@@ -251,19 +251,19 @@ export default function TaskDetailPage() {
                   <p className="text-muted-foreground text-xs">{t("tasks.state")}</p>
                   <StatusPill status={String(liveStatus.status ?? "unknown")} />
                 </div>
-                {liveStatus.started_at && (
+                {!!liveStatus.started_at && (
                   <div>
                     <p className="text-muted-foreground text-xs">{t("tasks.started")}</p>
                     <p>{String(liveStatus.started_at)}</p>
                   </div>
                 )}
-                {liveStatus.finished_at && (
+                {!!liveStatus.finished_at && (
                   <div>
                     <p className="text-muted-foreground text-xs">{t("tasks.finished")}</p>
                     <p>{String(liveStatus.finished_at)}</p>
                   </div>
                 )}
-                {liveStatus.error && (
+                {!!liveStatus.error && (
                   <div className="col-span-full">
                     <p className="text-muted-foreground text-xs">{t("tasks.error")}</p>
                     <p className="text-red-500 text-xs">{String(liveStatus.error)}</p>
@@ -306,49 +306,49 @@ export default function TaskDetailPage() {
           </CardHeader>
           <CardContent>
             <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
-              {data.prompt && (
+              {!!data.prompt && (
                 <>
                   <dt className="text-muted-foreground">{t("tasks.prompt")}</dt>
                   <dd><MarkdownView content={String(data.prompt)} /></dd>
                 </>
               )}
-              {data.description && (
+              {!!data.description && (
                 <>
                   <dt className="text-muted-foreground">{t("tasks.description")}</dt>
                   <dd>{String(data.description)}</dd>
                 </>
               )}
-              {data.agent && (
+              {!!data.agent && (
                 <>
                   <dt className="text-muted-foreground">{t("tasks.taskAgent")}</dt>
                   <dd><Badge variant="outline">{String(data.agent)}</Badge></dd>
                 </>
               )}
-              {data.context && (
+              {!!data.context && (
                 <>
                   <dt className="text-muted-foreground">{t("tasks.taskContext")}</dt>
                   <dd className="font-mono text-xs break-all">{String(data.context)}</dd>
                 </>
               )}
-              {data.skills && (data.skills as string[]).length > 0 && (
+              {!!(data.skills && (data.skills as string[]).length > 0) && (
                 <>
                   <dt className="text-muted-foreground">{t("tasks.taskSkill")}</dt>
                   <dd><Badge variant="outline">{(data.skills as string[])[0]}</Badge></dd>
                 </>
               )}
-              {data.workflow && (
+              {!!data.workflow && (
                 <>
                   <dt className="text-muted-foreground">{t("tasks.taskWorkflow")}</dt>
                   <dd><Badge variant="outline">{String(data.workflow)}</Badge></dd>
                 </>
               )}
-              {data.created_at && (
+              {!!data.created_at && (
                 <>
                   <dt className="text-muted-foreground">{t("tasks.created")}</dt>
                   <dd>{String(data.created_at)}</dd>
                 </>
               )}
-              {data.updated_at && (
+              {!!data.updated_at && (
                 <>
                   <dt className="text-muted-foreground">{t("tasks.updated")}</dt>
                   <dd>{String(data.updated_at)}</dd>
@@ -407,7 +407,7 @@ export default function TaskDetailPage() {
                     <span className="text-muted-foreground flex-1">
                       {String(r.started_at ?? r.timestamp ?? "")}
                     </span>
-                    {r.execution_id && (
+                    {!!r.execution_id && (
                       <span className="text-xs text-muted-foreground font-mono">
                         {String(r.execution_id)}
                       </span>

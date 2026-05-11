@@ -1,4 +1,5 @@
-import { X, Play, SkipForward } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { X, Play, SkipForward, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,6 +29,8 @@ interface NodeDetailPanelProps {
   onRename: (oldId: string, newId: string) => void;
   onRunStep?: () => void;
   onResumeFromStep?: () => void;
+  isRunning?: boolean;
+  streamOutput?: string;
   onClose: () => void;
 }
 
@@ -40,10 +43,24 @@ export function NodeDetailPanel({
   onRename,
   onRunStep,
   onResumeFromStep,
+  isRunning,
+  streamOutput,
   onClose,
 }: NodeDetailPanelProps) {
   const { t } = useTranslation();
   const isLlm = data.type === "llm";
+  const [activeTab, setActiveTab] = useState<string>("edit");
+  const outputRef = useRef<HTMLPreElement>(null);
+
+  useEffect(() => {
+    if (isRunning) setActiveTab("output");
+  }, [isRunning]);
+
+  useEffect(() => {
+    if (outputRef.current) {
+      outputRef.current.scrollTop = outputRef.current.scrollHeight;
+    }
+  }, [streamOutput]);
 
   return (
     <div className="w-72 bg-card border-l border-border flex flex-col h-full overflow-hidden">
@@ -58,10 +75,13 @@ export function NodeDetailPanel({
         </Button>
       </div>
 
-      <Tabs defaultValue="edit" className="flex-1 flex flex-col overflow-hidden">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col overflow-hidden">
         <TabsList className="mx-3 mt-2">
           <TabsTrigger value="edit" className="text-xs">{t("common.edit")}</TabsTrigger>
-          <TabsTrigger value="output" className="text-xs">{t("common.output")}</TabsTrigger>
+          <TabsTrigger value="output" className="text-xs">
+            {t("common.output")}
+            {isRunning && <Loader2 className="w-3 h-3 ml-1 animate-spin" />}
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="edit" className="flex-1 overflow-y-auto px-3 pb-3 space-y-3">
@@ -166,8 +186,9 @@ export function NodeDetailPanel({
           {(onRunStep || onResumeFromStep) && (
             <div className="flex gap-2 pt-2 border-t">
               {onRunStep && (
-                <Button size="sm" variant="outline" className="text-xs flex-1" onClick={onRunStep}>
-                  <Play className="w-3 h-3 mr-1" /> Run Step
+                <Button size="sm" variant="outline" className="text-xs flex-1" onClick={onRunStep} disabled={isRunning}>
+                  {isRunning ? <Loader2 className="w-3 h-3 mr-1 animate-spin" /> : <Play className="w-3 h-3 mr-1" />}
+                  {isRunning ? "Running…" : "Run Step"}
                 </Button>
               )}
               {onResumeFromStep && (
@@ -180,7 +201,27 @@ export function NodeDetailPanel({
         </TabsContent>
 
         <TabsContent value="output" className="flex-1 overflow-y-auto px-3 pb-3 space-y-3">
-          {!stepOutput ? (
+          {isRunning && streamOutput !== undefined ? (
+            <div>
+              <Label className="text-xs flex items-center gap-1">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                {t("workflows.running")}
+              </Label>
+              <pre
+                ref={outputRef}
+                className="text-xs font-mono bg-muted rounded p-2 mt-1 whitespace-pre-wrap max-h-[300px] overflow-y-auto"
+              >
+                {streamOutput || t("workflows.waitingForOutput")}
+              </pre>
+            </div>
+          ) : streamOutput ? (
+            <div>
+              <Label className="text-xs">{t("workflows.textResult")}</Label>
+              <pre className="text-xs font-mono bg-muted rounded p-2 mt-1 whitespace-pre-wrap max-h-[300px] overflow-y-auto">
+                {streamOutput}
+              </pre>
+            </div>
+          ) : !stepOutput ? (
             <p className="text-xs text-muted-foreground">
               {t("workflows.runToSeeOutput")}
             </p>

@@ -404,12 +404,12 @@ _deepseek_patched = False
 
 def _patch_deepseek_message_serialization():
     """Monkey-patch langchain's message-to-dict conversion to include
-    reasoning_content for DeepSeek assistant messages.
+    reasoning_content and thinking content blocks for DeepSeek assistant messages.
 
-    DeepSeek's API requires reasoning_content on assistant messages when
-    thinking mode is active, but langchain's _convert_message_to_dict
-    strips additional_kwargs. This patch injects reasoning_content into
-    the serialized dict after the original conversion.
+    DeepSeek's API requires reasoning_content (or content[].thinking blocks)
+    on assistant messages when thinking mode is active, but langchain's
+    _convert_message_to_dict strips additional_kwargs and drops non-standard
+    content blocks. This patch restores them after the original conversion.
     """
     global _deepseek_patched
     if _deepseek_patched:
@@ -427,6 +427,17 @@ def _patch_deepseek_message_serialization():
                 kwargs = getattr(message, "additional_kwargs", {}) or {}
                 if "reasoning_content" in kwargs:
                     result["reasoning_content"] = kwargs["reasoning_content"]
+                raw_content = getattr(message, "content", None)
+                if isinstance(raw_content, list):
+                    thinking_blocks = [b for b in raw_content if isinstance(b, dict) and b.get("type") == "thinking"]
+                    if thinking_blocks:
+                        existing = result.get("content")
+                        if existing is None:
+                            result["content"] = thinking_blocks
+                        elif isinstance(existing, list):
+                            result["content"] = thinking_blocks + existing
+                        else:
+                            result["content"] = thinking_blocks + [{"type": "text", "text": existing}]
             return result
 
         openai_base._convert_message_to_dict = _patched

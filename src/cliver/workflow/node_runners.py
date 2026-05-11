@@ -103,7 +103,14 @@ async def run_llm_node(
         outputs_dir=str(step_output_dir),
     )
 
-    result_text = response.content if hasattr(response, "content") else str(response)
+    raw_content = response.content if hasattr(response, "content") else str(response)
+    if isinstance(raw_content, list):
+        result_text = "".join(
+            b.get("text", "") for b in raw_content
+            if isinstance(b, dict) and b.get("type") == "text"
+        )
+    else:
+        result_text = raw_content
 
     # Persist text result so the status endpoint can read it
     (step_output_dir / "result.txt").write_text(result_text or "", encoding="utf-8")

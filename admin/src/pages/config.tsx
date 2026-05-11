@@ -20,7 +20,7 @@ type Provider = {
   pricing?: { currency?: string; input?: number; output?: number; cached_input?: number };
   image_url?: string; image_model?: string; audio_url?: string; audio_model?: string;
   models: Array<{
-    name: string; options?: Record<string, number>; think_mode?: boolean | null;
+    name: string; options?: Record<string, number | undefined>; think_mode?: boolean | null;
     context_window?: number | null;
     pricing?: { currency?: string; input?: number; output?: number; cached_input?: number };
     capabilities?: string[];
@@ -665,7 +665,9 @@ function PlatformsTab({ platforms, adapterTypes, onChange }: {
   }
 
   const updatePlatform = (name: string, patch: Partial<PlatformAdapter>) => {
-    onChange({ ...platforms, [name]: { ...platforms[name], ...patch } });
+    const existing = platforms[name];
+    if (!existing) return;
+    onChange({ ...platforms, [name]: { ...existing, ...patch } });
   };
 
   const deletePlatform = (name: string) => {
@@ -701,9 +703,9 @@ function PlatformsTab({ platforms, adapterTypes, onChange }: {
 
   const statusBadge = (name: string) => {
     const hr = healthResults[name];
-    const s = hr || statusMap[name];
-    if (!s) return null;
-    const isActive = hr ? hr.status === "active" : (s.state === "connected" || s.state === "running");
+    const sm = statusMap[name];
+    if (!hr && !sm) return null;
+    const isActive = hr ? hr.status === "active" : (sm?.state === "connected" || sm?.state === "running");
     const label = isActive ? "active" : "inactive";
     return (
       <Badge variant={isActive ? "default" : "secondary"} className={`text-[10px] px-1.5 py-0 ${isActive ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" : ""}`}>

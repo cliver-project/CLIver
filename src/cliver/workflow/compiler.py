@@ -15,6 +15,45 @@ from cliver.workflow.workflow_models import LLMStep, PythonStep, Step, Workflow
 logger = logging.getLogger(__name__)
 
 
+def _save_step_output(outputs_dir: str, step_id: str, text: str, output_format: str = "md") -> Path:
+    """Save step text output to the workflow outputs directory."""
+    ext_map = {"json": ".json", "text": ".txt", "txt": ".txt", "markdown": ".md", "md": ".md"}
+    ext = ext_map.get(output_format, ".md")
+    out_path = Path(outputs_dir)
+    out_path.mkdir(parents=True, exist_ok=True)
+    file_path = out_path / f"{step_id}{ext}"
+    file_path.write_text(text, encoding="utf-8")
+    return file_path
+
+
+def create_step_logger(outputs_dir: str, step_id: str):
+    """Create a tool-event logger that writes JSONL to a log file.
+
+    Returns (log_fn, log_path) where log_fn accepts a ToolEvent.
+    """
+    import json as _json
+
+    out_path = Path(outputs_dir)
+    out_path.mkdir(parents=True, exist_ok=True)
+    log_path = out_path / f"{step_id}.log"
+    fh = open(log_path, "a", encoding="utf-8")
+
+    def log_fn(event):
+        entry = {"tool": event.tool_name, "type": event.event_type.value}
+        if event.args:
+            entry["args"] = {k: str(v)[:200] for k, v in event.args.items()}
+        if event.result:
+            entry["result"] = event.result[:500]
+        if event.error:
+            entry["error"] = event.error
+        if event.duration_ms is not None:
+            entry["duration_ms"] = round(event.duration_ms)
+        fh.write(_json.dumps(entry) + "\n")
+        fh.flush()
+
+    return log_fn, log_path
+
+
 def merge_steps(left: Optional[Dict[str, Any]], right: Dict[str, Any]) -> Dict[str, Any]:
     if left is None:
         return dict(right)

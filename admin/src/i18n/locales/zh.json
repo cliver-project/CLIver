@@ -183,6 +183,8 @@
     "textResult": "文本结果",
     "outputFiles": "输出文件",
     "noOutput": "步骤已完成，无输出。",
+    "running": "运行中…",
+    "waitingForOutput": "等待输出…",
     "createWorkflow": "创建工作流",
     "deleteWorkflow": "删除工作流",
     "deleteWorkflowDescription": "确定要删除工作流 '{name}' 吗？此操作不可撤销。",

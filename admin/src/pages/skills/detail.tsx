@@ -84,7 +84,6 @@ export default function SkillDetailPage() {
       { content, path: String(skill?.path ?? "") },
       {
         onSuccess: () => {
-          setInitialRaw(content);
           setDirty(false);
         },
       },
@@ -108,7 +107,7 @@ export default function SkillDetailPage() {
         <div className="flex-1">
           <h1 className="text-2xl font-bold">{name}</h1>
           <div className="flex items-center gap-2 mt-1">
-            {skill.source && (
+            {!!skill.source && (
               <Badge variant="secondary">{String(skill.source)}</Badge>
             )}
             {!editable && (
@@ -158,7 +157,7 @@ export default function SkillDetailPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Read-only info */}
-          {skill.source && (
+          {!!skill.source && (
             <div className="flex items-center gap-2 text-sm">
               <span className="text-muted-foreground w-28 shrink-0">
                 {t("skills.source")}
@@ -166,7 +165,7 @@ export default function SkillDetailPage() {
               <Badge variant="secondary">{String(skill.source)}</Badge>
             </div>
           )}
-          {skill.path && (
+          {!!skill.path && (
             <div className="flex items-center gap-2 text-sm">
               <span className="text-muted-foreground w-28 shrink-0">
                 {t("skills.path")}
