@@ -1,6 +1,5 @@
 """Tests for Agent data models."""
 
-import pytest
 from dataclasses import asdict
 
 

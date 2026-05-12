@@ -1,15 +1,12 @@
 """Tests for CliAgent subprocess base."""
 
-import asyncio
 import json
-import os
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from cliver.agent import AgentResult, Artifact
 from cliver.config import AgentConfig
 
 
@@ -38,18 +35,22 @@ def test_build_env_no_provider(basic_config):
 
 def test_build_env_with_anthropic_provider(basic_config):
     from cliver.agents.cli_agent import CliAgent
-    from cliver.config import ProviderConfig, ModelConfig
+    from cliver.config import ModelConfig, ProviderConfig
 
     provider = ProviderConfig(
-        name="anthropic", type="anthropic",
-        api_url="https://api.anthropic.com", api_key="sk-ant-test123",
+        name="anthropic",
+        type="anthropic",
+        api_url="https://api.anthropic.com",
+        api_key="sk-ant-test123",
     )
     model = ModelConfig(name="anthropic/claude-sonnet-4-20250514", provider="anthropic")
     model._provider_config = provider
 
     agent = CliAgent(
-        name="test", config=basic_config,
-        model_config=model, provider_config=provider,
+        name="test",
+        config=basic_config,
+        model_config=model,
+        provider_config=provider,
     )
     env = agent._build_env()
     assert env["ANTHROPIC_API_KEY"] == "sk-ant-test123"
@@ -155,9 +156,7 @@ async def test_do_run_success():
     )
     mock_proc = AsyncMock()
     mock_proc.returncode = 0
-    mock_proc.communicate = AsyncMock(
-        return_value=(json.dumps(response).encode(), b"")
-    )
+    mock_proc.communicate = AsyncMock(return_value=(json.dumps(response).encode(), b""))
 
     with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
         result = await agent._do_run("test prompt")

@@ -88,9 +88,7 @@ class AgentFactory:
             return None, None
         model_config = self._config.models.get(model_name)
         provider_config = (
-            model_config._provider_config
-            if model_config and hasattr(model_config, "_provider_config")
-            else None
+            model_config._provider_config if model_config and hasattr(model_config, "_provider_config") else None
         )
         return model_config, provider_config
 

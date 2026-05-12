@@ -1,14 +1,17 @@
 """Tests for Claude/Gemini/OpenCode response parsing and artifact extraction."""
 
-import pytest
-
 
 def test_claude_parse_response_success():
     from cliver.agents.claude_agent import ClaudeAgent
     from cliver.config import AgentConfig
 
     agent = ClaudeAgent(name="test", config=AgentConfig(type="claude"))
-    raw = {"result": "Here is the fix.", "is_error": False, "model": "claude-sonnet-4-20250514", "usage": {"input": 50, "output": 100}}
+    raw = {
+        "result": "Here is the fix.",
+        "is_error": False,
+        "model": "claude-sonnet-4-20250514",
+        "usage": {"input": 50, "output": 100},
+    }
     result = agent._parse_response(raw)
     assert result.text == "Here is the fix."
     assert result.status == "completed"
@@ -36,11 +39,14 @@ def test_claude_extract_artifacts():
     raw = {
         "result": "Done.",
         "messages": [
-            {"role": "assistant", "tool_calls": [
-                {"name": "Write", "input": {"file_path": "/tmp/app.py"}},
-                {"name": "Edit", "input": {"file_path": "/tmp/utils.py"}},
-                {"name": "Read", "input": {"file_path": "/tmp/readme.md"}},
-            ]},
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {"name": "Write", "input": {"file_path": "/tmp/app.py"}},
+                    {"name": "Edit", "input": {"file_path": "/tmp/utils.py"}},
+                    {"name": "Read", "input": {"file_path": "/tmp/readme.md"}},
+                ],
+            },
         ],
     }
     artifacts = agent._extract_artifacts(raw)

@@ -1,7 +1,5 @@
 """Tests for AgentConfig and AppConfig.agents."""
 
-import pytest
-
 
 def test_agent_config_defaults():
     from cliver.config import AgentConfig
@@ -53,7 +51,7 @@ def test_agent_config_custom_type():
 
 
 def test_app_config_agents_field():
-    from cliver.config import AppConfig, AgentConfig
+    from cliver.config import AgentConfig, AppConfig
 
     cfg = AppConfig(
         agents={

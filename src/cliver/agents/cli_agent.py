@@ -68,8 +68,10 @@ class CliAgent(Agent):
         if provider_config and rate_limiter:
             rate_limit_key = f"{provider_config.api_url}|{provider_config.api_key or ''}"
         super().__init__(
-            name=name, config=config,
-            rate_limiter=rate_limiter, rate_limit_key=rate_limit_key,
+            name=name,
+            config=config,
+            rate_limiter=rate_limiter,
+            rate_limit_key=rate_limit_key,
         )
         self._command = config.command or self.DEFAULT_COMMAND
         self._args = config.args if config.args is not None else list(self.DEFAULT_ARGS)
@@ -81,10 +83,7 @@ class CliAgent(Agent):
 
     async def initialize(self, context: dict = None) -> None:
         if not shutil.which(self._command):
-            raise RuntimeError(
-                f"CLI agent '{self._command}' not found. "
-                f"Install it or check your PATH."
-            )
+            raise RuntimeError(f"CLI agent '{self._command}' not found. Install it or check your PATH.")
         self._output_dir = Path(tempfile.mkdtemp(prefix=f"cliver-{self.name}-"))
         if context:
             if context.get("working_dir"):
@@ -110,7 +109,8 @@ class CliAgent(Agent):
         except FileNotFoundError:
             duration = int((time.monotonic() - start) * 1000)
             return AgentResult(
-                text="", status="error",
+                text="",
+                status="error",
                 error=f"Command not found: {self._command}",
                 duration_ms=duration,
             )
@@ -188,10 +188,13 @@ class CliAgent(Agent):
         for f in sorted(new_files):
             p = Path(f)
             mime = mimetypes.guess_type(f)[0] or "application/octet-stream"
-            artifacts.append(Artifact(
-                path=f, media_type=mime,
-                size=p.stat().st_size if p.exists() else None,
-            ))
+            artifacts.append(
+                Artifact(
+                    path=f,
+                    media_type=mime,
+                    size=p.stat().st_size if p.exists() else None,
+                )
+            )
         return artifacts
 
     async def stream(self, prompt: str, **kwargs) -> AsyncIterator[AgentChunk]:
@@ -217,7 +220,8 @@ class CliAgent(Agent):
             yield AgentChunk(
                 chunk_type="done",
                 final_result=AgentResult(
-                    text="", status="error",
+                    text="",
+                    status="error",
                     error=f"Command not found: {self._command}",
                 ),
             )

@@ -97,6 +97,7 @@ class Gateway:
         self._agent_core = self._create_agent_core()
 
         from cliver.agents import AgentFactory
+
         self._agent_factory = AgentFactory(self._resolved_config or self._get_config_manager().config, self._agent_core)
 
     def _get_config_manager(self) -> "ConfigManager":
