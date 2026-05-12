@@ -16,13 +16,15 @@
     "running": "Running..."
   },
   "sidebar": {
-    "dashboard": "Dashboard",
-    "agents": "Agents",
-    "workflows": "Workflows",
+    "section.workspace": "Workspace",
+    "section.system": "System",
+    "notebooks": "Notebooks",
+    "projects": "Projects",
     "tasks": "Tasks",
+    "keys": "Keys",
     "sessions": "Sessions",
     "skills": "Skills",
-    "config": "Config"
+    "settings": "Settings"
   },
   "theme": {
     "switchToLight": "Switch to light mode",

@@ -16,13 +16,15 @@
     "running": "运行中..."
   },
   "sidebar": {
-    "dashboard": "仪表盘",
-    "agents": "智能体",
-    "workflows": "工作流",
+    "section.workspace": "工作区",
+    "section.system": "系统",
+    "notebooks": "笔记本",
+    "projects": "项目",
     "tasks": "任务",
+    "keys": "密钥",
     "sessions": "会话",
     "skills": "技能",
-    "config": "配置"
+    "settings": "设置"
   },
   "theme": {
     "switchToLight": "切换到浅色模式",
