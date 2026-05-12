@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, List, Optional
 
 import yaml
 from pydantic import BaseModel, Field
@@ -41,15 +41,11 @@ class TaskOrigin(BaseModel):
 
 
 class TaskDefinition(BaseModel):
-    """A task definition — a prompt with optional workflow and skill activation."""
+    """A task definition — a prompt with optional skill activation."""
 
     name: str = Field(..., description="Unique task name")
     description: Optional[str] = Field(None, description="What this task does")
     prompt: str = Field(..., description="The prompt to send to the LLM")
-    workflow: Optional[str] = Field(
-        None, description="Workflow name to execute (if set, runs workflow instead of chat)"
-    )
-    workflow_inputs: Optional[Dict[str, Any]] = Field(None, description="Extra inputs for workflow execution")
     skills: Optional[List[str]] = Field(None, description="Skills to pre-activate in system prompt")
     model: Optional[str] = Field(None, description="Model override for this task")
     schedule: Optional[str] = Field(None, description="Cron expression for recurring execution")

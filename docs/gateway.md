@@ -10,7 +10,7 @@ CLIver Gateway is a long-running daemon process that extends CLIver beyond one-s
 - **Messaging platform integrations** — Connect CLIver to Telegram, Discord, Slack, or Feishu (Lark) for bot-based conversations
 - **Background task scheduling** — Run cron-scheduled or one-time tasks with result delivery
 - **OpenAI-compatible REST API** — Expose CLIver's agent capabilities via HTTP endpoints
-- **Admin web portal** — Monitor and manage tasks, sessions, workflows, and adapters
+- **Admin web portal** — Monitor and manage tasks, sessions, and adapters
 
 The gateway runs as a separate process from the CLI, allowing you to deploy CLIver as a persistent service that responds to external events, executes scheduled work, and serves API requests.
 
@@ -488,15 +488,6 @@ The admin portal is a web-based UI for monitoring and managing the gateway.
 - View conversation turns for any session
 - Delete stale sessions
 
-**Workflows**:
-
-- List all workflows (global + project-local)
-- View workflow definitions (steps, agents, inputs)
-- Edit workflow YAML (validated on save)
-- Run workflows manually
-- View execution history and step-by-step status
-- Resume from a specific step (uses LangGraph checkpoints)
-
 **Skills**:
 
 - List all discovered skills with full metadata
@@ -517,8 +508,6 @@ The admin portal is a web-based UI for monitoring and managing the gateway.
 
 - Interactive chat interface for testing prompts
 - Model selection, tool filtering, and system message injection
-- Save chat results as workflow step outputs
-
 ### Admin API
 
 The admin portal is built on REST endpoints under `/admin/api/`:
@@ -531,15 +520,6 @@ The admin portal is built on REST endpoints under `/admin/api/`:
 - `GET /admin/api/sessions/{source}` — List sessions (`source`: `cli` or `gateway`)
 - `GET /admin/api/sessions/{source}/{id}` — Session turns
 - `DELETE /admin/api/sessions/{source}/{id}` — Delete session
-- `GET /admin/api/workflows` — List workflows
-- `GET /admin/api/workflows/{name}` — Workflow detail
-- `PUT /admin/api/workflows/{name}` — Update workflow YAML
-- `POST /admin/api/workflows/{name}/run` — Run workflow
-- `POST /admin/api/workflows/{name}/stop` — Stop running workflow
-- `GET /admin/api/workflows/{name}/executions` — Execution history
-- `GET /admin/api/workflows/{name}/executions/{tid}` — Execution status
-- `POST /admin/api/workflows/{name}/steps/{step_id}/run` — Run a single step
-- `POST /admin/api/workflows/{name}/steps/{step_id}/resume` — Resume from step
 - `GET /admin/api/skills` — List skills
 - `GET /admin/api/adapters` — List adapters
 - `GET /admin/api/agent` — Agent info
@@ -897,6 +877,5 @@ IM conversations receive an auto-injected system message with task creation rule
 ## See Also
 
 - [Tasks](tasks.md) — Task management CLI reference
-- [Workflows](workflow.md) — Workflow definitions and execution
 - [Session Management](session-management.md) — Conversation history and session options
 - [Permissions](permissions.md) — Tool permission modes

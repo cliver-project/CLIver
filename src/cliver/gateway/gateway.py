@@ -388,39 +388,33 @@ class Gateway:
             if task.session_id and self._session_manager:
                 conversation_history = self._load_session_history(task.session_id)
 
-            if task.workflow:
-                inputs = dict(task.workflow_inputs or {})
-                inputs["prompt"] = task.prompt
-                await self.run_workflow(task.workflow, inputs=inputs)
-                response_text = "Workflow completed."
-            else:
-                from cliver.skill_manager import SkillManager, build_skill_appender, build_skill_tool_filter
+            from cliver.skill_manager import SkillManager, build_skill_appender, build_skill_tool_filter
 
-                async def _task_filter_tools(_input, tools):
-                    return [t for t in tools if t.name != "Ask"]
+            async def _task_filter_tools(_input, tools):
+                return [t for t in tools if t.name != "Ask"]
 
-                system_appender = None
-                tool_filter = _task_filter_tools
-                if task.skills:
-                    manager = SkillManager()
-                    skill_objs = [s for name in task.skills if (s := manager.get_skill(name))]
-                    for name in task.skills:
-                        if not manager.get_skill(name):
-                            logger.warning("Skill '%s' not found for pre-activation", name)
-                    if skill_objs:
-                        system_appender = build_skill_appender(skill_objs)
-                        tool_filter = build_skill_tool_filter(skill_objs, _task_filter_tools)
+            system_appender = None
+            tool_filter = _task_filter_tools
+            if task.skills:
+                manager = SkillManager()
+                skill_objs = [s for name in task.skills if (s := manager.get_skill(name))]
+                for name in task.skills:
+                    if not manager.get_skill(name):
+                        logger.warning("Skill '%s' not found for pre-activation", name)
+                if skill_objs:
+                    system_appender = build_skill_appender(skill_objs)
+                    tool_filter = build_skill_tool_filter(skill_objs, _task_filter_tools)
 
-                response = await self._agent_core.process_user_input(
-                    user_input=task.prompt,
-                    model=task.model,
-                    system_message_appender=system_appender,
-                    conversation_history=conversation_history,
-                    filter_tools=tool_filter,
-                )
-                from cliver.media_handler import extract_response_text
+            response = await self._agent_core.process_user_input(
+                user_input=task.prompt,
+                model=task.model,
+                system_message_appender=system_appender,
+                conversation_history=conversation_history,
+                filter_tools=tool_filter,
+            )
+            from cliver.media_handler import extract_response_text
 
-                response_text = extract_response_text(response, fallback="No response.")
+            response_text = extract_response_text(response, fallback="No response.")
 
             run_record.status = "completed"
             run_record.result = response_text
@@ -541,34 +535,6 @@ class Gateway:
             encoding="utf-8",
         )
         logger.info("Task result saved to %s", result_path)
-
-    async def run_workflow(self, workflow_name: str, inputs: dict = None) -> Optional[dict]:
-        """Execute a workflow headlessly via the gateway."""
-        from cliver.skill_manager import SkillManager
-        from cliver.workflow.persistence import WorkflowStore
-        from cliver.workflow.workflow_executor import WorkflowExecutor
-
-        if not self._agent_core:
-            logger.error("Gateway not started — cannot run workflow")
-            return None
-
-        agent_profile = CliverProfile(self.config_dir)
-        store = WorkflowStore(agent_profile.workflows_dir)
-        db_path = agent_profile.workflow_checkpoints_db
-
-        config_manager = self._get_config_manager()
-        executor = WorkflowExecutor(
-            agent_core=self._agent_core,
-            store=store,
-            db_path=db_path,
-            app_config=config_manager.config,
-            skill_manager=SkillManager(),
-        )
-
-        try:
-            return await executor.execute_workflow(workflow_name, inputs=inputs)
-        finally:
-            await executor.close()
 
     def _create_agent_core(self) -> AgentCore:
         """Create a AgentCore from config (same config the CLI uses)."""

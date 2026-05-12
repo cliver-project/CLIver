@@ -35,7 +35,6 @@ CLIver is a general-purpose AI agent for your terminal. It is model-agnostic, ex
 |-------|-------------------|
 | [Memory & Identity](memory-identity.md) | Persistent knowledge and agent profiles |
 | [Permissions](permissions.md) | Control what tools CLIver can execute |
-| [Workflows](workflow.md) | Multi-step task orchestration with LangGraph |
 | [Session Management](session-management.md) | Conversation history and compression |
 | [Gateway](gateway.md) | Deploy with Telegram, Discord, Slack, Feishu |
 

@@ -344,11 +344,6 @@ class AppConfig(BaseModel):
         default=True,
         description="Automatically fall back to another model when the current one fails (default: on).",
     )
-    workflow_runs_dir: Optional[str] = Field(
-        default=None,
-        description="Base directory for workflow execution outputs. "
-        "Default: {config_dir}/workflow-runs. Each execution creates a subdirectory.",
-    )
 
     def resolve_secrets(self) -> None:
         """Resolve all Jinja2 template strings in the config tree.
@@ -546,9 +541,6 @@ class ConfigManager:
                 for name, server in self.config.mcpServers.items():
                     serialized_servers[name] = server.model_dump()
                 config_data["mcpServers"] = serialized_servers
-
-            if "workflow" in config_data and self.config.workflow:
-                config_data["workflow"] = self.config.workflow.model_dump()
 
             with open(self.config_file, "w") as f:
                 yaml.dump(config_data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)

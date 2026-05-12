@@ -2,7 +2,7 @@
 Template utilities for CLIver.
 
 This module provides Jinja2 template rendering functionality with performance optimization.
-Templates are used in config files, prompts, and workflows. Supported template functions:
+Templates are used in config files and prompts. Supported template functions:
 
 - {{ env.VARIABLE_NAME }}: Access any environment variable
 - {{ keyring('service', 'key') }}: Read a secret from the system keyring

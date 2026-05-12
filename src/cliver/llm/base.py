@@ -204,7 +204,7 @@ class LLMInferenceEngine(ABC):
         lines.append(
             "## Commands\n\n"
             "Slash commands: model, config, gateway, session, permissions, "
-            "mcp, skills, identity, profile, cost, provider, task, workflow. "
+            "mcp, skills, identity, profile, cost, provider, task. "
             "Use the CliverHelp tool for syntax."
         )
         return "\n".join(lines)

@@ -48,7 +48,6 @@ _COMMAND_SUMMARIES = {
     "session": "Manage conversation sessions (list, load, search, compress, options, permissions)",
     "skills": "Manage agent skills — SKILL.md files (list, show, run, create, update)",
     "task": "Manage and run agent tasks — named prompts with optional cron schedule",
-    "workflow": "Manage and execute multi-step workflows (list, show, run, resume, delete)",
 }
 
 
@@ -98,7 +97,7 @@ class CliverHelpInput(BaseModel):
             "  '<command>'   — Show full help for a specific command including all subcommands,\n"
             "                  parameters (with types, required/optional, defaults), and examples.\n"
             "                  Valid command names: agent, config, cost, gateway, identity, mcp,\n"
-            "                  model, permissions, provider, session, skills, task, workflow."
+            "                  model, permissions, provider, session, skills, task."
         ),
     )
 

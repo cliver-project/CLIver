@@ -107,24 +107,6 @@ Use the `/skills` command to manage skills interactively:
 | `/skills create <name> <description>` | Generate a new SKILL.md file using the LLM |
 | `/skills update <name> <instructions>` | Improve an existing skill using the LLM |
 
-## Workflow Integration
-
-Skills can be activated within workflow LLM steps using the `skills` field:
-
-```yaml
-name: review-workflow
-steps:
-  - id: review
-    type: llm
-    name: Code Review
-    prompt: "Review the code in {{ inputs.file_path }}"
-    skills:
-      - code-review
-    outputs: [review_result]
-```
-
-When a step declares skills, the skill content is deterministically injected into the LLM context (not probabilistic activation).
-
 ## Example Skills
 
 ### Greeting Skill

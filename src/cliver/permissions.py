@@ -4,7 +4,7 @@ Permission system for CLIver tool execution.
 Provides resource-aware permission checking with layered rules:
 - Persistent rules from cliver-settings.yaml (global + local project)
 - Session-scoped grants (in-memory, cleared on exit)
-- Task-scoped permissions (pushed/popped during workflow execution)
+- Task-scoped permissions (pushed/popped during task execution)
 
 Each tool has an action kind (safe/read/write/execute/fetch) and resource type
 (path/url/command/none). Rules use regex for tool matching and fnmatch globs
@@ -98,7 +98,6 @@ TOOL_META_REGISTRY: Dict[str, ToolMeta] = {
     "SearchSessions": ToolMeta(ActionKind.READ, ResourceType.NONE),
     "Identity": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
     "Ask": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
-    "WorkflowValidate": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
     # Read tools
     "Read": ToolMeta(ActionKind.READ, ResourceType.PATH, "file_path"),
     "LS": ToolMeta(ActionKind.READ, ResourceType.PATH, "path"),
@@ -164,7 +163,7 @@ class PermissionRule(BaseModel):
 
 
 class TaskPermissions(BaseModel):
-    """Permission overrides for a task/workflow/step execution."""
+    """Permission overrides for a task execution."""
 
     mode: Optional[PermissionMode] = None
     rules: List[PermissionRule] = []
@@ -421,7 +420,7 @@ class PermissionManager:
     # --- Task scope management ---
 
     def push_task_scope(self, permissions: TaskPermissions):
-        """Push a task/workflow/step permission scope onto the stack."""
+        """Push a task permission scope onto the stack."""
         self._task_stack.append(permissions)
 
     def pop_task_scope(self):

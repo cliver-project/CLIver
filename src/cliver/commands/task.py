@@ -45,7 +45,6 @@ def _list_tasks(cliver: Cliver) -> int:
         t = entry.definition
         schedule = f"  schedule: {t.schedule}" if t.schedule else ""
         model = f"  model: {t.model}" if t.model else ""
-        workflow = f"  workflow: {t.workflow}" if t.workflow else ""
         skills = f"  skills: {', '.join(t.skills)}" if t.skills else ""
         desc = f"  — {t.description}" if t.description else ""
         task_origin = store.get_origin(t.name)
@@ -54,7 +53,7 @@ def _list_tasks(cliver: Cliver) -> int:
             origin = f"  origin: {task_origin.source}"
             if task_origin.channel_id:
                 origin += f" ({task_origin.channel_id})"
-        cliver.output(f"  {t.name}:{desc}{model}{workflow}{skills}{schedule}{origin}")
+        cliver.output(f"  {t.name}:{desc}{model}{skills}{schedule}{origin}")
 
     return 0
 
@@ -67,23 +66,10 @@ def _create_task(
     model: Optional[str] = None,
     schedule: Optional[str] = None,
     run_at: Optional[str] = None,
-    workflow: Optional[str] = None,
-    workflow_inputs: Optional[str] = None,
     skills: Optional[list] = None,
     reply_to: Optional[str] = None,
 ) -> int:
     """Create a new task definition."""
-    import json
-
-    # Parse workflow inputs if provided
-    parsed_inputs = None
-    if workflow_inputs:
-        try:
-            parsed_inputs = json.loads(workflow_inputs)
-        except json.JSONDecodeError as e:
-            cliver.output(f"Invalid JSON for --workflow-inputs: {e}")
-            return 1
-
     # Validate run_at format
     if run_at:
         from datetime import datetime
@@ -102,8 +88,6 @@ def _create_task(
         name=name,
         description=description,
         prompt=prompt,
-        workflow=workflow,
-        workflow_inputs=parsed_inputs,
         skills=skills,
         model=model,
         schedule=schedule,
@@ -376,7 +360,6 @@ def dispatch(cliver: Cliver, args: str):
         model = None
         schedule = None
         run_at = None
-        workflow = None
         skills = None
         reply_to = None
         i = 1
@@ -392,9 +375,6 @@ def dispatch(cliver: Cliver, args: str):
                 i += 2
             elif parts_split[i] == "--run-at" and i + 1 < len(parts_split):
                 run_at = parts_split[i + 1]
-                i += 2
-            elif parts_split[i] == "--workflow" and i + 1 < len(parts_split):
-                workflow = parts_split[i + 1]
                 i += 2
             elif parts_split[i] == "--skills" and i + 1 < len(parts_split):
                 skills = [s.strip() for s in parts_split[i + 1].split(",")]
@@ -419,7 +399,6 @@ def dispatch(cliver: Cliver, args: str):
             model=model,
             schedule=schedule,
             run_at=run_at,
-            workflow=workflow,
             skills=skills,
             reply_to=reply_to,
         )
@@ -480,17 +459,6 @@ def list_tasks(cliver: Cliver):
     help="ISO 8601 datetime for one-shot execution (e.g. '2026-04-25T14:30:00')",
 )
 @click.option(
-    "--workflow",
-    "-w",
-    default=None,
-    help="Workflow name to execute instead of chat. Must match a name from 'workflow list'",
-)
-@click.option(
-    "--workflow-inputs",
-    default=None,
-    help='Workflow input variables as JSON (e.g. \'{"env":"staging"}\')',
-)
-@click.option(
     "--skills",
     multiple=True,
     help="Skill to pre-activate (repeatable, e.g. --skills brainstorm --skills write-plan)",
@@ -509,8 +477,6 @@ def create_task(
     model: Optional[str],
     schedule: Optional[str],
     run_at: Optional[str],
-    workflow: Optional[str],
-    workflow_inputs: Optional[str],
     skills: tuple,
     reply_to: Optional[str],
 ):
@@ -522,8 +488,6 @@ def create_task(
         model,
         schedule,
         run_at,
-        workflow,
-        workflow_inputs,
         list(skills) if skills else None,
         reply_to=reply_to,
     )
