@@ -165,7 +165,7 @@ def list_providers(cliver: Cliver):
     "-k",
     type=str,
     default=None,
-    help="API key. Supports templates: {{ env.VAR }} or {{ keyring() }}",
+    help="API key. Use a key name from /keys, an ENV_VAR name, or a literal value.",
 )
 @click.option(
     "--rate-limit",
@@ -205,7 +205,7 @@ def add_provider(
     "-k",
     type=str,
     default=None,
-    help="New API key. Supports templates: {{ env.VAR }} or {{ keyring() }}",
+    help="New API key. Use a key name from /keys, an ENV_VAR name, or a literal value.",
 )
 @click.option(
     "--rate-limit",
