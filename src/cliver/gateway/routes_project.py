@@ -174,6 +174,42 @@ def get_project_routes(
             result["template"] = template
         return JSONResponse(result)
 
+    @require_auth
+    async def handle_scenario_install(request: Request):
+        data = await request.json()
+        source = data.get("source", "").strip()
+        if not source:
+            return JSONResponse({"error": "source is required (e.g. github:user/repo)"}, status_code=400)
+
+        from pathlib import Path
+
+        from cliver.scenario_installer import ScenarioInstaller
+
+        user_dir = Path(notebook_store._data_dir).parent / "scenarios"
+        installer = ScenarioInstaller(user_dir, scenario_registry)
+        try:
+            display_name = installer.install_from_github(source)
+            return JSONResponse({"status": "ok", "display_name": display_name})
+        except (ValueError, RuntimeError) as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+
+    @require_auth
+    async def handle_scenario_delete(request: Request):
+        scenario_id = request.path_params["id"]
+
+        from pathlib import Path
+
+        from cliver.scenario_installer import ScenarioInstaller
+
+        user_dir = Path(notebook_store._data_dir).parent / "scenarios"
+        installer = ScenarioInstaller(user_dir, scenario_registry)
+        try:
+            if installer.remove(scenario_id):
+                return JSONResponse({"status": "ok"})
+            return JSONResponse({"error": "not found"}, status_code=404)
+        except ValueError as e:
+            return JSONResponse({"error": str(e)}, status_code=400)
+
     return [
         Route("/admin/api/projects", handle_projects_list),
         Route("/admin/api/projects", handle_projects_create, methods=["POST"]),
@@ -187,5 +223,7 @@ def get_project_routes(
         Route("/admin/api/issues/{id}", handle_issue_delete, methods=["DELETE"]),
         Route("/admin/api/issues/{id}/generate-notebook", handle_generate_notebook, methods=["POST"]),
         Route("/admin/api/scenarios", handle_scenarios_list),
+        Route("/admin/api/scenarios/install", handle_scenario_install, methods=["POST"]),
         Route("/admin/api/scenarios/{id}", handle_scenario_get),
+        Route("/admin/api/scenarios/{id}", handle_scenario_delete, methods=["DELETE"]),
     ]
