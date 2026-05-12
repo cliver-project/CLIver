@@ -86,6 +86,10 @@ class Gateway:
         self._tasks_run = 0
         self._start_time = 0.0
         self._thread_queue = ThreadQueue()
+        self._notebook_store = None
+        self._runtime_manager = None
+        self._project_provider = None
+        self._scenario_registry = None
 
     def init(self) -> None:
         """Initialize components that need to run before fork.
@@ -189,6 +193,44 @@ class Gateway:
         except Exception as e:
             logger.error(f"Failed to build admin routes: {e}")
 
+        # Notebook and project routes
+        try:
+            if self._notebook_store and self._agent_factory:
+                import functools
+                import secrets
+
+                from cliver.gateway.admin import _check_basic_auth, _check_session_cookie
+                from cliver.gateway.routes_notebook import get_notebook_routes
+                from cliver.gateway.routes_project import get_project_routes
+
+                def make_require_auth(uname, passwd, secret):
+                    def require_auth(handler):
+                        @functools.wraps(handler)
+                        async def wrapper(request):
+                            if uname is None or passwd is None:
+                                return JSONResponse({"error": "Disabled"}, status_code=403)
+                            if _check_session_cookie(request, uname, secret):
+                                return await handler(request)
+                            if _check_basic_auth(request, uname, passwd):
+                                return await handler(request)
+                            return JSONResponse({"error": "Unauthorized"}, status_code=401)
+                        return wrapper
+                    return require_auth
+
+                auth_fn = make_require_auth(admin_user, admin_pass, secrets.token_hex(32))
+
+                routes.extend(get_notebook_routes(
+                    self._notebook_store, self._runtime_manager,
+                    self._agent_factory, auth_fn,
+                ))
+                routes.extend(get_project_routes(
+                    self._project_provider, self._scenario_registry,
+                    self._notebook_store, auth_fn,
+                ))
+                logger.info("Notebook and project routes registered")
+        except Exception as e:
+            logger.error(f"Failed to register notebook/project routes: {e}")
+
         return routes
 
     def run(self) -> None:
@@ -228,6 +270,27 @@ class Gateway:
                 self._agent_core = self._create_agent_core()
             except Exception as e:
                 logger.error(f"Failed to create AgentCore: {e}")
+
+        # Initialize notebook and project stores
+        try:
+            from cliver.notebook.runtime import RuntimeManager
+            from cliver.notebook.store import NotebookStore
+            from cliver.project.local_provider import LocalProvider
+            from cliver.project.scenario_registry import ScenarioRegistry
+
+            profile = CliverProfile(self.config_dir)
+            self._notebook_store = NotebookStore(profile.config_dir)
+            self._runtime_manager = RuntimeManager()
+            self._project_provider = LocalProvider(profile.config_dir / "projects.db")
+
+            builtin_scenarios = Path(__file__).parent.parent / "scenarios"
+            user_scenarios = profile.config_dir / "scenarios"
+            self._scenario_registry = ScenarioRegistry(
+                [d for d in [builtin_scenarios, user_scenarios] if d.exists()]
+            )
+            logger.info("Notebook and project stores initialized")
+        except Exception as e:
+            logger.error(f"Failed to initialize notebook/project stores: {e}")
 
         # Cron scheduler
         try:
@@ -299,6 +362,12 @@ class Gateway:
                 self._run_store.close()
             except Exception as e:
                 logger.error(f"Error closing run store: {e}")
+
+        if self._runtime_manager:
+            try:
+                await self._runtime_manager.shutdown_all()
+            except Exception as e:
+                logger.error(f"Error shutting down runtime manager: {e}")
 
         self._thread_queue.cleanup(max_idle_seconds=0)
 
