@@ -13,7 +13,7 @@ interface CellStatusBadgeProps {
 }
 
 export function CellStatusBadge({ status, className }: CellStatusBadgeProps) {
-  const style = STATUS_STYLES[status] || STATUS_STYLES.idle;
+  const style = STATUS_STYLES[status] || STATUS_STYLES["idle"]!;
   return (
     <span
       className={cn(

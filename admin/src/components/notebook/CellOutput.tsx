@@ -40,7 +40,7 @@ export function CellOutput({ outputs, error, status }: CellOutputProps) {
         </div>
       )}
 
-      {data && (
+      {data !== undefined && (
         <div>
           <button
             onClick={() => setShowJson(!showJson)}

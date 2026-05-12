@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -11,7 +10,7 @@ import {
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import { RefInsertDropdown } from "@/components/notebook/RefInsertDropdown";
 import { CellOutput } from "@/components/notebook/CellOutput";
-import { useWebSocket, type WsMessage } from "@/hooks/use-websocket";
+import { useWebSocket } from "@/hooks/use-websocket";
 import { useAgents } from "@/hooks/use-api";
 import type { Cell } from "@/hooks/use-notebook";
 import { cn } from "@/lib/utils";

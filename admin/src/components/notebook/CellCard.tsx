@@ -42,7 +42,7 @@ export function CellCard({
   isLast,
   children,
 }: CellCardProps) {
-  const config = TYPE_CONFIG[cell.type] || TYPE_CONFIG.display;
+  const config = TYPE_CONFIG[cell.type] || TYPE_CONFIG["display"]!;
   const Icon = config.icon;
 
   const summary = getSummary(cell);
