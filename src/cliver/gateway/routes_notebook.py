@@ -73,6 +73,7 @@ def get_notebook_routes(
             nb.context = data["context"]
         if "cells" in data:
             from cliver.notebook.models import Cell
+
             nb.cells = [Cell(**c) if isinstance(c, dict) else c for c in data["cells"]]
         notebook_store.update(nb)
         return JSONResponse({"status": "ok"})
@@ -100,23 +101,35 @@ def get_notebook_routes(
         try:
             outputs = await runtime.execute_cell(cell_id)
             notebook_store.save_cell_output(
-                notebook_id, cell_id, outputs, "completed",
+                notebook_id,
+                cell_id,
+                outputs,
+                "completed",
                 duration_ms=nb.get_cell(cell_id).duration_ms,
             )
-            return JSONResponse({
-                "cell_id": cell_id,
-                "status": "completed",
-                "outputs": outputs,
-            })
+            return JSONResponse(
+                {
+                    "cell_id": cell_id,
+                    "status": "completed",
+                    "outputs": outputs,
+                }
+            )
         except Exception as e:
             notebook_store.save_cell_output(
-                notebook_id, cell_id, {}, "error", error=str(e),
+                notebook_id,
+                cell_id,
+                {},
+                "error",
+                error=str(e),
             )
-            return JSONResponse({
-                "cell_id": cell_id,
-                "status": "error",
-                "error": str(e),
-            }, status_code=500)
+            return JSONResponse(
+                {
+                    "cell_id": cell_id,
+                    "status": "error",
+                    "error": str(e),
+                },
+                status_code=500,
+            )
 
     @require_auth
     async def handle_run_all(request: Request):
@@ -130,8 +143,12 @@ def get_notebook_routes(
             await runtime.execute_all()
             for cell in nb.cells:
                 notebook_store.save_cell_output(
-                    notebook_id, cell.id, cell.outputs,
-                    cell.status, error=cell.error, duration_ms=cell.duration_ms,
+                    notebook_id,
+                    cell.id,
+                    cell.outputs,
+                    cell.status,
+                    error=cell.error,
+                    duration_ms=cell.duration_ms,
                 )
             return JSONResponse({"status": "completed"})
         except Exception as e:
@@ -178,6 +195,7 @@ def get_notebook_routes(
             runtime = runtime_manager.get_or_create(notebook_id, nb, agent_factory)
 
             from cliver.notebook.ref_resolver import resolve_refs
+
             prompt = resolve_refs(cell.inputs.get("prompt", ""), runtime.variables)
             agent_name = cell.inputs.get("agent", "") or nb.default_agent
             if agent_name and "${" in str(agent_name):
@@ -197,8 +215,7 @@ def get_notebook_routes(
                     outputs = {"text": result.text}
                     if result.artifacts:
                         outputs["artifacts"] = [
-                            {"path": a.path, "media_type": a.media_type, "size": a.size}
-                            for a in result.artifacts
+                            {"path": a.path, "media_type": a.media_type, "size": a.size} for a in result.artifacts
                         ]
                     if cell.inputs.get("output_format") == "json":
                         try:
@@ -210,15 +227,20 @@ def get_notebook_routes(
                     cell.outputs = outputs
                     cell.status = "completed"
                     notebook_store.save_cell_output(
-                        notebook_id, cell_id, outputs, "completed",
+                        notebook_id,
+                        cell_id,
+                        outputs,
+                        "completed",
                         duration_ms=result.duration_ms,
                     )
-                    await websocket.send_json({
-                        "type": "done",
-                        "outputs": outputs,
-                        "status": "completed",
-                        "duration_ms": result.duration_ms,
-                    })
+                    await websocket.send_json(
+                        {
+                            "type": "done",
+                            "outputs": outputs,
+                            "status": "completed",
+                            "duration_ms": result.duration_ms,
+                        }
+                    )
 
         except Exception as e:
             logger.warning("WebSocket cell execution error: %s", e)

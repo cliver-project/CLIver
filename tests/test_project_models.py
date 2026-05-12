@@ -1,7 +1,5 @@
 """Tests for Project, Issue, and Scenario models."""
 
-import pytest
-
 
 def test_project_defaults():
     from cliver.project.models import Project

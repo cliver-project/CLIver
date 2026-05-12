@@ -117,9 +117,11 @@ def _resolve_issue_refs(obj: Any, issue_vars: Dict[str, str]) -> Any:
     Preserves runtime refs (${cell_id.outputs.*}).
     """
     if isinstance(obj, str):
+
         def replacer(match: re.Match) -> str:
             field = match.group(1)
             return issue_vars.get(field, match.group(0))
+
         return _ISSUE_REF_PATTERN.sub(replacer, obj)
     elif isinstance(obj, dict):
         return {k: _resolve_issue_refs(v, issue_vars) for k, v in obj.items()}

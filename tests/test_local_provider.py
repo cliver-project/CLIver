@@ -16,6 +16,7 @@ def provider():
 
 # --- Project Tests ---
 
+
 @pytest.mark.asyncio
 async def test_create_project(provider):
     p = await provider.create_project("Research Q2", "Papers survey")
@@ -77,6 +78,7 @@ async def test_delete_project_cascades_issues(provider):
 
 # --- Issue Tests ---
 
+
 @pytest.mark.asyncio
 async def test_create_issue(provider):
     p = await provider.create_project("Proj")
@@ -124,7 +126,7 @@ async def test_list_issues(provider):
 @pytest.mark.asyncio
 async def test_list_issues_filter_status(provider):
     p = await provider.create_project("Proj")
-    i1 = await provider.create_issue(p.id, "Open")
+    await provider.create_issue(p.id, "Open")
     i2 = await provider.create_issue(p.id, "Done")
     i2.status = "completed"
     await provider.update_issue(i2)

@@ -386,13 +386,9 @@ class AppConfig(BaseModel):
 
         if self.gateway:
             if self.gateway.admin_password:
-                self.gateway.admin_password = resolve_secret(
-                    self.gateway.admin_password, key_store
-                )
+                self.gateway.admin_password = resolve_secret(self.gateway.admin_password, key_store)
             if self.gateway.api_key:
-                self.gateway.api_key = resolve_secret(
-                    self.gateway.api_key, key_store
-                )
+                self.gateway.api_key = resolve_secret(self.gateway.api_key, key_store)
 
         if self.gateway and self.gateway.platforms:
             for plat in self.gateway.platforms.values():

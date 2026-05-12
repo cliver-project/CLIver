@@ -214,19 +214,29 @@ class Gateway:
                             if _check_basic_auth(request, uname, passwd):
                                 return await handler(request)
                             return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
                         return wrapper
+
                     return require_auth
 
                 auth_fn = make_require_auth(admin_user, admin_pass, secrets.token_hex(32))
 
-                routes.extend(get_notebook_routes(
-                    self._notebook_store, self._runtime_manager,
-                    self._agent_factory, auth_fn,
-                ))
-                routes.extend(get_project_routes(
-                    self._project_provider, self._scenario_registry,
-                    self._notebook_store, auth_fn,
-                ))
+                routes.extend(
+                    get_notebook_routes(
+                        self._notebook_store,
+                        self._runtime_manager,
+                        self._agent_factory,
+                        auth_fn,
+                    )
+                )
+                routes.extend(
+                    get_project_routes(
+                        self._project_provider,
+                        self._scenario_registry,
+                        self._notebook_store,
+                        auth_fn,
+                    )
+                )
                 logger.info("Notebook and project routes registered")
         except Exception as e:
             logger.error(f"Failed to register notebook/project routes: {e}")
@@ -285,9 +295,7 @@ class Gateway:
 
             builtin_scenarios = Path(__file__).parent.parent / "scenarios"
             user_scenarios = profile.config_dir / "scenarios"
-            self._scenario_registry = ScenarioRegistry(
-                [d for d in [builtin_scenarios, user_scenarios] if d.exists()]
-            )
+            self._scenario_registry = ScenarioRegistry([d for d in [builtin_scenarios, user_scenarios] if d.exists()])
             logger.info("Notebook and project stores initialized")
         except Exception as e:
             logger.error(f"Failed to initialize notebook/project stores: {e}")

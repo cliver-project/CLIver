@@ -1,27 +1,37 @@
 """Tests for NotebookRuntime and RuntimeManager."""
 
 import asyncio
-import time
-
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from cliver.notebook.models import Notebook, Cell
+import pytest
+
+from cliver.notebook.models import Cell, Notebook
 
 
 def _make_notebook():
     return Notebook(
-        id="nb_test", title="Test",
+        id="nb_test",
+        title="Test",
         default_agent="cliver",
         context={"working_dir": "."},
         cells=[
-            Cell(id="setup", type="config", title="Setup",
-                 inputs={"schema": {"domain": {"type": "text"}}},
-                 outputs={"domain": "AI"}, status="completed"),
-            Cell(id="search", type="llm", title="Search",
-                 inputs={"prompt": "Find ${setup.outputs.domain} papers"}),
-            Cell(id="calc", type="code", title="Calc",
-                 inputs={"source": "def run(ctx):\n    d = ctx.refs('setup.outputs.domain')\n    return {'msg': f'Domain is {d}'}"}),
+            Cell(
+                id="setup",
+                type="config",
+                title="Setup",
+                inputs={"schema": {"domain": {"type": "text"}}},
+                outputs={"domain": "AI"},
+                status="completed",
+            ),
+            Cell(id="search", type="llm", title="Search", inputs={"prompt": "Find ${setup.outputs.domain} papers"}),
+            Cell(
+                id="calc",
+                type="code",
+                title="Calc",
+                inputs={
+                    "source": "def run(ctx):\n    d = ctx.refs('setup.outputs.domain')\n    return {'msg': f'Domain is {d}'}"
+                },
+            ),
         ],
     )
 
@@ -30,6 +40,7 @@ def _make_agent_factory():
     factory = MagicMock()
     mock_agent = AsyncMock()
     from cliver.agent import AgentResult
+
     mock_agent.run = AsyncMock(return_value=AgentResult(text="Agent result", status="completed"))
     mock_agent.initialize = AsyncMock()
     factory.create = MagicMock(return_value=mock_agent)

@@ -109,15 +109,17 @@ def test_resolve_issue_refs():
 
 
 def test_generate_notebook(scenario_dir):
-    from cliver.project.scenario_registry import ScenarioRegistry
     from cliver.notebook.store import NotebookStore
+    from cliver.project.scenario_registry import ScenarioRegistry
 
     with tempfile.TemporaryDirectory() as tmpdir:
         store = NotebookStore(Path(tmpdir))
         registry = ScenarioRegistry([scenario_dir])
         issue = Issue(
-            id="iss_test", project_id="proj_test",
-            title="Transformer Survey", description="Survey recent papers",
+            id="iss_test",
+            project_id="proj_test",
+            title="Transformer Survey",
+            description="Survey recent papers",
         )
         nb = registry.generate_notebook("test-scenario", issue, store)
         assert nb is not None
@@ -130,8 +132,8 @@ def test_generate_notebook(scenario_dir):
 
 
 def test_generate_notebook_not_found(scenario_dir):
-    from cliver.project.scenario_registry import ScenarioRegistry
     from cliver.notebook.store import NotebookStore
+    from cliver.project.scenario_registry import ScenarioRegistry
 
     with tempfile.TemporaryDirectory() as tmpdir:
         store = NotebookStore(Path(tmpdir))

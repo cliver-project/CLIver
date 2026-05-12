@@ -105,9 +105,14 @@ class NotebookStore:
         conn.close()
         return [
             NotebookSummary(
-                id=r[0], title=r[1], description=r[2] or "",
-                scenario_id=r[3], cell_count=r[4],
-                status=r[5], created_at=r[6], updated_at=r[7],
+                id=r[0],
+                title=r[1],
+                description=r[2] or "",
+                scenario_id=r[3],
+                cell_count=r[4],
+                status=r[5],
+                created_at=r[6],
+                updated_at=r[7],
             )
             for r in rows
         ]
@@ -175,9 +180,14 @@ class NotebookStore:
             "cell_count=excluded.cell_count, status=excluded.status, "
             "updated_at=excluded.updated_at",
             (
-                notebook.id, notebook.title, notebook.description,
-                notebook.scenario_id, len(notebook.cells), status,
-                notebook.created_at, notebook.updated_at,
+                notebook.id,
+                notebook.title,
+                notebook.description,
+                notebook.scenario_id,
+                len(notebook.cells),
+                status,
+                notebook.created_at,
+                notebook.updated_at,
             ),
         )
         conn.commit()

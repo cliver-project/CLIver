@@ -77,6 +77,7 @@ def test_encryption_roundtrip(key_store):
 
 def test_value_stored_encrypted():
     import sqlite3
+
     from cliver.key_store import KeyStore
 
     with tempfile.TemporaryDirectory() as tmpdir:

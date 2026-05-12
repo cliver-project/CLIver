@@ -50,8 +50,7 @@ class CellExecutor:
         outputs: Dict[str, Any] = {"text": result.text}
         if result.artifacts:
             outputs["artifacts"] = [
-                {"path": a.path, "media_type": a.media_type, "size": a.size}
-                for a in result.artifacts
+                {"path": a.path, "media_type": a.media_type, "size": a.size} for a in result.artifacts
             ]
         if cell.inputs.get("output_format") == "json":
             try:

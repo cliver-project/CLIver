@@ -80,8 +80,15 @@ class LocalProvider(ProjectProvider):
         conn.execute(
             "INSERT INTO projects (id, name, description, source, source_url, created_at, updated_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (project.id, project.name, project.description, project.source,
-             project.source_url, project.created_at, project.updated_at),
+            (
+                project.id,
+                project.name,
+                project.description,
+                project.source,
+                project.source_url,
+                project.created_at,
+                project.updated_at,
+            ),
         )
         conn.commit()
         conn.close()
@@ -90,15 +97,20 @@ class LocalProvider(ProjectProvider):
     async def get_project(self, project_id: str) -> Optional[Project]:
         conn = sqlite3.connect(self._db_path)
         row = conn.execute(
-            "SELECT id, name, description, source, source_url, created_at, updated_at "
-            "FROM projects WHERE id=?", (project_id,)
+            "SELECT id, name, description, source, source_url, created_at, updated_at FROM projects WHERE id=?",
+            (project_id,),
         ).fetchone()
         conn.close()
         if not row:
             return None
         return Project(
-            id=row[0], name=row[1], description=row[2], source=row[3],
-            source_url=row[4], created_at=row[5], updated_at=row[6],
+            id=row[0],
+            name=row[1],
+            description=row[2],
+            source=row[3],
+            source_url=row[4],
+            created_at=row[5],
+            updated_at=row[6],
         )
 
     async def list_projects(self) -> List[Project]:
@@ -109,8 +121,9 @@ class LocalProvider(ProjectProvider):
         ).fetchall()
         conn.close()
         return [
-            Project(id=r[0], name=r[1], description=r[2], source=r[3],
-                    source_url=r[4], created_at=r[5], updated_at=r[6])
+            Project(
+                id=r[0], name=r[1], description=r[2], source=r[3], source_url=r[4], created_at=r[5], updated_at=r[6]
+            )
             for r in rows
         ]
 
@@ -118,10 +131,8 @@ class LocalProvider(ProjectProvider):
         project.updated_at = self._now()
         conn = sqlite3.connect(self._db_path)
         conn.execute(
-            "UPDATE projects SET name=?, description=?, source=?, source_url=?, updated_at=? "
-            "WHERE id=?",
-            (project.name, project.description, project.source,
-             project.source_url, project.updated_at, project.id),
+            "UPDATE projects SET name=?, description=?, source=?, source_url=?, updated_at=? WHERE id=?",
+            (project.name, project.description, project.source, project.source_url, project.updated_at, project.id),
         )
         conn.commit()
         conn.close()
@@ -165,10 +176,20 @@ class LocalProvider(ProjectProvider):
             "INSERT INTO issues (id, project_id, title, description, status, priority, "
             "labels, assigned_agent, scenario_id, notebook_id, created_at, updated_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (issue.id, issue.project_id, issue.title, issue.description,
-             issue.status, issue.priority, json.dumps(issue.labels),
-             issue.assigned_agent, issue.scenario_id, issue.notebook_id,
-             issue.created_at, issue.updated_at),
+            (
+                issue.id,
+                issue.project_id,
+                issue.title,
+                issue.description,
+                issue.status,
+                issue.priority,
+                json.dumps(issue.labels),
+                issue.assigned_agent,
+                issue.scenario_id,
+                issue.notebook_id,
+                issue.created_at,
+                issue.updated_at,
+            ),
         )
         conn.commit()
         conn.close()
@@ -179,16 +200,25 @@ class LocalProvider(ProjectProvider):
         row = conn.execute(
             "SELECT id, project_id, title, description, status, priority, labels, "
             "assigned_agent, scenario_id, notebook_id, created_at, updated_at "
-            "FROM issues WHERE id=?", (issue_id,)
+            "FROM issues WHERE id=?",
+            (issue_id,),
         ).fetchone()
         conn.close()
         if not row:
             return None
         return Issue(
-            id=row[0], project_id=row[1], title=row[2], description=row[3],
-            status=row[4], priority=row[5], labels=json.loads(row[6] or "[]"),
-            assigned_agent=row[7], scenario_id=row[8], notebook_id=row[9],
-            created_at=row[10], updated_at=row[11],
+            id=row[0],
+            project_id=row[1],
+            title=row[2],
+            description=row[3],
+            status=row[4],
+            priority=row[5],
+            labels=json.loads(row[6] or "[]"),
+            assigned_agent=row[7],
+            scenario_id=row[8],
+            notebook_id=row[9],
+            created_at=row[10],
+            updated_at=row[11],
         )
 
     async def list_issues(
@@ -198,9 +228,11 @@ class LocalProvider(ProjectProvider):
         labels: Optional[List[str]] = None,
     ) -> List[Issue]:
         conn = sqlite3.connect(self._db_path)
-        query = "SELECT id, project_id, title, description, status, priority, labels, " \
-                "assigned_agent, scenario_id, notebook_id, created_at, updated_at " \
-                "FROM issues WHERE project_id=?"
+        query = (
+            "SELECT id, project_id, title, description, status, priority, labels, "
+            "assigned_agent, scenario_id, notebook_id, created_at, updated_at "
+            "FROM issues WHERE project_id=?"
+        )
         params: list = [project_id]
         if status:
             query += " AND status=?"
@@ -211,10 +243,18 @@ class LocalProvider(ProjectProvider):
 
         issues = [
             Issue(
-                id=r[0], project_id=r[1], title=r[2], description=r[3],
-                status=r[4], priority=r[5], labels=json.loads(r[6] or "[]"),
-                assigned_agent=r[7], scenario_id=r[8], notebook_id=r[9],
-                created_at=r[10], updated_at=r[11],
+                id=r[0],
+                project_id=r[1],
+                title=r[2],
+                description=r[3],
+                status=r[4],
+                priority=r[5],
+                labels=json.loads(r[6] or "[]"),
+                assigned_agent=r[7],
+                scenario_id=r[8],
+                notebook_id=r[9],
+                created_at=r[10],
+                updated_at=r[11],
             )
             for r in rows
         ]
@@ -231,9 +271,18 @@ class LocalProvider(ProjectProvider):
         conn.execute(
             "UPDATE issues SET title=?, description=?, status=?, priority=?, labels=?, "
             "assigned_agent=?, scenario_id=?, notebook_id=?, updated_at=? WHERE id=?",
-            (issue.title, issue.description, issue.status, issue.priority,
-             json.dumps(issue.labels), issue.assigned_agent, issue.scenario_id,
-             issue.notebook_id, issue.updated_at, issue.id),
+            (
+                issue.title,
+                issue.description,
+                issue.status,
+                issue.priority,
+                json.dumps(issue.labels),
+                issue.assigned_agent,
+                issue.scenario_id,
+                issue.notebook_id,
+                issue.updated_at,
+                issue.id,
+            ),
         )
         conn.commit()
         conn.close()
