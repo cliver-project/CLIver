@@ -26,14 +26,20 @@ class ScenarioRegistry:
 
     def __init__(self, dirs: List[Path]):
         self._dirs = dirs
+        self._builtin_dirs = set()  # Track which dirs are builtin
         self._scenarios: Dict[str, Scenario] = {}
         self._discover()
+
+    def set_builtin_dir(self, dir_path: Path) -> None:
+        """Mark a directory as containing builtin scenarios."""
+        self._builtin_dirs.add(str(dir_path))
 
     def _discover(self) -> None:
         self._scenarios.clear()
         for d in self._dirs:
             if not d.exists():
                 continue
+            is_builtin = str(d) in self._builtin_dirs
             for scenario_dir in sorted(d.iterdir()):
                 if not scenario_dir.is_dir():
                     continue
@@ -49,7 +55,7 @@ class ScenarioRegistry:
                         description=meta.get("description", ""),
                         tags=meta.get("tags", []),
                         agent_requirements=meta.get("agent_requirements", []),
-                        source="builtin" if "scenarios" in str(d) else "user",
+                        source="builtin" if is_builtin else "user",
                         path=str(scenario_dir),
                     )
                     self._scenarios[scenario.id] = scenario
