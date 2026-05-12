@@ -3,7 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { useSkills, useWorkflows, useAgents } from "@/hooks/use-api";
+import { useSkills, useAgents } from "@/hooks/use-api";
 import { useTranslation } from "@/i18n";
 
 export interface TaskFormData {
@@ -66,11 +66,9 @@ export default function TaskForm({ mode, initialData, onSubmit, isPending, error
   const { t } = useTranslation();
   const { data: agentsData } = useAgents();
   const { data: skillsData } = useSkills();
-  const { data: workflowsData } = useWorkflows();
 
   const agentList = ((agentsData ?? []) as Array<Record<string, unknown>>).map((a) => String(a.name));
   const skillList = ((skillsData ?? []) as Array<Record<string, unknown>>).map((s) => String(s.name));
-  const workflowList = ((workflowsData ?? []) as Array<Record<string, unknown>>).map((w) => String(w.name));
 
   const [form, setForm] = useState<TaskFormData>(
     initialData ?? {
@@ -158,31 +156,13 @@ export default function TaskForm({ mode, initialData, onSubmit, isPending, error
             <p className="text-xs text-muted-foreground">{t("tasks.taskContextHelp")}</p>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <Label>{t("tasks.taskSkill")}</Label>
-              <select className={selectClass} value={form.skill}
-                disabled={!!form.workflow}
-                onChange={(e) => set("skill", e.target.value)}>
-                <option value="">{t("tasks.noneSelected")}</option>
-                {skillList.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
-              {form.workflow && (
-                <p className="text-xs text-muted-foreground">{t("tasks.skillWorkflowExclusive")}</p>
-              )}
-            </div>
-            <div className="space-y-1">
-              <Label>{t("tasks.taskWorkflow")}</Label>
-              <select className={selectClass} value={form.workflow}
-                disabled={!!form.skill}
-                onChange={(e) => set("workflow", e.target.value)}>
-                <option value="">{t("tasks.noneSelected")}</option>
-                {workflowList.map((w) => <option key={w} value={w}>{w}</option>)}
-              </select>
-              {form.skill && (
-                <p className="text-xs text-muted-foreground">{t("tasks.skillWorkflowExclusive")}</p>
-              )}
-            </div>
+          <div className="space-y-1">
+            <Label>{t("tasks.taskSkill")}</Label>
+            <select className={selectClass} value={form.skill}
+              onChange={(e) => set("skill", e.target.value)}>
+              <option value="">{t("tasks.noneSelected")}</option>
+              {skillList.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
           </div>
 
           {error && <p className="text-sm text-red-500">{error}</p>}
