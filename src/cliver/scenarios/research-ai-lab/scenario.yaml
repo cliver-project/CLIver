@@ -1,0 +1,5 @@
+name: research-ai-lab
+display_name: Research AI Lab
+description: Paper reading, knowledge extraction, and literature review generation
+tags: [research, papers, writing, academic]
+agent_requirements: [cliver]

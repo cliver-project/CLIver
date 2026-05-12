@@ -1,0 +1,44 @@
+{
+  "$schema": "cliver-notebook-v1",
+  "title": "${issue.title}",
+  "description": "${issue.description}",
+  "default_agent": "cliver",
+  "cells": [
+    {
+      "id": "setup",
+      "type": "config",
+      "title": "Research Configuration",
+      "inputs": {
+        "schema": {
+          "domain": {"type": "text", "label": "Research Domain", "required": true, "default": "${issue.title}"},
+          "agent": {"type": "select", "label": "AI Agent", "options": ["cliver", "claude"], "default": "cliver"}
+        }
+      },
+      "outputs": {},
+      "status": "idle"
+    },
+    {
+      "id": "search",
+      "type": "llm",
+      "title": "Paper Search",
+      "inputs": {
+        "prompt": "Search for academic papers about ${setup.outputs.domain}. Return a list with title, authors, year, and abstract for each paper.",
+        "agent": "${setup.outputs.agent}",
+        "output_format": "json"
+      },
+      "outputs": {},
+      "status": "idle"
+    },
+    {
+      "id": "review_instructions",
+      "type": "display",
+      "title": "Next Steps",
+      "inputs": {
+        "content": "## Papers Found\n\nReview the search results above and proceed to analysis.",
+        "format": "markdown"
+      },
+      "outputs": {},
+      "status": "idle"
+    }
+  ]
+}
