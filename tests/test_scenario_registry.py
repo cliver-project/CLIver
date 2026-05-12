@@ -160,3 +160,80 @@ def test_builtin_scenario_exists():
         scenarios = registry.list_scenarios()
         ids = [s.id for s in scenarios]
         assert "research-ai-lab" in ids
+
+
+def test_builtin_research_ai_lab_content():
+    """Test that research-ai-lab scenario has complete content."""
+    from cliver.project.scenario_registry import ScenarioRegistry
+
+    builtin_dir = Path(__file__).parent.parent / "src" / "cliver" / "scenarios"
+    if not builtin_dir.exists():
+        pytest.skip("builtin scenarios dir not found")
+
+    registry = ScenarioRegistry([builtin_dir])
+    s = registry.get_scenario("research-ai-lab")
+    assert s is not None
+    assert s.display_name == "Research AI Lab"
+    assert "research" in s.tags
+    assert "cliver" in s.agent_requirements
+
+    template = registry.get_template("research-ai-lab")
+    assert template is not None
+    assert template["$schema"] == "cliver-notebook-v1"
+
+    cells = template["cells"]
+    assert len(cells) == 7
+
+    cell_ids = [c["id"] for c in cells]
+    assert cell_ids == ["setup", "intro", "search", "search_summary", "analyze", "review", "export_info"]
+
+    cell_types = [c["type"] for c in cells]
+    assert cell_types == ["config", "display", "llm", "display", "llm", "llm", "display"]
+
+    setup = cells[0]
+    schema = setup["inputs"]["schema"]
+    assert "domain" in schema
+    assert "year_range" in schema
+    assert "max_papers" in schema
+    assert "agent" in schema
+    assert "review_style" in schema
+
+    search = cells[2]
+    assert "${setup.outputs.domain}" in search["inputs"]["prompt"]
+    assert search["inputs"]["output_format"] == "json"
+
+    review = cells[5]
+    assert "${analyze.outputs.text}" in review["inputs"]["prompt"]
+    assert "${setup.outputs.review_style}" in review["inputs"]["prompt"]
+
+
+def test_builtin_research_ai_lab_generates_notebook():
+    """Test that research-ai-lab scenario generates a valid notebook."""
+    from cliver.notebook.store import NotebookStore
+    from cliver.project.scenario_registry import ScenarioRegistry
+
+    builtin_dir = Path(__file__).parent.parent / "src" / "cliver" / "scenarios"
+    if not builtin_dir.exists():
+        pytest.skip("builtin scenarios dir not found")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        store = NotebookStore(Path(tmpdir))
+        registry = ScenarioRegistry([builtin_dir])
+        issue = Issue(
+            id="iss_test",
+            project_id="proj_test",
+            title="Transformer Architectures",
+            description="Survey recent advances in transformer models",
+        )
+        nb = registry.generate_notebook("research-ai-lab", issue, store)
+        assert nb is not None
+        assert nb.title == "Transformer Architectures"
+        assert nb.description == "Survey recent advances in transformer models"
+        assert nb.scenario_id == "research-ai-lab"
+        assert len(nb.cells) == 7
+
+        setup = nb.get_cell("setup")
+        assert setup.inputs["schema"]["domain"]["default"] == "Transformer Architectures"
+
+        search = nb.get_cell("search")
+        assert "${setup.outputs.domain}" in search.inputs["prompt"]
