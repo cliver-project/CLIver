@@ -313,6 +313,23 @@ class SessionConfig(BaseModel):
     max_age_days: int = Field(default=365, description="Delete sessions idle for this many days")
 
 
+class AgentConfig(BaseModel):
+    """Configuration for a named agent instance."""
+
+    type: str = Field(default="cliver", description="Agent type: cliver, claude, gemini, opencode, or custom")
+    description: Optional[str] = Field(default=None, description="Human-readable purpose")
+    role: Optional[str] = Field(default=None, description="System prompt / persona (cliver only)")
+    model: Optional[str] = Field(default=None, description="Model name from models config")
+    skills: List[str] = Field(default_factory=list, description="Pre-activated skills (cliver only)")
+    command: Optional[str] = Field(default=None, description="CLI command override")
+    args: Optional[List[str]] = Field(default=None, description="CLI args override")
+    env: Optional[Dict[str, str]] = Field(default=None, description="Extra env vars for subprocess")
+    working_dir: Optional[str] = Field(default=None, description="Working directory")
+    timeout_s: int = Field(default=300, description="Execution timeout in seconds")
+    max_retries: int = Field(default=0, description="Retry count on failure")
+    auto_fallback: Optional[bool] = Field(default=None, description="Model auto-fallback (cliver only)")
+
+
 class AppConfig(BaseModel):
     providers: Dict[str, ProviderConfig] = Field(default_factory=dict)
     mcpServers: Dict[str, MCPServerConfig] = {}
@@ -344,6 +361,8 @@ class AppConfig(BaseModel):
         default=True,
         description="Automatically fall back to another model when the current one fails (default: on).",
     )
+    agents: Dict[str, AgentConfig] = Field(default_factory=dict, description="Named agent configurations")
+    default_agent: Optional[str] = Field(default=None, description="Default agent name")
 
     def resolve_secrets(self) -> None:
         """Resolve all Jinja2 template strings in the config tree.
