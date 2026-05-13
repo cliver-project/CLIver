@@ -25,6 +25,7 @@ interface LlmCellProps {
 export function LlmCell({ cell, notebookId, onInputsChange, onExecutionComplete }: LlmCellProps) {
   const { data: agents } = useAgents();
   const [showSystemPrompt, setShowSystemPrompt] = useState(false);
+  const [showVerification, setShowVerification] = useState(false);
   const [streamingText, setStreamingText] = useState("");
   const [isExecuting, setIsExecuting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -33,6 +34,13 @@ export function LlmCell({ cell, notebookId, onInputsChange, onExecutionComplete 
   const agent = (cell.inputs.agent as string) || "";
   const systemPrompt = (cell.inputs.system_prompt as string) || "";
   const outputFormat = (cell.inputs.output_format as string) || "text";
+
+  // Verification config
+  const verification = (cell.inputs.verification as Record<string, unknown>) || null;
+  const expectedResult = verification ? String(verification.expected || "") : "";
+  const maxRetries = verification ? Number(verification.max_retries || 3) : 3;
+  const timeoutS = verification ? Number(verification.timeout_s || 300) : 300;
+  const verifierAgent = verification ? String(verification.verifier_agent || "") : "";
 
   // WebSocket for streaming
   const wsUrl = isExecuting
@@ -92,6 +100,21 @@ export function LlmCell({ cell, notebookId, onInputsChange, onExecutionComplete 
   const updateInput = (key: string, value: string) => {
     onInputsChange({ ...cell.inputs, [key]: value });
   };
+
+  const updateVerification = useCallback(
+    (key: string, value: unknown) => {
+      const current = (cell.inputs.verification as Record<string, unknown>) || {};
+      const updated = { ...current, [key]: value };
+      // Remove verification entirely if expected is empty
+      if (key === "expected" && !value) {
+        const { verification: _, ...rest } = cell.inputs;
+        onInputsChange(rest);
+      } else {
+        onInputsChange({ ...cell.inputs, verification: updated });
+      }
+    },
+    [cell.inputs, onInputsChange],
+  );
 
   // Extract agent names from the array of agent objects
   const agentList: string[] = agents
@@ -190,6 +213,82 @@ export function LlmCell({ cell, notebookId, onInputsChange, onExecutionComplete 
         )}
       </div>
 
+      {/* Verification (collapsible) */}
+      <div>
+        <button
+          onClick={() => setShowVerification(!showVerification)}
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          {showVerification ? (
+            <ChevronDown className="w-3 h-3" />
+          ) : (
+            <ChevronRight className="w-3 h-3" />
+          )}
+          Verification (optional)
+        </button>
+        {showVerification && (
+          <div className="mt-2 space-y-2 p-3 rounded-md bg-muted/30 border border-border/50">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Expected Result</label>
+              <textarea
+                value={expectedResult}
+                onChange={(e) => updateVerification("expected", e.target.value)}
+                placeholder="Describe what the output should contain..."
+                rows={2}
+                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-y"
+                disabled={isExecuting}
+              />
+            </div>
+            <div className="flex gap-3">
+              <div className="flex-1">
+                <label className="text-xs font-medium text-muted-foreground">Max Retries</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={maxRetries}
+                  onChange={(e) => updateVerification("max_retries", Number(e.target.value))}
+                  className="mt-1 w-full h-8 rounded-md border border-input bg-background px-3 text-sm"
+                  disabled={isExecuting}
+                />
+              </div>
+              <div className="flex-1">
+                <label className="text-xs font-medium text-muted-foreground">Timeout (seconds)</label>
+                <input
+                  type="number"
+                  min={30}
+                  max={600}
+                  value={timeoutS}
+                  onChange={(e) => updateVerification("timeout_s", Number(e.target.value))}
+                  className="mt-1 w-full h-8 rounded-md border border-input bg-background px-3 text-sm"
+                  disabled={isExecuting}
+                />
+              </div>
+              <div className="flex-1">
+                <label className="text-xs font-medium text-muted-foreground">Verifier Agent</label>
+                <Select
+                  value={verifierAgent}
+                  onValueChange={(v) => updateVerification("verifier_agent", v)}
+                  disabled={isExecuting}
+                >
+                  <SelectTrigger className="mt-1 h-8 text-sm">
+                    <SelectValue placeholder="(default)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">(use default agent)</SelectItem>
+                    {agentList.map((a) => (
+                      <SelectItem key={a} value={a}>
+                        {a}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* Streaming output */}
       {isExecuting && (
         <div className="rounded-lg bg-muted/50 p-3">
@@ -208,7 +307,35 @@ export function LlmCell({ cell, notebookId, onInputsChange, onExecutionComplete 
 
       {/* Completed output */}
       {!isExecuting && (
-        <CellOutput outputs={cell.outputs} error={cell.error} status={cell.status} />
+        <>
+          <CellOutput outputs={cell.outputs} error={cell.error} status={cell.status} />
+          {/* Verification status */}
+          {cell.status === "completed" && cell.outputs._verification && (() => {
+            const v = cell.outputs._verification as Record<string, unknown>;
+            const passed = v.passed as boolean;
+            const attempt = String(v.attempt || "");
+            const max = String(v.max_retries || "");
+            const reason = String(v.reason || "");
+            return (
+              <div className="mt-2 flex items-center gap-1.5 text-xs">
+                {passed ? (
+                  <span className="text-emerald-600 font-medium">
+                    ✓ Verified (attempt {attempt}/{max})
+                  </span>
+                ) : (
+                  <span className="text-red-600 font-medium">
+                    ✗ Verification failed
+                  </span>
+                )}
+                {reason && (
+                  <span className="text-muted-foreground">
+                    — {reason}
+                  </span>
+                )}
+              </div>
+            );
+          })()}
+        </>
       )}
     </div>
   );
