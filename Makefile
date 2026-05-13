@@ -9,8 +9,13 @@ init: ## Init CLIver development dependencies
 
 ##@ Development
 
+.PHONY: admin-package
+admin-package: admin-build ## Build admin portal and copy to package
+	rm -rf src/cliver/gateway/admin_dist
+	cp -r admin/dist src/cliver/gateway/admin_dist
+
 .PHONY: build
-build: ## Build CLIver distribution packages
+build: admin-package ## Build CLIver distribution packages
 	uv build
 
 .PHONY: test

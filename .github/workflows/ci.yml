@@ -26,8 +26,18 @@ jobs:
         with:
           python-version: '3.13'
 
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
       - name: Install dependencies
         run: make init
+
+      - name: Install admin portal dependencies
+        run: cd admin && npm ci
+
+      - name: Build admin portal
+        run: make admin-build
 
       - name: Run code lint
         run: make lint
