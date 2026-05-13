@@ -28,33 +28,41 @@ def _make_admin_app(username="admin", password="secret"):
 
 
 class TestAdminAuth:
-    def test_admin_root_redirects_to_gateway(self):
+    def test_admin_root_serves_spa(self):
+        """Test that /admin now serves the React SPA instead of redirecting."""
         client = TestClient(_make_admin_app(), follow_redirects=False)
         resp = client.get("/admin", headers=_auth_header())
-        assert resp.status_code == 302
-        assert resp.headers["Location"] == "/admin/gateway"
+        assert resp.status_code == 200
+        # Either the SPA index.html or the 503 "portal not built" message
+        assert "<!doctype html>" in resp.text.lower() or "Admin portal not built" in resp.text
 
-    def test_admin_page_requires_auth(self):
+    def test_admin_page_serves_spa_without_auth(self):
+        """Test that unauthenticated users get the SPA (which handles login client-side)."""
         client = TestClient(_make_admin_app(), follow_redirects=False)
         resp = client.get("/admin/gateway")
-        assert resp.status_code == 302
-        assert "/admin/login" in resp.headers["Location"]
+        assert resp.status_code == 200
+        assert "<!doctype html>" in resp.text.lower() or "Admin portal not built" in resp.text
 
-    def test_admin_page_wrong_password(self):
+    def test_admin_api_requires_auth(self):
+        """Test that API routes require authentication."""
         client = TestClient(_make_admin_app(), follow_redirects=False)
-        resp = client.get("/admin/gateway", headers=_auth_header("admin", "wrong"))
-        assert resp.status_code == 302
+        resp = client.get("/admin/api/status")
+        assert resp.status_code == 401
 
     def test_admin_page_succeeds_with_correct_auth(self):
+        """Test that authenticated users get the SPA."""
         client = TestClient(_make_admin_app())
         resp = client.get("/admin/gateway", headers=_auth_header())
         assert resp.status_code == 200
-        assert "Admin Portal" in resp.text
+        # Check for React SPA or the 503 fallback
+        assert "<!doctype html>" in resp.text.lower() or "Admin portal not built" in resp.text
 
-    def test_admin_unknown_page_returns_404(self):
+    def test_admin_unknown_page_serves_spa(self):
+        """Test that unknown routes now serve the SPA (React Router handles 404s)."""
         client = TestClient(_make_admin_app())
         resp = client.get("/admin/nonexistent", headers=_auth_header())
-        assert resp.status_code == 404
+        assert resp.status_code == 200
+        assert "<!doctype html>" in resp.text.lower() or "Admin portal not built" in resp.text
 
     def test_api_status_requires_auth(self):
         client = TestClient(_make_admin_app())
@@ -70,9 +78,10 @@ class TestAdminAuth:
 
 
 class TestAdminDisabled:
-    def test_admin_disabled_returns_403(self):
+    def test_admin_disabled_api_returns_403(self):
+        """Test that when admin is disabled, API calls return 403."""
         client = TestClient(_make_admin_app(username=None, password=None))
-        resp = client.get("/admin/gateway")
+        resp = client.get("/admin/api/status")
         assert resp.status_code == 403
 
 

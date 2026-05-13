@@ -35,6 +35,30 @@ clean: ## Clean build artifacts
 	find . -type d -name __pycache__ -delete
 	find . -type f -name "*.pyc" -delete
 
+##@ Admin Portal
+
+.PHONY: admin-install
+admin-install: ## Install admin portal dependencies
+	cd admin && npm install
+
+.PHONY: admin-build
+admin-build: ## Build admin portal for production
+	cd admin && npm run build
+
+.PHONY: admin-dev
+admin-dev: ## Start admin portal dev server (hot reload)
+	cd admin && npm run dev
+
+.PHONY: gateway
+gateway: admin-build ## Build admin portal and start gateway
+	uv run cliver gateway start
+
+.PHONY: gateway-dev
+gateway-dev: ## Start gateway with admin portal dev proxy (hot reload)
+	@echo "Start admin dev server: make admin-dev (in another terminal)"
+	@echo "Then start gateway: uv run cliver gateway start"
+	@echo "Access admin at http://localhost:5173/admin/ (Vite dev server proxies API to gateway)"
+
 ##@ Documentation
 
 .PHONY: docs-build

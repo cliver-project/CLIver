@@ -503,13 +503,42 @@ def get_admin_routes(
 
         return wrapper
 
-    # --- Route handlers (closures capturing context) ---
+    # --- SPA static file serving ---
 
-    async def handle_login_page(request: Request):
-        if _check_session_cookie(request, username, session_secret):
-            return RedirectResponse("/admin/gateway", status_code=302)
-        html = _render_login_page(context)
-        return HTMLResponse(html)
+    spa_dist_dir = Path(__file__).parent.parent.parent.parent / "admin" / "dist"
+    # Also check if dist was installed as package data
+    if not spa_dist_dir.exists():
+        spa_dist_dir = Path(__file__).parent / "admin_dist"
+
+    async def handle_spa(request: Request):
+        """Serve React SPA index.html for all /admin/* routes."""
+        index_path = spa_dist_dir / "index.html"
+        if not index_path.exists():
+            return HTMLResponse(
+                "<h1>Admin portal not built</h1><p>Run <code>make admin-build</code> to build the admin portal.</p>",
+                status_code=503,
+            )
+        return HTMLResponse(index_path.read_text(encoding="utf-8"))
+
+    async def handle_spa_assets(request: Request):
+        """Serve static assets from admin/dist/."""
+        import mimetypes
+
+        file_path = request.path_params.get("path", "")
+        full_path = (spa_dist_dir / file_path).resolve()
+        # Security: ensure path is within dist dir
+        if not str(full_path).startswith(str(spa_dist_dir.resolve())):
+            return Response("Forbidden", status_code=403)
+        if not full_path.exists() or not full_path.is_file():
+            return Response("Not found", status_code=404)
+        content_type = mimetypes.guess_type(str(full_path))[0] or "application/octet-stream"
+        return Response(
+            full_path.read_bytes(),
+            media_type=content_type,
+            headers={"Cache-Control": "public, max-age=31536000"} if "/assets/" in file_path else {},
+        )
+
+    # --- Route handlers (closures capturing context) ---
 
     async def handle_login_submit(request: Request):
         try:
@@ -529,32 +558,6 @@ def get_admin_routes(
         resp = RedirectResponse("/admin/login", status_code=302)
         resp.delete_cookie("cliver_session", path="/admin")
         return resp
-
-    @require_auth
-    async def handle_admin_root(request: Request):
-        return RedirectResponse("/admin/gateway", status_code=302)
-
-    @require_auth
-    async def handle_admin_page(request: Request):
-        page = request.path_params["page"]
-        if page == "login":
-            return await handle_login_page(request)
-        html = _render_page(page, context)
-        if html is None:
-            return Response("Page not found", status_code=404)
-        return HTMLResponse(html)
-
-    @require_auth
-    async def handle_task_detail_page(request: Request):
-        name = request.path_params["name"]
-        html = _render_page(
-            "task_detail",
-            context,
-            extra_replacements={"{{ITEM_NAME}}": name},
-        )
-        if html is None:
-            return Response("Page not found", status_code=404)
-        return HTMLResponse(html)
 
     @require_auth
     async def handle_status(request: Request):
@@ -715,15 +718,6 @@ def get_admin_routes(
             return JSONResponse({"error": "Permission denied", "path": str(target)}, status_code=403)
 
         return JSONResponse({"path": str(target), "items": items})
-
-    async def handle_static(request: Request):
-        file_path = request.path_params["path"]
-        static_dir = Path(__file__).parent / "static"
-        full_path = static_dir / file_path
-        if not full_path.exists() or not full_path.is_file():
-            return Response("Not found", status_code=404)
-        content_type = "application/javascript" if file_path.endswith(".js") else "text/plain"
-        return Response(full_path.read_bytes(), media_type=content_type)
 
     @require_auth
     async def handle_skills(request: Request):
@@ -959,17 +953,10 @@ def get_admin_routes(
     # --- Return routes ---
 
     return [
-        # Root redirect
-        Route("/admin", handle_admin_root),
-        Route("/admin/", handle_admin_root),
-        Route("/admin/login", handle_login_page),
+        # Auth routes
         Route("/admin/api/login", handle_login_submit, methods=["POST"]),
         Route("/admin/logout", handle_logout),
-        # Detail page routes (before catch-all)
-        Route("/admin/tasks/{name}", handle_task_detail_page),
-        # Catch-all section route
-        Route("/admin/{page}", handle_admin_page),
-        # API routes
+        # API routes (MUST come before SPA catch-all)
         Route("/admin/api/status", handle_status),
         Route("/admin/api/tasks", handle_tasks),
         Route("/admin/api/tasks/{name}", handle_task_detail_api),
@@ -979,7 +966,6 @@ def get_admin_routes(
         Route("/admin/api/sessions/{source}/{id}", handle_session_turns),
         Route("/admin/api/sessions/{source}/{id}", handle_delete_session, methods=["DELETE"]),
         Route("/admin/api/browse", handle_browse_files),
-        Route("/admin/static/{path:path}", handle_static),
         Route("/admin/api/skills", handle_skills),
         Route("/admin/api/adapters", handle_adapters),
         Route("/admin/api/agent", handle_agent),
@@ -989,4 +975,10 @@ def get_admin_routes(
         Route("/admin/api/keys", handle_keys_list),
         Route("/admin/api/keys", handle_keys_create, methods=["POST"]),
         Route("/admin/api/keys/{name}", handle_keys_delete, methods=["DELETE"]),
+        # SPA assets (must be before catch-all)
+        Route("/admin/assets/{path:path}", handle_spa_assets),
+        # SPA catch-all (all /admin/* pages served by React Router)
+        Route("/admin/{path:path}", handle_spa),
+        Route("/admin", handle_spa),
+        Route("/admin/", handle_spa),
     ]

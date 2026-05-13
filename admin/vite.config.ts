@@ -20,6 +20,7 @@ export default defineConfig({
     proxy: {
       "/admin/api": "http://localhost:8321",
       "/admin/static": "http://localhost:8321",
+      "/admin/ws": { target: "ws://localhost:8321", ws: true },
     },
   },
 });
