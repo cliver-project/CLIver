@@ -17,8 +17,10 @@
   },
   "sidebar": {
     "dashboard": "Dashboard",
-    "section.workspace": "Workspace",
-    "section.system": "System",
+    "section": {
+      "workspace": "Workspace",
+      "system": "System"
+    },
     "notebooks": "Notebooks",
     "projects": "Projects",
     "tasks": "Tasks",

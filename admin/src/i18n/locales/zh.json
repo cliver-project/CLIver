@@ -17,8 +17,10 @@
   },
   "sidebar": {
     "dashboard": "仪表盘",
-    "section.workspace": "工作区",
-    "section.system": "系统",
+    "section": {
+      "workspace": "工作区",
+      "system": "系统"
+    },
     "notebooks": "笔记本",
     "projects": "项目",
     "tasks": "任务",
