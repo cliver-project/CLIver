@@ -16,6 +16,7 @@
     "running": "运行中..."
   },
   "sidebar": {
+    "dashboard": "仪表盘",
     "section.workspace": "工作区",
     "section.system": "系统",
     "notebooks": "笔记本",

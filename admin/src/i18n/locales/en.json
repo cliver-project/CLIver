@@ -16,6 +16,7 @@
     "running": "Running..."
   },
   "sidebar": {
+    "dashboard": "Dashboard",
     "section.workspace": "Workspace",
     "section.system": "System",
     "notebooks": "Notebooks",
