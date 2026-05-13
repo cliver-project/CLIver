@@ -185,6 +185,55 @@ class Gateway:
                 "gateway": self,
                 "cli_session_manager": cli_sm,
             }
+            # Notebook and project API routes BEFORE admin SPA catch-all
+            try:
+                if self._notebook_store and self._agent_factory:
+                    import functools
+                    import secrets as _secrets
+
+                    from cliver.gateway.admin import _check_basic_auth, _check_session_cookie
+                    from cliver.gateway.routes_notebook import get_notebook_routes
+                    from cliver.gateway.routes_project import get_project_routes
+
+                    def make_require_auth(uname, passwd, secret):
+                        def require_auth(handler):
+                            @functools.wraps(handler)
+                            async def wrapper(request):
+                                if uname is None or passwd is None:
+                                    return JSONResponse({"error": "Disabled"}, status_code=403)
+                                if _check_session_cookie(request, uname, secret):
+                                    return await handler(request)
+                                if _check_basic_auth(request, uname, passwd):
+                                    return await handler(request)
+                                return JSONResponse({"error": "Unauthorized"}, status_code=401)
+
+                            return wrapper
+
+                        return require_auth
+
+                    auth_fn = make_require_auth(admin_user, admin_pass, _secrets.token_hex(32))
+
+                    routes.extend(
+                        get_notebook_routes(
+                            self._notebook_store,
+                            self._runtime_manager,
+                            self._agent_factory,
+                            auth_fn,
+                        )
+                    )
+                    routes.extend(
+                        get_project_routes(
+                            self._project_provider,
+                            self._scenario_registry,
+                            self._notebook_store,
+                            auth_fn,
+                        )
+                    )
+                    logger.info("Notebook and project routes registered")
+            except Exception as e:
+                logger.error(f"Failed to register notebook/project routes: {e}")
+
+            # Admin SPA routes (catch-all MUST be last)
             routes.extend(get_admin_routes(username=admin_user, password=admin_pass, context=admin_ctx))
             if admin_user and admin_pass:
                 logger.info("Admin portal enabled at /admin")
@@ -192,54 +241,6 @@ class Gateway:
                 logger.info("Admin portal disabled (no credentials configured)")
         except Exception as e:
             logger.error(f"Failed to build admin routes: {e}")
-
-        # Notebook and project routes
-        try:
-            if self._notebook_store and self._agent_factory:
-                import functools
-                import secrets
-
-                from cliver.gateway.admin import _check_basic_auth, _check_session_cookie
-                from cliver.gateway.routes_notebook import get_notebook_routes
-                from cliver.gateway.routes_project import get_project_routes
-
-                def make_require_auth(uname, passwd, secret):
-                    def require_auth(handler):
-                        @functools.wraps(handler)
-                        async def wrapper(request):
-                            if uname is None or passwd is None:
-                                return JSONResponse({"error": "Disabled"}, status_code=403)
-                            if _check_session_cookie(request, uname, secret):
-                                return await handler(request)
-                            if _check_basic_auth(request, uname, passwd):
-                                return await handler(request)
-                            return JSONResponse({"error": "Unauthorized"}, status_code=401)
-
-                        return wrapper
-
-                    return require_auth
-
-                auth_fn = make_require_auth(admin_user, admin_pass, secrets.token_hex(32))
-
-                routes.extend(
-                    get_notebook_routes(
-                        self._notebook_store,
-                        self._runtime_manager,
-                        self._agent_factory,
-                        auth_fn,
-                    )
-                )
-                routes.extend(
-                    get_project_routes(
-                        self._project_provider,
-                        self._scenario_registry,
-                        self._notebook_store,
-                        auth_fn,
-                    )
-                )
-                logger.info("Notebook and project routes registered")
-        except Exception as e:
-            logger.error(f"Failed to register notebook/project routes: {e}")
 
         return routes
 
@@ -295,7 +296,10 @@ class Gateway:
 
             builtin_scenarios = Path(__file__).parent.parent / "scenarios"
             user_scenarios = profile.config_dir / "scenarios"
-            self._scenario_registry = ScenarioRegistry([d for d in [builtin_scenarios, user_scenarios] if d.exists()])
+            dirs = [d for d in [builtin_scenarios, user_scenarios] if d.exists()]
+            self._scenario_registry = ScenarioRegistry(dirs)
+            if builtin_scenarios.exists():
+                self._scenario_registry.set_builtin_dir(builtin_scenarios)
             logger.info("Notebook and project stores initialized")
         except Exception as e:
             logger.error(f"Failed to initialize notebook/project stores: {e}")
