@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 
 class VerificationError(Exception):
     """Raised when LLM cell output fails verification after all retries."""
+
     pass
 
 
@@ -70,9 +71,7 @@ class CellExecutor:
 
         for attempt in range(1, max_retries + 1):
             try:
-                result = await asyncio.wait_for(
-                    agent.run(prompt), timeout=timeout_s
-                )
+                result = await asyncio.wait_for(agent.run(prompt), timeout=timeout_s)
             except asyncio.TimeoutError:
                 raise VerificationError(
                     f"LLM execution timed out after {timeout_s}s (attempt {attempt}/{max_retries})"
@@ -91,9 +90,7 @@ class CellExecutor:
             )
 
             try:
-                verify_result = await asyncio.wait_for(
-                    verifier.run(verify_prompt), timeout=60
-                )
+                verify_result = await asyncio.wait_for(verifier.run(verify_prompt), timeout=60)
                 verdict = self._parse_verdict(verify_result.text)
             except asyncio.TimeoutError:
                 verdict = {"pass": False, "reason": "Verification timed out"}
@@ -112,7 +109,10 @@ class CellExecutor:
             last_reason = verdict.get("reason", "Output did not match expectations")
             logger.info(
                 "Cell '%s' verification failed (attempt %d/%d): %s",
-                cell.id, attempt, max_retries, last_reason,
+                cell.id,
+                attempt,
+                max_retries,
+                last_reason,
             )
 
             # Retry with feedback
@@ -122,17 +122,14 @@ class CellExecutor:
                 f"Please try again and ensure the output matches: {expected}]"
             )
 
-        raise VerificationError(
-            f"Verification failed after {max_retries} attempts. Last reason: {last_reason}"
-        )
+        raise VerificationError(f"Verification failed after {max_retries} attempts. Last reason: {last_reason}")
 
     def _build_llm_outputs(self, result, cell: "Cell") -> Dict[str, Any]:
         """Build outputs dict from an AgentResult."""
         outputs: Dict[str, Any] = {"text": result.text}
         if result.artifacts:
             outputs["artifacts"] = [
-                {"path": a.path, "media_type": a.media_type, "size": a.size}
-                for a in result.artifacts
+                {"path": a.path, "media_type": a.media_type, "size": a.size} for a in result.artifacts
             ]
         if cell.inputs.get("output_format") == "json":
             try:
@@ -150,6 +147,7 @@ class CellExecutor:
             # Handle markdown code blocks
             if "```" in text:
                 import re
+
                 match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
                 if match:
                     text = match.group(1)

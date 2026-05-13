@@ -200,11 +200,12 @@ async def test_execute_unknown_type():
 
 # --- LLM Cell Verification ---
 
+
 @pytest.mark.asyncio
 async def test_execute_llm_no_verification():
     """LLM cell without verification works as before."""
-    from cliver.notebook.executor import CellExecutor
     from cliver.agent import AgentResult
+    from cliver.notebook.executor import CellExecutor
 
     mock_agent = AsyncMock()
     mock_agent.run = AsyncMock(return_value=AgentResult(text="Hello", status="completed"))
@@ -213,8 +214,7 @@ async def test_execute_llm_no_verification():
     runtime = _make_runtime()
     runtime.agent_factory.create = MagicMock(return_value=mock_agent)
 
-    cell = Cell(id="test", type="llm", title="Test",
-                inputs={"prompt": "say hello"})
+    cell = Cell(id="test", type="llm", title="Test", inputs={"prompt": "say hello"})
     executor = CellExecutor()
     result = await executor.execute(cell, runtime)
     assert result["text"] == "Hello"
@@ -223,34 +223,36 @@ async def test_execute_llm_no_verification():
 
 @pytest.mark.asyncio
 async def test_execute_llm_verification_pass_first_attempt():
-    from cliver.notebook.executor import CellExecutor
     from cliver.agent import AgentResult
+    from cliver.notebook.executor import CellExecutor
 
     mock_agent = AsyncMock()
     mock_agent.run = AsyncMock(return_value=AgentResult(text="5 papers found", status="completed"))
     mock_agent.initialize = AsyncMock()
 
     mock_verifier = AsyncMock()
-    mock_verifier.run = AsyncMock(return_value=AgentResult(
-        text='{"pass": true, "reason": "Contains 5 papers"}', status="completed"
-    ))
+    mock_verifier.run = AsyncMock(
+        return_value=AgentResult(text='{"pass": true, "reason": "Contains 5 papers"}', status="completed")
+    )
     mock_verifier.initialize = AsyncMock()
 
     runtime = _make_runtime()
-    agents = {"default": mock_agent, "verifier": mock_verifier}
     call_count = [0]
+
     def create_agent(name=None):
         call_count[0] += 1
         if call_count[0] <= 1:
             return mock_agent
         return mock_verifier
+
     runtime.agent_factory.create = create_agent
 
-    cell = Cell(id="test", type="llm", title="Test",
-                inputs={
-                    "prompt": "find papers",
-                    "verification": {"expected": "At least 5 papers", "max_retries": 3}
-                })
+    cell = Cell(
+        id="test",
+        type="llm",
+        title="Test",
+        inputs={"prompt": "find papers", "verification": {"expected": "At least 5 papers", "max_retries": 3}},
+    )
     executor = CellExecutor()
     result = await executor.execute(cell, runtime)
     assert result["text"] == "5 papers found"
@@ -260,8 +262,8 @@ async def test_execute_llm_verification_pass_first_attempt():
 
 @pytest.mark.asyncio
 async def test_execute_llm_verification_pass_on_retry():
-    from cliver.notebook.executor import CellExecutor
     from cliver.agent import AgentResult
+    from cliver.notebook.executor import CellExecutor
 
     call_count = [0]
 
@@ -276,6 +278,7 @@ async def test_execute_llm_verification_pass_on_retry():
     mock_agent.initialize = AsyncMock()
 
     verify_count = [0]
+
     async def mock_verify(prompt, **kwargs):
         verify_count[0] += 1
         if verify_count[0] == 1:
@@ -288,18 +291,21 @@ async def test_execute_llm_verification_pass_on_retry():
 
     runtime = _make_runtime()
     agent_idx = [0]
+
     def create_agent(name=None):
         agent_idx[0] += 1
         if agent_idx[0] <= 1:
             return mock_agent
         return mock_verifier
+
     runtime.agent_factory.create = create_agent
 
-    cell = Cell(id="test", type="llm", title="Test",
-                inputs={
-                    "prompt": "find papers",
-                    "verification": {"expected": "At least 5 papers", "max_retries": 3}
-                })
+    cell = Cell(
+        id="test",
+        type="llm",
+        title="Test",
+        inputs={"prompt": "find papers", "verification": {"expected": "At least 5 papers", "max_retries": 3}},
+    )
     executor = CellExecutor()
     result = await executor.execute(cell, runtime)
     assert result["_verification"]["passed"] is True
@@ -308,33 +314,36 @@ async def test_execute_llm_verification_pass_on_retry():
 
 @pytest.mark.asyncio
 async def test_execute_llm_verification_fail_all_retries():
-    from cliver.notebook.executor import CellExecutor, VerificationError
     from cliver.agent import AgentResult
+    from cliver.notebook.executor import CellExecutor, VerificationError
 
     mock_agent = AsyncMock()
     mock_agent.run = AsyncMock(return_value=AgentResult(text="bad output", status="completed"))
     mock_agent.initialize = AsyncMock()
 
     mock_verifier = AsyncMock()
-    mock_verifier.run = AsyncMock(return_value=AgentResult(
-        text='{"pass": false, "reason": "Wrong format"}', status="completed"
-    ))
+    mock_verifier.run = AsyncMock(
+        return_value=AgentResult(text='{"pass": false, "reason": "Wrong format"}', status="completed")
+    )
     mock_verifier.initialize = AsyncMock()
 
     runtime = _make_runtime()
     idx = [0]
+
     def create_agent(name=None):
         idx[0] += 1
         if idx[0] <= 1:
             return mock_agent
         return mock_verifier
+
     runtime.agent_factory.create = create_agent
 
-    cell = Cell(id="test", type="llm", title="Test",
-                inputs={
-                    "prompt": "do something",
-                    "verification": {"expected": "Good output", "max_retries": 2}
-                })
+    cell = Cell(
+        id="test",
+        type="llm",
+        title="Test",
+        inputs={"prompt": "do something", "verification": {"expected": "Good output", "max_retries": 2}},
+    )
     executor = CellExecutor()
     with pytest.raises(VerificationError, match="failed after 2 attempts"):
         await executor.execute(cell, runtime)
