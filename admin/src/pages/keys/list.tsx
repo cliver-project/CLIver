@@ -22,8 +22,10 @@ import {
 } from "@/components/ui/table";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Plus, Trash2 } from "lucide-react";
+import { useTranslation } from "@/i18n";
 
 export default function KeysList() {
+  const { t } = useTranslation();
   const { data: keys, isLoading } = useKeys();
   const createKey = useCreateKey();
   const deleteKey = useDeleteKey();
@@ -50,20 +52,20 @@ export default function KeysList() {
 
   return (
     <PageLayout
-      title="Keys"
+      title={t("keys.title")}
       actions={
         <Button size="sm" onClick={() => setShowAdd(true)}>
           <Plus className="w-4 h-4 mr-1.5" />
-          Add Key
+          {t("keys.addKey")}
         </Button>
       }
     >
       {isLoading ? (
-        <p className="text-sm text-muted-foreground">Loading...</p>
+        <p className="text-sm text-muted-foreground">{t("common.loading")}</p>
       ) : !keys || keys.length === 0 ? (
         <div className="text-center py-12">
           <p className="text-sm text-muted-foreground">
-            No keys stored. Click "Add Key" to create one.
+            {t("keys.noKeys")}
           </p>
         </div>
       ) : (
@@ -71,9 +73,9 @@ export default function KeysList() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Description</TableHead>
-                <TableHead>Created</TableHead>
+                <TableHead>{t("keys.name")}</TableHead>
+                <TableHead>{t("keys.description")}</TableHead>
+                <TableHead>{t("keys.created")}</TableHead>
                 <TableHead className="w-[60px]"></TableHead>
               </TableRow>
             </TableHeader>
@@ -103,45 +105,45 @@ export default function KeysList() {
       <Dialog open={showAdd} onOpenChange={setShowAdd}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add Key</DialogTitle>
+            <DialogTitle>{t("keys.addTitle")}</DialogTitle>
             <DialogDescription>
-              Store an encrypted secret (API key, token, password).
+              {t("keys.addDesc")}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
             <div>
-              <Label htmlFor="key-name">Name</Label>
+              <Label htmlFor="key-name">{t("keys.nameLabel")}</Label>
               <Input
                 id="key-name"
-                placeholder="e.g. openai_key"
+                placeholder={t("keys.namePlaceholder")}
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
               />
             </div>
             <div>
-              <Label htmlFor="key-value">Value</Label>
+              <Label htmlFor="key-value">{t("keys.valueLabel")}</Label>
               <Input
                 id="key-value"
                 type="password"
-                placeholder="Enter secret value"
+                placeholder={t("keys.valuePlaceholder")}
                 value={form.value}
                 onChange={(e) => setForm({ ...form, value: e.target.value })}
               />
             </div>
             <div>
-              <Label htmlFor="key-desc">Description (optional)</Label>
+              <Label htmlFor="key-desc">{t("keys.descLabel")}</Label>
               <Input
                 id="key-desc"
-                placeholder="e.g. OpenAI API key for research"
+                placeholder={t("keys.descPlaceholder")}
                 value={form.description}
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAdd(false)}>Cancel</Button>
+            <Button variant="outline" onClick={() => setShowAdd(false)}>{t("common.cancel")}</Button>
             <Button onClick={handleAdd} disabled={!form.name.trim() || !form.value.trim()}>
-              Save Key
+              {t("keys.saveKey")}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -149,8 +151,8 @@ export default function KeysList() {
 
       <ConfirmDialog
         open={!!deleteTarget}
-        title="Delete Key"
-        description={`Are you sure you want to delete "${deleteTarget}"? This cannot be undone.`}
+        title={t("keys.deleteTitle")}
+        description={t("keys.deleteDesc", { name: deleteTarget || "" })}
         onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}
         destructive={true}

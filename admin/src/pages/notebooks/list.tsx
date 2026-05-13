@@ -18,8 +18,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CellStatusBadge } from "@/components/notebook/CellStatusBadge";
 import { Plus, Book, Trash2 } from "lucide-react";
 import type { NotebookSummary } from "@/hooks/use-notebook";
+import { useTranslation } from "@/i18n";
 
 export default function NotebooksList() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { data: notebooks, isLoading } = useNotebooks();
   const createNotebook = useCreateNotebook();
@@ -51,28 +53,28 @@ export default function NotebooksList() {
 
   return (
     <PageLayout
-      title="Notebooks"
+      title={t("notebooks.title")}
       actions={
         <Button size="sm" onClick={() => setShowCreate(true)}>
           <Plus className="w-4 h-4 mr-1.5" />
-          New Notebook
+          {t("notebooks.newNotebook")}
         </Button>
       }
     >
       {isLoading ? (
-        <div className="text-sm text-muted-foreground">Loading...</div>
+        <div className="text-sm text-muted-foreground">{t("common.loading")}</div>
       ) : !notebooks || notebooks.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <div className="w-16 h-16 rounded-2xl bg-accent flex items-center justify-center mb-4">
             <Book className="w-8 h-8 text-primary" />
           </div>
-          <h2 className="text-lg font-semibold text-foreground mb-2">No Notebooks Yet</h2>
+          <h2 className="text-lg font-semibold text-foreground mb-2">{t("notebooks.noNotebooks")}</h2>
           <p className="text-sm text-muted-foreground max-w-md mb-4">
-            Create your first notebook to start building AI workflows.
+            {t("notebooks.noNotebooksDesc")}
           </p>
           <Button onClick={() => setShowCreate(true)}>
             <Plus className="w-4 h-4 mr-1.5" />
-            Create Notebook
+            {t("notebooks.createNotebook")}
           </Button>
         </div>
       ) : (
@@ -105,7 +107,7 @@ export default function NotebooksList() {
                   <p className="text-xs text-muted-foreground mb-2 line-clamp-2">{nb.description}</p>
                 )}
                 <div className="text-[11px] text-muted-foreground">
-                  {nb.cell_count} cells · Updated {new Date(nb.updated_at).toLocaleDateString()}
+                  {t("notebooks.cells", { count: nb.cell_count })} · {t("notebooks.updated", { date: new Date(nb.updated_at).toLocaleDateString() })}
                 </div>
               </CardContent>
             </Card>
@@ -117,32 +119,32 @@ export default function NotebooksList() {
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>New Notebook</DialogTitle>
-            <DialogDescription>Create a new notebook to start building an AI workflow.</DialogDescription>
+            <DialogTitle>{t("notebooks.createTitle")}</DialogTitle>
+            <DialogDescription>{t("notebooks.createDesc")}</DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
             <div>
-              <Label htmlFor="nb-title">Title</Label>
+              <Label htmlFor="nb-title">{t("notebooks.titleLabel")}</Label>
               <Input
                 id="nb-title"
-                placeholder="e.g. Research Paper Analysis"
+                placeholder={t("notebooks.titlePlaceholder")}
                 value={form.title}
                 onChange={(e) => setForm({ ...form, title: e.target.value })}
               />
             </div>
             <div>
-              <Label htmlFor="nb-desc">Description (optional)</Label>
+              <Label htmlFor="nb-desc">{t("notebooks.descLabel")}</Label>
               <Input
                 id="nb-desc"
-                placeholder="Brief description of this notebook"
+                placeholder={t("notebooks.descPlaceholder")}
                 value={form.description}
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
-            <Button onClick={handleCreate} disabled={!form.title.trim()}>Create</Button>
+            <Button variant="outline" onClick={() => setShowCreate(false)}>{t("common.cancel")}</Button>
+            <Button onClick={handleCreate} disabled={!form.title.trim()}>{t("notebooks.createNotebook")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -150,8 +152,8 @@ export default function NotebooksList() {
       {/* Delete Confirmation */}
       <ConfirmDialog
         open={!!deleteTarget}
-        title="Delete Notebook"
-        description="Are you sure? This will permanently delete the notebook and all its cells."
+        title={t("notebooks.deleteTitle")}
+        description={t("notebooks.deleteDesc")}
         onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}
         destructive={true}

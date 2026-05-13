@@ -1,33 +1,34 @@
 import { useState } from "react";
 import { Settings, Bot, Code2, FileText, Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "@/i18n";
 
 const CELL_TYPES = [
   {
     type: "config",
-    label: "Config",
-    description: "Form inputs for configuration",
+    labelKey: "notebook.config",
+    descKey: "notebook.configDesc",
     icon: Settings,
     color: "text-indigo-600",
   },
   {
     type: "llm",
-    label: "LLM",
-    description: "AI agent prompt and response",
+    labelKey: "notebook.llm",
+    descKey: "notebook.llmDesc",
     icon: Bot,
     color: "text-purple-600",
   },
   {
     type: "code",
-    label: "Code",
-    description: "Python code execution",
+    labelKey: "notebook.code",
+    descKey: "notebook.codeDesc",
     icon: Code2,
     color: "text-emerald-600",
   },
   {
     type: "display",
-    label: "Display",
-    description: "Markdown or HTML content",
+    labelKey: "notebook.display",
+    descKey: "notebook.displayDesc",
     icon: FileText,
     color: "text-amber-600",
   },
@@ -39,6 +40,7 @@ interface AddCellButtonProps {
 
 export function AddCellButton({ onAdd }: AddCellButtonProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const { t } = useTranslation();
 
   return (
     <div className="relative">
@@ -48,11 +50,11 @@ export function AddCellButton({ onAdd }: AddCellButtonProps) {
           className="w-full border border-dashed border-border rounded-lg py-3 text-sm text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors flex items-center justify-center gap-2"
         >
           <Plus className="w-4 h-4" />
-          Add Cell
+          {t("notebook.addCell")}
         </button>
       ) : (
         <div className="border border-border rounded-lg p-2 bg-card shadow-sm">
-          <div className="text-xs font-medium text-muted-foreground px-2 mb-1">Choose cell type</div>
+          <div className="text-xs font-medium text-muted-foreground px-2 mb-1">{t("notebook.chooseCellType")}</div>
           <div className="grid grid-cols-2 gap-1">
             {CELL_TYPES.map((ct) => (
               <button
@@ -65,8 +67,8 @@ export function AddCellButton({ onAdd }: AddCellButtonProps) {
               >
                 <ct.icon className={cn("w-4 h-4 mt-0.5 shrink-0", ct.color)} />
                 <div>
-                  <div className="text-sm font-medium">{ct.label}</div>
-                  <div className="text-[11px] text-muted-foreground">{ct.description}</div>
+                  <div className="text-sm font-medium">{t(ct.labelKey)}</div>
+                  <div className="text-[11px] text-muted-foreground">{t(ct.descKey)}</div>
                 </div>
               </button>
             ))}
@@ -75,7 +77,7 @@ export function AddCellButton({ onAdd }: AddCellButtonProps) {
             onClick={() => setIsOpen(false)}
             className="w-full mt-1 text-xs text-muted-foreground hover:text-foreground text-center py-1"
           >
-            Cancel
+            {t("notebook.cancel")}
           </button>
         </div>
       )}

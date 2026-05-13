@@ -75,7 +75,7 @@ export function Sidebar() {
           {t("sidebar.dashboard")}
         </NavLink>
 
-        {navSections.map((section, idx) => (
+        {navSections.map((section) => (
           <div key={section.titleKey}>
             {/* Divider */}
             <div className="my-3 mx-1 border-t border-border" />

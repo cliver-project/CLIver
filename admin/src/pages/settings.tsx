@@ -11,8 +11,10 @@ import { Label } from "@/components/ui/label";
 import { Plus, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
+import { useTranslation } from "@/i18n";
 
 export default function SettingsPage() {
+  const { t } = useTranslation();
   const { data: config } = useConfig();
   const { data: adapters } = useAdapters();
   const { data: scenarios } = useScenarios();
@@ -45,20 +47,20 @@ export default function SettingsPage() {
   };
 
   return (
-    <PageLayout title="Settings">
+    <PageLayout title={t("settings.title")}>
       <Tabs defaultValue="config">
         <TabsList>
-          <TabsTrigger value="config">Configuration</TabsTrigger>
-          <TabsTrigger value="agents">Agents</TabsTrigger>
-          <TabsTrigger value="adapters">Adapters</TabsTrigger>
-          <TabsTrigger value="scenarios">Scenarios</TabsTrigger>
+          <TabsTrigger value="config">{t("settings.configuration")}</TabsTrigger>
+          <TabsTrigger value="agents">{t("settings.agents")}</TabsTrigger>
+          <TabsTrigger value="adapters">{t("settings.adapters")}</TabsTrigger>
+          <TabsTrigger value="scenarios">{t("settings.scenarios")}</TabsTrigger>
         </TabsList>
 
         <TabsContent value="config" className="mt-4">
           {config && (
             <Card>
               <CardHeader>
-                <CardTitle className="text-sm">Configuration</CardTitle>
+                <CardTitle className="text-sm">{t("settings.configuration")}</CardTitle>
               </CardHeader>
               <CardContent>
                 <pre className="text-xs bg-muted p-3 rounded-md overflow-auto max-h-96">
@@ -80,13 +82,13 @@ export default function SettingsPage() {
                     </CardHeader>
                     <CardContent>
                       <div className="grid grid-cols-2 gap-2 text-sm">
-                        <div className="text-muted-foreground">Type</div>
+                        <div className="text-muted-foreground">{t("settings.type")}</div>
                         <div>{String(agent.type || "cliver")}</div>
-                        <div className="text-muted-foreground">Model</div>
+                        <div className="text-muted-foreground">{t("settings.model")}</div>
                         <div>{String(agent.model || "default")}</div>
                         {agent.role != null && (
                           <>
-                            <div className="text-muted-foreground">Role</div>
+                            <div className="text-muted-foreground">{t("settings.role")}</div>
                             <div>{String(agent.role)}</div>
                           </>
                         )}
@@ -96,7 +98,7 @@ export default function SettingsPage() {
                 ),
               )
             ) : (
-              <p className="text-sm text-muted-foreground">No agents configured.</p>
+              <p className="text-sm text-muted-foreground">{t("settings.noAgents")}</p>
             )}
           </div>
         </TabsContent>
@@ -117,13 +119,13 @@ export default function SettingsPage() {
                       </div>
                     </CardHeader>
                     <CardContent>
-                      <p className="text-xs text-muted-foreground">Type: {type}</p>
+                      <p className="text-xs text-muted-foreground">{t("settings.type")}: {type}</p>
                     </CardContent>
                   </Card>
                 );
               })
             ) : (
-              <p className="text-sm text-muted-foreground">No adapters configured.</p>
+              <p className="text-sm text-muted-foreground">{t("settings.noAdapters")}</p>
             )}
           </div>
         </TabsContent>
@@ -131,11 +133,11 @@ export default function SettingsPage() {
         <TabsContent value="scenarios" className="mt-4">
           <div className="flex items-center justify-between mb-4">
             <div className="text-sm text-muted-foreground">
-              {scenarios ? `${(scenarios as unknown[]).length} scenarios installed` : "Loading..."}
+              {scenarios ? t("settings.scenariosInstalled", { count: (scenarios as unknown[]).length }) : t("common.loading")}
             </div>
             <Button size="sm" onClick={() => setShowInstall(true)}>
               <Plus className="w-4 h-4 mr-1.5" />
-              Install from GitHub
+              {t("settings.installFromGithub")}
             </Button>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -178,30 +180,30 @@ export default function SettingsPage() {
                 </Card>
               ))
             ) : (
-              <p className="text-sm text-muted-foreground">No scenarios installed.</p>
+              <p className="text-sm text-muted-foreground">{t("settings.noScenarios")}</p>
             )}
           </div>
 
           <Dialog open={showInstall} onOpenChange={setShowInstall}>
             <DialogContent>
               <DialogHeader>
-                <DialogTitle>Install Scenario</DialogTitle>
-                <DialogDescription>Install a scenario template from a GitHub repository.</DialogDescription>
+                <DialogTitle>{t("settings.installTitle")}</DialogTitle>
+                <DialogDescription>{t("settings.installDesc")}</DialogDescription>
               </DialogHeader>
               <div className="py-2">
-                <Label htmlFor="scenario-source">GitHub Source</Label>
+                <Label htmlFor="scenario-source">{t("settings.githubSource")}</Label>
                 <Input
                   id="scenario-source"
-                  placeholder="github:user/repo"
+                  placeholder={t("settings.githubPlaceholder")}
                   value={installSource}
                   onChange={(e) => setInstallSource(e.target.value)}
                 />
-                <p className="text-xs text-muted-foreground mt-1">Example: github:alice/research-ai-lab</p>
+                <p className="text-xs text-muted-foreground mt-1">{t("settings.githubExample")}</p>
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setShowInstall(false)}>Cancel</Button>
+                <Button variant="outline" onClick={() => setShowInstall(false)}>{t("common.cancel")}</Button>
                 <Button onClick={handleInstall} disabled={!installSource.trim() || installScenario.isPending}>
-                  {installScenario.isPending ? "Installing..." : "Install"}
+                  {installScenario.isPending ? t("settings.installing") : t("settings.install")}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -209,8 +211,8 @@ export default function SettingsPage() {
 
           <ConfirmDialog
             open={!!removeTarget}
-            title="Remove Scenario"
-            description={`Remove scenario "${removeTarget}"? This cannot be undone.`}
+            title={t("settings.removeTitle")}
+            description={t("settings.removeDesc", { name: removeTarget || "" })}
             onConfirm={handleRemove}
             onCancel={() => setRemoveTarget(null)}
             destructive={true}

@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/select";
 import { Pencil } from "lucide-react";
 import type { Cell } from "@/hooks/use-notebook";
+import { useTranslation } from "@/i18n";
 
 interface ConfigCellProps {
   cell: Cell;
@@ -29,6 +30,7 @@ interface FieldSchema {
 }
 
 export function ConfigCell({ cell, onSave }: ConfigCellProps) {
+  const { t } = useTranslation();
   const schema = (cell.inputs.schema || {}) as Record<string, FieldSchema>;
   const [isEditing, setIsEditing] = useState(cell.status !== "completed");
   const [values, setValues] = useState<Record<string, unknown>>(() => {
@@ -53,10 +55,10 @@ export function ConfigCell({ cell, onSave }: ConfigCellProps) {
     return (
       <div>
         <div className="flex items-center justify-between mb-2">
-          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Configuration</div>
+          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t("notebook.configuration")}</div>
           <Button variant="ghost" size="sm" onClick={() => setIsEditing(true)} className="h-7 text-xs">
             <Pencil className="w-3 h-3 mr-1" />
-            Edit
+            {t("notebook.edit")}
           </Button>
         </div>
         <div className="rounded-md bg-muted/50 p-3 space-y-1">
@@ -156,7 +158,7 @@ export function ConfigCell({ cell, onSave }: ConfigCellProps) {
 
       <div className="flex justify-end pt-1">
         <Button size="sm" onClick={handleSave}>
-          Save Configuration
+          {t("notebook.saveConfig")}
         </Button>
       </div>
     </div>

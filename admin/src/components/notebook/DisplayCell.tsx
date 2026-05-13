@@ -1,18 +1,20 @@
 import { MarkdownView } from "@/components/markdown-view";
 import type { Cell } from "@/hooks/use-notebook";
+import { useTranslation } from "@/i18n";
 
 interface DisplayCellProps {
   cell: Cell;
 }
 
 export function DisplayCell({ cell }: DisplayCellProps) {
+  const { t } = useTranslation();
   const content = (cell.inputs.content as string) || "";
   const format = (cell.inputs.format as string) || "markdown";
 
   if (!content) {
     return (
       <div className="text-sm text-muted-foreground italic">
-        No content configured for this display cell.
+        {t("notebook.noContent")}
       </div>
     );
   }

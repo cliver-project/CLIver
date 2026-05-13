@@ -34,7 +34,7 @@ export function TopBar() {
         <DropdownMenuTrigger asChild>
           <button className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-sm text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors">
             <Globe className="w-4 h-4" />
-            {currentLang.label}
+            {currentLang?.label || "EN"}
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">

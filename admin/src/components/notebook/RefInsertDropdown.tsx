@@ -3,6 +3,7 @@ import { Link2, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAvailableRefs, type RefGroup } from "@/hooks/use-notebook";
 import { cn } from "@/lib/utils";
+import { useTranslation } from "@/i18n";
 
 interface RefInsertDropdownProps {
   notebookId: string;
@@ -11,6 +12,7 @@ interface RefInsertDropdownProps {
 }
 
 export function RefInsertDropdown({ notebookId, cellId, onInsert }: RefInsertDropdownProps) {
+  const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const { data: refs, isLoading } = useAvailableRefs(notebookId, cellId);
 
@@ -24,7 +26,7 @@ export function RefInsertDropdown({ notebookId, cellId, onInsert }: RefInsertDro
         title="Insert reference to previous cell output"
       >
         <Link2 className="w-3.5 h-3.5 mr-1" />
-        Insert Ref
+        {t("notebook.insertRef")}
       </Button>
     );
   }
@@ -32,20 +34,20 @@ export function RefInsertDropdown({ notebookId, cellId, onInsert }: RefInsertDro
   return (
     <div className="border border-border rounded-lg bg-card shadow-md p-2 min-w-[280px]">
       <div className="flex items-center justify-between mb-1.5 px-1">
-        <span className="text-xs font-medium text-muted-foreground">Available References</span>
+        <span className="text-xs font-medium text-muted-foreground">{t("notebook.availableRefs")}</span>
         <button
           onClick={() => setIsOpen(false)}
           className="text-xs text-muted-foreground hover:text-foreground"
         >
-          Close
+          {t("notebook.close")}
         </button>
       </div>
 
       {isLoading ? (
-        <div className="text-xs text-muted-foreground p-2">Loading...</div>
+        <div className="text-xs text-muted-foreground p-2">{t("common.loading")}</div>
       ) : !refs || refs.length === 0 ? (
         <div className="text-xs text-muted-foreground p-2">
-          No references available. Execute previous cells first.
+          {t("notebook.noRefs")}
         </div>
       ) : (
         <div className="space-y-1 max-h-60 overflow-y-auto">
