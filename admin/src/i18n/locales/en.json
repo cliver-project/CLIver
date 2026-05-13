@@ -23,8 +23,10 @@
     },
     "notebooks": "Notebooks",
     "projects": "Projects",
+    "scenarios": "Scenarios",
     "tasks": "Tasks",
     "keys": "Keys",
+    "agents": "Agents",
     "sessions": "Sessions",
     "skills": "Skills",
     "settings": "Settings"
@@ -446,6 +448,20 @@
     "title": "Projects",
     "comingSoon": "Projects Coming Soon",
     "comingSoonDesc": "Organize your work into projects with issues and scenario templates. Each issue generates a notebook from a pre-configured scenario."
+  },
+  "scenarios": {
+    "title": "Scenarios",
+    "installFromGithub": "Install from GitHub",
+    "installTitle": "Install Scenario",
+    "installDesc": "Install a scenario template from a GitHub repository.",
+    "githubSource": "GitHub Source",
+    "githubPlaceholder": "github:user/repo",
+    "githubExample": "Example: github:alice/research-ai-lab",
+    "install": "Install",
+    "installing": "Installing...",
+    "removeTitle": "Remove Scenario",
+    "removeDesc": "Remove scenario \"{name}\"? This cannot be undone.",
+    "noScenarios": "No scenarios installed."
   },
   "settings": {
     "title": "Settings",

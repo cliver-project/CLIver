@@ -10,10 +10,13 @@ import DashboardPage from "@/pages/dashboard";
 import NotebooksList from "@/pages/notebooks/list";
 import NotebookEditor from "@/pages/notebooks/editor";
 import ProjectsList from "@/pages/projects/list";
+import ScenariosList from "@/pages/scenarios/list";
 import TaskListPage from "@/pages/tasks/list";
 import TaskCreatePage from "@/pages/tasks/create";
 import TaskDetailPage from "@/pages/tasks/detail";
 import KeysList from "@/pages/keys/list";
+import AgentListPage from "@/pages/agents/list";
+import AgentDetailPage from "@/pages/agents/detail";
 import SessionsPage from "@/pages/sessions";
 import SessionDetailPage from "@/pages/session-detail";
 import SkillsPage from "@/pages/skills";
@@ -46,10 +49,13 @@ createRoot(document.getElementById("root")!).render(
               <Route path="notebooks" element={<NotebooksList />} />
               <Route path="notebooks/:id" element={<NotebookEditor />} />
               <Route path="projects" element={<ProjectsList />} />
+              <Route path="scenarios" element={<ScenariosList />} />
               <Route path="tasks" element={<TaskListPage />} />
               <Route path="tasks/new" element={<TaskCreatePage />} />
               <Route path="tasks/:name" element={<TaskDetailPage />} />
               <Route path="keys" element={<KeysList />} />
+              <Route path="agents" element={<AgentListPage />} />
+              <Route path="agents/:name" element={<AgentDetailPage />} />
               <Route path="sessions" element={<SessionsPage />} />
               <Route path="sessions/:source/:id" element={<SessionDetailPage />} />
               <Route path="skills" element={<SkillsPage />} />

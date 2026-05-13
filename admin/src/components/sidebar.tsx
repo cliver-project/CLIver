@@ -8,6 +8,8 @@ import {
   MessageSquare,
   Brain,
   Settings,
+  Layers,
+  Users,
 } from "lucide-react";
 import { CliverLogo } from "@/components/cliver-logo";
 import { useTranslation } from "@/i18n";
@@ -30,6 +32,7 @@ const navSections: NavSection[] = [
     items: [
       { to: "/admin/notebooks", icon: Book, labelKey: "sidebar.notebooks" },
       { to: "/admin/projects", icon: FolderOpen, labelKey: "sidebar.projects" },
+      { to: "/admin/scenarios", icon: Layers, labelKey: "sidebar.scenarios" },
       { to: "/admin/tasks", icon: ListTodo, labelKey: "sidebar.tasks" },
     ],
   },
@@ -37,6 +40,7 @@ const navSections: NavSection[] = [
     titleKey: "sidebar.section.system",
     items: [
       { to: "/admin/keys", icon: Key, labelKey: "sidebar.keys" },
+      { to: "/admin/agents", icon: Users, labelKey: "sidebar.agents" },
       { to: "/admin/sessions", icon: MessageSquare, labelKey: "sidebar.sessions" },
       { to: "/admin/skills", icon: Brain, labelKey: "sidebar.skills" },
     ],

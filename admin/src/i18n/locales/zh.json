@@ -23,8 +23,10 @@
     },
     "notebooks": "笔记本",
     "projects": "项目",
+    "scenarios": "场景",
     "tasks": "任务",
     "keys": "密钥",
+    "agents": "智能体",
     "sessions": "会话",
     "skills": "技能",
     "settings": "设置"
@@ -446,6 +448,20 @@
     "title": "项目",
     "comingSoon": "项目功能即将推出",
     "comingSoonDesc": "将工作组织为项目，包含议题和场景模板。每个议题从预配置的场景生成笔记本。"
+  },
+  "scenarios": {
+    "title": "场景",
+    "installFromGithub": "从 GitHub 安装",
+    "installTitle": "安装场景",
+    "installDesc": "从 GitHub 仓库安装场景模板。",
+    "githubSource": "GitHub 源",
+    "githubPlaceholder": "github:用户/仓库",
+    "githubExample": "示例：github:alice/research-ai-lab",
+    "install": "安装",
+    "installing": "安装中...",
+    "removeTitle": "移除场景",
+    "removeDesc": "移除场景 \"{name}\"？此操作无法撤销。",
+    "noScenarios": "未安装场景。"
   },
   "settings": {
     "title": "设置",
