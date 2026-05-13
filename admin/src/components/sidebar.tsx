@@ -10,6 +10,7 @@ import {
   Settings,
   Layers,
   Users,
+  Plug,
 } from "lucide-react";
 import { CliverLogo } from "@/components/cliver-logo";
 import { useTranslation } from "@/i18n";
@@ -43,6 +44,7 @@ const navSections: NavSection[] = [
       { to: "/admin/agents", icon: Users, labelKey: "sidebar.agents" },
       { to: "/admin/sessions", icon: MessageSquare, labelKey: "sidebar.sessions" },
       { to: "/admin/skills", icon: Brain, labelKey: "sidebar.skills" },
+      { to: "/admin/adapters", icon: Plug, labelKey: "sidebar.adapters" },
     ],
   },
 ];

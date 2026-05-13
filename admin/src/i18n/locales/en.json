@@ -29,6 +29,7 @@
     "agents": "Agents",
     "sessions": "Sessions",
     "skills": "Skills",
+    "adapters": "Adapters",
     "settings": "Settings"
   },
   "theme": {

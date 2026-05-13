@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { useConfig, useModels, useSaveConfig, useTestProvider, useAdapters, useRestartGateway } from "@/hooks/use-api";
+import { useConfig, useModels, useSaveConfig, useTestProvider, useRestartGateway } from "@/hooks/use-api";
 import { useTranslation } from "@/i18n";
 
 type Config = Record<string, unknown>;
@@ -30,15 +30,10 @@ type MCPServer = {
   transport: string; command?: string; args?: string[]; env?: Record<string, string>;
   url?: string; headers?: Record<string, string>;
 };
-type PlatformAdapter = {
-  type: string; token: string; app_token: string;
-  home_channel?: string; allowed_users?: string[];
-};
 type Gateway = {
   host: string; port: number; admin_username: string; admin_password: string;
   log_file: string; log_max_bytes: number; log_backup_count: number;
   api_key?: string;
-  platforms: Record<string, PlatformAdapter>;
 };
 type Session = { max_sessions: number; max_turns_per_session: number; max_age_days: number };
 
@@ -640,206 +635,6 @@ function GatewayTab({ gateway, onChange }: {
 }
 
 // ─────────────────────────────────────────────
-// Tab: Platforms
-// ─────────────────────────────────────────────
-
-function PlatformsTab({ platforms, adapterTypes, onChange }: {
-  platforms: Record<string, PlatformAdapter>;
-  adapterTypes: string[];
-  onChange: (p: Record<string, PlatformAdapter>) => void;
-}) {
-  const { t } = useTranslation();
-  const { data: adapterStatuses } = useAdapters();
-  const [healthResults, setHealthResults] = useState<Record<string, { status: string; error?: string }>>({});
-  const [checkingHealth, setCheckingHealth] = useState<Record<string, boolean>>({});
-  const [adding, setAdding] = useState(false);
-  const [newName, setNewName] = useState("");
-  const [newType, setNewType] = useState(adapterTypes[0] ?? "");
-  const [customType, setCustomType] = useState("");
-
-  const statusMap: Record<string, { state: string; error?: string }> = {};
-  if (Array.isArray(adapterStatuses)) {
-    for (const a of adapterStatuses) {
-      statusMap[a.name as string] = { state: a.state as string, error: a.error as string };
-    }
-  }
-
-  const updatePlatform = (name: string, patch: Partial<PlatformAdapter>) => {
-    const existing = platforms[name];
-    if (!existing) return;
-    onChange({ ...platforms, [name]: { ...existing, ...patch } });
-  };
-
-  const deletePlatform = (name: string) => {
-    const copy = { ...platforms };
-    delete copy[name];
-    onChange(copy);
-  };
-
-  const addPlatform = () => {
-    const name = newName.trim();
-    const type = newType === "__custom__" ? customType.trim() : newType;
-    if (!name || !type || platforms[name]) return;
-    onChange({ ...platforms, [name]: { type, token: "", app_token: "" } });
-    setNewName("");
-    setNewType(adapterTypes[0] ?? "");
-    setCustomType("");
-    setAdding(false);
-  };
-
-  const checkAdapterHealth = async (name: string) => {
-    setCheckingHealth((prev) => ({ ...prev, [name]: true }));
-    try {
-      const res = await fetch(`/admin/api/adapters/${encodeURIComponent(name)}/check`, {
-        method: "POST", credentials: "include",
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setHealthResults((prev) => ({ ...prev, [name]: { status: data.status, error: data.error } }));
-      }
-    } catch { /* ignore */ }
-    setCheckingHealth((prev) => ({ ...prev, [name]: false }));
-  };
-
-  const statusBadge = (name: string) => {
-    const hr = healthResults[name];
-    const sm = statusMap[name];
-    if (!hr && !sm) return null;
-    const isActive = hr ? hr.status === "active" : (sm?.state === "connected" || sm?.state === "running");
-    const label = isActive ? "active" : "inactive";
-    return (
-      <Badge variant={isActive ? "default" : "secondary"} className={`text-[10px] px-1.5 py-0 ${isActive ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" : ""}`}>
-        {label}
-      </Badge>
-    );
-  };
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <Label className="text-sm font-medium">{t("config.platforms")}</Label>
-        {!adding && (
-          <Button variant="outline" size="sm" onClick={() => setAdding(true)}>
-            <Plus className="w-3 h-3 mr-1" /> {t("config.addPlatform")}
-          </Button>
-        )}
-      </div>
-
-      {adding && (
-        <Card>
-          <CardContent className="pt-4 space-y-3">
-            <Field label={t("config.platformName")}>
-              <Input value={newName} onChange={(e) => setNewName(e.target.value)}
-                placeholder={t("config.platformName")}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addPlatform(); } }} />
-            </Field>
-            <Field label={t("config.platformType")}>
-              <select
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={newType}
-                onChange={(e) => setNewType(e.target.value)}
-              >
-                {adapterTypes.map((at) => (
-                  <option key={at} value={at}>{at}</option>
-                ))}
-                <option value="__custom__">{t("config.platformCustomType")}</option>
-              </select>
-            </Field>
-            {newType === "__custom__" && (
-              <Field label={t("config.platformCustomType")}>
-                <Input value={customType} onChange={(e) => setCustomType(e.target.value)}
-                  placeholder="my.module.MyAdapter" />
-              </Field>
-            )}
-            <div className="flex gap-2 justify-end">
-              <Button variant="ghost" size="sm" onClick={() => setAdding(false)}>
-                <X className="w-3 h-3 mr-1" /> {t("common.cancel")}
-              </Button>
-              <Button size="sm" onClick={addPlatform}
-                disabled={!newName.trim() || (newType === "__custom__" ? !customType.trim() : !newType)}>
-                <Plus className="w-3 h-3 mr-1" /> {t("config.addPlatform")}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {Object.keys(platforms).length === 0 && !adding && (
-        <p className="text-sm text-muted-foreground">{t("config.noPlatforms")}</p>
-      )}
-
-      {Object.entries(platforms).map(([pname, plat]) => {
-        const isBuiltin = adapterTypes.includes(plat.type);
-        return (
-          <CollapsibleCard key={pname} title={pname}
-            onDelete={() => deletePlatform(pname)}>
-            <div className="flex items-center gap-2 -mt-1 mb-2">
-              <Badge variant="outline" className="text-[10px]">{plat.type}</Badge>
-              {statusBadge(pname)}
-              <Button variant="ghost" size="sm" className="h-5 px-1.5 text-[10px]"
-                onClick={() => checkAdapterHealth(pname)}
-                disabled={checkingHealth[pname]}>
-                <RotateCw className={`w-3 h-3 mr-0.5 ${checkingHealth[pname] ? "animate-spin" : ""}`} />
-                {t("config.checkHealth")}
-              </Button>
-            </div>
-            <Field label={t("config.platformType")}>
-              <select
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                value={isBuiltin ? plat.type : "__custom__"}
-                onChange={(e) => {
-                  if (e.target.value === "__custom__") {
-                    updatePlatform(pname, { type: "" });
-                  } else {
-                    updatePlatform(pname, { type: e.target.value });
-                  }
-                }}
-              >
-                {adapterTypes.map((at) => (
-                  <option key={at} value={at}>{at}</option>
-                ))}
-                <option value="__custom__">{t("config.platformCustomType")}</option>
-              </select>
-              {!isBuiltin && (
-                <Input className="mt-1" value={plat.type} onChange={(e) => updatePlatform(pname, { type: e.target.value })}
-                  placeholder="my.module.MyAdapter" />
-              )}
-            </Field>
-            <Field label={t("config.platformToken")}>
-              <Input value={plat.token} onChange={(e) => updatePlatform(pname, { token: e.target.value })}
-                placeholder={t("config.providerApiKeyPlaceholder")} />
-              {plat.token?.includes("****") ? (
-                <p className="text-xs text-muted-foreground mt-1">{t("config.providerApiKeyMasked")}</p>
-              ) : (
-                <p className="text-xs text-muted-foreground mt-1">{t("config.secretHint")}</p>
-              )}
-            </Field>
-            <Field label={t("config.platformAppToken")}>
-              <Input value={plat.app_token} onChange={(e) => updatePlatform(pname, { app_token: e.target.value })}
-                placeholder={t("config.providerApiKeyPlaceholder")} />
-              {plat.app_token?.includes("****") ? (
-                <p className="text-xs text-muted-foreground mt-1">{t("config.providerApiKeyMasked")}</p>
-              ) : (
-                <p className="text-xs text-muted-foreground mt-1">{t("config.secretHint")}</p>
-              )}
-            </Field>
-            <Field label={t("config.platformHomeChannel")}>
-              <Input value={plat.home_channel ?? ""} onChange={(e) =>
-                updatePlatform(pname, { home_channel: e.target.value || undefined })} />
-            </Field>
-            <Field label={t("config.platformAllowedUsers")}>
-              <TagInput tags={plat.allowed_users ?? []}
-                onChange={(v) => updatePlatform(pname, { allowed_users: v.length ? v : undefined })}
-                placeholder={t("config.addUserPlaceholder")} addLabel={t("config.addUser")} />
-            </Field>
-          </CollapsibleCard>
-        );
-      })}
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────
 // Tab: Session
 // ─────────────────────────────────────────────
 
@@ -891,13 +686,6 @@ export default function ConfigPage() {
   }, []);
   const setSession = useCallback((s: Session) => {
     setConfig((prev) => ({ ...prev, session: s })); setDirty(true);
-  }, []);
-  const setPlatforms = useCallback((p: Record<string, PlatformAdapter>) => {
-    setConfig((prev) => {
-      const gw = (prev.gateway as Gateway) ?? { host: "127.0.0.1", port: 8321, admin_username: "", admin_password: "", log_file: "", log_max_bytes: 10485760, log_backup_count: 5, platforms: {} };
-      return { ...prev, gateway: { ...gw, platforms: p } };
-    });
-    setDirty(true);
   }, []);
 
   const restartGateway = useRestartGateway();
@@ -982,7 +770,6 @@ export default function ConfigPage() {
           <TabsTrigger value="providers">{t("config.providers")}</TabsTrigger>
           <TabsTrigger value="mcpServers">{t("config.mcpServers")}</TabsTrigger>
           <TabsTrigger value="gateway">{t("config.gateway")}</TabsTrigger>
-          <TabsTrigger value="platforms">{t("config.platformsTab")}</TabsTrigger>
           <TabsTrigger value="session">{t("config.session")}</TabsTrigger>
         </TabsList>
         <TabsContent value="general">
@@ -996,12 +783,6 @@ export default function ConfigPage() {
         </TabsContent>
         <TabsContent value="gateway">
           <GatewayTab gateway={(config.gateway as Gateway) ?? null} onChange={setGateway} />
-        </TabsContent>
-        <TabsContent value="platforms">
-          <PlatformsTab
-            platforms={((config.gateway as Gateway)?.platforms ?? {}) as Record<string, PlatformAdapter>}
-            adapterTypes={(config.adapter_types as string[]) ?? []}
-            onChange={setPlatforms} />
         </TabsContent>
         <TabsContent value="session">
           <SessionTab session={(config.session as Session) ?? { max_sessions: 300, max_turns_per_session: 100, max_age_days: 365 }} onChange={setSession} />

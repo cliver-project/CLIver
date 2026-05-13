@@ -22,7 +22,8 @@ import SessionDetailPage from "@/pages/session-detail";
 import SkillsPage from "@/pages/skills";
 import SkillDetailPage from "@/pages/skills/detail";
 import SkillCreatePage from "@/pages/skills/create";
-import SettingsPage from "@/pages/settings";
+import ConfigPage from "@/pages/config";
+import AdaptersList from "@/pages/adapters/list";
 import "./globals.css";
 
 const queryClient = new QueryClient({
@@ -61,7 +62,8 @@ createRoot(document.getElementById("root")!).render(
               <Route path="skills" element={<SkillsPage />} />
               <Route path="skills/new" element={<SkillCreatePage />} />
               <Route path="skills/:name" element={<SkillDetailPage />} />
-              <Route path="settings" element={<SettingsPage />} />
+              <Route path="adapters" element={<AdaptersList />} />
+              <Route path="settings" element={<ConfigPage />} />
             </Route>
           </Routes>
         </BrowserRouter>
