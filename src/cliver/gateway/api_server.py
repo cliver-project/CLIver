@@ -9,6 +9,7 @@ Usage:
     routes = get_api_routes(executor, get_status, api_key="secret")
 """
 
+import asyncio
 import json
 import logging
 import time
@@ -174,7 +175,8 @@ async def _handle_sync(executor, request_id: str, parsed: dict):
     system_appender = _build_system_appender(parsed.get("system_message"))
 
     try:
-        response = await executor.process_user_input(
+        response = await asyncio.to_thread(
+            executor.process_user_input,
             user_input=parsed["user_input"],
             model=parsed["model"],
             options=parsed.get("options"),
@@ -212,7 +214,7 @@ async def _handle_streaming(executor, request_id: str, parsed: dict):
 
     async def generate():
         try:
-            async for chunk in executor.stream_user_input(
+            async for chunk in executor._stream_user_input_async(
                 user_input=parsed["user_input"],
                 model=parsed["model"],
                 options=parsed.get("options"),

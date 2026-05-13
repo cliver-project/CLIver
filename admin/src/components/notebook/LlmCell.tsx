@@ -178,9 +178,9 @@ export function LlmCell({ cell, notebookId, onInputsChange, onExecutionComplete 
           value={prompt}
           onChange={(e) => updateInput("prompt", e.target.value)}
           placeholder={t("notebook.promptPlaceholder")}
-          rows={4}
+          rows={6}
           className={cn(
-            "border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring flex min-h-[60px] w-full rounded-md border px-3 py-2 text-base shadow-xs focus-visible:ring-1 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
+            "border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring flex min-h-[120px] w-full rounded-md border px-3 py-2 text-base shadow-xs focus-visible:ring-1 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
             "text-sm font-mono resize-y"
           )}
           disabled={isExecuting}
@@ -270,14 +270,14 @@ export function LlmCell({ cell, notebookId, onInputsChange, onExecutionComplete 
                 <label className="text-xs font-medium text-muted-foreground">{t("notebook.verifierAgent")}</label>
                 <Select
                   value={verifierAgent}
-                  onValueChange={(v) => updateVerification("verifier_agent", v)}
+                  onValueChange={(v) => updateVerification("verifier_agent", v === "__default__" ? "" : v)}
                   disabled={isExecuting}
                 >
                   <SelectTrigger className="mt-1 h-8 text-sm">
                     <SelectValue placeholder="(default)" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">(use default agent)</SelectItem>
+                    <SelectItem value="__default__">(use default agent)</SelectItem>
                     {agentList.map((a) => (
                       <SelectItem key={a} value={a}>
                         {a}

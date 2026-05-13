@@ -56,7 +56,7 @@ admin-dev: ## Start admin portal dev server (hot reload)
 
 .PHONY: gateway
 gateway: admin-build ## Build admin portal and start gateway
-	uv run cliver gateway start
+	uv run cliver gateway restart
 
 .PHONY: gateway-dev
 gateway-dev: ## Start gateway with admin portal dev proxy (hot reload)

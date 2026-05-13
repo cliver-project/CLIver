@@ -22,8 +22,8 @@ def _make_admin_app(username="admin", password="secret"):
         "agent_name": "TestAgent",
         "config_dir": None,
     }
-    routes = get_admin_routes(username=username, password=password, context=ctx)
-    app = Starlette(routes=routes)
+    api_routes, spa_routes, _auth = get_admin_routes(username=username, password=password, context=ctx)
+    app = Starlette(routes=api_routes + spa_routes)
     return app
 
 

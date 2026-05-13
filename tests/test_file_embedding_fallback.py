@@ -73,7 +73,7 @@ class TestFileEmbeddingFallback:
 
         try:
             # Process user input with files (should use embedding fallback)
-            response = agent_core.process_user_input_sync(
+            response = agent_core.process_user_input(
                 user_input="Analyze this file",
                 files=[test_file_path],
                 model="test/test-model",
@@ -122,7 +122,7 @@ class TestFileEmbeddingFallback:
                     test_files.append(f.name)
 
             # Process user input with multiple files (should use embedding fallback)
-            response = agent_core.process_user_input_sync(
+            response = agent_core.process_user_input(
                 user_input="Analyze these files", files=test_files, model="test/test-model"
             )
 

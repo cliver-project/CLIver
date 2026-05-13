@@ -11,6 +11,7 @@ import NotebooksList from "@/pages/notebooks/list";
 import NotebookEditor from "@/pages/notebooks/editor";
 import ProjectsList from "@/pages/projects/list";
 import ScenariosList from "@/pages/scenarios/list";
+import ScenarioDetailPage from "@/pages/scenarios/detail";
 import TaskListPage from "@/pages/tasks/list";
 import TaskCreatePage from "@/pages/tasks/create";
 import TaskDetailPage from "@/pages/tasks/detail";
@@ -51,6 +52,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="notebooks/:id" element={<NotebookEditor />} />
               <Route path="projects" element={<ProjectsList />} />
               <Route path="scenarios" element={<ScenariosList />} />
+              <Route path="scenarios/:id" element={<ScenarioDetailPage />} />
               <Route path="tasks" element={<TaskListPage />} />
               <Route path="tasks/new" element={<TaskCreatePage />} />
               <Route path="tasks/:name" element={<TaskDetailPage />} />

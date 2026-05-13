@@ -12,6 +12,7 @@ Inspired by Hermes's nudge-based skill creation, but simpler:
 - If the review decides to create a skill, it writes SKILL.md to user's skills dir
 """
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Optional
@@ -100,7 +101,8 @@ async def maybe_review_for_skill(
     )
 
     try:
-        response = await agent_core.process_user_input(
+        response = await asyncio.to_thread(
+            agent_core.process_user_input,
             user_input=prompt,
             max_iterations=8,  # Low cap — just needs to decide + write file
         )

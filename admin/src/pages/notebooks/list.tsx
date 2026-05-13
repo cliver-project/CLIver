@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 import { PageLayout } from "@/components/layout/PageLayout";
 import { useNotebooks, useCreateNotebook, useDeleteNotebook } from "@/hooks/use-notebook";
+import { useScenarios } from "@/hooks/use-api";
+import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,6 +15,13 @@ import {
   DialogFooter,
   DialogDescription,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CellStatusBadge } from "@/components/notebook/CellStatusBadge";
@@ -24,20 +33,44 @@ export default function NotebooksList() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { data: notebooks, isLoading } = useNotebooks();
+  const { data: scenarios } = useScenarios();
   const createNotebook = useCreateNotebook();
   const deleteNotebook = useDeleteNotebook();
   const [showCreate, setShowCreate] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [form, setForm] = useState({ title: "", description: "" });
+  const [selectedScenario, setSelectedScenario] = useState<string>("");
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!form.title.trim()) return;
+    let cells: unknown[] = [];
+    let defaultAgent: string | undefined;
+    const scenarioId = selectedScenario && selectedScenario !== "__none__" ? selectedScenario : "";
+    if (scenarioId) {
+      try {
+        const detail = await api<Record<string, unknown>>(`/scenarios/${encodeURIComponent(scenarioId)}`);
+        const template = detail.template as Record<string, unknown> | undefined;
+        if (template) {
+          cells = (template.cells as unknown[]) || [];
+          defaultAgent = template.default_agent as string;
+        }
+      } catch {
+        /* ignore */
+      }
+    }
     createNotebook.mutate(
-      { title: form.title, description: form.description },
+      {
+        title: form.title,
+        description: form.description,
+        scenario_id: scenarioId || undefined,
+        cells: cells as any,
+        default_agent: defaultAgent,
+      },
       {
         onSuccess: (nb) => {
           setShowCreate(false);
           setForm({ title: "", description: "" });
+          setSelectedScenario("");
           navigate(`/admin/notebooks/${nb.id}`);
         },
       },
@@ -131,6 +164,22 @@ export default function NotebooksList() {
                 value={form.title}
                 onChange={(e) => setForm({ ...form, title: e.target.value })}
               />
+            </div>
+            <div>
+              <Label>Scenario Template (optional)</Label>
+              <Select value={selectedScenario} onValueChange={setSelectedScenario}>
+                <SelectTrigger>
+                  <SelectValue placeholder="None — blank notebook" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">None — blank notebook</SelectItem>
+                  {scenarios && (scenarios as Array<Record<string, unknown>>).map((s) => (
+                    <SelectItem key={String(s.id)} value={String(s.id)}>
+                      {String(s.display_name)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <Label htmlFor="nb-desc">{t("notebooks.descLabel")}</Label>

@@ -1,6 +1,5 @@
 """Built-in skill tool for LLM-driven skill activation."""
 
-import asyncio
 import logging
 from typing import Optional, Type
 
@@ -78,17 +77,10 @@ class SkillTool(BaseTool):
         if not agent_core:
             return manager.activate_skill(skill_name, prompt=prompt)
 
-        try:
-            response = asyncio.run(agent_core.process_skill(skill_name=skill_name, user_input=prompt))
-            from cliver.media_handler import extract_response_text
+        response = agent_core.process_skill(skill_name=skill_name, user_input=prompt)
+        from cliver.media_handler import extract_response_text
 
-            return extract_response_text(response, fallback="Skill completed with no output.")
-        except RuntimeError:
-            loop = asyncio.get_event_loop()
-            response = loop.run_until_complete(agent_core.process_skill(skill_name=skill_name, user_input=prompt))
-            from cliver.media_handler import extract_response_text
-
-            return extract_response_text(response, fallback="Skill completed with no output.")
+        return extract_response_text(response, fallback="Skill completed with no output.")
 
 
 skill = SkillTool()

@@ -1,7 +1,7 @@
 """Tests for autonomous skill learning — post-task skill review."""
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock, Mock
 
 from cliver.skill_reviewer import (
     DEFAULT_SKILL_NUDGE_THRESHOLD,
@@ -48,12 +48,9 @@ class TestMaybeReviewForSkill:
     def test_above_threshold_triggers_review(self, tmp_path):
         executor = MagicMock()
 
-        async def mock_process(**kwargs):
-            msg = MagicMock()
-            msg.content = "No skill needed for this task."
-            return msg
-
-        executor.process_user_input = AsyncMock(side_effect=mock_process)
+        msg = MagicMock()
+        msg.content = "No skill needed for this task."
+        executor.process_user_input = Mock(return_value=msg)
 
         result = asyncio.run(
             maybe_review_for_skill(
@@ -71,7 +68,7 @@ class TestMaybeReviewForSkill:
 
     def test_review_error_does_not_crash(self):
         executor = MagicMock()
-        executor.process_user_input = AsyncMock(side_effect=RuntimeError("boom"))
+        executor.process_user_input = Mock(side_effect=RuntimeError("boom"))
 
         result = asyncio.run(
             maybe_review_for_skill(

@@ -6,8 +6,9 @@ from dotenv import load_dotenv
 
 from cliver.llm import AgentCore
 from cliver.media_handler import MultimediaResponse, MultimediaResponseHandler
+from cliver.util import get_config_dir
 
-load_dotenv(pathlib.Path.home() / ".env")
+load_dotenv(get_config_dir() / ".env")
 load_dotenv(override=True)
 
 # Export for public API

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router";
 import { PageLayout } from "@/components/layout/PageLayout";
 import { useScenarios, useInstallScenario, useRemoveScenario } from "@/hooks/use-api";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,7 @@ import { cn } from "@/lib/utils";
 
 export default function ScenariosList() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { data: scenarios, isLoading } = useScenarios();
   const installScenario = useInstallScenario();
   const removeScenario = useRemoveScenario();
@@ -62,7 +64,11 @@ export default function ScenariosList() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {(scenarios as Array<Record<string, unknown>>).map((s) => (
-            <Card key={String(s.id)}>
+            <Card
+              key={String(s.id)}
+              className="cursor-pointer hover:shadow-md transition-shadow"
+              onClick={() => navigate(`/admin/scenarios/${String(s.id)}`)}
+            >
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-sm">{String(s.display_name)}</CardTitle>
@@ -75,7 +81,7 @@ export default function ScenariosList() {
                     </span>
                     {s.source !== "builtin" && (
                       <button
-                        onClick={() => setRemoveTarget(String(s.id))}
+                        onClick={(e) => { e.stopPropagation(); setRemoveTarget(String(s.id)); }}
                         className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
                       >
                         <Trash2 className="w-3.5 h-3.5" />

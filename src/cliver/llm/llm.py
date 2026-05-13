@@ -1,6 +1,9 @@
 import asyncio
+import concurrent.futures
 import logging
+import queue
 import random
+import threading
 import time
 from typing import (
     Any,
@@ -8,6 +11,7 @@ from typing import (
     Awaitable,
     Callable,
     Dict,
+    Generator,
     List,
     Optional,
     Tuple,
@@ -47,6 +51,64 @@ logger = logging.getLogger(__name__)
 # Maximum consecutive tool error iterations before stopping the Re-Act loop.
 # This prevents infinite loops where the LLM keeps calling the same broken tool.
 MAX_CONSECUTIVE_ERRORS = 3
+
+
+def _run_async(coro):
+    """Run a coroutine on a dedicated event loop.
+
+    If the calling thread has no running event loop, the coroutine runs
+    directly via ``asyncio.run()`` on this thread.  If an event loop is
+    already running (e.g. inside FastAPI or prompt_toolkit), the coroutine
+    is dispatched to a fresh thread so that ``asyncio.run()`` can create
+    a new loop there without colliding with the existing one.
+
+    Every call therefore gets its own event loop on a dedicated thread,
+    giving full isolation for concurrent invocations.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        # No running loop — this thread *is* the dedicated thread.
+        return asyncio.run(coro)
+
+    # Event loop is running — offload to a fresh thread.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coro).result()
+
+
+def _run_async_stream(async_gen_factory, *args, **kwargs):
+    """Bridge an async generator to a sync generator.
+
+    The async generator is consumed on a dedicated thread with its own
+    event loop.  Results are marshalled through a thread-safe queue so
+    the caller can iterate synchronously on the calling thread.
+
+    Each call spawns one background thread and blocks the calling thread
+    while yielding chunks.
+    """
+    q: queue.Queue = queue.Queue()
+
+    async def _produce():
+        try:
+            async for chunk in async_gen_factory(*args, **kwargs):
+                q.put(("chunk", chunk))
+            q.put(("done", None))
+        except Exception as exc:
+            q.put(("error", exc))
+
+    def _run():
+        asyncio.run(_produce())
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+
+    while True:
+        kind, value = q.get()
+        if kind == "done":
+            return
+        if kind == "error":
+            raise value
+        yield value
 
 
 def create_llm_engine(model: ModelConfig, user_agent: str = None, agent_name: str = "CLIver") -> LLMInferenceEngine:
@@ -432,55 +494,60 @@ class AgentCore:
             # Never let skill review crash the main task flow
             logger.debug("Skill auto-learning failed (non-fatal): %s", e)
 
-    def process_user_input_sync(
+    # -- Skill execution wrappers -----------------------------------------------
+
+    def process_skill(
         self,
+        skill_name: str,
         user_input: str,
-        images: List[str] = None,
-        audio_files: List[str] = None,
-        video_files: List[str] = None,
-        files: List[str] = None,  # General files for tools like code interpreter
-        max_iterations: int = 50,
-        confirm_tool_exec: Optional[Callable[[str], bool]] = None,
+        *,
         model: str = None,
         system_message_appender: Optional[Callable[[], str]] = None,
         filter_tools: Optional[Callable[[str, list[BaseTool]], Awaitable[list[BaseTool]]]] = None,
-        enhance_prompt: Optional[Callable[[str, MCPServersCaller], Awaitable[list[BaseMessage]]]] = None,
-        tool_error_check: Optional[Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]] = None,
-        template: Optional[str] = None,
-        params: dict = None,
-        options: Dict[str, Any] = None,
         conversation_history: Optional[List[BaseMessage]] = None,
-        timeout_s: Optional[int] = None,
-        auto_fallback: Optional[bool] = None,
-        on_pending_input: Optional[Callable[[], Optional[str]]] = None,
+        **kwargs,
     ) -> BaseMessage:
-        return asyncio.run(
-            self.process_user_input(
-                user_input,
-                images,
-                audio_files,
-                video_files,
-                files,
-                max_iterations,
-                confirm_tool_exec,
-                model,
-                system_message_appender,
-                filter_tools,
-                enhance_prompt,
-                tool_error_check,
-                template,
-                params,
-                options,
-                conversation_history,
-                timeout_s=timeout_s,
-                auto_fallback=auto_fallback,
-                on_pending_input=on_pending_input,
+        """Execute a skill by name, injecting its instructions into the system prompt.
+
+        Sync public API — safe to call from any context.  Delegates to the
+        internal async implementation on a dedicated event loop.
+        """
+        return _run_async(
+            self._process_skill_async(
+                skill_name=skill_name,
+                user_input=user_input,
+                model=model,
+                system_message_appender=system_message_appender,
+                filter_tools=filter_tools,
+                conversation_history=conversation_history,
+                **kwargs,
             )
         )
 
-    # -- Skill execution wrappers -----------------------------------------------
+    def stream_skill(
+        self,
+        skill_name: str,
+        user_input: str,
+        *,
+        model: str = None,
+        system_message_appender: Optional[Callable[[], str]] = None,
+        filter_tools: Optional[Callable[[str, list[BaseTool]], Awaitable[list[BaseTool]]]] = None,
+        conversation_history: Optional[List[BaseMessage]] = None,
+        **kwargs,
+    ) -> Generator[BaseMessageChunk, None, None]:
+        """Streaming variant of process_skill() — sync generator."""
+        return _run_async_stream(
+            self._stream_skill_async,
+            skill_name=skill_name,
+            user_input=user_input,
+            model=model,
+            system_message_appender=system_message_appender,
+            filter_tools=filter_tools,
+            conversation_history=conversation_history,
+            **kwargs,
+        )
 
-    async def process_skill(
+    async def _process_skill_async(
         self,
         skill_name: str,
         user_input: str,
@@ -503,7 +570,7 @@ class AgentCore:
             system_message_appender,
             filter_tools,
         )
-        return await self.process_user_input(
+        return await self._process_user_input_async(
             user_input=user_input,
             model=model,
             system_message_appender=appender,
@@ -512,7 +579,7 @@ class AgentCore:
             **kwargs,
         )
 
-    async def stream_skill(
+    async def _stream_skill_async(
         self,
         skill_name: str,
         user_input: str,
@@ -523,13 +590,13 @@ class AgentCore:
         conversation_history: Optional[List[BaseMessage]] = None,
         **kwargs,
     ):
-        """Streaming variant of process_skill()."""
+        """Async streaming variant of process_skill()."""
         appender, tool_filter = self._resolve_skill_context(
             skill_name,
             system_message_appender,
             filter_tools,
         )
-        async for chunk in self.stream_user_input(
+        async for chunk in self._stream_user_input_async(
             user_input=user_input,
             model=model,
             system_message_appender=appender,
@@ -561,7 +628,60 @@ class AgentCore:
 
     # -- Streaming input ------------------------------------------------------
 
-    async def stream_user_input(
+    def stream_user_input(
+        self,
+        user_input: str,
+        images: List[str] = None,
+        audio_files: List[str] = None,
+        video_files: List[str] = None,
+        files: List[str] = None,
+        max_iterations: int = 50,
+        confirm_tool_exec: Optional[Callable[[str], bool]] = None,
+        model: str = None,
+        system_message_appender: Optional[Callable[[], str]] = None,
+        filter_tools: Optional[Callable[[str, list[BaseTool]], Awaitable[list[BaseTool]]]] = None,
+        enhance_prompt: Optional[Callable[[str, MCPServersCaller], Awaitable[list[BaseMessage]]]] = None,
+        tool_error_check: Optional[Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]] = None,
+        template: Optional[str] = None,
+        params: dict = None,
+        options: Dict[str, Any] = None,
+        conversation_history: Optional[List[BaseMessage]] = None,
+        timeout_s: Optional[int] = None,
+        auto_fallback: Optional[bool] = None,
+        on_pending_input: Optional[Callable[[], Optional[str]]] = None,
+        outputs_dir: Optional[str] = None,
+    ) -> Generator[BaseMessageChunk, None, None]:
+        """Stream user input through the LLM, handling tool calls if needed.
+
+        Sync public API — safe to call from any context.  Yields
+        ``BaseMessageChunk`` objects as they arrive from the LLM.
+        Each invocation runs on a dedicated event loop for isolation.
+        """
+        return _run_async_stream(
+            self._stream_user_input_async,
+            user_input=user_input,
+            images=images,
+            audio_files=audio_files,
+            video_files=video_files,
+            files=files,
+            max_iterations=max_iterations,
+            confirm_tool_exec=confirm_tool_exec,
+            model=model,
+            system_message_appender=system_message_appender,
+            filter_tools=filter_tools,
+            enhance_prompt=enhance_prompt,
+            tool_error_check=tool_error_check,
+            template=template,
+            params=params,
+            options=options,
+            conversation_history=conversation_history,
+            timeout_s=timeout_s,
+            auto_fallback=auto_fallback,
+            on_pending_input=on_pending_input,
+            outputs_dir=outputs_dir,
+        )
+
+    async def _stream_user_input_async(
         self,
         user_input: str,
         images: List[str] = None,
@@ -584,28 +704,7 @@ class AgentCore:
         on_pending_input: Optional[Callable[[], Optional[str]]] = None,
         outputs_dir: Optional[str] = None,
     ) -> AsyncIterator[BaseMessageChunk]:
-        """
-        Stream user input through the LLM, handling tool calls if needed.
-        Args:
-            user_input (str): The user input.
-            images (List[str]): List of image file paths to send with the message.
-            audio_files (List[str]): List of audio file paths to send with the message.
-            video_files (List[str]): List of video file paths to send with the message.
-            files (List[str]): List of general file paths to upload for tools like code interpreter.
-            max_iterations (int): The maximum number of iterations.
-            confirm_tool_exec: Optional callback for tool execution confirmation. Receives a prompt
-                              string, returns True to proceed or False to cancel. None = no confirmation.
-            model (str): The model to use, the default one will be used if not specified.
-            system_message_appender: The system message appender function.
-            filter_tools: The function that filters tool calls.
-            enhance_prompt: The function that enhances the prompt. This works alongside the default function
-                           that reads Cliver.md for context.
-            tool_error_check: The function that checks tool errors. The returned string will be the tool error message
-                              sent back to LLM if the first returned value is True.
-            template: Template name to apply.
-            params: Parameters for templates.
-            options: Dictionary of additional options to override LLM configurations.
-        """
+        """Async implementation — see stream_user_input for public API."""
         if auto_fallback is None:
             auto_fallback = self.model_auto_fallback
 
@@ -854,14 +953,15 @@ class AgentCore:
 
         return llm_engine, llm_tools, messages
 
-    # This is the method that can be used out of box
-    async def process_user_input(
+    # -- Public API (sync) ----------------------------------------------------
+
+    def process_user_input(
         self,
         user_input: str,
         images: List[str] = None,
         audio_files: List[str] = None,
         video_files: List[str] = None,
-        files: List[str] = None,  # General files for tools like code interpreter
+        files: List[str] = None,
         max_iterations: int = 50,
         confirm_tool_exec: Optional[Callable[[str], bool]] = None,
         model: str = None,
@@ -878,29 +978,86 @@ class AgentCore:
         on_pending_input: Optional[Callable[[], Optional[str]]] = None,
         outputs_dir: Optional[str] = None,
     ) -> BaseMessage:
-        """
-        Process user input through the LLM, handling tool calls if needed.
+        """Process user input through the LLM, handling tool calls if needed.
+
+        Sync public API — safe to call from any context (sync or async).
+        Each invocation runs on a dedicated event loop with full isolation
+        from concurrent calls.  Callers inside an existing asyncio event loop
+        (e.g. FastAPI, prompt_toolkit) should use ``asyncio.to_thread()`` to
+        avoid blocking the loop — the method detects the running loop and
+        offloads automatically.
+
         Args:
-            user_input (str): The user input.
-            images (List[str]): List of image file paths to send with the message.
-            audio_files (List[str]): List of audio file paths to send with the message.
-            video_files (List[str]): List of video file paths to send with the message.
-            files (List[str]): List of general file paths to upload for tools like code interpreter.
-            max_iterations (int): The maximum number of iterations.
-            confirm_tool_exec: Optional callback for tool execution confirmation. Receives a prompt
-                              string, returns True to proceed or False to cancel. None = no confirmation.
-            model (str): The model to use, the default one will be used if not specified.
-            system_message_appender: The system message appender function.
-            filter_tools: The function that filters tool calls.
-            enhance_prompt: The function that enhances the prompt. This works alongside the default function
-                           that reads Cliver.md for context.
-            tool_error_check: The function that checks tool errors. The returned string will be the tool error message
-                              sent back to LLM if the first returned value is True.
+            user_input: The user's input text.
+            images: List of image file paths to send with the message.
+            audio_files: List of audio file paths to send with the message.
+            video_files: List of video file paths to send with the message.
+            files: List of general file paths for tools like code interpreter.
+            max_iterations: Maximum number of Re-Act loop iterations.
+            confirm_tool_exec: Optional callback for tool execution confirmation.
+            model: The model to use (default from config if not specified).
+            system_message_appender: Callback that returns extra system prompt text.
+            filter_tools: Async callback to filter available tools.
+            enhance_prompt: Callback to add extra context messages.
+            tool_error_check: Callback to check tool results for errors.
             template: Template name to apply.
-            params: Parameters for templates.
-            options: Additional options for LLM inference that can override what the ModelConfig is defined.
-            outputs_dir: Directory for saving generated files. Passed to CallContext for tools.
+            params: Parameters for template.
+            options: Additional LLM inference options.
+            conversation_history: Prior conversation turns.
+            timeout_s: Wall-clock timeout in seconds.
+            auto_fallback: Whether to try fallback models on failure.
+            on_pending_input: Callback to drain injected user input between iterations.
+            outputs_dir: Directory for saving generated files.
         """
+        return _run_async(
+            self._process_user_input_async(
+                user_input=user_input,
+                images=images,
+                audio_files=audio_files,
+                video_files=video_files,
+                files=files,
+                max_iterations=max_iterations,
+                confirm_tool_exec=confirm_tool_exec,
+                model=model,
+                system_message_appender=system_message_appender,
+                filter_tools=filter_tools,
+                enhance_prompt=enhance_prompt,
+                tool_error_check=tool_error_check,
+                template=template,
+                params=params,
+                options=options,
+                conversation_history=conversation_history,
+                timeout_s=timeout_s,
+                auto_fallback=auto_fallback,
+                on_pending_input=on_pending_input,
+                outputs_dir=outputs_dir,
+            )
+        )
+
+    async def _process_user_input_async(
+        self,
+        user_input: str,
+        images: List[str] = None,
+        audio_files: List[str] = None,
+        video_files: List[str] = None,
+        files: List[str] = None,
+        max_iterations: int = 50,
+        confirm_tool_exec: Optional[Callable[[str], bool]] = None,
+        model: str = None,
+        system_message_appender: Optional[Callable[[], str]] = None,
+        filter_tools: Optional[Callable[[str, list[BaseTool]], Awaitable[list[BaseTool]]]] = None,
+        enhance_prompt: Optional[Callable[[str, MCPServersCaller], Awaitable[list[BaseMessage]]]] = None,
+        tool_error_check: Optional[Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]] = None,
+        template: Optional[str] = None,
+        params: dict = None,
+        options: Dict[str, Any] = None,
+        conversation_history: Optional[List[BaseMessage]] = None,
+        timeout_s: Optional[int] = None,
+        auto_fallback: Optional[bool] = None,
+        on_pending_input: Optional[Callable[[], Optional[str]]] = None,
+        outputs_dir: Optional[str] = None,
+    ) -> BaseMessage:
+        """Async implementation — see process_user_input for public API."""
         if auto_fallback is None:
             auto_fallback = self.model_auto_fallback
 
@@ -1258,15 +1415,22 @@ class AgentCore:
                 # Preserve additional_kwargs from the original LLM response on the
                 # first tool call so that provider-specific fields like DeepSeek's
                 # reasoning_content are retained in conversation history.
+                # Also preserve content blocks (e.g. Anthropic thinking blocks) so
+                # APIs that require round-tripping them don't reject the next call.
                 extra_kwargs: Dict[str, Any] = {}
+                msg_content: Any = ""
                 if llm_response is not None:
                     resp_kwargs = getattr(llm_response, "additional_kwargs", None)
                     if resp_kwargs:
                         extra_kwargs = dict(resp_kwargs)
+                    # Preserve list content (Anthropic content blocks including thinking)
+                    resp_content = getattr(llm_response, "content", None)
+                    if isinstance(resp_content, list) and resp_content:
+                        msg_content = resp_content
                     # Only attach to the first tool call message
                     llm_response = None
                 tool_execution_message = AIMessage(
-                    content="",
+                    content=msg_content,
                     tool_calls=[
                         {
                             "name": full_tool_name,
@@ -1396,13 +1560,17 @@ class AgentCore:
     ):
         """Append AIMessage + ToolMessage for a denied tool call."""
         extra_kwargs: Dict[str, Any] = {}
+        msg_content: Any = ""
         if llm_response is not None:
             resp_kwargs = getattr(llm_response, "additional_kwargs", None)
             if resp_kwargs:
                 extra_kwargs = dict(resp_kwargs)
+            resp_content = getattr(llm_response, "content", None)
+            if isinstance(resp_content, list) and resp_content:
+                msg_content = resp_content
         messages.append(
             AIMessage(
-                content="",
+                content=msg_content,
                 tool_calls=[
                     {
                         "name": full_tool_name,
@@ -1606,36 +1774,36 @@ class AgentCore:
                         # 1. additional_kwargs with reasoning_content (DeepSeek API)
                         # 2. Content block list with type='thinking' (Anthropic API)
                         # 3. <think>/<thinking> tags in string content (OpenAI-compat)
+                        #
+                        # Form 2 (Anthropic blocks) is always filtered because
+                        # any model can emit them regardless of declared capability.
+                        chunk_content = getattr(chunk, "content", None)
+                        if isinstance(chunk_content, list):
+                            text_parts = []
+                            has_thinking = False
+                            for block in chunk_content:
+                                if isinstance(block, dict):
+                                    if block.get("type") == "thinking":
+                                        has_thinking = True
+                                    elif block.get("type") == "text":
+                                        text_parts.append(block.get("text", ""))
+                            if has_thinking and not text_parts:
+                                was_thinking = True
+                                continue
+                            # Convert list-of-blocks to plain string
+                            joined = "".join(text_parts)
+                            if has_thinking:
+                                was_thinking = False
+                            # noinspection PyArgumentList
+                            chunk = type(chunk)(content=joined)
+                            chunk_content = joined
+
                         if llm_engine.supports_capability(ModelCapability.THINK_MODE):
                             # Check for structured reasoning in additional_kwargs
                             chunk_kwargs = getattr(chunk, "additional_kwargs", {}) or {}
                             if chunk_kwargs.get("reasoning_content") or chunk_kwargs.get("reasoning"):
                                 was_thinking = True
                                 continue
-
-                            # Check for Anthropic-style content blocks (list of dicts).
-                            # Thinking blocks are filtered; text blocks are
-                            # extracted as plain strings for downstream display.
-                            chunk_content = getattr(chunk, "content", None)
-                            if isinstance(chunk_content, list):
-                                text_parts = []
-                                has_thinking = False
-                                for block in chunk_content:
-                                    if isinstance(block, dict):
-                                        if block.get("type") == "thinking":
-                                            has_thinking = True
-                                        elif block.get("type") == "text":
-                                            text_parts.append(block.get("text", ""))
-                                if has_thinking and not text_parts:
-                                    was_thinking = True
-                                    continue
-                                # Convert list-of-blocks to plain string
-                                joined = "".join(text_parts)
-                                if has_thinking:
-                                    was_thinking = False
-                                # noinspection PyArgumentList
-                                chunk = type(chunk)(content=joined)
-                                chunk_content = joined
 
                             # Check for <think> tags in accumulated string content
                             if isinstance(chunk_content, str) or chunk_content is None:

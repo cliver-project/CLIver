@@ -10,7 +10,6 @@ Handles the full request/response lifecycle including:
 This is a CLI-layer component — AgentCore and API layer have no dependency on it.
 """
 
-import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
@@ -152,59 +151,55 @@ def _stream_call(
     try:
         accumulated_chunk = None
 
-        async def _run():
-            nonlocal accumulated_chunk
-            if opts.skill_name:
-                stream = agent_core.stream_skill(
-                    skill_name=opts.skill_name,
-                    user_input=opts.user_input,
-                    images=opts.images or None,
-                    audio_files=opts.audio_files or None,
-                    video_files=opts.video_files or None,
-                    files=opts.files or None,
-                    model=opts.model,
-                    template=opts.template,
-                    params=opts.params,
-                    options=opts.options,
-                    filter_tools=opts.tools_filter,
-                    system_message_appender=opts.system_message_appender,
-                    conversation_history=opts.conversation_history,
-                    timeout_s=opts.timeout_s,
-                    auto_fallback=opts.auto_fallback,
-                    on_pending_input=opts.on_pending_input,
-                )
+        if opts.skill_name:
+            stream = agent_core.stream_skill(
+                skill_name=opts.skill_name,
+                user_input=opts.user_input,
+                images=opts.images or None,
+                audio_files=opts.audio_files or None,
+                video_files=opts.video_files or None,
+                files=opts.files or None,
+                model=opts.model,
+                template=opts.template,
+                params=opts.params,
+                options=opts.options,
+                filter_tools=opts.tools_filter,
+                system_message_appender=opts.system_message_appender,
+                conversation_history=opts.conversation_history,
+                timeout_s=opts.timeout_s,
+                auto_fallback=opts.auto_fallback,
+                on_pending_input=opts.on_pending_input,
+            )
+        else:
+            stream = agent_core.stream_user_input(
+                user_input=opts.user_input,
+                images=opts.images or None,
+                audio_files=opts.audio_files or None,
+                video_files=opts.video_files or None,
+                files=opts.files or None,
+                model=opts.model,
+                template=opts.template,
+                params=opts.params,
+                options=opts.options,
+                filter_tools=opts.tools_filter,
+                system_message_appender=opts.system_message_appender,
+                conversation_history=opts.conversation_history,
+                timeout_s=opts.timeout_s,
+                auto_fallback=opts.auto_fallback,
+                on_pending_input=opts.on_pending_input,
+            )
+        for chunk in stream:
+            if accumulated_chunk is None:
+                accumulated_chunk = chunk
             else:
-                stream = agent_core.stream_user_input(
-                    user_input=opts.user_input,
-                    images=opts.images or None,
-                    audio_files=opts.audio_files or None,
-                    video_files=opts.video_files or None,
-                    files=opts.files or None,
-                    model=opts.model,
-                    template=opts.template,
-                    params=opts.params,
-                    options=opts.options,
-                    filter_tools=opts.tools_filter,
-                    system_message_appender=opts.system_message_appender,
-                    conversation_history=opts.conversation_history,
-                    timeout_s=opts.timeout_s,
-                    auto_fallback=opts.auto_fallback,
-                    on_pending_input=opts.on_pending_input,
-                )
-            async for chunk in stream:
-                if accumulated_chunk is None:
-                    accumulated_chunk = chunk
-                else:
-                    accumulated_chunk = accumulated_chunk + chunk
+                accumulated_chunk = accumulated_chunk + chunk
 
-                if hasattr(chunk, "content") and chunk.content:
-                    on_first_token()
-                    print(str(chunk.content), end="")
+            if hasattr(chunk, "content") and chunk.content:
+                on_first_token()
+                print(str(chunk.content), end="")
 
-            # Reset color and flush
-            print(_response_color_reset(), flush=True)
-
-        asyncio.run(_run())
+        # Reset color and flush
+        print(_response_color_reset(), flush=True)
 
         text = ""
         if accumulated_chunk:
@@ -252,28 +247,26 @@ def _sync_call(
     response_handler = MultimediaResponseHandler(opts.media_dir)
 
     if opts.skill_name:
-        response = asyncio.run(
-            agent_core.process_skill(
-                skill_name=opts.skill_name,
-                user_input=opts.user_input,
-                images=opts.images or None,
-                audio_files=opts.audio_files or None,
-                video_files=opts.video_files or None,
-                files=opts.files or None,
-                model=opts.model,
-                template=opts.template,
-                params=opts.params,
-                options=opts.options,
-                filter_tools=opts.tools_filter,
-                system_message_appender=opts.system_message_appender,
-                conversation_history=opts.conversation_history,
-                timeout_s=opts.timeout_s,
-                auto_fallback=opts.auto_fallback,
-                on_pending_input=opts.on_pending_input,
-            )
+        response = agent_core.process_skill(
+            skill_name=opts.skill_name,
+            user_input=opts.user_input,
+            images=opts.images or None,
+            audio_files=opts.audio_files or None,
+            video_files=opts.video_files or None,
+            files=opts.files or None,
+            model=opts.model,
+            template=opts.template,
+            params=opts.params,
+            options=opts.options,
+            filter_tools=opts.tools_filter,
+            system_message_appender=opts.system_message_appender,
+            conversation_history=opts.conversation_history,
+            timeout_s=opts.timeout_s,
+            auto_fallback=opts.auto_fallback,
+            on_pending_input=opts.on_pending_input,
         )
     else:
-        response = agent_core.process_user_input_sync(
+        response = agent_core.process_user_input(
             user_input=opts.user_input,
             images=opts.images or None,
             audio_files=opts.audio_files or None,

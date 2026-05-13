@@ -740,6 +740,77 @@ def get_admin_routes(
         return JSONResponse(config)
 
     @require_auth
+    async def handle_config_update(request: Request):
+        """PUT /admin/api/config — save configuration."""
+        config_dir = context.get("config_dir")
+        if not config_dir:
+            return JSONResponse({"error": "No config dir"}, status_code=500)
+
+        try:
+            data = await request.json()
+
+            from cliver.config import (
+                AgentConfig,
+                ConfigManager,
+                GatewayConfig,
+                ProviderConfig,
+                SessionConfig,
+                SSEMCPServerConfig,
+                StdioMCPServerConfig,
+                StreamableHttpMCPServerConfig,
+                WebSocketMCPServerConfig,
+            )
+
+            cm = ConfigManager(config_dir)
+
+            for key, value in data.items():
+                if key == "providers":
+                    providers = {}
+                    for pname, pdata in value.items():
+                        if isinstance(pdata, dict):
+                            cfg = {"name": pname}
+                            cfg.update(pdata)
+                            cfg.pop("models", None)
+                            providers[pname] = ProviderConfig(**cfg)
+                    cm.config.providers = providers
+
+                elif key in ("mcpServers", "mcp_servers"):
+                    servers = {}
+                    for sname, sdata in value.items():
+                        if isinstance(sdata, dict):
+                            cfg = {"name": sname}
+                            cfg.update(sdata)
+                            transport = cfg.get("transport")
+                            if transport == "stdio":
+                                servers[sname] = StdioMCPServerConfig(**cfg)
+                            elif transport == "sse":
+                                servers[sname] = SSEMCPServerConfig(**cfg)
+                            elif transport == "streamable_http":
+                                servers[sname] = StreamableHttpMCPServerConfig(**cfg)
+                            elif transport == "websocket":
+                                servers[sname] = WebSocketMCPServerConfig(**cfg)
+                    cm.config.mcpServers = servers
+
+                elif key == "agents":
+                    cm.config.agents = {k: AgentConfig(**v) for k, v in value.items()}
+
+                elif key == "gateway":
+                    cm.config.gateway = GatewayConfig(**value) if value else None
+
+                elif key == "session":
+                    cm.config.session = SessionConfig(**value)
+
+                elif hasattr(cm.config, key):
+                    setattr(cm.config, key, value)
+
+            cm._save_config()
+            logger.info("Configuration updated via admin API")
+            return JSONResponse({"status": "ok"})
+        except Exception as e:
+            logger.error("Failed to save config: %s", e)
+            return JSONResponse({"error": str(e)}, status_code=500)
+
+    @require_auth
     async def handle_keys_list(request: Request):
         """GET /admin/api/keys — list all key names + descriptions."""
         from cliver.key_store import KeyStore
@@ -901,7 +972,7 @@ def get_admin_routes(
             media_files = []
             stream_media = []
             try:
-                async for chunk in executor.stream_user_input(
+                async for chunk in executor._stream_user_input_async(
                     user_input=prompt,
                     model=model,
                     system_message_appender=_system_appender,
@@ -952,11 +1023,11 @@ def get_admin_routes(
 
     # --- Return routes ---
 
-    return [
+    api_routes = [
         # Auth routes
         Route("/admin/api/login", handle_login_submit, methods=["POST"]),
         Route("/admin/logout", handle_logout),
-        # API routes (MUST come before SPA catch-all)
+        # API routes
         Route("/admin/api/status", handle_status),
         Route("/admin/api/tasks", handle_tasks),
         Route("/admin/api/tasks/{name}", handle_task_detail_api),
@@ -970,15 +1041,20 @@ def get_admin_routes(
         Route("/admin/api/adapters", handle_adapters),
         Route("/admin/api/agent", handle_agent),
         Route("/admin/api/config", handle_config),
+        Route("/admin/api/config", handle_config_update, methods=["PUT"]),
         Route("/admin/api/models", handle_models),
         Route("/admin/api/chat", handle_chat, methods=["POST"]),
         Route("/admin/api/keys", handle_keys_list),
         Route("/admin/api/keys", handle_keys_create, methods=["POST"]),
         Route("/admin/api/keys/{name}", handle_keys_delete, methods=["DELETE"]),
-        # SPA assets (must be before catch-all)
+    ]
+
+    # SPA routes returned separately — MUST be appended LAST by the caller
+    spa_routes = [
         Route("/admin/assets/{path:path}", handle_spa_assets),
-        # SPA catch-all (all /admin/* pages served by React Router)
         Route("/admin/{path:path}", handle_spa),
         Route("/admin", handle_spa),
         Route("/admin/", handle_spa),
     ]
+
+    return api_routes, spa_routes, require_auth

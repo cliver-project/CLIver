@@ -1,6 +1,6 @@
 """Tests for CliverAgent wrapping AgentCore."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock, Mock
 
 import pytest
 
@@ -13,7 +13,7 @@ def _make_mock_core(response_content="Test response"):
     message = MagicMock()
     message.content = response_content
     message.additional_kwargs = {}
-    core.process_user_input = AsyncMock(return_value=message)
+    core.process_user_input = Mock(return_value=message)
     return core
 
 
@@ -55,7 +55,7 @@ async def test_cliver_agent_run_error():
     from cliver.agents.cliver_agent import CliverAgent
 
     core = MagicMock()
-    core.process_user_input = AsyncMock(side_effect=RuntimeError("LLM unavailable"))
+    core.process_user_input = Mock(side_effect=RuntimeError("LLM unavailable"))
     config = AgentConfig(type="cliver")
     agent = CliverAgent(name="default", config=config, agent_core=core)
 
@@ -110,7 +110,7 @@ async def test_cliver_agent_stream():
         yield chunk1
         yield chunk2
 
-    core.stream_user_input = mock_stream
+    core._stream_user_input_async = mock_stream
     config = AgentConfig(type="cliver", model="test/model")
     agent = CliverAgent(name="default", config=config, agent_core=core)
 

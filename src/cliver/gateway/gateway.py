@@ -104,6 +104,28 @@ class Gateway:
 
         self._agent_factory = AgentFactory(self._resolved_config or self._get_config_manager().config, self._agent_core)
 
+        # Initialize stores early so routes can be built in create_app()
+        try:
+            from cliver.notebook.runtime import RuntimeManager
+            from cliver.notebook.store import NotebookStore
+            from cliver.project.local_provider import LocalProvider
+            from cliver.project.scenario_registry import ScenarioRegistry
+
+            profile = CliverProfile(self.config_dir)
+            self._notebook_store = NotebookStore(profile.config_dir)
+            self._runtime_manager = RuntimeManager()
+            self._project_provider = LocalProvider(profile.config_dir / "projects.db")
+
+            builtin_scenarios = Path(__file__).parent.parent / "scenarios"
+            user_scenarios = profile.config_dir / "scenarios"
+            dirs = [d for d in [builtin_scenarios, user_scenarios] if d.exists()]
+            self._scenario_registry = ScenarioRegistry(dirs)
+            if builtin_scenarios.exists():
+                self._scenario_registry.set_builtin_dir(builtin_scenarios)
+            logger.info("Notebook and project stores initialized")
+        except Exception as e:
+            logger.error(f"Failed to init stores: {e}")
+
     def _get_config_manager(self) -> "ConfigManager":
         """Get config manager, using pre-resolved config if available."""
         return ConfigManager(self.config_dir, config=self._resolved_config)
@@ -185,40 +207,23 @@ class Gateway:
                 "gateway": self,
                 "cli_session_manager": cli_sm,
             }
+            # Admin API routes (returns auth function for reuse)
+            admin_api_routes, spa_routes, shared_auth = get_admin_routes(
+                username=admin_user, password=admin_pass, context=admin_ctx
+            )
+
             # Notebook and project API routes BEFORE admin SPA catch-all
             try:
                 if self._notebook_store and self._agent_factory:
-                    import functools
-                    import secrets as _secrets
-
-                    from cliver.gateway.admin import _check_basic_auth, _check_session_cookie
                     from cliver.gateway.routes_notebook import get_notebook_routes
                     from cliver.gateway.routes_project import get_project_routes
-
-                    def make_require_auth(uname, passwd, secret):
-                        def require_auth(handler):
-                            @functools.wraps(handler)
-                            async def wrapper(request):
-                                if uname is None or passwd is None:
-                                    return JSONResponse({"error": "Disabled"}, status_code=403)
-                                if _check_session_cookie(request, uname, secret):
-                                    return await handler(request)
-                                if _check_basic_auth(request, uname, passwd):
-                                    return await handler(request)
-                                return JSONResponse({"error": "Unauthorized"}, status_code=401)
-
-                            return wrapper
-
-                        return require_auth
-
-                    auth_fn = make_require_auth(admin_user, admin_pass, _secrets.token_hex(32))
 
                     routes.extend(
                         get_notebook_routes(
                             self._notebook_store,
                             self._runtime_manager,
                             self._agent_factory,
-                            auth_fn,
+                            shared_auth,
                         )
                     )
                     routes.extend(
@@ -226,15 +231,16 @@ class Gateway:
                             self._project_provider,
                             self._scenario_registry,
                             self._notebook_store,
-                            auth_fn,
+                            shared_auth,
                         )
                     )
                     logger.info("Notebook and project routes registered")
             except Exception as e:
                 logger.error(f"Failed to register notebook/project routes: {e}")
 
-            # Admin SPA routes (catch-all MUST be last)
-            routes.extend(get_admin_routes(username=admin_user, password=admin_pass, context=admin_ctx))
+            routes.extend(admin_api_routes)
+            # SPA catch-all appended LAST — after all API routes
+            routes.extend(spa_routes)
             if admin_user and admin_pass:
                 logger.info("Admin portal enabled at /admin")
             else:
@@ -282,27 +288,28 @@ class Gateway:
             except Exception as e:
                 logger.error(f"Failed to create AgentCore: {e}")
 
-        # Initialize notebook and project stores
-        try:
-            from cliver.notebook.runtime import RuntimeManager
-            from cliver.notebook.store import NotebookStore
-            from cliver.project.local_provider import LocalProvider
-            from cliver.project.scenario_registry import ScenarioRegistry
+        # Stores already initialized in init() — skip if already set
+        if not self._notebook_store:
+            try:
+                from cliver.notebook.runtime import RuntimeManager
+                from cliver.notebook.store import NotebookStore
+                from cliver.project.local_provider import LocalProvider
+                from cliver.project.scenario_registry import ScenarioRegistry
 
-            profile = CliverProfile(self.config_dir)
-            self._notebook_store = NotebookStore(profile.config_dir)
-            self._runtime_manager = RuntimeManager()
-            self._project_provider = LocalProvider(profile.config_dir / "projects.db")
+                profile = CliverProfile(self.config_dir)
+                self._notebook_store = NotebookStore(profile.config_dir)
+                self._runtime_manager = RuntimeManager()
+                self._project_provider = LocalProvider(profile.config_dir / "projects.db")
 
-            builtin_scenarios = Path(__file__).parent.parent / "scenarios"
-            user_scenarios = profile.config_dir / "scenarios"
-            dirs = [d for d in [builtin_scenarios, user_scenarios] if d.exists()]
-            self._scenario_registry = ScenarioRegistry(dirs)
-            if builtin_scenarios.exists():
-                self._scenario_registry.set_builtin_dir(builtin_scenarios)
-            logger.info("Notebook and project stores initialized")
-        except Exception as e:
-            logger.error(f"Failed to initialize notebook/project stores: {e}")
+                builtin_scenarios = Path(__file__).parent.parent / "scenarios"
+                user_scenarios = profile.config_dir / "scenarios"
+                dirs = [d for d in [builtin_scenarios, user_scenarios] if d.exists()]
+                self._scenario_registry = ScenarioRegistry(dirs)
+                if builtin_scenarios.exists():
+                    self._scenario_registry.set_builtin_dir(builtin_scenarios)
+                logger.info("Notebook and project stores initialized (late)")
+            except Exception as e:
+                logger.error(f"Failed to initialize notebook/project stores: {e}")
 
         # Cron scheduler
         try:
@@ -490,7 +497,8 @@ class Gateway:
                     system_appender = build_skill_appender(skill_objs)
                     tool_filter = build_skill_tool_filter(skill_objs, _task_filter_tools)
 
-            response = await self._agent_core.process_user_input(
+            response = await asyncio.to_thread(
+                self._agent_core.process_user_input,
                 user_input=task.prompt,
                 model=task.model,
                 system_message_appender=system_appender,
@@ -901,7 +909,8 @@ class Gateway:
                 return [t for t in tools if t.name != "Ask"]
 
             try:
-                response = await self._agent_core.process_user_input(
+                response = await asyncio.to_thread(
+                    self._agent_core.process_user_input,
                     user_input=event.text,
                     images=images or None,
                     audio_files=audio_files or None,

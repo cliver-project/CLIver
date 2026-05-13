@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -257,5 +258,5 @@ class TestCapabilityRouting:
 
         with patch.object(executor, "_prepare_messages_and_tools", new_callable=AsyncMock) as mock_prep:
             mock_prep.return_value = (mock_engine, [], [])
-            await executor.process_user_input("describe a sunset", model="mm/mm-2.7")
+            await asyncio.to_thread(executor.process_user_input, "describe a sunset", model="mm/mm-2.7")
             mock_engine.infer.assert_called_once()
