@@ -3,6 +3,8 @@
 import yaml
 from click.testing import CliRunner
 
+from cliver.config import ConfigManager
+
 
 def test_mcp_server_add_stdio_with_env(load_cliver, init_config):
     """Test adding stdio MCP server with environment variables."""
@@ -381,7 +383,10 @@ def test_config_show(load_cliver, init_config):
     """Test showing configuration."""
     result = CliRunner().invoke(load_cliver, ["config", "show"])
     assert result.exit_code == 0
-    assert result.output  # Should show some configuration content
+    assert result.output
+    assert "Error showing configuration" not in result.output
+    assert "General Settings" in result.output
+    assert "Config file:" in result.output
 
 
 def test_config_path(load_cliver, init_config):
@@ -445,3 +450,236 @@ def test_mask_secrets_no_api_key():
     data = {"models": {"qwen": {"url": "http://localhost"}}}
     _mask_secrets(data)
     assert data["models"]["qwen"]["url"] == "http://localhost"
+
+
+def test_config_show_with_default_agent(load_cliver, init_config, config_manager):
+    """config show should display the configured default_agent."""
+    config_manager.config.default_agent = "coder"
+    config_manager._save_config()
+
+    result = CliRunner().invoke(load_cliver, ["config", "show"])
+    assert result.exit_code == 0
+    assert "Default Agent" in result.output
+    assert "coder" in result.output
+    assert "Error showing configuration" not in result.output
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# config set
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_config_set_user_agent(load_cliver, init_config):
+    result = CliRunner().invoke(load_cliver, ["config", "set", "--user-agent", "TestBot/1.0"])
+    assert result.exit_code == 0
+    cfg = ConfigManager(init_config).config
+    assert cfg.user_agent == "TestBot/1.0"
+
+
+def test_config_set_user_agent_empty(load_cliver, init_config):
+    result = CliRunner().invoke(load_cliver, ["config", "set", "--user-agent", ""])
+    assert result.exit_code == 0
+    assert "Usage: config set" in result.output
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# config validate
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_config_validate_valid(load_cliver, init_config):
+    result = CliRunner().invoke(load_cliver, ["config", "validate"])
+    assert result.exit_code == 0
+    assert "Configuration is valid" in result.output
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# config theme
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_config_theme_show(load_cliver, init_config):
+    result = CliRunner().invoke(load_cliver, ["config", "theme"])
+    assert result.exit_code == 0
+    assert "Current theme:" in result.output
+
+
+def test_config_theme_set_invalid(load_cliver, init_config):
+    result = CliRunner().invoke(load_cliver, ["config", "theme", "nonexistent"])
+    assert result.exit_code == 0
+    assert "Unknown theme" in result.output
+
+
+def test_config_theme_set_valid(load_cliver, init_config):
+    result = CliRunner().invoke(load_cliver, ["config", "theme", "light"])
+    assert result.exit_code == 0
+    cfg = ConfigManager(init_config).config
+    assert cfg.theme == "light"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# config rate-limit
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_config_rate_limit_show_no_provider(load_cliver, init_config):
+    result = CliRunner().invoke(load_cliver, ["config", "rate-limit", "nonexistent"])
+    assert result.exit_code == 0
+
+
+def test_config_rate_limit_set_and_show(load_cliver, init_config):
+    cm = ConfigManager(init_config)
+    cm.add_or_update_provider("testprov", "openai", "https://test.example.com")
+
+    CliRunner().invoke(load_cliver, ["config", "rate-limit", "testprov", "100/1m"])
+    cfg = ConfigManager(init_config).config
+    prov = cfg.providers["testprov"]
+    assert prov.rate_limit is not None
+    assert prov.rate_limit.requests == 100
+    assert prov.rate_limit.period == "1m"
+
+    result = CliRunner().invoke(load_cliver, ["config", "rate-limit", "testprov"])
+    assert result.exit_code == 0
+    assert "100/1m" in result.output
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# model list
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_model_list_empty(load_cliver, init_config):
+    result = CliRunner().invoke(load_cliver, ["model", "list"])
+    assert result.exit_code == 0
+
+
+def test_model_list_with_models(load_cliver, init_config, config_manager):
+    config_manager.add_or_update_provider("ollama", "ollama", "http://localhost:11434")
+    config_manager.add_or_update_llm_model("ollama", "llama3.2:latest")
+    config_manager.add_or_update_llm_model("ollama", "codellama:7b")
+    result = CliRunner().invoke(load_cliver, ["model", "list"])
+    assert result.exit_code == 0
+    assert "ollama/llama3.2:latest" in result.output
+    assert "ollama/codellama:7b" in result.output
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# model default
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_model_default_show_none(load_cliver, init_config):
+    result = CliRunner().invoke(load_cliver, ["model", "default"])
+    assert result.exit_code == 0
+
+
+def test_model_default_set_and_show(load_cliver, init_config):
+    cm = ConfigManager(init_config)
+    cm.add_or_update_provider("openai", "openai", "https://api.openai.com")
+    cm.add_or_update_llm_model("openai", "gpt-4o")
+
+    CliRunner().invoke(load_cliver, ["model", "default", "openai/gpt-4o"])
+    cfg = ConfigManager(init_config).config
+    assert cfg.default_model == "openai/gpt-4o"
+
+    result = CliRunner().invoke(load_cliver, ["model", "default"])
+    assert result.exit_code == 0
+    assert "openai/gpt-4o" in result.output
+
+
+def test_model_default_set_nonexistent(load_cliver, init_config):
+    result = CliRunner().invoke(load_cliver, ["model", "default", "nonexistent/model"])
+    assert result.exit_code != 0 or "not found" in result.output.lower()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# model set
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_model_set_options(load_cliver, init_config):
+    cm = ConfigManager(init_config)
+    cm.add_or_update_provider("openai", "openai", "https://api.openai.com")
+    cm.add_or_update_llm_model("openai", "gpt-4o")
+
+    CliRunner().invoke(
+        load_cliver,
+        ["model", "set", "--name", "openai/gpt-4o", "--option", "temperature=0.5", "--option", "max_tokens=4096"],
+    )
+    cfg = ConfigManager(init_config).config
+    model = cfg.models["openai/gpt-4o"]
+    assert model.options is not None
+    assert model.options.temperature == 0.5
+    assert model.options.max_tokens == 4096
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# provider list
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_provider_list_empty(load_cliver, init_config):
+    result = CliRunner().invoke(load_cliver, ["provider", "list"])
+    assert result.exit_code == 0
+
+
+def test_provider_list_with_providers(load_cliver, init_config, config_manager):
+    config_manager.add_or_update_provider("openai", "openai", "https://api.openai.com")
+    config_manager.add_or_update_provider("anthropic", "anthropic", "https://api.anthropic.com")
+    result = CliRunner().invoke(load_cliver, ["provider", "list"])
+    assert result.exit_code == 0
+    assert "openai" in result.output
+    assert "anthropic" in result.output
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# provider add
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_provider_add_basic(load_cliver, init_config):
+    CliRunner().invoke(
+        load_cliver,
+        [
+            "provider",
+            "add",
+            "--name",
+            "myprov",
+            "--type",
+            "openai",
+            "--api-url",
+            "https://my.api.com",
+            "--api-key",
+            "sk-test",
+        ],
+    )
+    cfg = ConfigManager(init_config).config
+    prov = cfg.providers["myprov"]
+    assert prov.type == "openai"
+    assert prov.api_url == "https://my.api.com"
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# provider remove
+# ──────────────────────────────────────────────────────────────────────────────
+
+
+def test_provider_remove_no_models(load_cliver, init_config):
+    cm = ConfigManager(init_config)
+    cm.add_or_update_provider("orphan", "openai", "https://orphan.example.com")
+
+    result = CliRunner().invoke(load_cliver, ["provider", "remove", "--name", "orphan"])
+    assert result.exit_code == 0
+    cfg = ConfigManager(init_config).config
+    assert "orphan" not in cfg.providers
+
+
+def test_provider_remove_with_models_fails(load_cliver, init_config):
+    cm = ConfigManager(init_config)
+    cm.add_or_update_provider("busy", "openai", "https://busy.example.com")
+    cm.add_or_update_llm_model("busy", "gpt-4o")
+
+    result = CliRunner().invoke(load_cliver, ["provider", "remove", "--name", "busy"])
+    assert "Cannot remove" in result.output
+    cfg = ConfigManager(init_config).config
+    assert "busy" in cfg.providers  # still present

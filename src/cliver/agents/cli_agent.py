@@ -25,35 +25,69 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-ENV_VAR_MAPPING: Dict[str, Dict[str, str]] = {
-    "anthropic": {
-        "api_key": "ANTHROPIC_API_KEY",
-        "api_url": "ANTHROPIC_API_URL",
-        "model": "ANTHROPIC_MODEL",
-    },
-    "openai": {
-        "api_key": "OPENAI_API_KEY",
-        "api_url": "OPENAI_BASE_URL",
-        "model": "OPENAI_MODEL",
-    },
-    "google": {
-        "api_key": "GEMINI_API_KEY",
-        "model": "GEMINI_MODEL",
-    },
-    "deepseek": {
-        "api_key": "DEEPSEEK_API_KEY",
-        "api_url": "DEEPSEEK_API_URL",
-        "model": "DEEPSEEK_MODEL",
-    },
-}
-
 
 class CliAgent(Agent):
-    """Base class for all CLI subprocess-based agents."""
+    """Base class for all CLI subprocess-based agents.
+
+    Subclasses must implement ``_build_command`` and ``_build_env``.
+    """
 
     DEFAULT_COMMAND: str = ""
     DEFAULT_ARGS: List[str] = []
-    DEFAULT_OUTPUT_FORMAT: List[str] = ["--output-format", "json"]
+
+    # Protocol-critical flags that must never be overridden by user config.
+    # Key = flag, Value = whether the flag takes a following value argument.
+    BLOCKED_ARGS: Dict[str, bool] = {}
+    # Env var names for API key, base URL, and model. Override in subclasses.
+    ENV_MAPPING: Dict[str, str] = {}
+
+    def _build_command(self, prompt: str) -> List[str]:
+        """Build the full command line. Must be implemented by subclasses."""
+        raise NotImplementedError(f"{type(self).__name__} must implement _build_command")
+
+    def _build_env(self) -> dict:
+        """Build the environment for the subprocess. Must be implemented by subclasses."""
+        raise NotImplementedError(f"{type(self).__name__} must implement _build_env")
+
+    def _base_env(self) -> dict:
+        """Common env vars: API key, base URL, and user config.env overrides.
+
+        Each implementation's ``_build_env`` is responsible for setting
+        provider-specific model env vars (e.g. ``ANTHROPIC_MODEL``,
+        ``CLAUDE_CODE_SUBAGENT_MODEL``) from ``self._model_config``.
+        Extra env vars that don't warrant a config field can be passed
+        through ``config.env`` in the YAML.
+        """
+        env = dict(os.environ)
+        mapping = self.ENV_MAPPING
+        if self._provider_config:
+            api_key = self._provider_config.get_api_key()
+            if "api_key" in mapping and api_key:
+                env[mapping["api_key"]] = api_key
+            if "api_url" in mapping and self._provider_config.api_url:
+                env[mapping["api_url"]] = self._provider_config.api_url
+        if self.config.env:
+            env.update(self.config.env)
+        return env
+
+    @staticmethod
+    def _filter_args(args: List[str], blocked: Dict[str, bool]) -> List[str]:
+        """Remove protocol-critical flags from user-provided args."""
+        if not args:
+            return args
+        filtered: List[str] = []
+        skip_next = False
+        for arg in args:
+            if skip_next:
+                skip_next = False
+                continue
+            flag = arg.split("=", 1)[0] if "=" in arg else arg
+            if flag in blocked:
+                if blocked[flag] and "=" not in arg:
+                    skip_next = True
+                continue
+            filtered.append(arg)
+        return filtered
 
     def __init__(
         self,
@@ -74,78 +108,108 @@ class CliAgent(Agent):
             rate_limit_key=rate_limit_key,
         )
         self._command = config.command or self.DEFAULT_COMMAND
-        self._args = config.args if config.args is not None else list(self.DEFAULT_ARGS)
-        self._output_format = list(self.DEFAULT_OUTPUT_FORMAT)
+        self._resolved_command: str = self._command
+        user_args = config.args if config.args is not None else list(self.DEFAULT_ARGS)
+        self._user_args = self._filter_args(user_args, self.BLOCKED_ARGS)
         self._model_config = model_config
         self._provider_config = provider_config
         self._output_dir: Optional[Path] = None
         self._pre_snapshot: Optional[Set[str]] = None
 
     async def initialize(self, context: dict = None) -> None:
-        if not shutil.which(self._command):
+        resolved = shutil.which(self._command)
+        if not resolved:
             raise RuntimeError(f"CLI agent '{self._command}' not found. Install it or check your PATH.")
+        self._resolved_command = resolved
         self._output_dir = Path(tempfile.mkdtemp(prefix=f"cliver-{self.name}-"))
-        if context:
-            if context.get("working_dir"):
-                self.config.working_dir = context["working_dir"]
+        if context and context.get("working_dir"):
+            self.config.working_dir = context["working_dir"]
+        else:
+            from cliver.util import get_config_dir
+
+            self.config.working_dir = str(Path(get_config_dir()) / "agents" / self.name / "runs")
+        Path(self.config.working_dir).mkdir(parents=True, exist_ok=True)
 
     async def _do_run(self, prompt: str, **kwargs) -> AgentResult:
+        """Run via streaming JSONL — parse all events and accumulate the result."""
         start = time.monotonic()
         working = Path(self.config.working_dir or ".")
         self._pre_snapshot = self._snapshot_dir(working)
 
-        cmd = [self._command] + self._args + self._output_format + [prompt]
+        cmd = self._build_command(prompt)
         env = self._build_env()
 
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 env=env,
                 cwd=self.config.working_dir or None,
             )
-            stdout, stderr = await proc.communicate()
         except FileNotFoundError:
-            duration = int((time.monotonic() - start) * 1000)
             return AgentResult(
                 text="",
                 status="error",
                 error=f"Command not found: {self._command}",
-                duration_ms=duration,
+                duration_ms=int((time.monotonic() - start) * 1000),
             )
 
+        full_text = []
+        json_buffer = ""
+        stderr_data = []
+        stderr_task = asyncio.ensure_future(self._read_stderr(proc, stderr_data))
+
+        async for line in proc.stdout:
+            text = line.decode(errors="replace").rstrip("\n")
+            try:
+                chunk_json = json.loads(text)
+                chunk_text = self._parse_stream_chunk(chunk_json)
+                if chunk_text:
+                    full_text.append(chunk_text)
+            except json.JSONDecodeError:
+                json_buffer += text
+                try:
+                    chunk_json = json.loads(json_buffer)
+                    json_buffer = ""
+                    chunk_text = self._parse_stream_chunk(chunk_json)
+                    if chunk_text:
+                        full_text.append(chunk_text)
+                except json.JSONDecodeError:
+                    pass
+
+        if json_buffer:
+            try:
+                chunk_json = json.loads(json_buffer)
+                chunk_text = self._parse_stream_chunk(chunk_json)
+                if chunk_text:
+                    full_text.append(chunk_text)
+            except json.JSONDecodeError:
+                full_text.append(json_buffer)
+
+        await stderr_task
+        await proc.wait()
         duration = int((time.monotonic() - start) * 1000)
 
         if proc.returncode != 0:
             return AgentResult(
-                text=stderr.decode(errors="replace"),
+                text="".join(full_text),
                 status="error",
                 error=f"{self._command} exited with code {proc.returncode}",
                 duration_ms=duration,
             )
 
-        try:
-            raw_json = json.loads(stdout.decode())
-        except json.JSONDecodeError:
-            return AgentResult(
-                text=stdout.decode(errors="replace"),
-                status="completed",
-                artifacts=self._diff_artifacts(working),
-                duration_ms=duration,
-            )
+        return AgentResult(
+            text="".join(full_text),
+            status="completed",
+            artifacts=self._diff_artifacts(working),
+            duration_ms=duration,
+        )
 
-        result = self._parse_response(raw_json)
-        result.duration_ms = duration
-        result.raw = raw_json
-
-        json_artifacts = self._extract_artifacts(raw_json)
-        if json_artifacts:
-            result.artifacts = json_artifacts
-        else:
-            result.artifacts = self._diff_artifacts(working)
-
-        return result
+    async def _read_stderr(self, proc, stderr_data: list) -> None:
+        async for line in proc.stderr:
+            stderr_data.append(line.decode(errors="replace"))
 
     def _parse_response(self, raw_json: dict) -> AgentResult:
         text = raw_json.get("result", raw_json.get("response", str(raw_json)))
@@ -153,26 +217,6 @@ class CliAgent(Agent):
 
     def _extract_artifacts(self, raw_json: dict) -> List[Artifact]:
         return []
-
-    def _build_env(self) -> dict:
-        env = dict(os.environ)
-        if self._provider_config:
-            provider_type = self._provider_config.type
-            mapping = ENV_VAR_MAPPING.get(provider_type, {})
-            if "api_key" in mapping and self._provider_config.api_key:
-                env[mapping["api_key"]] = self._provider_config.api_key
-            if "api_url" in mapping and self._provider_config.api_url:
-                env[mapping["api_url"]] = self._provider_config.api_url
-
-        if self._model_config:
-            provider_type = self._provider_config.type if self._provider_config else ""
-            mapping = ENV_VAR_MAPPING.get(provider_type, {})
-            if "model" in mapping:
-                env[mapping["model"]] = self._model_config.api_model_name
-
-        if self.config.env:
-            env.update(self.config.env)
-        return env
 
     def _snapshot_dir(self, path: Path) -> Set[str]:
         if not path.exists():
@@ -198,13 +242,7 @@ class CliAgent(Agent):
         return artifacts
 
     async def stream(self, prompt: str, **kwargs) -> AsyncIterator[AgentChunk]:
-        cmd = [self._command] + self._args
-        stream_format = self._get_stream_format()
-        if stream_format:
-            cmd += stream_format
-        else:
-            cmd += self._output_format
-        cmd.append(prompt)
+        cmd = self._build_command(prompt)
         env = self._build_env()
         start = time.monotonic()
 
@@ -228,20 +266,34 @@ class CliAgent(Agent):
             return
 
         full_text = []
+        json_buffer = ""
         async for line in proc.stdout:
             text = line.decode(errors="replace").rstrip("\n")
-            if stream_format:
+            try:
+                chunk_json = json.loads(text)
+                chunk_text = self._parse_stream_chunk(chunk_json)
+                full_text.append(chunk_text)
+                yield AgentChunk(text=chunk_text, chunk_type="text")
+            except json.JSONDecodeError:
+                json_buffer += text
                 try:
-                    chunk_json = json.loads(text)
+                    chunk_json = json.loads(json_buffer)
+                    json_buffer = ""
                     chunk_text = self._parse_stream_chunk(chunk_json)
                     full_text.append(chunk_text)
                     yield AgentChunk(text=chunk_text, chunk_type="text")
                 except json.JSONDecodeError:
-                    full_text.append(text)
-                    yield AgentChunk(text=text, chunk_type="text")
-            else:
-                full_text.append(text)
-                yield AgentChunk(text=text + "\n", chunk_type="text")
+                    pass
+
+        if json_buffer:
+            try:
+                chunk_json = json.loads(json_buffer)
+                chunk_text = self._parse_stream_chunk(chunk_json)
+                full_text.append(chunk_text)
+                yield AgentChunk(text=chunk_text, chunk_type="text")
+            except json.JSONDecodeError:
+                full_text.append(json_buffer)
+                yield AgentChunk(text=json_buffer, chunk_type="text")
 
         await proc.wait()
         duration = int((time.monotonic() - start) * 1000)
@@ -253,9 +305,6 @@ class CliAgent(Agent):
                 duration_ms=duration,
             ),
         )
-
-    def _get_stream_format(self) -> Optional[List[str]]:
-        return None
 
     def _parse_stream_chunk(self, chunk_json: dict) -> str:
         return chunk_json.get("text", chunk_json.get("content", str(chunk_json)))

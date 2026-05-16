@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Union
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 # Import model capabilities
 from cliver.model_capabilities import (
@@ -86,10 +86,12 @@ class ModelConfig(BaseModel):
     The ``name`` field uses canonical ``provider/model_name`` format
     (e.g. ``deepseek/deepseek-reasoner``).  The part after the slash
     is the API-facing model name, accessible via ``api_model_name``.
+
+    ``provider`` is auto-derived from ``name`` if omitted.
     """
 
     name: str
-    provider: str
+    provider: str = Field(default="", description="Provider name (derived from name if empty)")
     options: Optional[ModelOptions] = Field(default=None, description="Options for model")
     capabilities: Optional[Set[ModelCapability]] = Field(default=None, description="Model capabilities")
     think_mode: Optional[bool] = Field(
@@ -106,6 +108,15 @@ class ModelConfig(BaseModel):
 
     # Internal: set during config loading, not serialized
     _provider_config: Optional["ProviderConfig"] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def auto_provider(cls, data: Any) -> Any:
+        """Derive provider from name if not explicitly set."""
+        if isinstance(data, dict) and not data.get("provider") and "name" in data:
+            name = data["name"]
+            data["provider"] = name.split("/", 1)[0] if "/" in name else name
+        return data
 
     @property
     def api_model_name(self) -> str:
@@ -412,7 +423,7 @@ _SECRET_FIELDS = frozenset({"api_key", "token", "app_token", "admin_password"})
 def _resolve_non_secret_templates(obj) -> None:
     """Resolve {{ }} Jinja2 templates in non-secret fields only."""
     if isinstance(obj, BaseModel):
-        for field_name in obj.model_fields:
+        for field_name in type(obj).model_fields:
             if field_name in _SECRET_FIELDS:
                 continue
             val = getattr(obj, field_name, None)
@@ -472,6 +483,7 @@ class ConfigManager:
         self.config_dir = config_dir
         self.config_file = self.config_dir / "config.yaml"
         self.config = config if config is not None else self._load_config()
+        self.config.resolve_secrets()
 
     def _load_config(self) -> AppConfig:
         """Load configuration from YAML file.

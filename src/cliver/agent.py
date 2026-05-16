@@ -111,6 +111,7 @@ class Agent(ABC):
     @abstractmethod
     async def _do_run(self, prompt: str, **kwargs) -> AgentResult: ...
 
+    @abstractmethod
     async def stream(
         self,
         prompt: str,
@@ -119,9 +120,7 @@ class Agent(ABC):
         files: List[str] = None,
         timeout_s: int = None,
         **kwargs,
-    ) -> AsyncIterator[AgentChunk]:
-        result = await self.run(prompt, images=images, files=files, timeout_s=timeout_s, **kwargs)
-        yield AgentChunk(text=result.text, chunk_type="done", final_result=result)
+    ) -> AsyncIterator[AgentChunk]: ...
 
     async def cleanup(self) -> None:  # noqa: B027
         pass

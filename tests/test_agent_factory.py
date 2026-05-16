@@ -57,15 +57,11 @@ def test_create_claude_agent():
     assert agent.config.timeout_s == 600
 
 
-def test_create_custom_type_falls_back_to_cli_agent():
+def test_create_custom_type_raises_for_unknown():
     factory = _make_factory()
-    agent = factory.create("custom")
 
-    from cliver.agents.cli_agent import CliAgent
-
-    assert isinstance(agent, CliAgent)
-    assert agent._command == "aider"
-    assert agent._args == ["--message"]
+    with pytest.raises(ValueError, match="Unknown agent type"):
+        factory.create("custom")
 
 
 def test_create_default_agent():

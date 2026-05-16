@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Dict, Type
 
 from cliver.agent import Agent
 from cliver.agents.claude_agent import ClaudeAgent
-from cliver.agents.cli_agent import CliAgent
 from cliver.agents.cliver_agent import CliverAgent
 from cliver.agents.gemini_agent import GeminiAgent
 from cliver.agents.opencode_agent import OpenCodeAgent
@@ -57,7 +56,11 @@ class AgentFactory:
         agent_config = self._resolve_agent_config(name)
         model_config, provider_config = self._resolve_model(agent_config.model)
 
-        agent_cls = AGENT_REGISTRY.get(agent_config.type, CliAgent)
+        agent_cls = AGENT_REGISTRY.get(agent_config.type)
+        if agent_cls is None:
+            raise ValueError(
+                f"Unknown agent type: {agent_config.type!r}. Supported types: {sorted(AGENT_REGISTRY.keys())}"
+            )
 
         kwargs = dict(
             name=name,
