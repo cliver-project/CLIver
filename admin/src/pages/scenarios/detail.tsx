@@ -35,7 +35,7 @@ export default function ScenarioDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [showCreate, setShowCreate] = useState(false);
-  const [notebookTitle, setNotebookTitle] = useState("");
+  const [labTitle, setLabTitle] = useState("");
 
   const { data: scenario, isLoading } = useQuery({
     queryKey: ["scenario", id],
@@ -43,19 +43,19 @@ export default function ScenarioDetailPage() {
     enabled: !!id,
   });
 
-  const handleCreateNotebook = async () => {
-    if (!scenario || !notebookTitle.trim()) return;
+  const handleCreateLab = async () => {
+    if (!scenario || !labTitle.trim()) return;
     try {
-      const nb = await apiPost<{ id: string }>("/notebooks", {
-        title: notebookTitle,
+      const nb = await apiPost<{ id: string }>("/labs", {
+        title: labTitle,
         description: scenario.description,
         scenario_id: scenario.id,
         default_agent: scenario.template?.default_agent,
         cells: scenario.template?.cells || [],
       });
-      navigate(`/admin/notebooks/${nb.id}`);
+      navigate(`/admin/labs/${nb.id}`);
     } catch (e) {
-      console.error("Failed to create notebook:", e);
+      console.error("Failed to create lab:", e);
     }
   };
 
@@ -77,9 +77,9 @@ export default function ScenarioDetailPage() {
         { label: scenario.display_name },
       ]}
       actions={
-        <Button onClick={() => { setNotebookTitle(scenario.display_name); setShowCreate(true); }}>
+        <Button onClick={() => { setLabTitle(scenario.display_name); setShowCreate(true); }}>
           <Book className="w-4 h-4 mr-1.5" />
-          Create Notebook
+          Create AI Lab
         </Button>
       }
     >
@@ -113,7 +113,7 @@ export default function ScenarioDetailPage() {
         {/* Template cells preview */}
         {cells.length > 0 && (
           <div>
-            <h3 className="text-sm font-semibold mb-3">Notebook Template ({cells.length} cells)</h3>
+            <h3 className="text-sm font-semibold mb-3">Lab Template ({cells.length} cells)</h3>
             <div className="space-y-2">
               {cells.map((cell, idx) => {
                 const colors: Record<string, string> = {
@@ -139,26 +139,26 @@ export default function ScenarioDetailPage() {
         )}
       </div>
 
-      {/* Create Notebook Dialog */}
+      {/* Create AI Lab Dialog */}
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Create Notebook from Scenario</DialogTitle>
+            <DialogTitle>Create AI Lab from Scenario</DialogTitle>
             <DialogDescription>
-              Create a new notebook using the "{scenario.display_name}" template.
+              Create a new lab using the "{scenario.display_name}" template.
             </DialogDescription>
           </DialogHeader>
           <div className="py-2">
-            <Label>Notebook Title</Label>
+            <Label>Lab Title</Label>
             <Input
-              value={notebookTitle}
-              onChange={(e) => setNotebookTitle(e.target.value)}
+              value={labTitle}
+              onChange={(e) => setLabTitle(e.target.value)}
               placeholder="e.g. My Research Project"
             />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCreate(false)}>{t("common.cancel")}</Button>
-            <Button onClick={handleCreateNotebook} disabled={!notebookTitle.trim()}>
+            <Button onClick={handleCreateLab} disabled={!labTitle.trim()}>
               Create
             </Button>
           </DialogFooter>

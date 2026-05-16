@@ -86,7 +86,7 @@ class Gateway:
         self._tasks_run = 0
         self._start_time = 0.0
         self._thread_queue = ThreadQueue()
-        self._notebook_store = None
+        self._lab_store = None
         self._runtime_manager = None
         self._project_provider = None
         self._scenario_registry = None
@@ -106,13 +106,13 @@ class Gateway:
 
         # Initialize stores early so routes can be built in create_app()
         try:
-            from cliver.notebook.runtime import RuntimeManager
-            from cliver.notebook.store import NotebookStore
+            from cliver.lab.runtime import RuntimeManager
+            from cliver.lab.store import LabStore
             from cliver.project.local_provider import LocalProvider
             from cliver.project.scenario_registry import ScenarioRegistry
 
             profile = CliverProfile(self.config_dir)
-            self._notebook_store = NotebookStore(profile.config_dir)
+            self._lab_store = LabStore(profile.config_dir)
             self._runtime_manager = RuntimeManager()
             self._project_provider = LocalProvider(profile.config_dir / "projects.db")
 
@@ -122,7 +122,7 @@ class Gateway:
             self._scenario_registry = ScenarioRegistry(dirs)
             if builtin_scenarios.exists():
                 self._scenario_registry.set_builtin_dir(builtin_scenarios)
-            logger.info("Notebook and project stores initialized")
+            logger.info("Lab and project stores initialized")
         except Exception as e:
             logger.error(f"Failed to init stores: {e}")
 
@@ -212,15 +212,15 @@ class Gateway:
                 username=admin_user, password=admin_pass, context=admin_ctx
             )
 
-            # Notebook and project API routes BEFORE admin SPA catch-all
+            # Lab and project API routes BEFORE admin SPA catch-all
             try:
-                if self._notebook_store and self._agent_factory:
-                    from cliver.gateway.routes_notebook import get_notebook_routes
+                if self._lab_store and self._agent_factory:
+                    from cliver.gateway.routes_lab import get_lab_routes
                     from cliver.gateway.routes_project import get_project_routes
 
                     routes.extend(
-                        get_notebook_routes(
-                            self._notebook_store,
+                        get_lab_routes(
+                            self._lab_store,
                             self._runtime_manager,
                             self._agent_factory,
                             shared_auth,
@@ -230,13 +230,13 @@ class Gateway:
                         get_project_routes(
                             self._project_provider,
                             self._scenario_registry,
-                            self._notebook_store,
+                            self._lab_store,
                             shared_auth,
                         )
                     )
-                    logger.info("Notebook and project routes registered")
+                    logger.info("Lab and project routes registered")
             except Exception as e:
-                logger.error(f"Failed to register notebook/project routes: {e}")
+                logger.error(f"Failed to register lab/project routes: {e}")
 
             routes.extend(admin_api_routes)
             # SPA catch-all appended LAST — after all API routes
@@ -289,15 +289,15 @@ class Gateway:
                 logger.error(f"Failed to create AgentCore: {e}")
 
         # Stores already initialized in init() — skip if already set
-        if not self._notebook_store:
+        if not self._lab_store:
             try:
-                from cliver.notebook.runtime import RuntimeManager
-                from cliver.notebook.store import NotebookStore
+                from cliver.lab.runtime import RuntimeManager
+                from cliver.lab.store import LabStore
                 from cliver.project.local_provider import LocalProvider
                 from cliver.project.scenario_registry import ScenarioRegistry
 
                 profile = CliverProfile(self.config_dir)
-                self._notebook_store = NotebookStore(profile.config_dir)
+                self._lab_store = LabStore(profile.config_dir)
                 self._runtime_manager = RuntimeManager()
                 self._project_provider = LocalProvider(profile.config_dir / "projects.db")
 
@@ -307,9 +307,9 @@ class Gateway:
                 self._scenario_registry = ScenarioRegistry(dirs)
                 if builtin_scenarios.exists():
                     self._scenario_registry.set_builtin_dir(builtin_scenarios)
-                logger.info("Notebook and project stores initialized (late)")
+                logger.info("Lab and project stores initialized (late)")
             except Exception as e:
-                logger.error(f"Failed to initialize notebook/project stores: {e}")
+                logger.error(f"Failed to initialize lab/project stores: {e}")
 
         # Cron scheduler
         try:

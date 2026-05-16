@@ -1,8 +1,8 @@
-"""Tests for Notebook and Cell models."""
+"""Tests for Lab and Cell models."""
 
 
 def test_cell_defaults():
-    from cliver.notebook.models import Cell
+    from cliver.lab.models import Cell
 
     c = Cell(id="setup", type="config", title="Setup")
     assert c.id == "setup"
@@ -15,7 +15,7 @@ def test_cell_defaults():
 
 
 def test_cell_with_outputs():
-    from cliver.notebook.models import Cell
+    from cliver.lab.models import Cell
 
     c = Cell(
         id="search",
@@ -32,7 +32,7 @@ def test_cell_with_outputs():
 
 
 def test_cell_type_validation():
-    from cliver.notebook.models import Cell
+    from cliver.lab.models import Cell
 
     c = Cell(id="x", type="code", title="Code")
     assert c.type == "code"
@@ -40,62 +40,62 @@ def test_cell_type_validation():
     assert c2.type == "display"
 
 
-def test_notebook_creation():
-    from cliver.notebook.models import Cell, Notebook
+def test_lab_creation():
+    from cliver.lab.models import Cell, Lab
 
-    nb = Notebook(
-        id="nb_abc123",
-        title="Test Notebook",
+    lab = Lab(
+        id="lab_abc123",
+        title="Test Lab",
         cells=[
             Cell(id="setup", type="config", title="Setup"),
             Cell(id="run", type="llm", title="Run"),
         ],
     )
-    assert nb.id == "nb_abc123"
-    assert nb.title == "Test Notebook"
-    assert len(nb.cells) == 2
-    assert nb.schema_version == "cliver-notebook-v1"
-    assert nb.default_agent is None
-    assert nb.context == {}
+    assert lab.id == "lab_abc123"
+    assert lab.title == "Test Lab"
+    assert len(lab.cells) == 2
+    assert lab.schema_version == "cliver-lab-v1"
+    assert lab.default_agent is None
+    assert lab.context == {}
 
 
-def test_notebook_with_metadata():
-    from cliver.notebook.models import Notebook
+def test_lab_with_metadata():
+    from cliver.lab.models import Lab
 
-    nb = Notebook(
-        id="nb_xyz789",
+    lab = Lab(
+        id="lab_xyz789",
         title="Research",
         description="Paper survey",
         scenario_id="research-ai-lab",
         default_agent="researcher",
         context={"working_dir": "./projects", "description": "Q2 research"},
     )
-    assert nb.scenario_id == "research-ai-lab"
-    assert nb.default_agent == "researcher"
-    assert nb.context["working_dir"] == "./projects"
+    assert lab.scenario_id == "research-ai-lab"
+    assert lab.default_agent == "researcher"
+    assert lab.context["working_dir"] == "./projects"
 
 
-def test_notebook_serialization():
-    from cliver.notebook.models import Cell, Notebook
+def test_lab_serialization():
+    from cliver.lab.models import Cell, Lab
 
-    nb = Notebook(
-        id="nb_test",
+    lab = Lab(
+        id="lab_test",
         title="Test",
         cells=[Cell(id="c1", type="config", title="Config", outputs={"key": "val"})],
     )
-    data = nb.model_dump()
-    assert data["$schema"] == "cliver-notebook-v1"
-    assert data["id"] == "nb_test"
+    data = lab.model_dump()
+    assert data["$schema"] == "cliver-lab-v1"
+    assert data["id"] == "lab_test"
     assert len(data["cells"]) == 1
     assert data["cells"][0]["outputs"] == {"key": "val"}
 
 
-def test_notebook_from_json():
-    from cliver.notebook.models import Notebook
+def test_lab_from_json():
+    from cliver.lab.models import Lab
 
     raw = {
-        "$schema": "cliver-notebook-v1",
-        "id": "nb_test",
+        "$schema": "cliver-lab-v1",
+        "id": "lab_test",
         "title": "From JSON",
         "cells": [
             {
@@ -108,47 +108,47 @@ def test_notebook_from_json():
             },
         ],
     }
-    nb = Notebook.model_validate(raw)
-    assert nb.id == "nb_test"
-    assert nb.cells[0].outputs["text"] == "hi"
+    lab = Lab.model_validate(raw)
+    assert lab.id == "lab_test"
+    assert lab.cells[0].outputs["text"] == "hi"
 
 
-def test_notebook_summary():
-    from cliver.notebook.models import NotebookSummary
+def test_lab_summary():
+    from cliver.lab.models import LabSummary
 
-    s = NotebookSummary(
-        id="nb_abc",
+    s = LabSummary(
+        id="lab_abc",
         title="Test",
         cell_count=3,
         status="completed",
         created_at="2026-01-01",
         updated_at="2026-01-02",
     )
-    assert s.id == "nb_abc"
+    assert s.id == "lab_abc"
     assert s.cell_count == 3
 
 
-def test_notebook_get_cell():
-    from cliver.notebook.models import Cell, Notebook
+def test_lab_get_cell():
+    from cliver.lab.models import Cell, Lab
 
-    nb = Notebook(
-        id="nb_test",
+    lab = Lab(
+        id="lab_test",
         title="Test",
         cells=[
             Cell(id="a", type="config", title="A"),
             Cell(id="b", type="llm", title="B"),
         ],
     )
-    assert nb.get_cell("a").title == "A"
-    assert nb.get_cell("b").title == "B"
-    assert nb.get_cell("nonexistent") is None
+    assert lab.get_cell("a").title == "A"
+    assert lab.get_cell("b").title == "B"
+    assert lab.get_cell("nonexistent") is None
 
 
-def test_notebook_cells_before():
-    from cliver.notebook.models import Cell, Notebook
+def test_lab_cells_before():
+    from cliver.lab.models import Cell, Lab
 
-    nb = Notebook(
-        id="nb_test",
+    lab = Lab(
+        id="lab_test",
         title="Test",
         cells=[
             Cell(id="a", type="config", title="A"),
@@ -156,7 +156,7 @@ def test_notebook_cells_before():
             Cell(id="c", type="code", title="C"),
         ],
     )
-    before_c = nb.cells_before("c")
+    before_c = lab.cells_before("c")
     assert [c.id for c in before_c] == ["a", "b"]
-    before_a = nb.cells_before("a")
+    before_a = lab.cells_before("a")
     assert before_a == []

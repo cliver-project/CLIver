@@ -4,27 +4,27 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from cliver.notebook.models import Cell
+from cliver.lab.models import Cell
 
 
 def _make_runtime(variables=None):
     """Create a mock runtime for testing."""
     runtime = MagicMock()
     runtime.variables = variables or {}
-    runtime.notebook = MagicMock()
-    runtime.notebook.default_agent = "cliver"
-    runtime.notebook.context = {"working_dir": "."}
+    runtime.lab = MagicMock()
+    runtime.lab.default_agent = "cliver"
+    runtime.lab.context = {"working_dir": "."}
     runtime.agent_factory = MagicMock()
 
-    from cliver.notebook.runtime import RuntimeContext
+    from cliver.lab.runtime import RuntimeContext
 
-    runtime.ctx = RuntimeContext(runtime.variables, runtime.agent_factory, runtime.notebook.context)
+    runtime.ctx = RuntimeContext(runtime.variables, runtime.agent_factory, runtime.lab.context)
     return runtime
 
 
 @pytest.mark.asyncio
 async def test_execute_config():
-    from cliver.notebook.executor import CellExecutor
+    from cliver.lab.executor import CellExecutor
 
     cell = Cell(
         id="setup",
@@ -40,7 +40,7 @@ async def test_execute_config():
 
 @pytest.mark.asyncio
 async def test_execute_config_empty_outputs():
-    from cliver.notebook.executor import CellExecutor
+    from cliver.lab.executor import CellExecutor
 
     cell = Cell(id="setup", type="config", title="Setup", inputs={"schema": {"x": {"type": "text"}}}, outputs={})
     executor = CellExecutor()
@@ -50,7 +50,7 @@ async def test_execute_config_empty_outputs():
 
 @pytest.mark.asyncio
 async def test_execute_code_basic():
-    from cliver.notebook.executor import CellExecutor
+    from cliver.lab.executor import CellExecutor
 
     cell = Cell(
         id="calc",
@@ -65,7 +65,7 @@ async def test_execute_code_basic():
 
 @pytest.mark.asyncio
 async def test_execute_code_with_refs():
-    from cliver.notebook.executor import CellExecutor
+    from cliver.lab.executor import CellExecutor
 
     variables = {"setup": {"outputs": {"items": [1, 2, 3]}}}
     cell = Cell(
@@ -83,7 +83,7 @@ async def test_execute_code_with_refs():
 
 @pytest.mark.asyncio
 async def test_execute_code_no_run_function():
-    from cliver.notebook.executor import CellExecutor
+    from cliver.lab.executor import CellExecutor
 
     cell = Cell(id="bad", type="code", title="Bad", inputs={"source": "x = 1"})
     executor = CellExecutor()
@@ -93,7 +93,7 @@ async def test_execute_code_no_run_function():
 
 @pytest.mark.asyncio
 async def test_execute_code_non_dict_return():
-    from cliver.notebook.executor import CellExecutor
+    from cliver.lab.executor import CellExecutor
 
     cell = Cell(id="bad", type="code", title="Bad", inputs={"source": "def run(ctx):\n    return [1, 2, 3]"})
     executor = CellExecutor()
@@ -103,7 +103,7 @@ async def test_execute_code_non_dict_return():
 
 @pytest.mark.asyncio
 async def test_execute_code_non_serializable():
-    from cliver.notebook.executor import CellExecutor
+    from cliver.lab.executor import CellExecutor
 
     cell = Cell(id="bad", type="code", title="Bad", inputs={"source": "def run(ctx):\n    return {'obj': object()}"})
     executor = CellExecutor()
@@ -114,7 +114,7 @@ async def test_execute_code_non_serializable():
 @pytest.mark.asyncio
 async def test_execute_llm():
     from cliver.agent import AgentResult
-    from cliver.notebook.executor import CellExecutor
+    from cliver.lab.executor import CellExecutor
 
     mock_agent = AsyncMock()
     mock_agent.run = AsyncMock(
@@ -146,7 +146,7 @@ async def test_execute_llm():
 @pytest.mark.asyncio
 async def test_execute_llm_json_output():
     from cliver.agent import AgentResult
-    from cliver.notebook.executor import CellExecutor
+    from cliver.lab.executor import CellExecutor
 
     mock_agent = AsyncMock()
     mock_agent.run = AsyncMock(
@@ -174,7 +174,7 @@ async def test_execute_llm_json_output():
 
 @pytest.mark.asyncio
 async def test_execute_display():
-    from cliver.notebook.executor import CellExecutor
+    from cliver.lab.executor import CellExecutor
 
     variables = {"calc": {"outputs": {"count": 5}}}
     cell = Cell(
@@ -190,7 +190,7 @@ async def test_execute_display():
 
 @pytest.mark.asyncio
 async def test_execute_unknown_type():
-    from cliver.notebook.executor import CellExecutor
+    from cliver.lab.executor import CellExecutor
 
     cell = Cell(id="x", type="unknown", title="X")
     executor = CellExecutor()
@@ -205,7 +205,7 @@ async def test_execute_unknown_type():
 async def test_execute_llm_no_verification():
     """LLM cell without verification works as before."""
     from cliver.agent import AgentResult
-    from cliver.notebook.executor import CellExecutor
+    from cliver.lab.executor import CellExecutor
 
     mock_agent = AsyncMock()
     mock_agent.run = AsyncMock(return_value=AgentResult(text="Hello", status="completed"))
@@ -224,7 +224,7 @@ async def test_execute_llm_no_verification():
 @pytest.mark.asyncio
 async def test_execute_llm_verification_pass_first_attempt():
     from cliver.agent import AgentResult
-    from cliver.notebook.executor import CellExecutor
+    from cliver.lab.executor import CellExecutor
 
     mock_agent = AsyncMock()
     mock_agent.run = AsyncMock(return_value=AgentResult(text="5 papers found", status="completed"))
@@ -263,7 +263,7 @@ async def test_execute_llm_verification_pass_first_attempt():
 @pytest.mark.asyncio
 async def test_execute_llm_verification_pass_on_retry():
     from cliver.agent import AgentResult
-    from cliver.notebook.executor import CellExecutor
+    from cliver.lab.executor import CellExecutor
 
     call_count = [0]
 
@@ -315,7 +315,7 @@ async def test_execute_llm_verification_pass_on_retry():
 @pytest.mark.asyncio
 async def test_execute_llm_verification_fail_all_retries():
     from cliver.agent import AgentResult
-    from cliver.notebook.executor import CellExecutor, VerificationError
+    from cliver.lab.executor import CellExecutor, VerificationError
 
     mock_agent = AsyncMock()
     mock_agent.run = AsyncMock(return_value=AgentResult(text="bad output", status="completed"))
@@ -351,7 +351,7 @@ async def test_execute_llm_verification_fail_all_retries():
 
 @pytest.mark.asyncio
 async def test_execute_llm_verification_parse_verdict():
-    from cliver.notebook.executor import CellExecutor
+    from cliver.lab.executor import CellExecutor
 
     executor = CellExecutor()
 

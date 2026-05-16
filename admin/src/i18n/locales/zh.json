@@ -21,7 +21,7 @@
       "workspace": "工作区",
       "system": "系统"
     },
-    "notebooks": "笔记本",
+    "labs": "AI 实验",
     "projects": "项目",
     "scenarios": "场景",
     "tasks": "任务",
@@ -352,27 +352,27 @@
     "addUserPlaceholder": "用户 ID...",
     "addUser": "添加"
   },
-  "notebooks": {
-    "title": "笔记本",
-    "newNotebook": "新建笔记本",
-    "noNotebooks": "暂无笔记本",
-    "noNotebooksDesc": "创建你的第一个笔记本，开始构建 AI 工作流。",
-    "createNotebook": "创建笔记本",
-    "createTitle": "新建笔记本",
-    "createDesc": "创建一个新的笔记本来构建 AI 工作流。",
+  "labs": {
+    "title": "AI 实验",
+    "newLab": "新建 AI 实验",
+    "noLabs": "暂无 AI 实验",
+    "noLabsDesc": "创建你的第一个 AI 实验，开始构建 AI 工作流。",
+    "createLab": "创建 AI 实验",
+    "createTitle": "新建 AI 实验",
+    "createDesc": "创建一个新的 AI 实验来构建 AI 工作流。",
     "titleLabel": "标题",
     "titlePlaceholder": "例如：研究论文分析",
     "descLabel": "描述（可选）",
-    "descPlaceholder": "简要描述此笔记本",
-    "deleteTitle": "删除笔记本",
-    "deleteDesc": "确定要删除吗？这将永久删除该笔记本及其所有单元格。",
+    "descPlaceholder": "简要描述此 AI 实验",
+    "deleteTitle": "删除 AI 实验",
+    "deleteDesc": "确定要删除吗？这将永久删除该 AI 实验及其所有单元格。",
     "cells": "{count} 个单元格",
     "updated": "更新于 {date}",
-    "loading": "加载笔记本中...",
-    "notFound": "笔记本未找到",
-    "loadError": "加载笔记本失败：{error}"
+    "loading": "加载 AI 实验中...",
+    "notFound": "AI 实验未找到",
+    "loadError": "加载 AI 实验失败：{error}"
   },
-  "notebook": {
+  "lab": {
     "runAll": "全部运行",
     "running": "运行中...",
     "save": "保存",
@@ -448,7 +448,7 @@
   "projects": {
     "title": "项目",
     "comingSoon": "项目功能即将推出",
-    "comingSoonDesc": "将工作组织为项目，包含议题和场景模板。每个议题从预配置的场景生成笔记本。"
+    "comingSoonDesc": "将工作组织为项目，包含议题和场景模板。每个议题从预配置的场景生成 AI 实验。"
   },
   "scenarios": {
     "title": "场景",

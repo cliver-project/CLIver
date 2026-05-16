@@ -21,7 +21,7 @@
       "workspace": "Workspace",
       "system": "System"
     },
-    "notebooks": "Notebooks",
+    "labs": "AI Labs",
     "projects": "Projects",
     "scenarios": "Scenarios",
     "tasks": "Tasks",
@@ -352,27 +352,27 @@
     "addUserPlaceholder": "User ID...",
     "addUser": "Add"
   },
-  "notebooks": {
-    "title": "Notebooks",
-    "newNotebook": "New Notebook",
-    "noNotebooks": "No Notebooks Yet",
-    "noNotebooksDesc": "Create your first notebook to start building AI workflows.",
-    "createNotebook": "Create Notebook",
-    "createTitle": "New Notebook",
-    "createDesc": "Create a new notebook to start building an AI workflow.",
+  "labs": {
+    "title": "AI Labs",
+    "newLab": "New AI Lab",
+    "noLabs": "No AI Labs Yet",
+    "noLabsDesc": "Create your first AI lab to start building AI workflows.",
+    "createLab": "Create AI Lab",
+    "createTitle": "New AI Lab",
+    "createDesc": "Create a new AI lab to start building an AI workflow.",
     "titleLabel": "Title",
     "titlePlaceholder": "e.g. Research Paper Analysis",
     "descLabel": "Description (optional)",
-    "descPlaceholder": "Brief description of this notebook",
-    "deleteTitle": "Delete Notebook",
-    "deleteDesc": "Are you sure? This will permanently delete the notebook and all its cells.",
+    "descPlaceholder": "Brief description of this AI lab",
+    "deleteTitle": "Delete AI Lab",
+    "deleteDesc": "Are you sure? This will permanently delete the AI lab and all its cells.",
     "cells": "{count} cells",
     "updated": "Updated {date}",
-    "loading": "Loading notebook...",
-    "notFound": "Notebook not found",
-    "loadError": "Failed to load notebook: {error}"
+    "loading": "Loading AI lab...",
+    "notFound": "AI Lab not found",
+    "loadError": "Failed to load AI lab: {error}"
   },
-  "notebook": {
+  "lab": {
     "runAll": "Run All",
     "running": "Running...",
     "save": "Save",
@@ -448,7 +448,7 @@
   "projects": {
     "title": "Projects",
     "comingSoon": "Projects Coming Soon",
-    "comingSoonDesc": "Organize your work into projects with issues and scenario templates. Each issue generates a notebook from a pre-configured scenario."
+    "comingSoonDesc": "Organize your work into projects with issues and scenario templates. Each issue generates an AI lab from a pre-configured scenario."
   },
   "scenarios": {
     "title": "Scenarios",

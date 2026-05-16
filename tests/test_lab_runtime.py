@@ -1,16 +1,16 @@
-"""Tests for NotebookRuntime and RuntimeManager."""
+"""Tests for LabRuntime and RuntimeManager."""
 
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from cliver.notebook.models import Cell, Notebook
+from cliver.lab.models import Cell, Lab
 
 
-def _make_notebook():
-    return Notebook(
-        id="nb_test",
+def _make_lab():
+    return Lab(
+        id="lab_test",
         title="Test",
         default_agent="cliver",
         context={"working_dir": "."},
@@ -47,19 +47,19 @@ def _make_agent_factory():
     return factory
 
 
-def test_load_from_notebook():
-    from cliver.notebook.runtime import NotebookRuntime
+def test_load_from_lab():
+    from cliver.lab.runtime import LabRuntime
 
-    nb = _make_notebook()
-    rt = NotebookRuntime(nb, _make_agent_factory())
-    rt.load_from_notebook()
+    lab = _make_lab()
+    rt = LabRuntime(lab, _make_agent_factory())
+    rt.load_from_lab()
     assert "setup" in rt.variables
     assert rt.variables["setup"]["outputs"]["domain"] == "AI"
     assert "search" not in rt.variables
 
 
 def test_runtime_context_refs():
-    from cliver.notebook.runtime import RuntimeContext
+    from cliver.lab.runtime import RuntimeContext
 
     variables = {"setup": {"outputs": {"domain": "AI", "count": 10}}}
     ctx = RuntimeContext(variables)
@@ -68,7 +68,7 @@ def test_runtime_context_refs():
 
 
 def test_runtime_context_log():
-    from cliver.notebook.runtime import RuntimeContext
+    from cliver.lab.runtime import RuntimeContext
 
     ctx = RuntimeContext({})
     ctx.log("test message")
@@ -77,49 +77,49 @@ def test_runtime_context_log():
 
 @pytest.mark.asyncio
 async def test_execute_cell_config():
-    from cliver.notebook.runtime import NotebookRuntime
+    from cliver.lab.runtime import LabRuntime
 
-    nb = _make_notebook()
-    rt = NotebookRuntime(nb, _make_agent_factory())
+    lab = _make_lab()
+    rt = LabRuntime(lab, _make_agent_factory())
 
     result = await rt.execute_cell("setup")
     assert result["domain"] == "AI"
     assert "setup" in rt.variables
-    assert nb.get_cell("setup").status == "completed"
+    assert lab.get_cell("setup").status == "completed"
 
 
 @pytest.mark.asyncio
 async def test_execute_cell_code():
-    from cliver.notebook.runtime import NotebookRuntime
+    from cliver.lab.runtime import LabRuntime
 
-    nb = _make_notebook()
-    rt = NotebookRuntime(nb, _make_agent_factory())
-    rt.load_from_notebook()
+    lab = _make_lab()
+    rt = LabRuntime(lab, _make_agent_factory())
+    rt.load_from_lab()
 
     result = await rt.execute_cell("calc")
     assert result["msg"] == "Domain is AI"
-    assert nb.get_cell("calc").status == "completed"
+    assert lab.get_cell("calc").status == "completed"
 
 
 @pytest.mark.asyncio
 async def test_execute_all():
-    from cliver.notebook.runtime import NotebookRuntime
+    from cliver.lab.runtime import LabRuntime
 
-    nb = _make_notebook()
-    rt = NotebookRuntime(nb, _make_agent_factory())
+    lab = _make_lab()
+    rt = LabRuntime(lab, _make_agent_factory())
 
     await rt.execute_all()
-    assert nb.get_cell("setup").status == "completed"
-    assert nb.get_cell("search").status == "completed"
-    assert nb.get_cell("calc").status == "completed"
+    assert lab.get_cell("setup").status == "completed"
+    assert lab.get_cell("search").status == "completed"
+    assert lab.get_cell("calc").status == "completed"
 
 
 def test_get_available_refs():
-    from cliver.notebook.runtime import NotebookRuntime
+    from cliver.lab.runtime import LabRuntime
 
-    nb = _make_notebook()
-    rt = NotebookRuntime(nb, _make_agent_factory())
-    rt.load_from_notebook()
+    lab = _make_lab()
+    rt = LabRuntime(lab, _make_agent_factory())
+    rt.load_from_lab()
 
     refs = rt.get_available_refs("search")
     assert len(refs) == 1
@@ -128,25 +128,25 @@ def test_get_available_refs():
 
 
 def test_runtime_manager_get_or_create():
-    from cliver.notebook.runtime import RuntimeManager
+    from cliver.lab.runtime import RuntimeManager
 
     mgr = RuntimeManager()
-    nb = _make_notebook()
+    lab = _make_lab()
     factory = _make_agent_factory()
 
-    rt1 = mgr.get_or_create("nb_test", nb, factory)
-    rt2 = mgr.get_or_create("nb_test", nb, factory)
+    rt1 = mgr.get_or_create("lab_test", lab, factory)
+    rt2 = mgr.get_or_create("lab_test", lab, factory)
     assert rt1 is rt2
 
 
 @pytest.mark.asyncio
 async def test_runtime_manager_cleanup():
-    from cliver.notebook.runtime import RuntimeManager
+    from cliver.lab.runtime import RuntimeManager
 
     mgr = RuntimeManager(timeout_s=0)
-    nb = _make_notebook()
+    lab = _make_lab()
     factory = _make_agent_factory()
-    mgr.get_or_create("nb_test", nb, factory)
+    mgr.get_or_create("lab_test", lab, factory)
     assert len(mgr._runtimes) == 1
 
     await asyncio.sleep(0.1)

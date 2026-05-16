@@ -1,21 +1,21 @@
 import { useState, useCallback } from "react";
 import { useParams } from "react-router";
-import { useNotebook, useUpdateNotebook, useExecuteCell, useRunAll } from "@/hooks/use-notebook";
-import type { Cell } from "@/hooks/use-notebook";
-import { NotebookToolbar } from "@/components/notebook/NotebookToolbar";
-import { CellCard } from "@/components/notebook/CellCard";
-import { ConfigCell } from "@/components/notebook/ConfigCell";
-import { LlmCell } from "@/components/notebook/LlmCell";
-import { CodeCell } from "@/components/notebook/CodeCell";
-import { DisplayCell } from "@/components/notebook/DisplayCell";
-import { AddCellButton } from "@/components/notebook/AddCellButton";
+import { useLab, useUpdateLab, useExecuteCell, useRunAll } from "@/hooks/use-lab";
+import type { Cell } from "@/hooks/use-lab";
+import { LabToolbar } from "@/components/lab/LabToolbar";
+import { CellCard } from "@/components/lab/CellCard";
+import { ConfigCell } from "@/components/lab/ConfigCell";
+import { LlmCell } from "@/components/lab/LlmCell";
+import { CodeCell } from "@/components/lab/CodeCell";
+import { DisplayCell } from "@/components/lab/DisplayCell";
+import { AddCellButton } from "@/components/lab/AddCellButton";
 import { useTranslation } from "@/i18n";
 
-export default function NotebookEditor() {
+export default function LabEditor() {
   const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
-  const { data: notebook, isLoading, error } = useNotebook(id || "");
-  const updateNotebook = useUpdateNotebook(id || "");
+  const { data: lab, isLoading, error } = useLab(id || "");
+  const updateLab = useUpdateLab(id || "");
   const executeCell = useExecuteCell(id || "");
   const runAll = useRunAll(id || "");
   const [expandedCells, setExpandedCells] = useState<Set<string>>(new Set());
@@ -41,17 +41,17 @@ export default function NotebookEditor() {
 
   const handleDeleteCell = useCallback(
     (cellId: string) => {
-      if (!notebook) return;
-      const updatedCells = notebook.cells.filter((c) => c.id !== cellId);
-      updateNotebook.mutate({ ...notebook, cells: updatedCells });
+      if (!lab) return;
+      const updatedCells = lab.cells.filter((c) => c.id !== cellId);
+      updateLab.mutate({ ...lab, cells: updatedCells });
     },
-    [notebook, updateNotebook],
+    [lab, updateLab],
   );
 
   const handleMoveCell = useCallback(
     (cellId: string, direction: "up" | "down") => {
-      if (!notebook) return;
-      const cells = [...notebook.cells];
+      if (!lab) return;
+      const cells = [...lab.cells];
       const idx = cells.findIndex((c) => c.id === cellId);
       if (idx < 0) return;
       const targetIdx = direction === "up" ? idx - 1 : idx + 1;
@@ -59,14 +59,14 @@ export default function NotebookEditor() {
       const temp = cells[idx]!;
       cells[idx] = cells[targetIdx]!;
       cells[targetIdx] = temp;
-      updateNotebook.mutate({ ...notebook, cells });
+      updateLab.mutate({ ...lab, cells });
     },
-    [notebook, updateNotebook],
+    [lab, updateLab],
   );
 
   const handleAddCell = useCallback(
     (type: string) => {
-      if (!notebook) return;
+      if (!lab) return;
       const cellId = `cell_${Date.now().toString(36)}`;
       const defaults: Record<string, Record<string, unknown>> = {
         config: { schema: {} },
@@ -84,17 +84,17 @@ export default function NotebookEditor() {
         error: null,
         duration_ms: 0,
       };
-      updateNotebook.mutate({ ...notebook, cells: [...notebook.cells, newCell] });
+      updateLab.mutate({ ...lab, cells: [...lab.cells, newCell] });
       setExpandedCells((prev) => new Set(prev).add(cellId));
     },
-    [notebook, updateNotebook],
+    [lab, updateLab],
   );
 
   const handleSave = useCallback(() => {
-    if (notebook) {
-      updateNotebook.mutate(notebook);
+    if (lab) {
+      updateLab.mutate(lab);
     }
-  }, [notebook, updateNotebook]);
+  }, [lab, updateLab]);
 
   const handleRunAll = useCallback(() => {
     runAll.mutate();
@@ -102,90 +102,90 @@ export default function NotebookEditor() {
 
   const handleConfigSave = useCallback(
     (cellId: string, outputs: Record<string, unknown>) => {
-      if (!notebook) return;
-      const cells = notebook.cells.map((c) =>
+      if (!lab) return;
+      const cells = lab.cells.map((c) =>
         c.id === cellId ? { ...c, outputs, status: "completed" as const } : c,
       );
-      updateNotebook.mutate({ ...notebook, cells });
+      updateLab.mutate({ ...lab, cells });
     },
-    [notebook, updateNotebook],
+    [lab, updateLab],
   );
 
   const handleInputsChange = useCallback(
     (cellId: string, inputs: Record<string, unknown>) => {
-      if (!notebook) return;
-      const cells = notebook.cells.map((c) =>
+      if (!lab) return;
+      const cells = lab.cells.map((c) =>
         c.id === cellId ? { ...c, inputs } : c,
       );
-      updateNotebook.mutate({ ...notebook, cells });
+      updateLab.mutate({ ...lab, cells });
     },
-    [notebook, updateNotebook],
+    [lab, updateLab],
   );
 
   const handleSourceChange = useCallback(
     (cellId: string, source: string) => {
-      if (!notebook) return;
-      const cells = notebook.cells.map((c) =>
+      if (!lab) return;
+      const cells = lab.cells.map((c) =>
         c.id === cellId ? { ...c, inputs: { ...c.inputs, source } } : c,
       );
-      updateNotebook.mutate({ ...notebook, cells });
+      updateLab.mutate({ ...lab, cells });
     },
-    [notebook, updateNotebook],
+    [lab, updateLab],
   );
 
   const handleExecutionComplete = useCallback(
     (cellId: string, outputs: Record<string, unknown>, status: string, cellError?: string) => {
-      if (!notebook) return;
+      if (!lab) return;
       const validStatus = status as Cell["status"];
-      const cells = notebook.cells.map((c) =>
+      const cells = lab.cells.map((c) =>
         c.id === cellId ? { ...c, outputs, status: validStatus, error: cellError || null } : c,
       );
-      updateNotebook.mutate({ ...notebook, cells });
+      updateLab.mutate({ ...lab, cells });
     },
-    [notebook, updateNotebook],
+    [lab, updateLab],
   );
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <div className="text-sm text-muted-foreground">{t("notebooks.loading")}</div>
+        <div className="text-sm text-muted-foreground">{t("labs.loading")}</div>
       </div>
     );
   }
 
-  if (error || !notebook) {
+  if (error || !lab) {
     return (
       <div className="flex items-center justify-center py-20">
         <div className="text-sm text-red-600">
-          {error ? t("notebooks.loadError", { error: error.message }) : t("notebooks.notFound")}
+          {error ? t("labs.loadError", { error: error.message }) : t("labs.notFound")}
         </div>
       </div>
     );
   }
 
-  const overallStatus = notebook.cells.some((c) => c.status === "error")
+  const overallStatus = lab.cells.some((c) => c.status === "error")
     ? "error"
-    : notebook.cells.some((c) => c.status === "running")
+    : lab.cells.some((c) => c.status === "running")
       ? "running"
-      : notebook.cells.every((c) => c.status === "completed")
+      : lab.cells.every((c) => c.status === "completed")
         ? "completed"
         : "idle";
 
   return (
     <div className="max-w-4xl mx-auto">
-      <NotebookToolbar
-        title={notebook.title}
-        scenarioId={notebook.scenario_id}
-        cellCount={notebook.cells.length}
+      <LabToolbar
+        title={lab.title}
+        scenarioId={lab.scenario_id}
+        cellCount={lab.cells.length}
         overallStatus={overallStatus}
         onRunAll={handleRunAll}
         onSave={handleSave}
         isRunning={runAll.isPending}
-        isSaving={updateNotebook.isPending}
+        isSaving={updateLab.isPending}
       />
 
       <div className="space-y-3">
-        {notebook.cells.map((cell, idx) => (
+        {lab.cells.map((cell, idx) => (
           <CellCard
             key={cell.id}
             cell={cell}
@@ -196,7 +196,7 @@ export default function NotebookEditor() {
             onMoveUp={() => handleMoveCell(cell.id, "up")}
             onMoveDown={() => handleMoveCell(cell.id, "down")}
             isFirst={idx === 0}
-            isLast={idx === notebook.cells.length - 1}
+            isLast={idx === lab.cells.length - 1}
           >
             {cell.type === "config" && (
               <ConfigCell cell={cell} onSave={(outputs) => handleConfigSave(cell.id, outputs)} />
@@ -204,7 +204,7 @@ export default function NotebookEditor() {
             {cell.type === "llm" && (
               <LlmCell
                 cell={cell}
-                notebookId={notebook.id}
+                labId={lab.id}
                 onInputsChange={(inputs) => handleInputsChange(cell.id, inputs)}
                 onExecutionComplete={(outputs, status, err) =>
                   handleExecutionComplete(cell.id, outputs, status, err)

@@ -14,7 +14,7 @@ export interface Cell {
   duration_ms: number;
 }
 
-export interface Notebook {
+export interface Lab {
   $schema: string;
   id: string;
   title: string;
@@ -27,7 +27,7 @@ export interface Notebook {
   cells: Cell[];
 }
 
-export interface NotebookSummary {
+export interface LabSummary {
   id: string;
   title: string;
   description: string;
@@ -50,24 +50,24 @@ export interface RefGroup {
   fields: RefField[];
 }
 
-// --- Notebook CRUD ---
+// --- Lab CRUD ---
 
-export function useNotebooks() {
+export function useLabs() {
   return useQuery({
-    queryKey: ["notebooks"],
-    queryFn: () => api<NotebookSummary[]>("/notebooks"),
+    queryKey: ["labs"],
+    queryFn: () => api<LabSummary[]>("/labs"),
   });
 }
 
-export function useNotebook(id: string) {
+export function useLab(id: string) {
   return useQuery({
-    queryKey: ["notebook", id],
-    queryFn: () => api<Notebook>(`/notebooks/${encodeURIComponent(id)}`),
+    queryKey: ["lab", id],
+    queryFn: () => api<Lab>(`/labs/${encodeURIComponent(id)}`),
     enabled: !!id,
   });
 }
 
-export function useCreateNotebook() {
+export function useCreateLab() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (data: {
@@ -77,68 +77,68 @@ export function useCreateNotebook() {
       default_agent?: string;
       context?: Record<string, unknown>;
       cells?: Partial<Cell>[];
-    }) => apiPost<Notebook>("/notebooks", data),
+    }) => apiPost<Lab>("/labs", data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["notebooks"] });
+      qc.invalidateQueries({ queryKey: ["labs"] });
     },
   });
 }
 
-export function useUpdateNotebook(id: string) {
+export function useUpdateLab(id: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: Partial<Notebook>) =>
-      apiPut<Notebook>(`/notebooks/${encodeURIComponent(id)}`, data),
+    mutationFn: (data: Partial<Lab>) =>
+      apiPut<Lab>(`/labs/${encodeURIComponent(id)}`, data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["notebook", id] });
-      qc.invalidateQueries({ queryKey: ["notebooks"] });
+      qc.invalidateQueries({ queryKey: ["lab", id] });
+      qc.invalidateQueries({ queryKey: ["labs"] });
     },
   });
 }
 
-export function useDeleteNotebook() {
+export function useDeleteLab() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) => apiDelete(`/notebooks/${encodeURIComponent(id)}`),
+    mutationFn: (id: string) => apiDelete(`/labs/${encodeURIComponent(id)}`),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["notebooks"] });
+      qc.invalidateQueries({ queryKey: ["labs"] });
     },
   });
 }
 
 // --- Cell Operations ---
 
-export function useExecuteCell(notebookId: string) {
+export function useExecuteCell(labId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (cellId: string) =>
       apiPost<{ cell_id: string; status: string; outputs: Record<string, unknown> }>(
-        `/notebooks/${encodeURIComponent(notebookId)}/cells/${encodeURIComponent(cellId)}/execute`,
+        `/labs/${encodeURIComponent(labId)}/cells/${encodeURIComponent(cellId)}/execute`,
       ),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["notebook", notebookId] });
+      qc.invalidateQueries({ queryKey: ["lab", labId] });
     },
   });
 }
 
-export function useRunAll(notebookId: string) {
+export function useRunAll(labId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () =>
-      apiPost<{ status: string }>(`/notebooks/${encodeURIComponent(notebookId)}/run`),
+      apiPost<{ status: string }>(`/labs/${encodeURIComponent(labId)}/run`),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["notebook", notebookId] });
+      qc.invalidateQueries({ queryKey: ["lab", labId] });
     },
   });
 }
 
-export function useAvailableRefs(notebookId: string, cellId: string) {
+export function useAvailableRefs(labId: string, cellId: string) {
   return useQuery({
-    queryKey: ["available-refs", notebookId, cellId],
+    queryKey: ["available-refs", labId, cellId],
     queryFn: () =>
       api<RefGroup[]>(
-        `/notebooks/${encodeURIComponent(notebookId)}/cells/${encodeURIComponent(cellId)}/available-refs`,
+        `/labs/${encodeURIComponent(labId)}/cells/${encodeURIComponent(cellId)}/available-refs`,
       ),
-    enabled: !!notebookId && !!cellId,
+    enabled: !!labId && !!cellId,
   });
 }

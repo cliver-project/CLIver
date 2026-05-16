@@ -7,8 +7,8 @@ import { App } from "@/App";
 import { AuthError } from "@/lib/api";
 import LoginPage from "@/pages/login";
 import DashboardPage from "@/pages/dashboard";
-import NotebooksList from "@/pages/notebooks/list";
-import NotebookEditor from "@/pages/notebooks/editor";
+import LabsList from "@/pages/labs/list";
+import LabEditor from "@/pages/labs/editor";
 import ProjectsList from "@/pages/projects/list";
 import ScenariosList from "@/pages/scenarios/list";
 import ScenarioDetailPage from "@/pages/scenarios/detail";
@@ -48,8 +48,8 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/admin" element={<App />}>
               <Route index element={<Navigate to="dashboard" replace />} />
               <Route path="dashboard" element={<DashboardPage />} />
-              <Route path="notebooks" element={<NotebooksList />} />
-              <Route path="notebooks/:id" element={<NotebookEditor />} />
+              <Route path="labs" element={<LabsList />} />
+              <Route path="labs/:id" element={<LabEditor />} />
               <Route path="projects" element={<ProjectsList />} />
               <Route path="scenarios" element={<ScenariosList />} />
               <Route path="scenarios/:id" element={<ScenarioDetailPage />} />

@@ -7,10 +7,10 @@ import json
 import logging
 from typing import TYPE_CHECKING, Any, Dict
 
-from cliver.notebook.ref_resolver import resolve_refs
+from cliver.lab.ref_resolver import resolve_refs
 
 if TYPE_CHECKING:
-    from cliver.notebook.models import Cell
+    from cliver.lab.models import Cell
 
 logger = logging.getLogger(__name__)
 
@@ -44,10 +44,10 @@ class CellExecutor:
         agent_name = cell.inputs.get("agent", "")
         if agent_name and "${" in agent_name:
             agent_name = resolve_refs(agent_name, runtime.variables)
-        agent_name = agent_name or getattr(runtime.notebook, "default_agent", None)
+        agent_name = agent_name or getattr(runtime.lab, "default_agent", None)
 
         agent = runtime.agent_factory.create(agent_name or None)
-        ctx = getattr(runtime.notebook, "context", {})
+        ctx = getattr(runtime.lab, "context", {})
         working_dir = ctx.get("working_dir") if isinstance(ctx, dict) else None
         await agent.initialize({"working_dir": working_dir})
 

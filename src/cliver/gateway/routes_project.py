@@ -10,7 +10,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 if TYPE_CHECKING:
-    from cliver.notebook.store import NotebookStore
+    from cliver.lab.store import LabStore
     from cliver.project.local_provider import LocalProvider
     from cliver.project.scenario_registry import ScenarioRegistry
 
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 def get_project_routes(
     provider: "LocalProvider",
     scenario_registry: "ScenarioRegistry",
-    notebook_store: "NotebookStore",
+    lab_store: "LabStore",
     require_auth: Callable,
 ) -> list:
     """Return project/issue/scenario API routes."""
@@ -117,7 +117,7 @@ def get_project_routes(
         if not issue:
             return JSONResponse({"error": "not found"}, status_code=404)
         data = await request.json()
-        for field in ("title", "description", "status", "priority", "assigned_agent", "scenario_id", "notebook_id"):
+        for field in ("title", "description", "status", "priority", "assigned_agent", "scenario_id", "lab_id"):
             if field in data:
                 setattr(issue, field, data[field])
         if "labels" in data:
@@ -133,7 +133,7 @@ def get_project_routes(
         return JSONResponse({"error": "not found"}, status_code=404)
 
     @require_auth
-    async def handle_generate_notebook(request: Request):
+    async def handle_generate_lab(request: Request):
         issue_id = request.path_params["id"]
         issue = await provider.get_issue(issue_id)
         if not issue:
@@ -144,16 +144,16 @@ def get_project_routes(
         if not scenario_id:
             return JSONResponse({"error": "scenario_id is required"}, status_code=400)
 
-        nb = scenario_registry.generate_notebook(scenario_id, issue, notebook_store)
-        if not nb:
+        lab = scenario_registry.generate_lab(scenario_id, issue, lab_store)
+        if not lab:
             return JSONResponse({"error": f"scenario '{scenario_id}' not found"}, status_code=404)
 
-        issue.notebook_id = nb.id
+        issue.lab_id = lab.id
         issue.scenario_id = scenario_id
         issue.status = "in_progress"
         await provider.update_issue(issue)
 
-        return JSONResponse({"status": "ok", "notebook_id": nb.id, "notebook_title": nb.title})
+        return JSONResponse({"status": "ok", "lab_id": lab.id, "lab_title": lab.title})
 
     # --- Scenarios ---
 
@@ -185,7 +185,7 @@ def get_project_routes(
 
         from cliver.scenario_installer import ScenarioInstaller
 
-        user_dir = Path(notebook_store._data_dir).parent / "scenarios"
+        user_dir = Path(lab_store._data_dir).parent / "scenarios"
         installer = ScenarioInstaller(user_dir, scenario_registry)
         try:
             display_name = installer.install_from_github(source)
@@ -201,7 +201,7 @@ def get_project_routes(
 
         from cliver.scenario_installer import ScenarioInstaller
 
-        user_dir = Path(notebook_store._data_dir).parent / "scenarios"
+        user_dir = Path(lab_store._data_dir).parent / "scenarios"
         installer = ScenarioInstaller(user_dir, scenario_registry)
         try:
             if installer.remove(scenario_id):
@@ -221,7 +221,7 @@ def get_project_routes(
         Route("/admin/api/issues/{id}", handle_issue_get),
         Route("/admin/api/issues/{id}", handle_issue_update, methods=["PUT"]),
         Route("/admin/api/issues/{id}", handle_issue_delete, methods=["DELETE"]),
-        Route("/admin/api/issues/{id}/generate-notebook", handle_generate_notebook, methods=["POST"]),
+        Route("/admin/api/issues/{id}/generate-lab", handle_generate_lab, methods=["POST"]),
         Route("/admin/api/scenarios", handle_scenarios_list),
         Route("/admin/api/scenarios/install", handle_scenario_install, methods=["POST"]),
         Route("/admin/api/scenarios/{id}", handle_scenario_get),

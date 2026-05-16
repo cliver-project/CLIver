@@ -10,7 +10,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Pencil } from "lucide-react";
-import type { Cell } from "@/hooks/use-notebook";
+import type { Cell } from "@/hooks/use-lab";
 import { useTranslation } from "@/i18n";
 
 interface ConfigCellProps {
@@ -55,10 +55,10 @@ export function ConfigCell({ cell, onSave }: ConfigCellProps) {
     return (
       <div>
         <div className="flex items-center justify-between mb-2">
-          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t("notebook.configuration")}</div>
+          <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t("lab.configuration")}</div>
           <Button variant="ghost" size="sm" onClick={() => setIsEditing(true)} className="h-7 text-xs">
             <Pencil className="w-3 h-3 mr-1" />
-            {t("notebook.edit")}
+            {t("lab.edit")}
           </Button>
         </div>
         <div className="rounded-md bg-muted/50 p-3 space-y-1">
@@ -158,7 +158,7 @@ export function ConfigCell({ cell, onSave }: ConfigCellProps) {
 
       <div className="flex justify-end pt-1">
         <Button size="sm" onClick={handleSave}>
-          {t("notebook.saveConfig")}
+          {t("lab.saveConfig")}
         </Button>
       </div>
     </div>

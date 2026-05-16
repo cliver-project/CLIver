@@ -1,4 +1,4 @@
-"""Pydantic models for CLIver notebooks and cells."""
+"""Pydantic models for CLIver labs and cells."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 
 
 class Cell(BaseModel):
-    """A single cell in a notebook."""
+    """A single cell in a lab."""
 
     id: str
     type: str  # "config" | "llm" | "code" | "display"
@@ -21,10 +21,10 @@ class Cell(BaseModel):
     duration_ms: int = 0
 
 
-class Notebook(BaseModel):
-    """A CLIver notebook document."""
+class Lab(BaseModel):
+    """A CLIver lab document."""
 
-    schema_version: str = Field(default="cliver-notebook-v1", alias="$schema")
+    schema_version: str = Field(default="cliver-lab-v1", alias="$schema")
     id: str
     title: str
     description: str = ""
@@ -56,8 +56,8 @@ class Notebook(BaseModel):
         return result
 
 
-class NotebookSummary(BaseModel):
-    """Lightweight notebook metadata for listing."""
+class LabSummary(BaseModel):
+    """Lightweight lab metadata for listing."""
 
     id: str
     title: str

@@ -1,4 +1,4 @@
-"""Notebook API routes for the gateway."""
+"""Lab API routes for the gateway."""
 
 from __future__ import annotations
 
@@ -13,32 +13,32 @@ from starlette.websockets import WebSocket
 
 if TYPE_CHECKING:
     from cliver.agents.factory import AgentFactory
-    from cliver.notebook.runtime import RuntimeManager
-    from cliver.notebook.store import NotebookStore
+    from cliver.lab.runtime import RuntimeManager
+    from cliver.lab.store import LabStore
 
 logger = logging.getLogger(__name__)
 
 
-def get_notebook_routes(
-    notebook_store: "NotebookStore",
+def get_lab_routes(
+    lab_store: "LabStore",
     runtime_manager: "RuntimeManager",
     agent_factory: "AgentFactory",
     require_auth: Callable,
 ) -> list:
-    """Return notebook API routes."""
+    """Return lab API routes."""
 
     @require_auth
-    async def handle_notebooks_list(request: Request):
-        summaries = notebook_store.list_all()
+    async def handle_labs_list(request: Request):
+        summaries = lab_store.list_all()
         return JSONResponse([s.model_dump() for s in summaries])
 
     @require_auth
-    async def handle_notebooks_create(request: Request):
+    async def handle_labs_create(request: Request):
         data = await request.json()
         title = data.get("title", "").strip()
         if not title:
             return JSONResponse({"error": "title is required"}, status_code=400)
-        nb = notebook_store.create(
+        lab = lab_store.create(
             title=title,
             description=data.get("description", ""),
             scenario_id=data.get("scenario_id"),
@@ -46,66 +46,66 @@ def get_notebook_routes(
             context=data.get("context"),
             cells=data.get("cells"),
         )
-        return JSONResponse(nb.model_dump())
+        return JSONResponse(lab.model_dump())
 
     @require_auth
-    async def handle_notebook_get(request: Request):
-        notebook_id = request.path_params["id"]
-        nb = notebook_store.get(notebook_id)
-        if not nb:
+    async def handle_lab_get(request: Request):
+        lab_id = request.path_params["id"]
+        lab = lab_store.get(lab_id)
+        if not lab:
             return JSONResponse({"error": "not found"}, status_code=404)
-        return JSONResponse(nb.model_dump())
+        return JSONResponse(lab.model_dump())
 
     @require_auth
-    async def handle_notebook_update(request: Request):
-        notebook_id = request.path_params["id"]
-        nb = notebook_store.get(notebook_id)
-        if not nb:
+    async def handle_lab_update(request: Request):
+        lab_id = request.path_params["id"]
+        lab = lab_store.get(lab_id)
+        if not lab:
             return JSONResponse({"error": "not found"}, status_code=404)
         data = await request.json()
         if "title" in data:
-            nb.title = data["title"]
+            lab.title = data["title"]
         if "description" in data:
-            nb.description = data["description"]
+            lab.description = data["description"]
         if "default_agent" in data:
-            nb.default_agent = data["default_agent"]
+            lab.default_agent = data["default_agent"]
         if "context" in data:
-            nb.context = data["context"]
+            lab.context = data["context"]
         if "cells" in data:
-            from cliver.notebook.models import Cell
+            from cliver.lab.models import Cell
 
-            nb.cells = [Cell(**c) if isinstance(c, dict) else c for c in data["cells"]]
-        notebook_store.update(nb)
+            lab.cells = [Cell(**c) if isinstance(c, dict) else c for c in data["cells"]]
+        lab_store.update(lab)
         return JSONResponse({"status": "ok"})
 
     @require_auth
-    async def handle_notebook_delete(request: Request):
-        notebook_id = request.path_params["id"]
-        if notebook_store.delete(notebook_id):
-            runtime_manager.remove(notebook_id)
+    async def handle_lab_delete(request: Request):
+        lab_id = request.path_params["id"]
+        if lab_store.delete(lab_id):
+            runtime_manager.remove(lab_id)
             return JSONResponse({"status": "ok"})
         return JSONResponse({"error": "not found"}, status_code=404)
 
     @require_auth
     async def handle_cell_execute(request: Request):
-        notebook_id = request.path_params["id"]
+        lab_id = request.path_params["id"]
         cell_id = request.path_params["cell_id"]
-        nb = notebook_store.get(notebook_id)
-        if not nb:
-            return JSONResponse({"error": "notebook not found"}, status_code=404)
-        cell = nb.get_cell(cell_id)
+        lab = lab_store.get(lab_id)
+        if not lab:
+            return JSONResponse({"error": "lab not found"}, status_code=404)
+        cell = lab.get_cell(cell_id)
         if not cell:
             return JSONResponse({"error": "cell not found"}, status_code=404)
 
-        runtime = runtime_manager.get_or_create(notebook_id, nb, agent_factory)
+        runtime = runtime_manager.get_or_create(lab_id, lab, agent_factory)
         try:
             outputs = await runtime.execute_cell(cell_id)
-            notebook_store.save_cell_output(
-                notebook_id,
+            lab_store.save_cell_output(
+                lab_id,
                 cell_id,
                 outputs,
                 "completed",
-                duration_ms=nb.get_cell(cell_id).duration_ms,
+                duration_ms=lab.get_cell(cell_id).duration_ms,
             )
             return JSONResponse(
                 {
@@ -115,8 +115,8 @@ def get_notebook_routes(
                 }
             )
         except Exception as e:
-            notebook_store.save_cell_output(
-                notebook_id,
+            lab_store.save_cell_output(
+                lab_id,
                 cell_id,
                 {},
                 "error",
@@ -133,17 +133,17 @@ def get_notebook_routes(
 
     @require_auth
     async def handle_run_all(request: Request):
-        notebook_id = request.path_params["id"]
-        nb = notebook_store.get(notebook_id)
-        if not nb:
-            return JSONResponse({"error": "notebook not found"}, status_code=404)
+        lab_id = request.path_params["id"]
+        lab = lab_store.get(lab_id)
+        if not lab:
+            return JSONResponse({"error": "lab not found"}, status_code=404)
 
-        runtime = runtime_manager.get_or_create(notebook_id, nb, agent_factory)
+        runtime = runtime_manager.get_or_create(lab_id, lab, agent_factory)
         try:
             await runtime.execute_all()
-            for cell in nb.cells:
-                notebook_store.save_cell_output(
-                    notebook_id,
+            for cell in lab.cells:
+                lab_store.save_cell_output(
+                    lab_id,
                     cell.id,
                     cell.outputs,
                     cell.status,
@@ -156,18 +156,18 @@ def get_notebook_routes(
 
     @require_auth
     async def handle_available_refs(request: Request):
-        notebook_id = request.path_params["id"]
+        lab_id = request.path_params["id"]
         cell_id = request.path_params["cell_id"]
-        nb = notebook_store.get(notebook_id)
-        if not nb:
-            return JSONResponse({"error": "notebook not found"}, status_code=404)
+        lab = lab_store.get(lab_id)
+        if not lab:
+            return JSONResponse({"error": "lab not found"}, status_code=404)
 
-        runtime = runtime_manager.get_or_create(notebook_id, nb, agent_factory)
+        runtime = runtime_manager.get_or_create(lab_id, lab, agent_factory)
         refs = runtime.get_available_refs(cell_id)
         return JSONResponse(refs)
 
     async def ws_cell_execute(websocket: WebSocket):
-        notebook_id = websocket.path_params["id"]
+        lab_id = websocket.path_params["id"]
         cell_id = websocket.path_params["cell_id"]
         await websocket.accept()
 
@@ -178,13 +178,13 @@ def get_notebook_routes(
                 await websocket.close()
                 return
 
-            nb = notebook_store.get(notebook_id)
-            if not nb:
-                await websocket.send_json({"type": "error", "message": "Notebook not found"})
+            lab = lab_store.get(lab_id)
+            if not lab:
+                await websocket.send_json({"type": "error", "message": "Lab not found"})
                 await websocket.close()
                 return
 
-            cell = nb.get_cell(cell_id)
+            cell = lab.get_cell(cell_id)
             if not cell or cell.type != "llm":
                 await websocket.send_json({"type": "error", "message": "Cell not found or not an LLM cell"})
                 await websocket.close()
@@ -192,17 +192,17 @@ def get_notebook_routes(
 
             await websocket.send_json({"type": "status", "status": "running"})
 
-            runtime = runtime_manager.get_or_create(notebook_id, nb, agent_factory)
+            runtime = runtime_manager.get_or_create(lab_id, lab, agent_factory)
 
-            from cliver.notebook.ref_resolver import resolve_refs
+            from cliver.lab.ref_resolver import resolve_refs
 
             prompt = resolve_refs(cell.inputs.get("prompt", ""), runtime.variables)
-            agent_name = cell.inputs.get("agent", "") or nb.default_agent
+            agent_name = cell.inputs.get("agent", "") or lab.default_agent
             if agent_name and "${" in str(agent_name):
                 agent_name = resolve_refs(str(agent_name), runtime.variables)
 
             agent = agent_factory.create(agent_name or None)
-            ctx = nb.context if isinstance(nb.context, dict) else {}
+            ctx = lab.context if isinstance(lab.context, dict) else {}
             await agent.initialize({"working_dir": ctx.get("working_dir")})
 
             full_text = []
@@ -226,8 +226,8 @@ def get_notebook_routes(
                     runtime.variables[cell_id] = {"outputs": outputs}
                     cell.outputs = outputs
                     cell.status = "completed"
-                    notebook_store.save_cell_output(
-                        notebook_id,
+                    lab_store.save_cell_output(
+                        lab_id,
                         cell_id,
                         outputs,
                         "completed",
@@ -255,13 +255,13 @@ def get_notebook_routes(
                 pass
 
     return [
-        Route("/admin/api/notebooks", handle_notebooks_list),
-        Route("/admin/api/notebooks", handle_notebooks_create, methods=["POST"]),
-        Route("/admin/api/notebooks/{id}", handle_notebook_get),
-        Route("/admin/api/notebooks/{id}", handle_notebook_update, methods=["PUT"]),
-        Route("/admin/api/notebooks/{id}", handle_notebook_delete, methods=["DELETE"]),
-        Route("/admin/api/notebooks/{id}/cells/{cell_id}/execute", handle_cell_execute, methods=["POST"]),
-        Route("/admin/api/notebooks/{id}/run", handle_run_all, methods=["POST"]),
-        Route("/admin/api/notebooks/{id}/cells/{cell_id}/available-refs", handle_available_refs),
-        WebSocketRoute("/admin/ws/notebooks/{id}/cells/{cell_id}", ws_cell_execute),
+        Route("/admin/api/labs", handle_labs_list),
+        Route("/admin/api/labs", handle_labs_create, methods=["POST"]),
+        Route("/admin/api/labs/{id}", handle_lab_get),
+        Route("/admin/api/labs/{id}", handle_lab_update, methods=["PUT"]),
+        Route("/admin/api/labs/{id}", handle_lab_delete, methods=["DELETE"]),
+        Route("/admin/api/labs/{id}/cells/{cell_id}/execute", handle_cell_execute, methods=["POST"]),
+        Route("/admin/api/labs/{id}/run", handle_run_all, methods=["POST"]),
+        Route("/admin/api/labs/{id}/cells/{cell_id}/available-refs", handle_available_refs),
+        WebSocketRoute("/admin/ws/labs/{id}/cells/{cell_id}", ws_cell_execute),
     ]

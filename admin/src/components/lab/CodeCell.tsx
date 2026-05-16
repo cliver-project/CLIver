@@ -1,6 +1,6 @@
 import { CodeEditor } from "@/components/code-editor";
-import { CellOutput } from "@/components/notebook/CellOutput";
-import type { Cell } from "@/hooks/use-notebook";
+import { CellOutput } from "@/components/lab/CellOutput";
+import type { Cell } from "@/hooks/use-lab";
 import { useTranslation } from "@/i18n";
 
 const DEFAULT_SOURCE = 'def run(ctx):\n    # Access previous cell outputs: ctx.refs("cell_id.outputs.field")\n    \n    return {"result": "hello"}';
@@ -18,7 +18,7 @@ export function CodeCell({ cell, onSourceChange }: CodeCellProps) {
   if (isHidden) {
     return (
       <div className="text-xs text-muted-foreground italic">
-        {t("notebook.codeHidden")}
+        {t("lab.codeHidden")}
       </div>
     );
   }
@@ -26,7 +26,7 @@ export function CodeCell({ cell, onSourceChange }: CodeCellProps) {
   return (
     <div className="space-y-2">
       <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-        {t("notebook.pythonCode")}
+        {t("lab.pythonCode")}
       </div>
       <CodeEditor
         value={source}

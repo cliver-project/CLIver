@@ -6,29 +6,29 @@ import { useTranslation } from "@/i18n";
 const CELL_TYPES = [
   {
     type: "config",
-    labelKey: "notebook.config",
-    descKey: "notebook.configDesc",
+    labelKey: "lab.config",
+    descKey: "lab.configDesc",
     icon: Settings,
     color: "text-indigo-600",
   },
   {
     type: "llm",
-    labelKey: "notebook.llm",
-    descKey: "notebook.llmDesc",
+    labelKey: "lab.llm",
+    descKey: "lab.llmDesc",
     icon: Bot,
     color: "text-purple-600",
   },
   {
     type: "code",
-    labelKey: "notebook.code",
-    descKey: "notebook.codeDesc",
+    labelKey: "lab.code",
+    descKey: "lab.codeDesc",
     icon: Code2,
     color: "text-emerald-600",
   },
   {
     type: "display",
-    labelKey: "notebook.display",
-    descKey: "notebook.displayDesc",
+    labelKey: "lab.display",
+    descKey: "lab.displayDesc",
     icon: FileText,
     color: "text-amber-600",
   },
@@ -50,11 +50,11 @@ export function AddCellButton({ onAdd }: AddCellButtonProps) {
           className="w-full border border-dashed border-border rounded-lg py-3 text-sm text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors flex items-center justify-center gap-2"
         >
           <Plus className="w-4 h-4" />
-          {t("notebook.addCell")}
+          {t("lab.addCell")}
         </button>
       ) : (
         <div className="border border-border rounded-lg p-2 bg-card shadow-sm">
-          <div className="text-xs font-medium text-muted-foreground px-2 mb-1">{t("notebook.chooseCellType")}</div>
+          <div className="text-xs font-medium text-muted-foreground px-2 mb-1">{t("lab.chooseCellType")}</div>
           <div className="grid grid-cols-2 gap-1">
             {CELL_TYPES.map((ct) => (
               <button
@@ -77,7 +77,7 @@ export function AddCellButton({ onAdd }: AddCellButtonProps) {
             onClick={() => setIsOpen(false)}
             className="w-full mt-1 text-xs text-muted-foreground hover:text-foreground text-center py-1"
           >
-            {t("notebook.cancel")}
+            {t("lab.cancel")}
           </button>
         </div>
       )}

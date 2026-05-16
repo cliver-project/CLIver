@@ -125,8 +125,8 @@ class ScenarioInstaller:
 
         if not isinstance(template, dict):
             return False, "template.json must be a JSON object"
-        if template.get("$schema") != "cliver-notebook-v1":
-            return False, "template.json missing or invalid $schema (expected cliver-notebook-v1)"
+        if template.get("$schema") != "cliver-lab-v1":
+            return False, "template.json missing or invalid $schema (expected cliver-lab-v1)"
 
         for f in path.iterdir():
             if f.is_file() and f.suffix.lower() in UNSAFE_EXTENSIONS:

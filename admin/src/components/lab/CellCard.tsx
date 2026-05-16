@@ -6,16 +6,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { CellStatusBadge } from "@/components/notebook/CellStatusBadge";
+import { CellStatusBadge } from "@/components/lab/CellStatusBadge";
 import { cn } from "@/lib/utils";
-import type { Cell } from "@/hooks/use-notebook";
+import type { Cell } from "@/hooks/use-lab";
 import { useTranslation } from "@/i18n";
 
 const TYPE_CONFIG: Record<string, { icon: React.ComponentType<{ className?: string }>; color: string; borderColor: string; bgColor: string; labelKey: string }> = {
-  config: { icon: Settings, color: "text-indigo-600", borderColor: "border-l-indigo-500", bgColor: "bg-indigo-50", labelKey: "notebook.config" },
-  llm: { icon: Bot, color: "text-purple-600", borderColor: "border-l-purple-500", bgColor: "bg-purple-50", labelKey: "notebook.llm" },
-  code: { icon: Code2, color: "text-emerald-600", borderColor: "border-l-emerald-500", bgColor: "bg-emerald-50", labelKey: "notebook.code" },
-  display: { icon: FileText, color: "text-amber-600", borderColor: "border-l-amber-500", bgColor: "bg-amber-50", labelKey: "notebook.display" },
+  config: { icon: Settings, color: "text-indigo-600", borderColor: "border-l-indigo-500", bgColor: "bg-indigo-50", labelKey: "lab.config" },
+  llm: { icon: Bot, color: "text-purple-600", borderColor: "border-l-purple-500", bgColor: "bg-purple-50", labelKey: "lab.llm" },
+  code: { icon: Code2, color: "text-emerald-600", borderColor: "border-l-emerald-500", bgColor: "bg-emerald-50", labelKey: "lab.code" },
+  display: { icon: FileText, color: "text-amber-600", borderColor: "border-l-amber-500", bgColor: "bg-amber-50", labelKey: "lab.display" },
 };
 
 interface CellCardProps {
@@ -109,16 +109,16 @@ export function CellCard({
               <DropdownMenuContent align="end">
                 {!isFirst && onMoveUp && (
                   <DropdownMenuItem onClick={onMoveUp}>
-                    <ArrowUp className="w-3.5 h-3.5 mr-2" /> {t("notebook.moveUp")}
+                    <ArrowUp className="w-3.5 h-3.5 mr-2" /> {t("lab.moveUp")}
                   </DropdownMenuItem>
                 )}
                 {!isLast && onMoveDown && (
                   <DropdownMenuItem onClick={onMoveDown}>
-                    <ArrowDown className="w-3.5 h-3.5 mr-2" /> {t("notebook.moveDown")}
+                    <ArrowDown className="w-3.5 h-3.5 mr-2" /> {t("lab.moveDown")}
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuItem onClick={onDelete} className="text-destructive">
-                  <Trash2 className="w-3.5 h-3.5 mr-2" /> {t("notebook.deleteCell")}
+                  <Trash2 className="w-3.5 h-3.5 mr-2" /> {t("lab.deleteCell")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
