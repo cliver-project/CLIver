@@ -58,8 +58,8 @@ class ClaudeAgent(CliAgent):
     DEFAULT_COMMAND = "claude"
 
     ENV_MAPPING: Dict[str, str] = {
-        "api_key": "ANTHROPIC_API_KEY",
-        "api_url": "ANTHROPIC_API_URL",
+        "api_key": "ANTHROPIC_AUTH_TOKEN",
+        "api_url": "ANTHROPIC_BASE_URL",
     }
 
     BLOCKED_ARGS: Dict[str, bool] = {
@@ -86,6 +86,7 @@ class ClaudeAgent(CliAgent):
         env = self._base_env()
         if self._model_config:
             env["ANTHROPIC_MODEL"] = self._model_config.api_model_name
+            env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = self._model_config.api_model_name
         return env
 
     def _parse_response(self, raw_json: dict) -> AgentResult:

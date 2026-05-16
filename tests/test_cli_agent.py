@@ -29,8 +29,8 @@ def basic_config():
 def test_claude_env_mapping():
     from cliver.agents.claude_agent import ClaudeAgent
 
-    assert ClaudeAgent.ENV_MAPPING["api_key"] == "ANTHROPIC_API_KEY"
-    assert ClaudeAgent.ENV_MAPPING["api_url"] == "ANTHROPIC_API_URL"
+    assert ClaudeAgent.ENV_MAPPING["api_key"] == "ANTHROPIC_AUTH_TOKEN"
+    assert ClaudeAgent.ENV_MAPPING["api_url"] == "ANTHROPIC_BASE_URL"
 
 
 def test_gemini_env_mapping():
@@ -83,8 +83,8 @@ def test_build_env_with_anthropic_provider(basic_config):
         provider_config=provider,
     )
     env = agent._build_env()
-    assert env["ANTHROPIC_API_KEY"] == "sk-ant-test123"
-    assert env["ANTHROPIC_API_URL"] == "https://api.anthropic.com"
+    assert env["ANTHROPIC_AUTH_TOKEN"] == "sk-ant-test123"
+    assert env["ANTHROPIC_BASE_URL"] == "https://api.anthropic.com"
     assert env["ANTHROPIC_MODEL"] == "claude-sonnet-4-20250514"
 
 
