@@ -7,7 +7,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ChevronDown, ChevronRight, Save } from "lucide-react";
+import { ChevronDown, ChevronRight, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChatPanel } from "@/components/lab/ChatPanel";
 import { useAgents } from "@/hooks/use-api";
@@ -24,10 +24,12 @@ interface LlmCellProps {
 export function LlmCell({ cell, labId, onInputsChange, onSaveResult }: LlmCellProps) {
   const { t } = useTranslation();
   const { data: agents } = useAgents();
+  const [runCount, setRunCount] = useState(0);
 
   const agent = (cell.inputs.agent as string) || "";
   const systemPrompt = (cell.inputs.system_prompt as string) || "";
   const outputFormat = (cell.inputs.output_format as string) || "text";
+  const initialPrompt = (cell.inputs.prompt as string) || "";
 
   const agentList: string[] = agents
     ? (agents as Array<Record<string, unknown>>)
@@ -49,8 +51,10 @@ export function LlmCell({ cell, labId, onInputsChange, onSaveResult }: LlmCellPr
     [onSaveResult],
   );
 
-  const handleSaveConfig = useCallback(() => {
+  const handleRun = useCallback(() => {
+    // Persist current config first, then trigger run
     onInputsChange({ ...cell.inputs });
+    setRunCount((n) => n + 1);
   }, [cell.inputs, onInputsChange]);
 
   return (
@@ -98,16 +102,17 @@ export function LlmCell({ cell, labId, onInputsChange, onSaveResult }: LlmCellPr
           />
         </div>
 
-        {/* Save Config button */}
+        {/* Run button */}
         <div className="px-4 py-3 border-t">
           <Button
-            variant="outline"
+            variant="default"
             size="sm"
             className="w-full gap-1.5"
-            onClick={handleSaveConfig}
+            onClick={handleRun}
+            disabled={!initialPrompt}
           >
-            <Save className="w-3.5 h-3.5" />
-            <span className="text-xs">{t("lab.saveConfig")}</span>
+            <Play className="w-3.5 h-3.5" />
+            <span className="text-xs">{t("lab.run")}</span>
           </Button>
         </div>
       </div>
@@ -120,6 +125,8 @@ export function LlmCell({ cell, labId, onInputsChange, onSaveResult }: LlmCellPr
           agent={agent}
           systemPrompt={systemPrompt}
           outputFormat={outputFormat}
+          initialPrompt={initialPrompt}
+          runTrigger={runCount}
           onSaveResult={handleSaveResult}
         />
       </div>

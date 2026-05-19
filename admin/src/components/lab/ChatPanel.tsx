@@ -26,6 +26,8 @@ interface ChatPanelProps {
   agent: string;
   systemPrompt: string;
   outputFormat: string;
+  initialPrompt?: string;
+  runTrigger?: number;
   onSaveResult: (text: string) => void;
 }
 
@@ -47,6 +49,8 @@ export function ChatPanel({
   agent,
   systemPrompt,
   outputFormat,
+  initialPrompt,
+  runTrigger,
   onSaveResult,
 }: ChatPanelProps) {
   const { t } = useTranslation();
@@ -54,6 +58,7 @@ export function ChatPanel({
   const [isRunning, setIsRunning] = useState(false);
   const [lastAssistantText, setLastAssistantText] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   // Load chat history on mount
@@ -74,6 +79,7 @@ export function ChatPanel({
       } catch {
         // Non-critical — start with empty history
       }
+      if (!cancelled) setHistoryLoaded(true);
     }
     loadHistory();
     return () => {
@@ -152,6 +158,21 @@ export function ChatPanel({
     [labId, cellId, agent, systemPrompt, outputFormat],
   );
 
+  // Ref to always access the latest onNew without stale closures
+  const onNewRef = useRef(onNew);
+  onNewRef.current = onNew;
+
+  // When runTrigger increments, send the initial prompt
+  useEffect(() => {
+    if (runTrigger && runTrigger > 0 && initialPrompt && messages.length === 0) {
+      onNewRef.current({
+        content: [{ type: "text", text: initialPrompt }],
+      });
+    }
+    // We intentionally only react to runTrigger changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runTrigger]);
+
   const handleCancel = useCallback(async () => {
     abortRef.current?.abort();
     abortRef.current = null;
@@ -213,6 +234,18 @@ export function ChatPanel({
             className="flex-1 min-h-0 overflow-y-auto px-4 py-3"
             autoScroll
           >
+            {/* Initial prompt indicator — shown before Run is clicked */}
+            {initialPrompt && historyLoaded && messages.length === 0 && (
+              <div className="mb-4 rounded-lg border-2 border-dashed border-primary/30 bg-primary/5 px-4 py-3">
+                <div className="text-[10px] font-semibold text-primary/60 uppercase tracking-wider mb-1">
+                  {t("lab.initialPrompt")}
+                </div>
+                <div className="text-sm text-foreground whitespace-pre-wrap">
+                  {initialPrompt}
+                </div>
+              </div>
+            )}
+
             <ThreadPrimitive.Messages>
               {({ message }) => (
                 <div className="mb-3 flex">

@@ -430,7 +430,8 @@
     "verificationFailed": "验证失败",
     "output": "输出",
     "logs": "日志",
-    "saveAsResult": "保存为单元格结果"
+    "saveAsResult": "保存为单元格结果",
+    "initialPrompt": "初始提示"
   },
   "keys": {
     "title": "密钥",

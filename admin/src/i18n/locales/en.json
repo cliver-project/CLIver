@@ -430,7 +430,8 @@
     "verificationFailed": "Verification failed",
     "output": "Output",
     "logs": "Logs",
-    "saveAsResult": "Save as Cell Result"
+    "saveAsResult": "Save as Cell Result",
+    "initialPrompt": "Initial Prompt"
   },
   "keys": {
     "title": "Keys",
