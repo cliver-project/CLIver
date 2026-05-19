@@ -22,11 +22,17 @@ _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     title TEXT,
+    lab_id TEXT,
+    cell_id TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     turn_count INTEGER DEFAULT 0,
     options TEXT
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_lab_cell
+    ON sessions(lab_id, cell_id)
+    WHERE lab_id IS NOT NULL AND cell_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS turns (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,6 +75,13 @@ class SessionManager:
         if self._store is None:
             self._store = SQLiteStore(self._db_path)
             self._store.execute_schema(_SCHEMA)
+            # Migrate: add lab_id/cell_id columns for existing databases
+            with self._store.write() as db:
+                cols = [r[1] for r in db.execute("PRAGMA table_info(sessions)").fetchall()]
+                if "lab_id" not in cols:
+                    db.execute("ALTER TABLE sessions ADD COLUMN lab_id TEXT")
+                if "cell_id" not in cols:
+                    db.execute("ALTER TABLE sessions ADD COLUMN cell_id TEXT")
         return self._store
 
     # -- Session lifecycle -----------------------------------------------------
@@ -81,6 +94,27 @@ class SessionManager:
             db.execute(
                 "INSERT INTO sessions (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
                 (session_id, title or None, now, now),
+            )
+        return session_id
+
+    def get_or_create_cell_session(self, lab_id: str, cell_id: str) -> str:
+        """Find existing session for this cell or create one. Returns session_id."""
+        with self._get_store().read() as db:
+            row = db.execute(
+                "SELECT id FROM sessions WHERE lab_id = ? AND cell_id = ?",
+                (lab_id, cell_id),
+            ).fetchone()
+            if row:
+                return row["id"]
+
+        # Create new session
+        session_id = str(uuid.uuid4())[:8]
+        now = _timestamp()
+        with self._get_store().write() as db:
+            db.execute(
+                "INSERT INTO sessions (id, title, lab_id, cell_id, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (session_id, None, lab_id, cell_id, now, now),
             )
         return session_id
 
