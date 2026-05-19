@@ -1,4 +1,4 @@
-"""ChatSession — manages a single cell's interactive chat session."""
+"""Stream agent responses as SSE event dicts for lab cell chat sessions."""
 
 from __future__ import annotations
 

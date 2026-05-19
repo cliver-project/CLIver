@@ -212,7 +212,7 @@ class Gateway:
 
             # Lab and project API routes BEFORE admin SPA catch-all
             try:
-                if self._lab_store and self._agent_factory:
+                if self._lab_store and self._agent_factory and cli_sm:
                     from cliver.gateway.routes_lab import get_lab_routes
                     from cliver.gateway.routes_project import get_project_routes
 

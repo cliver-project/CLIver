@@ -174,6 +174,12 @@ def get_lab_routes(
         lab_id = request.path_params["id"]
         cell_id = request.path_params["cell_id"]
 
+        lab = lab_store.get(lab_id)
+        if not lab:
+            return JSONResponse({"error": "lab not found"}, status_code=404)
+        if not lab.get_cell(cell_id):
+            return JSONResponse({"error": "cell not found"}, status_code=404)
+
         data = await request.json()
         outputs = data.get("outputs", {})
 
