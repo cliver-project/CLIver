@@ -221,6 +221,7 @@ class Gateway:
                             self._lab_store,
                             self._runtime_manager,
                             self._agent_factory,
+                            cli_sm,
                             shared_auth,
                         )
                     )
