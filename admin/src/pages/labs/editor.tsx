@@ -24,7 +24,7 @@ export default function LabEditor() {
   const executeCell = useExecuteCell(id || "");
   const runAll = useRunAll(id || "");
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [llmRunTrigger, setLlmRunTrigger] = useState(0);
+  const [currentIndex, setCurrentIndex] = useState(0);
 
   // Reset index when switching labs or when cells are added/removed
   const safeIndex = useMemo(() => {
@@ -199,9 +199,11 @@ export default function LabEditor() {
             index={safeIndex}
             total={lab.cells.length}
             onExecute={
-              cell.type === "llm" ? () => setLlmRunTrigger((n) => n + 1)
-              : cell.type !== "display" ? () => handleExecuteCell(cell.id)
-              : undefined
+              cell.type === "llm"
+                ? undefined
+                : cell.type !== "display"
+                  ? () => handleExecuteCell(cell.id)
+                  : undefined
             }
             onSave={
               cell.type === "config" ? () => handleConfigSave(cell.id, cell.outputs)
@@ -210,7 +212,11 @@ export default function LabEditor() {
             }
             isSaving={updateLab.isPending}
             isExecuting={executeCell.isPending || runAll.isPending}
-            onStop={cell.type === "llm" && cell.status === "running" ? () => setLlmRunTrigger(-1) : undefined}
+            onStop={
+              cell.type === "llm" && cell.status === "running"
+                ? undefined
+                : undefined
+            }
             onDelete={() => handleDeleteCell(cell.id)}
             onMoveUp={() => handleMoveCell(cell.id, "up")}
             onMoveDown={() => handleMoveCell(cell.id, "down")}
@@ -225,11 +231,8 @@ export default function LabEditor() {
                 <LlmCell
                   cell={cell}
                   labId={lab.id}
-                  runTrigger={llmRunTrigger}
                   onInputsChange={(inputs) => handleInputsChange(cell.id, inputs)}
-                  onExecutionComplete={(outputs, status, err) =>
-                    handleExecutionComplete(cell.id, outputs, status, err)
-                  }
+                  onSaveResult={(outputs, status) => handleExecutionComplete(cell.id, outputs, status)}
                 />
               )}
               {cell.type === "code" && (
