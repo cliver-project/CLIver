@@ -22,7 +22,7 @@ def _get_tasks(ctx: dict) -> list:
         if not config_dir:
             return []
         profile = CliverProfile(config_dir)
-        store = TaskStore(profile.gateway_db)
+        store = TaskStore(profile.db_path)
         tm = TaskManager(profile.tasks_dir, store)
         entries = tm.list_task_entries()
 
@@ -67,7 +67,7 @@ def _get_task_detail(ctx, task_name):
         if not config_dir:
             return None
         profile = CliverProfile(config_dir)
-        store = TaskStore(profile.gateway_db)
+        store = TaskStore(profile.db_path)
         tm = TaskManager(profile.tasks_dir, store)
         task_entry = tm.get_task_entry(task_name)
         if not task_entry:
@@ -110,7 +110,7 @@ async def _run_task(ctx: dict, task_name: str) -> dict:
             return {"status": "error", "message": "gateway or config_dir not available"}
 
         profile = CliverProfile(config_dir)
-        store = TaskStore(profile.gateway_db)
+        store = TaskStore(profile.db_path)
         tm = TaskManager(profile.tasks_dir, store)
         task = tm.get_task(task_name)
         if not task:
@@ -165,7 +165,7 @@ def get_task_routes(context: dict, require_auth: Callable) -> list:
                 return JSONResponse({"error": "No config dir"}, status_code=500)
 
             profile = CliverProfile(config_dir)
-            store = TaskStore(profile.gateway_db)
+            store = TaskStore(profile.db_path)
             tm = TaskManager(profile.tasks_dir, store)
             removed = tm.remove_task(task_name)
 

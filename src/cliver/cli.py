@@ -172,7 +172,7 @@ class Cliver:
         """Get the SessionManager for this agent's sessions."""
         from cliver.session_manager import SessionManager
 
-        return SessionManager(self.agent_profile.sessions_dir)
+        return SessionManager(self.agent_profile.db_path)
 
     def record_turn(self, role: str, content: str) -> None:
         """Record a conversation turn to the current session.

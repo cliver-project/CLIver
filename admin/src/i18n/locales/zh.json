@@ -401,6 +401,7 @@
     "configuration": "配置",
     "edit": "编辑",
     "saveConfig": "保存配置",
+    "configSaved": "配置已保存",
     "agent": "智能体",
     "selectAgent": "选择智能体",
     "prompt": "提示词",

@@ -264,7 +264,7 @@ def get_info_routes(context: dict, require_auth: Callable) -> list:
         config_dir = context.get("config_dir")
         if not config_dir:
             return JSONResponse([])
-        ks = KeyStore(config_dir / "keys.db")
+        ks = KeyStore(config_dir / "cliver.db")
         keys = ks.list_keys()
         return JSONResponse(
             [
@@ -280,7 +280,7 @@ def get_info_routes(context: dict, require_auth: Callable) -> list:
         config_dir = context.get("config_dir")
         if not config_dir:
             return JSONResponse({"error": "No config dir"}, status_code=500)
-        ks = KeyStore(config_dir / "keys.db")
+        ks = KeyStore(config_dir / "cliver.db")
         data = await request.json()
         name = data.get("name", "").strip()
         value = data.get("value", "")
@@ -297,11 +297,26 @@ def get_info_routes(context: dict, require_auth: Callable) -> list:
         config_dir = context.get("config_dir")
         if not config_dir:
             return JSONResponse({"error": "No config dir"}, status_code=500)
-        ks = KeyStore(config_dir / "keys.db")
+        ks = KeyStore(config_dir / "cliver.db")
         name = request.path_params["name"]
         if ks.delete(name):
             return JSONResponse({"status": "ok"})
         return JSONResponse({"error": "not found"}, status_code=404)
+
+    @require_auth
+    async def handle_agents(request: Request):
+        from cliver.config import ConfigManager
+
+        config_dir = context.get("config_dir")
+        if not config_dir:
+            return JSONResponse([])
+        cm = ConfigManager(config_dir)
+        return JSONResponse(
+            [
+                {"name": name, "type": ac.type, "model": ac.model, "description": ac.description}
+                for name, ac in cm.config.agents.items()
+            ]
+        )
 
     @require_auth
     async def handle_models(request: Request):
@@ -312,6 +327,7 @@ def get_info_routes(context: dict, require_auth: Callable) -> list:
         return JSONResponse({"models": models, "default": gateway._agent_core.default_model})
 
     return [
+        Route("/admin/api/agents", handle_agents),
         Route("/admin/api/status", handle_status),
         Route("/admin/api/skills", handle_skills),
         Route("/admin/api/adapters", handle_adapters),

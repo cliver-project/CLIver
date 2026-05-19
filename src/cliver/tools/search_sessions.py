@@ -41,7 +41,7 @@ class SearchSessionsTool(BaseTool):
 
         from cliver.session_manager import SessionManager
 
-        sm = SessionManager(profile.sessions_dir)
+        sm = SessionManager(profile.db_path)
         try:
             results = sm.search(query, limit=limit)
         except Exception as e:

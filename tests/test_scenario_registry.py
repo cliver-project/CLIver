@@ -233,7 +233,7 @@ def test_builtin_research_ai_lab_generates_lab():
         assert len(lab.cells) == 7
 
         setup = lab.get_cell("setup")
-        assert setup.inputs["schema"]["domain"]["default"] == "Transformer Architectures"
+        assert setup.inputs["schema"]["domain"]["default"] == "AI Agent Architectures"
 
         search = lab.get_cell("search")
         assert "${setup.outputs.domain}" in search.inputs["prompt"]

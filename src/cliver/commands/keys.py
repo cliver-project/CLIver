@@ -14,7 +14,7 @@ from cliver.commands import click_help, wants_help
 def _get_key_store(cliver: Cliver):
     from cliver.key_store import KeyStore
 
-    db_path = cliver.agent_profile.config_dir / "keys.db"
+    db_path = cliver.agent_profile.db_path
     return KeyStore(db_path)
 
 

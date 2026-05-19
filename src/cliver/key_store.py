@@ -15,14 +15,25 @@ import logging
 import platform
 import re
 import socket
-import sqlite3
 import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
+from cliver.db import SQLiteStore
+
 logger = logging.getLogger(__name__)
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS keys (
+    name TEXT PRIMARY KEY,
+    encrypted_value BLOB NOT NULL,
+    description TEXT DEFAULT '',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+"""
 
 
 @dataclass
@@ -85,7 +96,8 @@ class KeyStore:
     def __init__(self, db_path: Path):
         self._db_path = db_path
         self._fernet = self._create_fernet()
-        self._init_db()
+        self._store = SQLiteStore(db_path)
+        self._store.execute_schema(_SCHEMA)
 
     def _create_fernet(self):
         from cryptography.fernet import Fernet
@@ -102,44 +114,26 @@ class KeyStore:
         key = base64.urlsafe_b64encode(kdf.derive(machine_id.encode()))
         return Fernet(key)
 
-    def _init_db(self):
-        self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(self._db_path)
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS keys ("
-            "  name TEXT PRIMARY KEY,"
-            "  encrypted_value BLOB NOT NULL,"
-            "  description TEXT DEFAULT '',"
-            "  created_at TEXT NOT NULL,"
-            "  updated_at TEXT NOT NULL"
-            ")"
-        )
-        conn.commit()
-        conn.close()
-
     def _now(self) -> str:
         return datetime.now(timezone.utc).isoformat()
 
     def set(self, name: str, value: str, description: str = "") -> None:
         encrypted = self._fernet.encrypt(value.encode())
         now = self._now()
-        conn = sqlite3.connect(self._db_path)
-        conn.execute(
-            "INSERT INTO keys (name, encrypted_value, description, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?) "
-            "ON CONFLICT(name) DO UPDATE SET "
-            "encrypted_value=excluded.encrypted_value, "
-            "description=excluded.description, "
-            "updated_at=excluded.updated_at",
-            (name, encrypted, description, now, now),
-        )
-        conn.commit()
-        conn.close()
+        with self._store.write() as conn:
+            conn.execute(
+                "INSERT INTO keys (name, encrypted_value, description, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(name) DO UPDATE SET "
+                "encrypted_value=excluded.encrypted_value, "
+                "description=excluded.description, "
+                "updated_at=excluded.updated_at",
+                (name, encrypted, description, now, now),
+            )
 
     def get(self, name: str) -> Optional[str]:
-        conn = sqlite3.connect(self._db_path)
-        row = conn.execute("SELECT encrypted_value FROM keys WHERE name=?", (name,)).fetchone()
-        conn.close()
+        with self._store.read() as conn:
+            row = conn.execute("SELECT encrypted_value FROM keys WHERE name=?", (name,)).fetchone()
         if row is None:
             return None
         try:
@@ -149,21 +143,16 @@ class KeyStore:
             return None
 
     def delete(self, name: str) -> bool:
-        conn = sqlite3.connect(self._db_path)
-        cursor = conn.execute("DELETE FROM keys WHERE name=?", (name,))
-        conn.commit()
-        deleted = cursor.rowcount > 0
-        conn.close()
-        return deleted
+        with self._store.write() as conn:
+            cursor = conn.execute("DELETE FROM keys WHERE name=?", (name,))
+            return cursor.rowcount > 0
 
     def list_keys(self) -> List[KeyInfo]:
-        conn = sqlite3.connect(self._db_path)
-        rows = conn.execute("SELECT name, description, created_at, updated_at FROM keys ORDER BY name").fetchall()
-        conn.close()
+        with self._store.read() as conn:
+            rows = conn.execute("SELECT name, description, created_at, updated_at FROM keys ORDER BY name").fetchall()
         return [KeyInfo(name=r[0], description=r[1], created_at=r[2], updated_at=r[3]) for r in rows]
 
     def has(self, name: str) -> bool:
-        conn = sqlite3.connect(self._db_path)
-        row = conn.execute("SELECT 1 FROM keys WHERE name=?", (name,)).fetchone()
-        conn.close()
+        with self._store.read() as conn:
+            row = conn.execute("SELECT 1 FROM keys WHERE name=?", (name,)).fetchone()
         return row is not None

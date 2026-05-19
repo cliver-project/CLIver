@@ -9,7 +9,6 @@ Each agent has a single sessions.db with:
 
 import json
 import logging
-import sqlite3
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -62,15 +61,13 @@ END;
 class SessionManager:
     """Manages conversation sessions stored in SQLite with FTS5 search."""
 
-    def __init__(self, sessions_dir: Path):
-        self.sessions_dir = sessions_dir
+    def __init__(self, db_path: Path):
+        self._db_path = db_path
         self._store: Optional[SQLiteStore] = None
 
     def _get_store(self) -> SQLiteStore:
         if self._store is None:
-            self.sessions_dir.mkdir(parents=True, exist_ok=True)
-            db_path = self.sessions_dir / "sessions.db"
-            self._store = SQLiteStore(db_path)
+            self._store = SQLiteStore(self._db_path)
             self._store.execute_schema(_SCHEMA)
         return self._store
 
@@ -280,7 +277,7 @@ class SessionManager:
             self._store = None
 
 
-def _row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
+def _row_to_dict(row: Any) -> Dict[str, Any]:
     """Convert a sqlite3.Row to a plain dict, parsing options JSON."""
     d = dict(row)
     if "options" in d and d["options"]:

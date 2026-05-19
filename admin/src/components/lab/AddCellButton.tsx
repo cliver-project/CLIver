@@ -36,22 +36,27 @@ const CELL_TYPES = [
 
 interface AddCellButtonProps {
   onAdd: (type: string) => void;
+  trigger?: React.ReactNode;
 }
 
-export function AddCellButton({ onAdd }: AddCellButtonProps) {
+export function AddCellButton({ onAdd, trigger }: AddCellButtonProps) {
   const [isOpen, setIsOpen] = useState(false);
   const { t } = useTranslation();
 
   return (
     <div className="relative">
       {!isOpen ? (
-        <button
-          onClick={() => setIsOpen(true)}
-          className="w-full border border-dashed border-border rounded-lg py-3 text-sm text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors flex items-center justify-center gap-2"
-        >
-          <Plus className="w-4 h-4" />
-          {t("lab.addCell")}
-        </button>
+        trigger ? (
+          <div onClick={() => setIsOpen(true)}>{trigger}</div>
+        ) : (
+          <button
+            onClick={() => setIsOpen(true)}
+            className="w-full border border-dashed border-border rounded-lg py-3 text-sm text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors flex items-center justify-center gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            {t("lab.addCell")}
+          </button>
+        )
       ) : (
         <div className="border border-border rounded-lg p-2 bg-card shadow-sm">
           <div className="text-xs font-medium text-muted-foreground px-2 mb-1">{t("lab.chooseCellType")}</div>

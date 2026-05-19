@@ -401,6 +401,7 @@
     "configuration": "Configuration",
     "edit": "Edit",
     "saveConfig": "Save Configuration",
+    "configSaved": "Configuration saved",
     "agent": "Agent",
     "selectAgent": "Select agent",
     "prompt": "Prompt",

@@ -5,43 +5,40 @@ from __future__ import annotations
 import json
 import logging
 import os
-import sqlite3
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from cliver.db import SQLiteStore
 from cliver.lab.models import Cell, Lab, LabSummary
 
 logger = logging.getLogger(__name__)
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS labs (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT DEFAULT '',
+    scenario_id TEXT,
+    cell_count INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'idle',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+"""
 
 
 class LabStore:
     """CRUD for labs. JSON files are source of truth, SQLite is index."""
 
-    def __init__(self, data_dir: Path):
+    def __init__(self, data_dir: Path, db_path: Path = None):
         self._data_dir = data_dir
         self._labs_dir = data_dir / "labs"
-        self._db_path = data_dir / "labs.db"
+        self._db_path = db_path or (data_dir / "cliver.db")
         self._labs_dir.mkdir(parents=True, exist_ok=True)
-        self._init_db()
-
-    def _init_db(self) -> None:
-        conn = sqlite3.connect(self._db_path)
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS labs ("
-            "  id TEXT PRIMARY KEY,"
-            "  title TEXT NOT NULL,"
-            "  description TEXT DEFAULT '',"
-            "  scenario_id TEXT,"
-            "  cell_count INTEGER DEFAULT 0,"
-            "  status TEXT DEFAULT 'idle',"
-            "  created_at TEXT NOT NULL,"
-            "  updated_at TEXT NOT NULL"
-            ")"
-        )
-        conn.commit()
-        conn.close()
+        self._store = SQLiteStore(self._db_path)
+        self._store.execute_schema(_SCHEMA)
 
     def _now(self) -> str:
         return datetime.now(timezone.utc).isoformat()
@@ -97,12 +94,11 @@ class LabStore:
             return None
 
     def list_all(self) -> List[LabSummary]:
-        conn = sqlite3.connect(self._db_path)
-        rows = conn.execute(
-            "SELECT id, title, description, scenario_id, cell_count, status, "
-            "created_at, updated_at FROM labs ORDER BY updated_at DESC"
-        ).fetchall()
-        conn.close()
+        with self._store.read() as conn:
+            rows = conn.execute(
+                "SELECT id, title, description, scenario_id, cell_count, status, "
+                "created_at, updated_at FROM labs ORDER BY updated_at DESC"
+            ).fetchall()
         return [
             LabSummary(
                 id=r[0],
@@ -127,10 +123,8 @@ class LabStore:
         if not path.exists():
             return False
         path.unlink()
-        conn = sqlite3.connect(self._db_path)
-        conn.execute("DELETE FROM labs WHERE id=?", (lab_id,))
-        conn.commit()
-        conn.close()
+        with self._store.write() as conn:
+            conn.execute("DELETE FROM labs WHERE id=?", (lab_id,))
         return True
 
     def save_cell_output(
@@ -171,24 +165,22 @@ class LabStore:
             if c.status == "completed":
                 status = "completed"
 
-        conn = sqlite3.connect(self._db_path)
-        conn.execute(
-            "INSERT INTO labs (id, title, description, scenario_id, cell_count, "
-            "status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
-            "ON CONFLICT(id) DO UPDATE SET title=excluded.title, "
-            "description=excluded.description, scenario_id=excluded.scenario_id, "
-            "cell_count=excluded.cell_count, status=excluded.status, "
-            "updated_at=excluded.updated_at",
-            (
-                lab.id,
-                lab.title,
-                lab.description,
-                lab.scenario_id,
-                len(lab.cells),
-                status,
-                lab.created_at,
-                lab.updated_at,
-            ),
-        )
-        conn.commit()
-        conn.close()
+        with self._store.write() as conn:
+            conn.execute(
+                "INSERT INTO labs (id, title, description, scenario_id, cell_count, "
+                "status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(id) DO UPDATE SET title=excluded.title, "
+                "description=excluded.description, scenario_id=excluded.scenario_id, "
+                "cell_count=excluded.cell_count, status=excluded.status, "
+                "updated_at=excluded.updated_at",
+                (
+                    lab.id,
+                    lab.title,
+                    lab.description,
+                    lab.scenario_id,
+                    len(lab.cells),
+                    status,
+                    lab.created_at,
+                    lab.updated_at,
+                ),
+            )

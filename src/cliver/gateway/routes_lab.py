@@ -209,7 +209,11 @@ def get_lab_routes(
             async for chunk in agent.stream(prompt):
                 if chunk.chunk_type == "text" and chunk.text:
                     full_text.append(chunk.text)
-                    await websocket.send_json({"type": "chunk", "text": chunk.text})
+                    await websocket.send_json({"type": "text", "content": chunk.text})
+                elif chunk.chunk_type == "thinking" and chunk.text:
+                    await websocket.send_json({"type": "thinking", "content": chunk.text})
+                elif chunk.chunk_type in ("tool_use", "tool_result") and chunk.text:
+                    await websocket.send_json({"type": "tool", "content": chunk.text})
                 elif chunk.chunk_type == "done" and chunk.final_result:
                     result = chunk.final_result
                     outputs = {"text": result.text}

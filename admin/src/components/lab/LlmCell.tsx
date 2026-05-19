@@ -9,7 +9,6 @@ import {
 } from "@/components/ui/select";
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import { RefInsertDropdown } from "@/components/lab/RefInsertDropdown";
-import { CellOutput } from "@/components/lab/CellOutput";
 import { useWebSocket } from "@/hooks/use-websocket";
 import { useAgents } from "@/hooks/use-api";
 import type { Cell } from "@/hooks/use-lab";
@@ -19,18 +18,28 @@ import { useTranslation } from "@/i18n";
 interface LlmCellProps {
   cell: Cell;
   labId: string;
+  runTrigger: number;
   onInputsChange: (inputs: Record<string, unknown>) => void;
   onExecutionComplete: (outputs: Record<string, unknown>, status: string, error?: string) => void;
 }
 
-export function LlmCell({ cell, labId, onInputsChange, onExecutionComplete }: LlmCellProps) {
+interface TerminalLine {
+  type: "text" | "thinking" | "tool" | "status" | "error";
+  content: string;
+  ts: number;
+}
+
+export function LlmCell({ cell, labId, runTrigger, onInputsChange, onExecutionComplete }: LlmCellProps) {
   const { t } = useTranslation();
   const { data: agents } = useAgents();
   const [showSystemPrompt, setShowSystemPrompt] = useState(false);
   const [showVerification, setShowVerification] = useState(false);
-  const [streamingText, setStreamingText] = useState("");
+  const [lines, setLines] = useState<TerminalLine[]>([]);
   const [isExecuting, setIsExecuting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const terminalRef = useRef<HTMLDivElement>(null);
+  const onCompleteRef = useRef(onExecutionComplete);
+  onCompleteRef.current = onExecutionComplete;
 
   const prompt = (cell.inputs.prompt as string) || "";
   const agent = (cell.inputs.agent as string) || "";
@@ -39,7 +48,6 @@ export function LlmCell({ cell, labId, onInputsChange, onExecutionComplete }: Ll
 
   // Verification config
   const verification = (cell.inputs.verification as Record<string, unknown>) || null;
-  const expectedResult = verification ? String(verification.expected || "") : "";
   const maxRetries = verification ? Number(verification.max_retries || 3) : 3;
   const timeoutS = verification ? Number(verification.timeout_s || 300) : 300;
   const verifierAgent = verification ? String(verification.verifier_agent || "") : "";
@@ -50,27 +58,40 @@ export function LlmCell({ cell, labId, onInputsChange, onExecutionComplete }: Ll
     : null;
   const ws = useWebSocket(wsUrl);
 
+  // Auto-scroll terminal
+  useEffect(() => {
+    if (terminalRef.current) {
+      terminalRef.current.scrollTop = terminalRef.current.scrollHeight;
+    }
+  }, [lines]);
+
   // Handle WebSocket messages
   useEffect(() => {
     if (!ws.lastMessage) return;
     const msg = ws.lastMessage;
 
-    if (msg.type === "chunk" && msg.text) {
-      setStreamingText((prev) => prev + msg.text);
+    if (msg.type === "text" && msg.content) {
+      setLines((prev) => [...prev, { type: "text", content: msg.content as string, ts: Date.now() }]);
+    } else if (msg.type === "thinking" && msg.content) {
+      setLines((prev) => [...prev, { type: "thinking", content: msg.content as string, ts: Date.now() }]);
+    } else if (msg.type === "tool" && msg.content) {
+      setLines((prev) => [...prev, { type: "tool", content: msg.content as string, ts: Date.now() }]);
+    } else if (msg.type === "status") {
+      setLines((prev) => [...prev, { type: "status", content: `▶ ${msg.status || "running"}`, ts: Date.now() }]);
     } else if (msg.type === "done") {
       setIsExecuting(false);
-      setStreamingText("");
       if (msg.outputs) {
-        onExecutionComplete(msg.outputs as Record<string, unknown>, "completed");
+        onCompleteRef.current?.(msg.outputs as Record<string, unknown>, "completed");
       }
       ws.close();
     } else if (msg.type === "error") {
       setIsExecuting(false);
-      setStreamingText("");
-      onExecutionComplete({}, "error", msg.message || "Unknown error");
+      setLines((prev) => [...prev, { type: "error", content: msg.message || "Unknown error", ts: Date.now() }]);
+      onCompleteRef.current?.({}, "error", msg.message || "Unknown error");
       ws.close();
     }
-  }, [ws.lastMessage, ws, onExecutionComplete]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ws.lastMessage]);
 
   // Once connected, send execute command
   useEffect(() => {
@@ -78,6 +99,22 @@ export function LlmCell({ cell, labId, onInputsChange, onExecutionComplete }: Ll
       ws.send({ action: "execute" });
     }
   }, [isExecuting, ws.isConnected, ws]);
+
+  // ── Trigger execution from parent (CellSlide header Run button) ──
+
+  useEffect(() => {
+    if (runTrigger < 0) {
+      // Stop signal
+      setIsExecuting(false);
+      ws.close();
+      return;
+    }
+    if (runTrigger > 0) {
+      setLines([]);
+      setIsExecuting(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runTrigger]);
 
   // Insert reference at cursor position in prompt textarea
   const handleRefInsert = useCallback(
@@ -92,28 +129,14 @@ export function LlmCell({ cell, labId, onInputsChange, onExecutionComplete }: Ll
           ta.focus();
           ta.setSelectionRange(start + ref.length, start + ref.length);
         });
-      } else {
-        onInputsChange({ ...cell.inputs, prompt: prompt + ref });
       }
     },
-    [prompt, cell.inputs, onInputsChange],
+    [cell.inputs, onInputsChange, prompt],
   );
 
-  const updateInput = (key: string, value: string) => {
-    onInputsChange({ ...cell.inputs, [key]: value });
-  };
-
-  const updateVerification = useCallback(
+  const updateInput = useCallback(
     (key: string, value: unknown) => {
-      const current = (cell.inputs.verification as Record<string, unknown>) || {};
-      const updated = { ...current, [key]: value };
-      // Remove verification entirely if expected is empty
-      if (key === "expected" && !value) {
-        const { verification: _, ...rest } = cell.inputs;
-        onInputsChange(rest);
-      } else {
-        onInputsChange({ ...cell.inputs, verification: updated });
-      }
+      onInputsChange({ ...cell.inputs, [key]: value });
     },
     [cell.inputs, onInputsChange],
   );
@@ -131,27 +154,23 @@ export function LlmCell({ cell, labId, onInputsChange, onExecutionComplete }: Ll
       <div className="flex gap-3">
         <div className="flex-1">
           <Label className="text-xs font-medium">{t("lab.agent")}</Label>
-          <Select value={agent} onValueChange={(v) => updateInput("agent", v)}>
+          <Select value={agent} onValueChange={(v) => updateInput("agent", v)} disabled={isExecuting}>
             <SelectTrigger className="mt-1 h-8 text-sm">
               <SelectValue placeholder={t("lab.selectAgent")} />
             </SelectTrigger>
             <SelectContent>
               {agentList.map((a) => (
-                <SelectItem key={a} value={a}>
-                  {a}
-                </SelectItem>
+                <SelectItem key={a} value={a}>{a}</SelectItem>
               ))}
               {agentList.length === 0 && (
-                <SelectItem value="cliver" disabled>
-                  {t("settings.noAgents")}
-                </SelectItem>
+                <SelectItem value="cliver" disabled>No agents configured</SelectItem>
               )}
             </SelectContent>
           </Select>
         </div>
         <div className="w-28">
           <Label className="text-xs font-medium">{t("lab.outputFormat")}</Label>
-          <Select value={outputFormat} onValueChange={(v) => updateInput("output_format", v)}>
+          <Select value={outputFormat} onValueChange={(v) => updateInput("output_format", v)} disabled={isExecuting}>
             <SelectTrigger className="mt-1 h-8 text-sm">
               <SelectValue />
             </SelectTrigger>
@@ -167,110 +186,95 @@ export function LlmCell({ cell, labId, onInputsChange, onExecutionComplete }: Ll
       <div>
         <div className="flex items-center justify-between mb-1">
           <Label className="text-xs font-medium">{t("lab.prompt")}</Label>
-          <RefInsertDropdown
-            labId={labId}
-            cellId={cell.id}
-            onInsert={handleRefInsert}
-          />
+          <RefInsertDropdown labId={labId} cellId={cell.id} onInsert={handleRefInsert} />
         </div>
         <textarea
           ref={textareaRef}
           value={prompt}
           onChange={(e) => updateInput("prompt", e.target.value)}
-          placeholder={t("lab.promptPlaceholder")}
-          rows={6}
-          className={cn(
-            "border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring flex min-h-[120px] w-full rounded-md border px-3 py-2 text-base shadow-xs focus-visible:ring-1 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
-            "text-sm font-mono resize-y"
-          )}
           disabled={isExecuting}
+          placeholder={t("lab.promptPlaceholder")}
+          className="w-full min-h-[120px] rounded-md border border-input bg-background px-3 py-2 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 disabled:opacity-60"
         />
       </div>
 
-      {/* System prompt (collapsible) */}
+      {/* System prompt */}
       <div>
         <button
+          type="button"
           onClick={() => setShowSystemPrompt(!showSystemPrompt)}
           className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
         >
-          {showSystemPrompt ? (
-            <ChevronDown className="w-3 h-3" />
-          ) : (
-            <ChevronRight className="w-3 h-3" />
-          )}
+          {showSystemPrompt ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
           {t("lab.systemPrompt")}
         </button>
         {showSystemPrompt && (
           <textarea
             value={systemPrompt}
             onChange={(e) => updateInput("system_prompt", e.target.value)}
-            placeholder={t("lab.systemPromptPlaceholder")}
-            rows={2}
-            className={cn(
-              "border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring flex min-h-[60px] w-full rounded-md border px-3 py-2 text-base shadow-xs focus-visible:ring-1 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
-              "mt-1 text-sm resize-y"
-            )}
             disabled={isExecuting}
+            placeholder={t("lab.systemPromptPlaceholder")}
+            className="w-full mt-1 min-h-[80px] rounded-md border border-input bg-background px-3 py-2 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 disabled:opacity-60"
           />
         )}
       </div>
 
-      {/* Verification (collapsible) */}
+      {/* Verification config */}
       <div>
         <button
+          type="button"
           onClick={() => setShowVerification(!showVerification)}
           className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
         >
-          {showVerification ? (
-            <ChevronDown className="w-3 h-3" />
-          ) : (
-            <ChevronRight className="w-3 h-3" />
-          )}
+          {showVerification ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
           {t("lab.verification")}
         </button>
         {showVerification && (
-          <div className="mt-2 space-y-2 p-3 rounded-md bg-muted/30 border border-border/50">
-            <div>
-              <label className="text-xs font-medium text-muted-foreground">{t("lab.expectedResult")}</label>
-              <textarea
-                value={expectedResult}
-                onChange={(e) => updateVerification("expected", e.target.value)}
-                placeholder={t("lab.expectedPlaceholder")}
-                rows={2}
-                className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-y"
-                disabled={isExecuting}
-              />
-            </div>
-            <div className="flex gap-3">
-              <div className="flex-1">
-                <label className="text-xs font-medium text-muted-foreground">{t("lab.maxRetries")}</label>
+          <div className="mt-2 space-y-2 pl-2 border-l-2 border-muted">
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label className="text-[11px] text-muted-foreground">{t("lab.maxRetries")}</Label>
                 <input
                   type="number"
-                  min={1}
+                  min={0}
                   max={10}
                   value={maxRetries}
-                  onChange={(e) => updateVerification("max_retries", Number(e.target.value))}
-                  className="mt-1 w-full h-8 rounded-md border border-input bg-background px-3 text-sm"
+                  onChange={(e) =>
+                    updateInput("verification", {
+                      ...verification,
+                      max_retries: parseInt(e.target.value) || 0,
+                    })
+                  }
                   disabled={isExecuting}
+                  className="w-full mt-0.5 rounded-md border border-input bg-background px-2 py-1 text-sm"
                 />
               </div>
-              <div className="flex-1">
-                <label className="text-xs font-medium text-muted-foreground">{t("lab.timeoutSeconds")}</label>
+              <div>
+                <Label className="text-[11px] text-muted-foreground">{t("lab.timeoutSeconds")}</Label>
                 <input
                   type="number"
-                  min={30}
-                  max={600}
+                  min={10}
+                  max={3600}
                   value={timeoutS}
-                  onChange={(e) => updateVerification("timeout_s", Number(e.target.value))}
-                  className="mt-1 w-full h-8 rounded-md border border-input bg-background px-3 text-sm"
+                  onChange={(e) =>
+                    updateInput("verification", {
+                      ...verification,
+                      timeout_s: parseInt(e.target.value) || 300,
+                    })
+                  }
                   disabled={isExecuting}
+                  className="w-full mt-0.5 rounded-md border border-input bg-background px-2 py-1 text-sm"
                 />
               </div>
-              <div className="flex-1">
-                <label className="text-xs font-medium text-muted-foreground">{t("lab.verifierAgent")}</label>
+            </div>
+            {verifierAgent !== undefined && (
+              <div>
+                <label className="text-[11px] text-muted-foreground">{t("lab.verifierAgent")}</label>
                 <Select
                   value={verifierAgent}
-                  onValueChange={(v) => updateVerification("verifier_agent", v === "__default__" ? "" : v)}
+                  onValueChange={(v) =>
+                    updateInput("verification", { ...verification, verifier_agent: v === "__default__" ? "" : v })
+                  }
                   disabled={isExecuting}
                 >
                   <SelectTrigger className="mt-1 h-8 text-sm">
@@ -279,66 +283,51 @@ export function LlmCell({ cell, labId, onInputsChange, onExecutionComplete }: Ll
                   <SelectContent>
                     <SelectItem value="__default__">(use default agent)</SelectItem>
                     {agentList.map((a) => (
-                      <SelectItem key={a} value={a}>
-                        {a}
-                      </SelectItem>
+                      <SelectItem key={a} value={a}>{a}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-            </div>
+            )}
           </div>
         )}
       </div>
 
-      {/* Streaming output */}
-      {isExecuting && (
-        <div className="rounded-lg bg-muted/50 p-3">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
-            <Loader2 className="w-3 h-3 animate-spin" />
-            {t("lab.generating")}
-          </div>
-          {streamingText && (
-            <div className="text-sm text-foreground whitespace-pre-wrap">
-              {streamingText}
-              <span className="inline-block w-1.5 h-4 bg-primary animate-pulse ml-0.5" />
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Completed output */}
-      {!isExecuting && (
-        <>
-          <CellOutput outputs={cell.outputs} error={cell.error} status={cell.status} />
-          {/* Verification status */}
-          {cell.status === "completed" && cell.outputs._verification && (() => {
-            const v = cell.outputs._verification as Record<string, unknown>;
-            const passed = v.passed as boolean;
-            const attempt = String(v.attempt || "");
-            const max = String(v.max_retries || "");
-            const reason = String(v.reason || "");
-            return (
-              <div className="mt-2 flex items-center gap-1.5 text-xs">
-                {passed ? (
-                  <span className="text-emerald-600 font-medium">
-                    ✓ {t("lab.verified", { attempt, max })}
-                  </span>
-                ) : (
-                  <span className="text-red-600 font-medium">
-                    ✗ {t("lab.verificationFailed")}
-                  </span>
-                )}
-                {reason && (
-                  <span className="text-muted-foreground">
-                    — {reason}
-                  </span>
-                )}
+      {/* Terminal output */}
+      {(lines.length > 0 || isExecuting) && (
+        <div
+          ref={terminalRef}
+          className="rounded-lg bg-[#0d1117] border border-[#30363d] overflow-y-auto max-h-[400px] min-h-[120px]"
+        >
+          <div className="p-3 font-mono text-[13px] leading-relaxed space-y-0.5">
+            {lines.map((line, i) => (
+              <div key={i} className={cn("whitespace-pre-wrap break-words", lineColor(line.type))}>
+                {line.content}
               </div>
-            );
-          })()}
-        </>
+            ))}
+            {isExecuting && (
+              <div className="flex items-center gap-1.5 text-[#8b949e]">
+                <span className="inline-block w-2 h-4 bg-[#58a6ff] animate-pulse" />
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
+}
+
+function lineColor(type: TerminalLine["type"]): string {
+  switch (type) {
+    case "thinking":
+      return "text-[#8b949e] italic";
+    case "tool":
+      return "text-[#d2a8ff]";
+    case "status":
+      return "text-[#58a6ff] text-xs";
+    case "error":
+      return "text-[#f85149]";
+    default:
+      return "text-[#c9d1d9]";
+  }
 }
