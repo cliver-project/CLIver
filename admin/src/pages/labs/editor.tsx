@@ -24,7 +24,6 @@ export default function LabEditor() {
   const executeCell = useExecuteCell(id || "");
   const runAll = useRunAll(id || "");
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [currentIndex, setCurrentIndex] = useState(0);
 
   // Reset index when switching labs or when cells are added/removed
   const safeIndex = useMemo(() => {
@@ -212,11 +211,7 @@ export default function LabEditor() {
             }
             isSaving={updateLab.isPending}
             isExecuting={executeCell.isPending || runAll.isPending}
-            onStop={
-              cell.type === "llm" && cell.status === "running"
-                ? undefined
-                : undefined
-            }
+            onStop={undefined}
             onDelete={() => handleDeleteCell(cell.id)}
             onMoveUp={() => handleMoveCell(cell.id, "up")}
             onMoveDown={() => handleMoveCell(cell.id, "down")}
