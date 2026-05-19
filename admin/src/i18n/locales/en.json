@@ -151,9 +151,12 @@
     "role": "Role",
     "systemPrompt": "System Prompt",
     "model": "Model",
-    "skills": "Skills",
     "isDefault": "Default",
     "noAgents": "No agents configured.",
+    "type": "Type",
+    "command": "Command",
+    "args": "Arguments",
+    "env": "Environment Variables",
     "createAgent": "Create Agent",
     "editAgent": "Edit",
     "saveAgent": "Save",
@@ -424,7 +427,10 @@
     "timeoutSeconds": "Timeout (seconds)",
     "verifierAgent": "Verifier Agent",
     "verified": "Verified (attempt {attempt}/{max})",
-    "verificationFailed": "Verification failed"
+    "verificationFailed": "Verification failed",
+    "output": "Output",
+    "logs": "Logs",
+    "saveAsResult": "Save as Cell Result"
   },
   "keys": {
     "title": "Keys",

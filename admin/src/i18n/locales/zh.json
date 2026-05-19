@@ -151,9 +151,12 @@
     "role": "角色",
     "systemPrompt": "系统提示",
     "model": "模型",
-    "skills": "技能",
     "isDefault": "默认",
     "noAgents": "暂无已配置的智能体。",
+    "type": "类型",
+    "command": "命令",
+    "args": "参数",
+    "env": "环境变量",
     "createAgent": "创建智能体",
     "editAgent": "编辑",
     "saveAgent": "保存",
@@ -424,7 +427,10 @@
     "timeoutSeconds": "超时时间（秒）",
     "verifierAgent": "验证智能体",
     "verified": "已验证（第 {attempt}/{max} 次）",
-    "verificationFailed": "验证失败"
+    "verificationFailed": "验证失败",
+    "output": "输出",
+    "logs": "日志",
+    "saveAsResult": "保存为单元格结果"
   },
   "keys": {
     "title": "密钥",
