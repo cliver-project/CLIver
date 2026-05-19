@@ -88,6 +88,7 @@ export function ChatPanel({
       if (!input) return;
 
       setError(null);
+      setLastAssistantText("");
 
       // Create user message and empty assistant message for streaming
       const userMsg: ThreadMessageLike = {
@@ -137,6 +138,7 @@ export function ChatPanel({
         },
         onError: (err) => {
           setError(err.message);
+          setLastAssistantText("");
           setIsRunning(false);
           abortRef.current = null;
         },
@@ -154,22 +156,38 @@ export function ChatPanel({
     abortRef.current?.abort();
     abortRef.current = null;
     setIsRunning(false);
+    // Remove the empty assistant message
+    setMessages((prev) => {
+      const last = prev[prev.length - 1];
+      if (last?.role === "assistant" && last.content?.[0]?.type === "text" && !last.content[0].text) {
+        return prev.slice(0, -1);
+      }
+      return prev;
+    });
   }, []);
 
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
     const text = lastAssistantText;
     if (!text) return;
-    onSaveResult(text);
 
-    fetch(
-      `/admin/api/labs/${encodeURIComponent(labId)}/cells/${encodeURIComponent(cellId)}/save-output`,
-      {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ outputs: { text } }),
-      },
-    ).catch(console.error);
+    try {
+      const res = await fetch(
+        `/admin/api/labs/${encodeURIComponent(labId)}/cells/${encodeURIComponent(cellId)}/save-output`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ outputs: { text } }),
+        },
+      );
+      if (!res.ok) {
+        setError(`Failed to save: ${res.status}`);
+        return;
+      }
+      onSaveResult(text);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save result");
+    }
   }, [labId, cellId, lastAssistantText, onSaveResult]);
 
   const runtime = useExternalStoreRuntime({
