@@ -231,7 +231,7 @@ export default function ChatPage() {
         )}
 
         <AssistantRuntimeProvider runtime={runtime}>
-          <ThreadPrimitive.Root className="flex flex-col h-full">
+          <ThreadPrimitive.Root className="flex flex-col flex-1 min-h-0">
             <ThreadPrimitive.Viewport
               className="flex-1 min-h-0 overflow-y-auto"
               autoScroll
