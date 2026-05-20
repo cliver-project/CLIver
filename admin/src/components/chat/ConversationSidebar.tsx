@@ -42,7 +42,7 @@ export const ConversationSidebar = memo(function ConversationSidebar({
         <button
           type="button"
           onClick={onNew}
-          className="flex items-center justify-center gap-2 w-full rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-secondary transition-colors"
+          className="flex items-center justify-center gap-2 w-full rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-secondary transition-colors cursor-pointer"
         >
           <Plus className="w-4 h-4" />
           {t("chat.newChat")}
