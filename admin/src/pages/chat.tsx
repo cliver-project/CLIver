@@ -49,7 +49,7 @@ export default function ChatPage() {
   const messages = activeConversationId
     ? (messagesByConv[activeConversationId] || [])
     : [];
-  const isRunning = runningConvId === activeConversationId;
+  const isRunning = !!(runningConvId && runningConvId === activeConversationId);
 
   // Composer state
   const [inputText, setInputText] = useState("");
