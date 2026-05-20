@@ -220,28 +220,42 @@ def get_lab_routes(
         agent_name = agent_name or lab.default_agent
         if agent_name and "${" in str(agent_name):
             from cliver.lab.ref_resolver import resolve_refs
+
             try:
                 runtime = runtime_manager.get_or_create(lab_id, lab, agent_factory)
                 agent_name = resolve_refs(str(agent_name), runtime.variables)
             except (ValueError, KeyError) as e:
-                return JSONResponse(
-                    {"error": f"Reference not found in agent: {e}"}, status_code=400
-                )
+                return JSONResponse({"error": f"Reference not found in agent: {e}"}, status_code=400)
 
         agent = agent_factory.create(agent_name or None)
         ctx = lab.context if isinstance(lab.context, dict) else {}
         await agent.initialize({"working_dir": ctx.get("working_dir")})
 
+        # Resolve template references (e.g. ${cell_id.outputs.field})
+        runtime = runtime_manager.get_or_create(lab_id, lab, agent_factory)
+        from cliver.lab.ref_resolver import resolve_refs
+
+        try:
+            resolved_message = resolve_refs(message, runtime.variables)
+        except (ValueError, KeyError) as e:
+            return JSONResponse(
+                {"error": f"Reference not found in message: {e}"}, status_code=400,
+            )
+
         # Build prompt with optional system prompt
-        prompt = message
+        prompt = resolved_message
         if system_prompt:
-            prompt = f"System: {system_prompt}\n\nUser: {message}"
+            prompt = f"System: {system_prompt}\n\nUser: {resolved_message}"
 
         from cliver.lab.chat import stream_chat_response
 
         async def generate():
             async for event in stream_chat_response(
-                agent, prompt, session_manager, session_id, output_format,
+                agent,
+                prompt,
+                session_manager,
+                session_id,
+                output_format,
             ):
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
@@ -259,10 +273,12 @@ def get_lab_routes(
             logger.warning("Failed to load chat history: %s", e)
             return JSONResponse({"error": str(e)}, status_code=500)
 
-        return JSONResponse({
-            "session_id": session_id,
-            "turns": turns,
-        })
+        return JSONResponse(
+            {
+                "session_id": session_id,
+                "turns": turns,
+            }
+        )
 
     @require_auth
     async def handle_available_refs(request: Request):
@@ -373,16 +389,22 @@ def get_lab_routes(
                             cell.status = "error" if is_error else "completed"
                             cell.error = result.error if is_error else None
                             lab_store.save_cell_output(
-                                lab_id, cell_id, outputs, cell.status,
-                                duration_ms=result.duration_ms, error=result.error if is_error else None,
+                                lab_id,
+                                cell_id,
+                                outputs,
+                                cell.status,
+                                duration_ms=result.duration_ms,
+                                error=result.error if is_error else None,
                             )
-                            await event_queue.put({
-                                "type": "error" if is_error else "done",
-                                "outputs": outputs,
-                                "status": cell.status,
-                                "duration_ms": result.duration_ms,
-                                **({"message": result.error} if is_error and result.error else {}),
-                            })
+                            await event_queue.put(
+                                {
+                                    "type": "error" if is_error else "done",
+                                    "outputs": outputs,
+                                    "status": cell.status,
+                                    "duration_ms": result.duration_ms,
+                                    **({"message": result.error} if is_error and result.error else {}),
+                                }
+                            )
                             return
                     # If stream ends without "done", treat remaining text as result
                     if full_text:

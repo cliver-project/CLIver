@@ -140,9 +140,27 @@ export function ChatPanel({
         outputFormat,
         abortSignal: controller.signal,
         onEvent: (event) => {
+          let chunk = "";
           if (event.type === "text" && event.content) {
-            fullText += event.content;
-            // Update the assistant message progressively for streaming
+            chunk = event.content;
+          } else if (event.type === "thinking" && event.content) {
+            chunk = `\n> ${event.content}\n`;
+          } else if (event.type === "tool_use" && event.content) {
+            const label = event.content.length > 60
+              ? event.content.slice(0, 60) + "..."
+              : event.content;
+            chunk = `\n\`\`\`\n${label}\n\`\`\`\n`;
+          } else if (event.type === "tool_result" && event.content) {
+            const truncated = event.content.length > 600
+              ? event.content.slice(0, 600) + "..."
+              : event.content;
+            chunk = `\n\`\`\`\n${truncated}\n\`\`\`\n`;
+          } else if (event.type === "status" && event.content) {
+            chunk = `\n_${event.content}_\n`;
+          }
+
+          if (chunk) {
+            fullText += chunk;
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantId
