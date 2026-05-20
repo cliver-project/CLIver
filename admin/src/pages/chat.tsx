@@ -295,27 +295,6 @@ export default function ChatPage() {
                     )}
                   </ThreadPrimitive.Messages>
 
-                  {/* Loading indicator */}
-                  {isRunning && messages[messages.length - 1]?.role === "assistant" && (
-                    (() => {
-                      const last = messages[messages.length - 1];
-                      const text = last.content?.[0]?.type === "text"
-                        ? (last.content[0] as { text: string }).text
-                        : "";
-                      if (text) return null;
-                      return (
-                        <div className="flex justify-start message-enter">
-                          <div className="message-bubble message-bubble-assistant">
-                            <div className="loading-dots flex gap-1">
-                              <span className="w-2 h-2 bg-foreground/40 rounded-full" />
-                              <span className="w-2 h-2 bg-foreground/40 rounded-full" />
-                              <span className="w-2 h-2 bg-foreground/40 rounded-full" />
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })()
-                  )}
                   <div ref={scrollAnchorRef} />
                 </div>
               </div>
