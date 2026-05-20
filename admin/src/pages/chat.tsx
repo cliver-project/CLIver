@@ -13,7 +13,7 @@ import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import { ArrowUp, Plus, Square, X } from "lucide-react";
 import { streamChat, type ChatArtifact } from "@/lib/chat-stream";
 import { useConversation } from "@/hooks/use-conversations";
-import { useAgents, useSkills } from "@/hooks/use-api";
+import { useAgents, useSkills, useTemplates } from "@/hooks/use-api";
 import { ConversationSidebar } from "@/components/chat/ConversationSidebar";
 import { useTranslation } from "@/i18n";
 
@@ -59,6 +59,7 @@ export default function ChatPage() {
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
 
   const { data: conversationDetail } = useConversation(activeConversationId);
+  const { data: templates } = useTemplates();
 
   // Constrain App wrapper height so only the conversation viewport scrolls
   useEffect(() => {
@@ -98,26 +99,23 @@ export default function ChatPage() {
     }
   }, [messages]);
 
-  const TEMPLATES = [
-    { label: "Make slides", systemPrompt: "You are a presentation design expert. Create well-structured slide content.", skills: ["brainstorm"] },
-    { label: "Create a website", systemPrompt: "You are a senior full-stack web developer.", skills: ["write-plan", "execute-plan"] },
-    { label: "Write a novel", systemPrompt: "You are a creative fiction writer.", skills: ["brainstorm"] },
-    { label: "Create a video", systemPrompt: "You are a video production expert.", skills: ["brainstorm"] },
-    { label: "Analyze data", systemPrompt: "You are a data scientist. Analyze data and provide insights.", skills: [] },
-  ];
-
   const handleSend = useCallback(() => {
     const text = inputText.trim();
     if (!text || isRunning) return;
     onNewRef.current?.({
+      role: "user",
       content: [{ type: "text" as const, text }],
-    });
+      parentId: null,
+      sourceId: null,
+      runConfig: undefined,
+    } as AppendMessage);
     setInputText("");
   }, [inputText, isRunning]);
 
-  const handleApplyTemplate = useCallback((tpl: typeof TEMPLATES[number]) => {
-    setSystemMessage(tpl.systemPrompt);
+  const handleApplyTemplate = useCallback((tpl: { system_prompt: string; skills: string[]; model?: string | null }) => {
+    setSystemMessage(tpl.system_prompt);
     setSelectedSkills(tpl.skills);
+    if (tpl.model) setSelectedAgent(tpl.model);
   }, []);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -459,16 +457,16 @@ export default function ChatPage() {
                 )}
 
                 {/* Template suggestions */}
-                {!isRunning && (
+                {!isRunning && templates && templates.length > 0 && (
                   <div className="flex gap-1.5 overflow-x-auto pb-1">
-                    {TEMPLATES.map((tpl) => (
+                    {templates.map((tpl) => (
                       <button
-                        key={tpl.label}
+                        key={tpl.id}
                         type="button"
                         onClick={() => handleApplyTemplate(tpl)}
                         className="shrink-0 rounded-full border border-border px-3 py-1 text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
                       >
-                        {tpl.label}
+                        {t(`templates.${tpl.id}`)}
                       </button>
                     ))}
                   </div>
@@ -499,7 +497,6 @@ function ComposerConfigPanel({
   onSkillsChange: (v: string[]) => void;
   onClose: () => void;
 }) {
-  const { t } = useTranslation();
   const { data: agents } = useAgents();
   const { data: skills } = useSkills();
 

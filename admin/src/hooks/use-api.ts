@@ -214,6 +214,23 @@ export function useModels() {
   });
 }
 
+// --- Templates ---
+export interface ChatTemplate {
+  id: string;
+  system_prompt: string;
+  skills: string[];
+  model?: string | null;
+  knowledge_base?: string | null;
+  description?: string | null;
+}
+
+export function useTemplates() {
+  return useQuery({
+    queryKey: ["templates"],
+    queryFn: () => api<ChatTemplate[]>("/templates"),
+  });
+}
+
 // --- Adapters ---
 export function useAdapters() {
   return useQuery({

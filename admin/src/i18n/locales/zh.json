@@ -512,5 +512,12 @@
     "type": "类型",
     "model": "模型",
     "role": "角色"
+  },
+  "templates": {
+    "make-slides": "制作幻灯片",
+    "create-website": "创建网站",
+    "write-novel": "写小说",
+    "create-video": "制作视频",
+    "analyze-data": "分析数据"
   }
 }

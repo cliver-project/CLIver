@@ -512,5 +512,12 @@
     "type": "Type",
     "model": "Model",
     "role": "Role"
+  },
+  "templates": {
+    "make-slides": "Make slides",
+    "create-website": "Create a website",
+    "write-novel": "Write a novel",
+    "create-video": "Create a video",
+    "analyze-data": "Analyze data"
   }
 }
