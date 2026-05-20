@@ -47,6 +47,13 @@ export default function ChatPage() {
 
   const { data: conversationDetail } = useConversation(activeConversationId);
 
+  // Lock body scroll while chat page is mounted
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, []);
+
   // Load turns when active conversation changes
   useEffect(() => {
     if (isRunning) return;
