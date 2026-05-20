@@ -16,6 +16,7 @@
     "running": "运行中..."
   },
   "sidebar": {
+    "chat": "对话",
     "dashboard": "仪表盘",
     "section": {
       "workspace": "工作区",
@@ -31,6 +32,22 @@
     "skills": "技能",
     "adapters": "适配器",
     "settings": "设置"
+  },
+  "chat": {
+    "newChat": "新建对话",
+    "conversations": "对话列表",
+    "deleteConversation": "删除对话",
+    "deleteConfirm": "删除此对话及其所有消息？",
+    "noConversations": "暂无对话",
+    "typeMessage": "输入消息...",
+    "thinking": "思考中...",
+    "emptyStateTitle": "新建对话",
+    "emptyStateDesc": "与 AI 智能体开始新的对话。您的对话将自动保存并可随时继续。",
+    "untitled": "未命名对话",
+    "justNow": "刚刚",
+    "minutesAgo": "{count}分钟前",
+    "hoursAgo": "{count}小时前",
+    "daysAgo": "{count}天前"
   },
   "theme": {
     "switchToLight": "切换到浅色模式",

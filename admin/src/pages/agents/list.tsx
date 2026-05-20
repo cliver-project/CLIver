@@ -153,14 +153,12 @@ function CreateAgentDialog({
   const { data: modelsData } = useModels();
   const models = modelsData?.models ?? [];
   const [name, setName] = useState("");
-  const [type, setType] = useState("cliver");
   const [model, setModel] = useState("");
   const [desc, setDesc] = useState("");
 
   const handleSave = () => {
     if (!name.trim()) return;
     onSave(name.trim(), {
-      type,
       ...(model ? { model } : {}),
       ...(desc ? { description: desc } : {}),
     });
@@ -177,15 +175,6 @@ function CreateAgentDialog({
           <div>
             <Label>{t("agents.name")}</Label>
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. coder" />
-          </div>
-          <div>
-            <Label>{t("agents.type")}</Label>
-            <Select value={type} onValueChange={setType}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="cliver">CLIver</SelectItem>
-              </SelectContent>
-            </Select>
           </div>
           <div>
             <Label>{t("agents.model")}</Label>
