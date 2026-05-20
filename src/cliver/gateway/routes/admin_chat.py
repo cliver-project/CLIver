@@ -22,14 +22,16 @@ def get_chat_routes(context: dict, require_auth: Callable) -> list:
         if not gateway or not getattr(gateway, "_agent_core", None):
             return JSONResponse({"error": "Agent not available"}, status_code=503)
 
+        session_manager = context.get("cli_session_manager")
+
         try:
             body = await request.json()
         except Exception:
             return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
 
-        prompt = body.get("prompt", "").strip()
+        prompt = (body.get("message") or body.get("prompt", "")).strip()
         if not prompt:
-            return JSONResponse({"error": "'prompt' is required"}, status_code=400)
+            return JSONResponse({"error": "'message' (or 'prompt') is required"}, status_code=400)
 
         executor = gateway._agent_core
         model = body.get("model") or executor.default_model
@@ -37,6 +39,27 @@ def get_chat_routes(context: dict, require_auth: Callable) -> list:
         raw_history = body.get("conversation_history") or []
         tool_names = body.get("filter_tools")
         save_media_dir = body.get("save_media_dir")
+        conversation_id = body.get("session_id") or body.get("conversation_id")
+
+        # -- Conversation persistence --
+        session_id = None
+        if conversation_id and session_manager:
+            existing = session_manager.get_session_info(conversation_id)
+            if not existing:
+                return JSONResponse({"error": "Conversation not found"}, status_code=404)
+            session_id = conversation_id
+            # Load persisted turns as history if client didn't pass it explicitly
+            if not raw_history:
+                loaded = session_manager.load_turns(session_id)
+                raw_history = [{"role": t["role"], "content": t["content"]} for t in loaded]
+        elif session_manager:
+            session_id = session_manager.create_session()
+
+        if session_manager and session_id:
+            try:
+                session_manager.append_turn(session_id, "user", prompt)
+            except Exception as e:
+                logger.warning("Failed to persist user turn: %s", e)
 
         conversation_history = None
         if raw_history:
@@ -108,7 +131,7 @@ def get_chat_routes(context: dict, require_auth: Callable) -> list:
                     if hasattr(chunk, "content") and chunk.content:
                         text = str(chunk.content)
                         full_text += text
-                        data = json.dumps({"type": "chunk", "content": text})
+                        data = json.dumps({"type": "content", "content": text})
                         yield f"data: {data}\n\n".encode()
                     chunk_kwargs = getattr(chunk, "additional_kwargs", None) or {}
                     if "media_content" in chunk_kwargs:
@@ -124,7 +147,20 @@ def get_chat_routes(context: dict, require_auth: Callable) -> list:
                     except Exception as e:
                         logger.warning("Failed to save media: %s", e)
 
-                done_data = {"type": "done", "content": full_text, "media_files": media_files}
+                # Persist assistant turn
+                if session_manager and session_id:
+                    try:
+                        session_manager.append_turn(session_id, "assistant", full_text)
+                    except Exception as e:
+                        logger.warning("Failed to persist assistant turn: %s", e)
+
+                done_data = {
+                    "type": "done",
+                    "content": full_text,
+                    "media": media_files,
+                    "media_files": media_files,
+                    "session_id": session_id,
+                }
                 if uses_thinking:
                     done_data["reasoning_content"] = ""
                 yield f"data: {json.dumps(done_data)}\n\n".encode()

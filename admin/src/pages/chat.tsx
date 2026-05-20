@@ -11,7 +11,7 @@ import {
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import { ArrowUp, Square } from "lucide-react";
-import { streamChat } from "@/lib/chat-stream";
+import { streamChat, type ChatArtifact } from "@/lib/chat-stream";
 import { useConversations, useConversation } from "@/hooks/use-conversations";
 import { ConversationSidebar } from "@/components/chat/ConversationSidebar";
 import { useTranslation } from "@/i18n";
@@ -35,6 +35,8 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<ThreadMessageLike[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastArtifacts, setLastArtifacts] = useState<ChatArtifact[]>([]);
+  const [artifactMessageId, setArtifactMessageId] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const initialSelectDone = useRef(false);
   const loadedConversationIdRef = useRef<string | null>(null);
@@ -92,6 +94,8 @@ export default function ChatPage() {
       if (!input) return;
 
       setError(null);
+      setLastArtifacts([]);
+      setArtifactMessageId(null);
 
       const userMsg: ThreadMessageLike = {
         id: generateId(),
@@ -156,9 +160,13 @@ export default function ChatPage() {
           setIsRunning(false);
           abortRef.current = null;
         },
-        onDone: (_fullText, _artifacts, sessionId) => {
+        onDone: (_fullText, artifacts, sessionId) => {
           setIsRunning(false);
           abortRef.current = null;
+          if (artifacts.length > 0) {
+            setLastArtifacts(artifacts);
+            setArtifactMessageId(assistantId);
+          }
           if (sessionId && !activeConversationId) {
             loadedConversationIdRef.current = sessionId;
             setActiveConversationId(sessionId);
@@ -269,6 +277,13 @@ export default function ChatPage() {
                               },
                             }}
                           />
+                          {message.id === artifactMessageId && lastArtifacts.length > 0 && (
+                            <div className="mt-2 pt-2 border-t space-y-2">
+                              {lastArtifacts.map((a, i) => (
+                                <ChatArtifactPreview key={i} artifact={a} />
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
                     )}
@@ -334,5 +349,63 @@ export default function ChatPage() {
         </AssistantRuntimeProvider>
       </main>
     </div>
+  );
+}
+
+function ChatArtifactPreview({ artifact }: { artifact: ChatArtifact }) {
+  const mediaType = artifact.media_type;
+  const name = artifact.path.split("/").pop() || artifact.path;
+
+  if (mediaType.startsWith("image/")) {
+    return (
+      <div className="rounded-md overflow-hidden border">
+        <img
+          src={`/admin/api/files?path=${encodeURIComponent(artifact.path)}`}
+          alt={name}
+          className="max-w-full h-auto max-h-64 object-contain"
+        />
+        <div className="px-2 py-1 text-[10px] text-muted-foreground bg-muted/50">
+          {name} {artifact.size ? `(${(artifact.size / 1024).toFixed(1)} KB)` : ""}
+        </div>
+      </div>
+    );
+  }
+
+  if (mediaType.startsWith("audio/")) {
+    return (
+      <div className="rounded-md border p-2">
+        <audio controls className="w-full h-8">
+          <source src={`/admin/api/files?path=${encodeURIComponent(artifact.path)}`} type={mediaType} />
+        </audio>
+        <div className="text-[10px] text-muted-foreground mt-1">{name}</div>
+      </div>
+    );
+  }
+
+  if (mediaType.startsWith("video/")) {
+    return (
+      <div className="rounded-md overflow-hidden border">
+        <video controls className="max-w-full max-h-48">
+          <source src={`/admin/api/files?path=${encodeURIComponent(artifact.path)}`} type={mediaType} />
+        </video>
+        <div className="px-2 py-1 text-[10px] text-muted-foreground bg-muted/50">{name}</div>
+      </div>
+    );
+  }
+
+  return (
+    <a
+      href={`/admin/api/files?path=${encodeURIComponent(artifact.path)}`}
+      className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted/50 transition-colors"
+      download={name}
+    >
+      <span className="text-muted-foreground">📄</span>
+      <span className="flex-1 truncate">{name}</span>
+      {artifact.size && (
+        <span className="text-[10px] text-muted-foreground">
+          {(artifact.size / 1024).toFixed(1)} KB
+        </span>
+      )}
+    </a>
   );
 }
