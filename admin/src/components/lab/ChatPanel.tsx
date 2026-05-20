@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import {
   AssistantRuntimeProvider,
   useExternalStoreRuntime,
@@ -56,12 +56,22 @@ export function ChatPanel({
   const { t } = useTranslation();
   const [messages, setMessages] = useState<ThreadMessageLike[]>([]);
   const [isRunning, setIsRunning] = useState(false);
-  const [lastAssistantText, setLastAssistantText] = useState("");
   const [lastArtifacts, setLastArtifacts] = useState<ChatArtifact[]>([]);
   const [artifactMessageId, setArtifactMessageId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+
+  // Derive last assistant text from messages (single source of truth)
+  const lastAssistantText = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role === "assistant" && m.content?.[0]?.type === "text") {
+        return (m.content[0] as { text: string }).text;
+      }
+    }
+    return "";
+  }, [messages]);
 
   // Load chat history on mount
   useEffect(() => {
@@ -96,7 +106,6 @@ export function ChatPanel({
       if (!input) return;
 
       setError(null);
-      setLastAssistantText("");
       setLastArtifacts([]);
       setArtifactMessageId(null);
 
@@ -148,12 +157,10 @@ export function ChatPanel({
         },
         onError: (err) => {
           setError(err.message);
-          setLastAssistantText("");
           setIsRunning(false);
           abortRef.current = null;
         },
-        onDone: (finalText: string, artifacts: ChatArtifact[]) => {
-          setLastAssistantText(finalText);
+        onDone: (_finalText: string, artifacts: ChatArtifact[]) => {
           if (artifacts.length > 0) {
             setLastArtifacts(artifacts);
             setArtifactMessageId(assistantId);
