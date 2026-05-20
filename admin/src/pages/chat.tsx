@@ -43,6 +43,7 @@ export default function ChatPage() {
   const [artifactMessageId, setArtifactMessageId] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const loadedConversationIdRef = useRef<string | null>(null);
+  const scrollAnchorRef = useRef<HTMLDivElement>(null);
 
   const { data: conversations, isLoading: convsLoading } = useConversations();
   const { data: conversationDetail } = useConversation(activeConversationId);
@@ -60,6 +61,13 @@ export default function ChatPage() {
       setError(null);
     }
   }, [activeConversationId, conversationDetail, isRunning]);
+
+  // Scroll to bottom when messages change (history load or new messages)
+  useEffect(() => {
+    if (scrollAnchorRef.current) {
+      scrollAnchorRef.current.scrollIntoView({ behavior: "instant" as ScrollBehavior });
+    }
+  }, [messages]);
 
   // Redirect to most recent conversation if at /chat with no id
   const didInitialRedirect = useRef(false);
@@ -314,6 +322,7 @@ export default function ChatPage() {
                       );
                     })()
                   )}
+                  <div ref={scrollAnchorRef} />
                 </div>
               </div>
             </ThreadPrimitive.Viewport>
