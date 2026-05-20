@@ -2,8 +2,8 @@ import { memo, useState } from "react";
 import { Link } from "react-router";
 import { Plus, Trash2, MessageSquare } from "lucide-react";
 import { useTranslation } from "@/i18n";
+import { useConversations } from "@/hooks/use-conversations";
 import { cn } from "@/lib/utils";
-import type { Conversation } from "@/hooks/use-conversations";
 
 function formatRelativeTime(isoString: string): string {
   const date = new Date(isoString);
@@ -20,22 +20,20 @@ function formatRelativeTime(isoString: string): string {
 }
 
 interface ConversationSidebarProps {
-  conversations: Conversation[];
   activeId: string | null;
   onNew: () => void;
   onDelete: (id: string) => void;
-  isLoading: boolean;
 }
 
 export const ConversationSidebar = memo(function ConversationSidebar({
-  conversations,
   activeId,
   onNew,
   onDelete,
-  isLoading,
 }: ConversationSidebarProps) {
   const { t } = useTranslation();
+  const { data: conversations, isLoading } = useConversations();
   const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const list = conversations || [];
 
   return (
     <aside className="w-[260px] flex flex-col border-r border-sidebar-border bg-sidebar-background shrink-0">
@@ -54,19 +52,19 @@ export const ConversationSidebar = memo(function ConversationSidebar({
       {/* Conversation list */}
       <div className="flex-1 min-h-0 overflow-y-auto">
         <div className="p-3 space-y-2">
-          {isLoading && conversations.length === 0 && (
+          {isLoading && list.length === 0 && (
             <div className="px-3 py-8 text-center text-xs text-muted-foreground">
               {t("common.loading")}
             </div>
           )}
 
-          {!isLoading && conversations.length === 0 && (
+          {!isLoading && list.length === 0 && (
             <div className="px-3 py-8 text-center text-xs text-muted-foreground">
               {t("chat.noConversations")}
             </div>
           )}
 
-          {conversations.map((conv) => (
+          {list.map((conv) => (
             <Link
               key={conv.id}
               to={`/admin/chat/${encodeURIComponent(conv.id)}`}
@@ -92,7 +90,6 @@ export const ConversationSidebar = memo(function ConversationSidebar({
                 </div>
               </div>
 
-              {/* Delete — fades in on hover */}
               <button
                 type="button"
                 className={cn(

@@ -13,7 +13,7 @@ import {
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import { ArrowUp, Square } from "lucide-react";
 import { streamChat, type ChatArtifact } from "@/lib/chat-stream";
-import { useConversations, useConversation } from "@/hooks/use-conversations";
+import { useConversation } from "@/hooks/use-conversations";
 import { ConversationSidebar } from "@/components/chat/ConversationSidebar";
 import { useTranslation } from "@/i18n";
 
@@ -45,7 +45,6 @@ export default function ChatPage() {
   const loadedConversationIdRef = useRef<string | null>(null);
   const scrollAnchorRef = useRef<HTMLDivElement>(null);
 
-  const { data: conversations, isLoading: convsLoading } = useConversations();
   const { data: conversationDetail } = useConversation(activeConversationId);
 
   // Load turns when active conversation changes
@@ -68,16 +67,6 @@ export default function ChatPage() {
       scrollAnchorRef.current.scrollIntoView({ behavior: "instant" as ScrollBehavior });
     }
   }, [messages]);
-
-  // Redirect to most recent conversation if at /chat with no id
-  const didInitialRedirect = useRef(false);
-  useEffect(() => {
-    if (!didInitialRedirect.current && !activeConversationId && conversations && conversations.length > 0) {
-      didInitialRedirect.current = true;
-      const first = conversations[0];
-      if (first) navigate(`/admin/chat/${encodeURIComponent(first.id)}`, { replace: true });
-    }
-  }, [activeConversationId, conversations, navigate]);
 
   const handleNewChat = useCallback(() => {
     navigate("/admin/chat");
@@ -216,11 +205,9 @@ export default function ChatPage() {
   return (
     <div className="flex-1 -m-6 flex overflow-hidden">
       <ConversationSidebar
-        conversations={conversations || []}
         activeId={activeConversationId}
         onNew={handleNewChat}
         onDelete={handleDelete}
-        isLoading={convsLoading}
       />
 
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-background">
