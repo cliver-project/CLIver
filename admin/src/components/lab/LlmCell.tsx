@@ -45,8 +45,12 @@ export function LlmCell({ cell, labId, onInputsChange, onSaveResult }: LlmCellPr
   );
 
   const handleSaveResult = useCallback(
-    (text: string) => {
-      onSaveResult({ text }, "completed");
+    (text: string, artifacts: Array<{ path: string; media_type: string; size?: number }>) => {
+      const outputs: Record<string, unknown> = { text };
+      if (artifacts.length > 0) {
+        outputs.artifacts = artifacts;
+      }
+      onSaveResult(outputs, "completed");
     },
     [onSaveResult],
   );
