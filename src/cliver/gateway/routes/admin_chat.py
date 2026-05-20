@@ -36,10 +36,28 @@ def get_chat_routes(context: dict, require_auth: Callable) -> list:
         executor = gateway._agent_core
         model = body.get("model") or executor.default_model
         system_message = body.get("system_message")
+        agent_name = body.get("agent", "").strip()
         raw_history = body.get("conversation_history") or []
         tool_names = body.get("filter_tools")
         save_media_dir = body.get("save_media_dir")
         conversation_id = body.get("session_id") or body.get("conversation_id")
+
+        # Resolve agent config if specified
+        agent_role = None
+        if agent_name:
+            config = getattr(gateway, "_get_config_manager", None)
+            if config:
+                try:
+                    cfg = config().config
+                    agents = getattr(cfg, "agents", {}) or {}
+                    agent_cfg = agents.get(agent_name)
+                    if agent_cfg:
+                        agent_model = getattr(agent_cfg, "model", None)
+                        if agent_model:
+                            model = agent_model
+                        agent_role = getattr(agent_cfg, "role", None)
+                except Exception:
+                    pass
 
         # -- Conversation persistence --
         session_id = None
@@ -79,6 +97,8 @@ def get_chat_routes(context: dict, require_auth: Callable) -> list:
 
         def _system_appender():
             parts = []
+            if agent_role:
+                parts.append(agent_role)
             if system_message:
                 parts.append(system_message)
             parts.append(

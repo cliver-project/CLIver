@@ -220,7 +220,7 @@ export interface ChatTemplate {
   label: string;
   system_prompt: string;
   skills: string[];
-  model?: string | null;
+  agent?: string | null;
   knowledge_base?: string | null;
   description?: string | null;
 }

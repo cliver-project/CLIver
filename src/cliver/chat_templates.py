@@ -57,7 +57,7 @@ class ChatTemplate(BaseModel):
     label: str = Field(default="", description="Display label — fallback when i18n key is missing")
     system_prompt: str = ""
     skills: List[str] = Field(default_factory=list)
-    model: Optional[str] = None
+    agent: Optional[str] = None
     knowledge_base: Optional[str] = None
     description: Optional[str] = None
 

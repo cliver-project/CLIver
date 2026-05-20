@@ -112,10 +112,10 @@ export default function ChatPage() {
     setInputText("");
   }, [inputText, isRunning]);
 
-  const handleApplyTemplate = useCallback((tpl: { system_prompt: string; skills: string[]; model?: string | null }) => {
+  const handleApplyTemplate = useCallback((tpl: { system_prompt: string; skills: string[]; agent?: string | null }) => {
     setSystemMessage(tpl.system_prompt);
     setSelectedSkills(tpl.skills);
-    if (tpl.model) setSelectedAgent(tpl.model);
+    if (tpl.agent) setSelectedAgent(tpl.agent);
   }, []);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -190,7 +190,7 @@ export default function ChatPage() {
       await streamChat({
         message: input,
         conversationId: convId ?? undefined,
-        model: selectedAgent || undefined,
+        agent: selectedAgent || undefined,
         systemMessage: systemMessage || undefined,
         filterTools: selectedSkills.length > 0 ? selectedSkills : undefined,
         abortSignal: controller.signal,
@@ -375,7 +375,7 @@ export default function ChatPage() {
                   <div className="flex flex-wrap gap-1.5">
                     {selectedAgent && (
                       <span className="inline-flex items-center gap-1 rounded-md bg-primary/10 text-primary text-[11px] px-2 py-0.5">
-                        Model: {selectedAgent}
+                        Agent: {selectedAgent}
                         <button onClick={() => setSelectedAgent("")}><X className="w-3 h-3" /></button>
                       </span>
                     )}
@@ -516,9 +516,9 @@ function ComposerConfigPanel({
         </button>
       </div>
 
-      {/* Model */}
+      {/* Agent */}
       <div>
-        <label className="text-[11px] font-medium text-muted-foreground">Model</label>
+        <label className="text-[11px] font-medium text-muted-foreground">Agent</label>
         <select
           value={selectedAgent}
           onChange={(e) => onAgentChange(e.target.value)}

@@ -38,6 +38,7 @@ export interface ChatStreamConfig {
   outputFormat?: string;
 
   // General-chat params (used only when labId + cellId are omitted)
+  agent?: string;
   model?: string;
   systemMessage?: string;
   conversationHistory?: ConversationMessage[];
@@ -66,6 +67,7 @@ export async function streamChat(config: ChatStreamConfig): Promise<void> {
       })
     : JSON.stringify({
         message,
+        agent: config.agent,
         model: config.model,
         system_message: config.systemMessage,
         conversation_history: config.conversationHistory,

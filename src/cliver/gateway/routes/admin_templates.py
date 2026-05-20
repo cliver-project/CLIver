@@ -42,7 +42,7 @@ def get_template_routes(
             id=template_id,
             system_prompt=data.get("system_prompt", ""),
             skills=data.get("skills", []),
-            model=data.get("model"),
+            agent=data.get("agent"),
             knowledge_base=data.get("knowledge_base"),
             description=data.get("description"),
         )
@@ -65,8 +65,8 @@ def get_template_routes(
             existing.system_prompt = data["system_prompt"]
         if "skills" in data:
             existing.skills = data["skills"]
-        if "model" in data:
-            existing.model = data["model"]
+        if "agent" in data:
+            existing.agent = data["agent"]
         if "knowledge_base" in data:
             existing.knowledge_base = data["knowledge_base"]
         if "description" in data:
