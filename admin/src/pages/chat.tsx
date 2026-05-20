@@ -214,7 +214,7 @@ export default function ChatPage() {
   const showEmptyState = !activeConversationId && messages.length === 0;
 
   return (
-    <div className="h-full -m-6 flex overflow-hidden">
+    <div className="flex-1 -m-6 flex overflow-hidden">
       <ConversationSidebar
         conversations={conversations || []}
         activeId={activeConversationId}
