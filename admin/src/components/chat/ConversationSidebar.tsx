@@ -21,12 +21,14 @@ function formatRelativeTime(isoString: string): string {
 
 interface ConversationSidebarProps {
   activeId: string | null;
+  runningId?: string | null;
   onNew: () => void;
   onDelete: (id: string) => void;
 }
 
 export const ConversationSidebar = memo(function ConversationSidebar({
   activeId,
+  runningId,
   onNew,
   onDelete,
 }: ConversationSidebarProps) {
@@ -77,15 +79,25 @@ export const ConversationSidebar = memo(function ConversationSidebar({
                   : "hover:bg-secondary text-foreground",
               )}
             >
-              <MessageSquare className="w-4 h-4 mt-0.5 shrink-0 text-muted-foreground" />
+              {runningId === conv.id ? (
+                <span className="w-2 h-2 rounded-full bg-primary animate-pulse shrink-0 mt-1.5" />
+              ) : (
+                <MessageSquare className="w-4 h-4 mt-0.5 shrink-0 text-muted-foreground" />
+              )}
               <div className="flex-1 min-w-0">
                 <div className="truncate font-medium text-[13px] leading-snug">
                   {conv.title || t("chat.untitled")}
                 </div>
                 <div className="text-[11px] text-muted-foreground mt-0.5">
-                  {formatRelativeTime(conv.updated_at)}
-                  {conv.turn_count > 0 && (
-                    <span className="ml-2">{conv.turn_count} turns</span>
+                  {runningId === conv.id ? (
+                    <span>Generating…</span>
+                  ) : (
+                    <>
+                      {formatRelativeTime(conv.updated_at)}
+                      {conv.turn_count > 0 && (
+                        <span className="ml-2">{conv.turn_count} turns</span>
+                      )}
+                    </>
                   )}
                 </div>
               </div>

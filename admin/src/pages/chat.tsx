@@ -36,14 +36,20 @@ export default function ChatPage() {
   const queryClient = useQueryClient();
   const activeConversationId = conversationId || null;
 
-  const [messages, setMessages] = useState<ThreadMessageLike[]>([]);
-  const [isRunning, setIsRunning] = useState(false);
+  // Messages stored per conversation — allows background streaming after switch
+  const [messagesByConv, setMessagesByConv] = useState<Record<string, ThreadMessageLike[]>>({});
+  const [runningConvId, setRunningConvId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastArtifacts, setLastArtifacts] = useState<ChatArtifact[]>([]);
   const [artifactMessageId, setArtifactMessageId] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const loadedConversationIdRef = useRef<string | null>(null);
+  const loadedConversationIds = useRef<Set<string>>(new Set());
   const scrollAnchorRef = useRef<HTMLDivElement>(null);
+
+  const messages = activeConversationId
+    ? (messagesByConv[activeConversationId] || [])
+    : [];
+  const isRunning = runningConvId === activeConversationId;
 
   const { data: conversationDetail } = useConversation(activeConversationId);
 
@@ -63,20 +69,20 @@ export default function ChatPage() {
 
   // Load turns when active conversation changes
   useEffect(() => {
-    if (isRunning) return;
+    if (activeConversationId && runningConvId === activeConversationId) return;
     if (activeConversationId && conversationDetail?.turns) {
-      // Guard: only apply data that matches the current URL
       const dataId = conversationDetail.session?.id;
       if (dataId && dataId !== activeConversationId) return;
-      if (loadedConversationIdRef.current === activeConversationId) return;
-      loadedConversationIdRef.current = activeConversationId;
-      setMessages(conversationDetail.turns.map(convertTurnToMessage));
+      if (loadedConversationIds.current.has(activeConversationId)) return;
+      loadedConversationIds.current.add(activeConversationId);
+      setMessagesByConv((prev) => ({
+        ...prev,
+        [activeConversationId]: conversationDetail.turns.map(convertTurnToMessage),
+      }));
     } else if (!activeConversationId) {
-      loadedConversationIdRef.current = null;
-      setMessages([]);
       setError(null);
     }
-  }, [activeConversationId, conversationDetail, isRunning]);
+  }, [activeConversationId, conversationDetail, runningConvId]);
 
   // Scroll to bottom when messages change (history load or new messages)
   useEffect(() => {
@@ -94,6 +100,11 @@ export default function ChatPage() {
       if (activeConversationId === id) {
         navigate("/admin/chat", { replace: true });
       }
+      setMessagesByConv((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
     },
     [activeConversationId, navigate, queryClient],
@@ -105,6 +116,17 @@ export default function ChatPage() {
       const input =
         first && typeof first !== "string" && first.type === "text" ? first.text : "";
       if (!input) return;
+
+      // Capture the conversation ID at send time — updates target this conversation
+      // even if the user navigates away mid-stream
+      const convId = activeConversationId;
+
+      const updateConvMessages = (updater: (prev: ThreadMessageLike[]) => ThreadMessageLike[]) => {
+        setMessagesByConv((prev) => ({
+          ...prev,
+          [convId!]: updater(prev[convId!] || []),
+        }));
+      };
 
       setError(null);
       setLastArtifacts([]);
@@ -123,8 +145,8 @@ export default function ChatPage() {
         content: [{ type: "text", text: "" }],
       };
 
-      setMessages((prev) => [...prev, userMsg, assistantMsg]);
-      setIsRunning(true);
+      updateConvMessages((prev) => [...prev, userMsg, assistantMsg]);
+      setRunningConvId(convId);
 
       const controller = new AbortController();
       abortRef.current = controller;
@@ -133,7 +155,7 @@ export default function ChatPage() {
 
       await streamChat({
         message: input,
-        conversationId: activeConversationId ?? undefined,
+        conversationId: convId ?? undefined,
         abortSignal: controller.signal,
         onEvent: (event) => {
           let chunk = "";
@@ -159,7 +181,7 @@ export default function ChatPage() {
 
           if (chunk) {
             fullText += chunk;
-            setMessages((prev) =>
+            updateConvMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantId
                   ? { ...m, content: [{ type: "text" as const, text: fullText }] }
@@ -169,19 +191,19 @@ export default function ChatPage() {
           }
         },
         onError: (err) => {
-          setError(err.message);
-          setIsRunning(false);
+          if (convId === activeConversationId) setError(err.message);
+          setRunningConvId((prev) => (prev === convId ? null : prev));
           abortRef.current = null;
         },
         onDone: (_fullText, artifacts, sessionId) => {
-          setIsRunning(false);
+          setRunningConvId((prev) => (prev === convId ? null : prev));
           abortRef.current = null;
-          if (artifacts.length > 0) {
+          if (artifacts.length > 0 && convId === activeConversationId) {
             setLastArtifacts(artifacts);
             setArtifactMessageId(assistantId);
           }
-          if (sessionId && !activeConversationId) {
-            loadedConversationIdRef.current = sessionId;
+          if (sessionId && !convId) {
+            loadedConversationIds.current.add(sessionId);
             navigate(`/admin/chat/${encodeURIComponent(sessionId)}`, { replace: true });
           }
           queryClient.invalidateQueries({ queryKey: ["conversations"] });
@@ -194,19 +216,23 @@ export default function ChatPage() {
   const handleCancel = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
-    setIsRunning(false);
-    setMessages((prev) => {
-      const last = prev[prev.length - 1];
-      if (
-        last?.role === "assistant" &&
-        last.content?.[0]?.type === "text" &&
-        !last.content[0].text
-      ) {
-        return prev.slice(0, -1);
-      }
-      return prev;
-    });
-  }, []);
+    if (runningConvId) {
+      setMessagesByConv((prev) => {
+        const msgs = prev[runningConvId];
+        if (!msgs) return prev;
+        const last = msgs[msgs.length - 1];
+        if (
+          last?.role === "assistant" &&
+          last.content?.[0]?.type === "text" &&
+          !last.content[0].text
+        ) {
+          return { ...prev, [runningConvId]: msgs.slice(0, -1) };
+        }
+        return prev;
+      });
+    }
+    setRunningConvId(null);
+  }, [runningConvId]);
 
   const runtime = useExternalStoreRuntime({
     isRunning,
@@ -223,6 +249,7 @@ export default function ChatPage() {
     <div className="flex-1 -m-6 flex overflow-hidden">
       <ConversationSidebar
         activeId={activeConversationId}
+        runningId={runningConvId}
         onNew={handleNewChat}
         onDelete={handleDelete}
       />
