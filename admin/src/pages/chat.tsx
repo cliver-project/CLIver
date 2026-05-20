@@ -318,11 +318,11 @@ export default function ChatPage() {
               </div>
             </ThreadPrimitive.Viewport>
 
-            {/* Input area — manus style */}
+            {/* Composer */}
             <div className="border-t border-border bg-background shrink-0 p-4 lg:p-6">
-              <div className="max-w-4xl mx-auto flex gap-3">
+              <div className="max-w-4xl mx-auto w-full">
                 <ComposerPrimitive.Root>
-                  <div className="flex gap-3 w-full">
+                  <div className="flex gap-3 items-end">
                     <ComposerPrimitive.Input
                       className="flex-1 min-w-0 rounded-lg border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground disabled:opacity-50"
                       placeholder={t("chat.typeMessage")}
