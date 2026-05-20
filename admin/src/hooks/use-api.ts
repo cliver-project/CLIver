@@ -184,6 +184,7 @@ export function useSaveConfig() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["config"] });
       qc.invalidateQueries({ queryKey: ["models"] });
+      qc.invalidateQueries({ queryKey: ["agents"] });
     },
   });
 }
