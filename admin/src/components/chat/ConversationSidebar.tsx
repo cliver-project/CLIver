@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { memo, useState } from "react";
+import { Link } from "react-router";
 import { Plus, Trash2, MessageSquare } from "lucide-react";
 import { useTranslation } from "@/i18n";
 import { cn } from "@/lib/utils";
@@ -21,16 +22,14 @@ function formatRelativeTime(isoString: string): string {
 interface ConversationSidebarProps {
   conversations: Conversation[];
   activeId: string | null;
-  onSelect: (id: string) => void;
   onNew: () => void;
   onDelete: (id: string) => void;
   isLoading: boolean;
 }
 
-export function ConversationSidebar({
+export const ConversationSidebar = memo(function ConversationSidebar({
   conversations,
   activeId,
-  onSelect,
   onNew,
   onDelete,
   isLoading,
@@ -55,72 +54,65 @@ export function ConversationSidebar({
       {/* Conversation list */}
       <div className="flex-1 min-h-0 overflow-y-auto">
         <div className="p-3 space-y-2">
-        {isLoading && conversations.length === 0 && (
-          <div className="px-3 py-8 text-center text-xs text-muted-foreground">
-            {t("common.loading")}
-          </div>
-        )}
-
-        {!isLoading && conversations.length === 0 && (
-          <div className="px-3 py-8 text-center text-xs text-muted-foreground">
-            {t("chat.noConversations")}
-          </div>
-        )}
-
-        {conversations.map((conv) => (
-          <div
-            key={conv.id}
-            role="button"
-            tabIndex={0}
-            onClick={() => onSelect(conv.id)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                onSelect(conv.id);
-              }
-            }}
-            onMouseEnter={() => setHoveredId(conv.id)}
-            onMouseLeave={() => setHoveredId(null)}
-            className={cn(
-              "group relative flex w-full items-start gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm transition-colors cursor-pointer",
-              activeId === conv.id
-                ? "bg-sidebar-accent text-sidebar-foreground"
-                : "hover:bg-secondary text-foreground",
-            )}
-          >
-            <MessageSquare className="w-4 h-4 mt-0.5 shrink-0 text-muted-foreground" />
-            <div className="flex-1 min-w-0">
-              <div className="truncate font-medium text-[13px] leading-snug">
-                {conv.title || t("chat.untitled")}
-              </div>
-              <div className="text-[11px] text-muted-foreground mt-0.5">
-                {formatRelativeTime(conv.updated_at)}
-                {conv.turn_count > 0 && (
-                  <span className="ml-2">{conv.turn_count} turns</span>
-                )}
-              </div>
+          {isLoading && conversations.length === 0 && (
+            <div className="px-3 py-8 text-center text-xs text-muted-foreground">
+              {t("common.loading")}
             </div>
+          )}
 
-            {/* Delete — fades in on hover */}
-            <button
-              type="button"
+          {!isLoading && conversations.length === 0 && (
+            <div className="px-3 py-8 text-center text-xs text-muted-foreground">
+              {t("chat.noConversations")}
+            </div>
+          )}
+
+          {conversations.map((conv) => (
+            <Link
+              key={conv.id}
+              to={`/admin/chat/${encodeURIComponent(conv.id)}`}
+              onMouseEnter={() => setHoveredId(conv.id)}
+              onMouseLeave={() => setHoveredId(null)}
               className={cn(
-                "absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded transition-all",
-                "hover:bg-destructive/10 text-muted-foreground hover:text-destructive",
-                hoveredId === conv.id ? "opacity-100" : "opacity-0",
+                "group relative flex w-full items-start gap-2.5 rounded-lg px-3 py-2.5 text-left text-sm transition-colors",
+                activeId === conv.id
+                  ? "bg-sidebar-accent text-sidebar-foreground"
+                  : "hover:bg-secondary text-foreground",
               )}
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(conv.id);
-              }}
-              title={t("chat.deleteConversation")}
             >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        ))}
+              <MessageSquare className="w-4 h-4 mt-0.5 shrink-0 text-muted-foreground" />
+              <div className="flex-1 min-w-0">
+                <div className="truncate font-medium text-[13px] leading-snug">
+                  {conv.title || t("chat.untitled")}
+                </div>
+                <div className="text-[11px] text-muted-foreground mt-0.5">
+                  {formatRelativeTime(conv.updated_at)}
+                  {conv.turn_count > 0 && (
+                    <span className="ml-2">{conv.turn_count} turns</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Delete — fades in on hover */}
+              <button
+                type="button"
+                className={cn(
+                  "absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded transition-all",
+                  "hover:bg-destructive/10 text-muted-foreground hover:text-destructive",
+                  hoveredId === conv.id ? "opacity-100" : "opacity-0",
+                )}
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onDelete(conv.id);
+                }}
+                title={t("chat.deleteConversation")}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </Link>
+          ))}
         </div>
       </div>
     </aside>
   );
-}
+});

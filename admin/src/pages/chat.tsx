@@ -79,15 +79,6 @@ export default function ChatPage() {
     }
   }, [activeConversationId, conversations, navigate]);
 
-  const handleSelectConversation = useCallback(
-    (id: string) => {
-      if (id !== activeConversationId) {
-        navigate(`/admin/chat/${encodeURIComponent(id)}`);
-      }
-    },
-    [activeConversationId, navigate],
-  );
-
   const handleNewChat = useCallback(() => {
     navigate("/admin/chat");
   }, [navigate]);
@@ -227,7 +218,6 @@ export default function ChatPage() {
       <ConversationSidebar
         conversations={conversations || []}
         activeId={activeConversationId}
-        onSelect={handleSelectConversation}
         onNew={handleNewChat}
         onDelete={handleDelete}
         isLoading={convsLoading}
