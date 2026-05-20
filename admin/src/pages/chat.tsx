@@ -47,11 +47,18 @@ export default function ChatPage() {
 
   const { data: conversationDetail } = useConversation(activeConversationId);
 
-  // Lock body scroll while chat page is mounted
+  // Constrain App wrapper height so only the conversation viewport scrolls
   useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = prev; };
+    const el = document.getElementById("app-content");
+    if (!el) return;
+    const prevHeight = el.style.height;
+    const prevOverflow = el.style.overflow;
+    el.style.height = "100vh";
+    el.style.overflow = "hidden";
+    return () => {
+      el.style.height = prevHeight;
+      el.style.overflow = prevOverflow;
+    };
   }, []);
 
   // Load turns when active conversation changes

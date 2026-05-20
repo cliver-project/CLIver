@@ -10,6 +10,7 @@ function AppContent() {
     <div className="min-h-screen bg-background">
       <Sidebar />
       <div
+        id="app-content"
         className="flex flex-col min-h-screen transition-all duration-200"
         style={{ paddingLeft: collapsed ? 52 : 200 }}
       >
