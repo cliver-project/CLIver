@@ -51,6 +51,9 @@ export default function ChatPage() {
   useEffect(() => {
     if (isRunning) return;
     if (activeConversationId && conversationDetail?.turns) {
+      // Guard: only apply data that matches the current URL
+      const dataId = conversationDetail.session?.id;
+      if (dataId && dataId !== activeConversationId) return;
       if (loadedConversationIdRef.current === activeConversationId) return;
       loadedConversationIdRef.current = activeConversationId;
       setMessages(conversationDetail.turns.map(convertTurnToMessage));
