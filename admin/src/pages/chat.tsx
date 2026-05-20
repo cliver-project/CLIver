@@ -51,7 +51,7 @@ export default function ChatPage() {
     }
   }, [conversations]);
 
-  // Load turns when active conversation changes (skip if already loaded for this id)
+  // Load turns when active conversation changes
   useEffect(() => {
     if (isRunning) return;
     if (activeConversationId && conversationDetail?.turns) {
@@ -213,9 +213,9 @@ export default function ChatPage() {
         isLoading={convsLoading}
       />
 
-      <div className="flex-1 flex flex-col min-w-0">
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-background">
         {error && (
-          <div className="px-4 py-2 text-xs text-red-700 bg-red-50 border-b border-red-200">
+          <div className="px-4 py-2 text-xs text-red-700 bg-red-50 border-b border-red-200 shrink-0">
             {error}
           </div>
         )}
@@ -223,81 +223,116 @@ export default function ChatPage() {
         <AssistantRuntimeProvider runtime={runtime}>
           <ThreadPrimitive.Root className="flex flex-col h-full">
             <ThreadPrimitive.Viewport
-              className="flex-1 min-h-0 overflow-y-auto px-4 py-4"
+              className="flex-1 min-h-0 overflow-y-auto"
               autoScroll
             >
-              {showEmptyState && (
-                <div className="flex flex-col items-center justify-center text-center h-full">
-                  <h1 className="text-2xl font-semibold text-foreground mb-3">
-                    {t("chat.emptyStateTitle")}
-                  </h1>
-                  <p className="text-sm text-muted-foreground max-w-md leading-relaxed">
-                    {t("chat.emptyStateDesc")}
-                  </p>
-                </div>
-              )}
-              <ThreadPrimitive.Messages>
-                {({ message }) => (
-                  <div className="mb-4 flex">
-                    <div
-                      className={`rounded-xl px-4 py-2.5 text-sm max-w-[80%] leading-relaxed ${
-                        message.role === "user"
-                          ? "bg-primary text-primary-foreground ml-auto"
-                          : "bg-muted text-foreground"
-                      }`}
-                    >
-                      <MessagePrimitive.Content
-                        components={{
-                          Text: ({ text, status }) => {
-                            if (status?.type === "running" && !text) {
-                              return (
-                                <span className="italic text-muted-foreground">
-                                  {t("chat.thinking")}
-                                </span>
-                              );
-                            }
-                            return <MarkdownTextPrimitive text={text} />;
-                          },
-                        }}
-                      />
-                    </div>
+              <div className="max-w-4xl mx-auto w-full px-4 lg:px-6 py-4 lg:py-6">
+                {showEmptyState && (
+                  <div className="flex flex-col items-center justify-center text-center min-h-[400px]">
+                    <h1 className="text-2xl font-semibold text-foreground mb-2">
+                      {t("chat.emptyStateTitle")}
+                    </h1>
+                    <p className="text-sm text-muted-foreground max-w-md leading-relaxed">
+                      {t("chat.emptyStateDesc")}
+                    </p>
                   </div>
                 )}
-              </ThreadPrimitive.Messages>
-            </ThreadPrimitive.Viewport>
 
-            {/* Composer — always visible */}
-            <div className="border-t px-4 py-3">
-              <ComposerPrimitive.Root>
-                <div className="flex gap-2 items-end">
-                  <ComposerPrimitive.Input
-                    className="flex-1 min-w-0 rounded-xl border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-                    placeholder={t("chat.typeMessage")}
-                  />
-                  {isRunning ? (
-                    <button
-                      type="button"
-                      className="inline-flex items-center justify-center rounded-xl p-2.5 text-sm font-medium border border-input hover:bg-muted transition-colors"
-                      onClick={handleCancel}
-                    >
-                      <Square className="w-4 h-4" />
-                    </button>
-                  ) : (
-                    <ComposerPrimitive.Send asChild>
-                      <button
-                        type="button"
-                        className="inline-flex items-center justify-center rounded-xl p-2.5 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
+                <div className="space-y-4">
+                  <ThreadPrimitive.Messages>
+                    {({ message }) => (
+                      <div
+                        className={`message-enter flex ${
+                          message.role === "user" ? "justify-end" : "justify-start"
+                        }`}
                       >
-                        <ArrowUp className="w-4 h-4" />
-                      </button>
-                    </ComposerPrimitive.Send>
+                        <div
+                          className={`message-bubble ${
+                            message.role === "user"
+                              ? "message-bubble-user"
+                              : "message-bubble-assistant"
+                          }`}
+                        >
+                          <MessagePrimitive.Content
+                            components={{
+                              Text: ({ text, status }) => {
+                                if (status?.type === "running" && !text) {
+                                  return (
+                                    <div className="loading-dots flex gap-1 py-1">
+                                      <span className="w-2 h-2 bg-foreground/40 rounded-full" />
+                                      <span className="w-2 h-2 bg-foreground/40 rounded-full" />
+                                      <span className="w-2 h-2 bg-foreground/40 rounded-full" />
+                                    </div>
+                                  );
+                                }
+                                return <MarkdownTextPrimitive text={text} />;
+                              },
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </ThreadPrimitive.Messages>
+
+                  {/* Loading indicator */}
+                  {isRunning && messages[messages.length - 1]?.role === "assistant" && (
+                    (() => {
+                      const last = messages[messages.length - 1];
+                      const text = last.content?.[0]?.type === "text"
+                        ? (last.content[0] as { text: string }).text
+                        : "";
+                      if (text) return null;
+                      return (
+                        <div className="flex justify-start message-enter">
+                          <div className="message-bubble message-bubble-assistant">
+                            <div className="loading-dots flex gap-1">
+                              <span className="w-2 h-2 bg-foreground/40 rounded-full" />
+                              <span className="w-2 h-2 bg-foreground/40 rounded-full" />
+                              <span className="w-2 h-2 bg-foreground/40 rounded-full" />
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()
                   )}
                 </div>
-              </ComposerPrimitive.Root>
+              </div>
+            </ThreadPrimitive.Viewport>
+
+            {/* Composer — pinned to bottom */}
+            <div className="border-t border-border bg-background shrink-0">
+              <div className="max-w-4xl mx-auto w-full px-4 lg:px-6 py-3 lg:py-4">
+                <ComposerPrimitive.Root>
+                  <div className="flex gap-3 items-end">
+                    <ComposerPrimitive.Input
+                      className="flex-1 min-w-0 rounded-lg border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground"
+                      placeholder={t("chat.typeMessage")}
+                    />
+                    {isRunning ? (
+                      <button
+                        type="button"
+                        className="inline-flex items-center justify-center rounded-lg p-2.5 text-sm font-medium border border-input hover:bg-muted transition-colors shrink-0"
+                        onClick={handleCancel}
+                      >
+                        <Square className="w-4 h-4" />
+                      </button>
+                    ) : (
+                      <ComposerPrimitive.Send asChild>
+                        <button
+                          type="button"
+                          className="inline-flex items-center justify-center rounded-lg p-2.5 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shrink-0 disabled:opacity-50"
+                        >
+                          <ArrowUp className="w-4 h-4" />
+                        </button>
+                      </ComposerPrimitive.Send>
+                    )}
+                  </div>
+                </ComposerPrimitive.Root>
+              </div>
             </div>
           </ThreadPrimitive.Root>
         </AssistantRuntimeProvider>
-      </div>
+      </main>
     </div>
   );
 }
