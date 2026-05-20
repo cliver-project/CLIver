@@ -6,6 +6,7 @@ import { I18nProvider } from "@/i18n";
 import { App } from "@/App";
 import { AuthError } from "@/lib/api";
 import LoginPage from "@/pages/login";
+import ChatPage from "@/pages/chat";
 import DashboardPage from "@/pages/dashboard";
 import LabsList from "@/pages/labs/list";
 import LabEditor from "@/pages/labs/editor";
@@ -47,6 +48,7 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/admin/login" element={<LoginPage />} />
             <Route path="/admin" element={<App />}>
               <Route index element={<Navigate to="dashboard" replace />} />
+              <Route path="chat/:conversationId?" element={<ChatPage />} />
               <Route path="dashboard" element={<DashboardPage />} />
               <Route path="labs" element={<LabsList />} />
               <Route path="labs/:id" element={<LabEditor />} />
