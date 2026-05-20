@@ -53,7 +53,8 @@ export function ConversationSidebar({
       </div>
 
       {/* Conversation list */}
-      <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-1">
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        <div className="p-3 space-y-2">
         {isLoading && conversations.length === 0 && (
           <div className="px-3 py-8 text-center text-xs text-muted-foreground">
             {t("common.loading")}
@@ -118,6 +119,7 @@ export function ConversationSidebar({
             </button>
           </div>
         ))}
+        </div>
       </div>
     </aside>
   );
