@@ -148,8 +148,8 @@ export function ChatPanel({
           setIsRunning(false);
           abortRef.current = null;
         },
-        onDone: () => {
-          setLastAssistantText(fullText);
+        onDone: (finalText: string) => {
+          setLastAssistantText(finalText);
           setIsRunning(false);
           abortRef.current = null;
         },

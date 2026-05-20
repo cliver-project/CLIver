@@ -74,7 +74,9 @@ export async function streamChat(config: ChatStreamConfig): Promise<void> {
               fullText += event.content;
             }
             if (event.type === "done") {
-              onDone(fullText);
+              // Use event.text from done payload as fallback if no text events
+              // were emitted (some agents send result only in the done chunk)
+              onDone(fullText || event.text || "");
               return;
             }
             if (event.type === "error") {
