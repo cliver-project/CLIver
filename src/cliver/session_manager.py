@@ -111,8 +111,7 @@ class SessionManager:
             session_id = str(uuid.uuid4())[:8]
             now = _timestamp()
             db.execute(
-                "INSERT INTO sessions (id, title, lab_id, cell_id, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO sessions (id, title, lab_id, cell_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
                 (session_id, None, lab_id, cell_id, now, now),
             )
             return session_id

@@ -327,11 +327,10 @@ class SessionConfig(BaseModel):
 class AgentConfig(BaseModel):
     """Configuration for a named agent instance."""
 
-    type: str = Field(default="cliver", description="Agent type: cliver, claude, gemini, opencode, or custom")
+    type: str = Field(default="cliver", description="Agent type (cliver)")
     description: Optional[str] = Field(default=None, description="Human-readable purpose")
-    role: Optional[str] = Field(default=None, description="System prompt / persona (cliver only)")
+    role: Optional[str] = Field(default=None, description="System prompt / persona")
     model: Optional[str] = Field(default=None, description="Model name from models config")
-    skills: List[str] = Field(default_factory=list, description="Pre-activated skills (cliver only)")
     command: Optional[str] = Field(default=None, description="CLI command override")
     args: Optional[List[str]] = Field(default=None, description="CLI args override")
     env: Optional[Dict[str, str]] = Field(default=None, description="Extra env vars for subprocess")

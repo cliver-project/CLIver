@@ -1,28 +1,22 @@
-"""AgentFactory — creates and caches Agent instances by name from config."""
+"""AgentFactory — creates and caches Agent instances by name from config.
+
+Each agent is a CliverAgent configured with a model, role, system prompt,
+and skills — composition over inheritance.
+"""
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Dict, Type
+from typing import TYPE_CHECKING, Dict
 
 from cliver.agent import Agent
-from cliver.agents.claude_agent import ClaudeAgent
 from cliver.agents.cliver_agent import CliverAgent
-from cliver.agents.gemini_agent import GeminiAgent
-from cliver.agents.opencode_agent import OpenCodeAgent
 
 if TYPE_CHECKING:
     from cliver.config import AgentConfig, AppConfig
     from cliver.llm.llm import AgentCore
 
 logger = logging.getLogger(__name__)
-
-AGENT_REGISTRY: Dict[str, Type[Agent]] = {
-    "cliver": CliverAgent,
-    "claude": ClaudeAgent,
-    "gemini": GeminiAgent,
-    "opencode": OpenCodeAgent,
-}
 
 
 class AgentFactory:
@@ -56,23 +50,15 @@ class AgentFactory:
         agent_config = self._resolve_agent_config(name)
         model_config, provider_config = self._resolve_model(agent_config.model)
 
-        agent_cls = AGENT_REGISTRY.get(agent_config.type)
-        if agent_cls is None:
-            raise ValueError(
-                f"Unknown agent type: {agent_config.type!r}. Supported types: {sorted(AGENT_REGISTRY.keys())}"
-            )
-
-        kwargs = dict(
+        agent = CliverAgent(
             name=name,
             config=agent_config,
             model_config=model_config,
             provider_config=provider_config,
+            agent_core=self._agent_core,
             rate_limiter=self._rate_limiter,
         )
-        if agent_config.type == "cliver":
-            kwargs["agent_core"] = self._agent_core
 
-        agent = agent_cls(**kwargs)
         self._agents[name] = agent
         return agent
 
@@ -82,7 +68,7 @@ class AgentFactory:
         agents = self._config.agents or {}
         if name in agents:
             return agents[name]
-        return AgentConfig(type="cliver", model=self._config.default_model)
+        return AgentConfig(model=self._config.default_model)
 
     def _resolve_model(self, model_name: str = None):
         if not model_name:
