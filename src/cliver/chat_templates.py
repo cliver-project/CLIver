@@ -19,26 +19,31 @@ logger = logging.getLogger(__name__)
 DEFAULT_TEMPLATES: list[dict] = [
     {
         "id": "make-slides",
+        "label": "Make slides",
         "system_prompt": "You are a presentation design expert. Create well-structured slide content.",
         "skills": ["brainstorm"],
     },
     {
         "id": "create-website",
+        "label": "Create a website",
         "system_prompt": "You are a senior full-stack web developer.",
         "skills": ["write-plan", "execute-plan"],
     },
     {
         "id": "write-novel",
+        "label": "Write a novel",
         "system_prompt": "You are a creative fiction writer.",
         "skills": ["brainstorm"],
     },
     {
         "id": "create-video",
+        "label": "Create a video",
         "system_prompt": "You are a video production expert. Plan and script video content.",
         "skills": ["brainstorm"],
     },
     {
         "id": "analyze-data",
+        "label": "Analyze data",
         "system_prompt": "You are a data scientist. Analyze data and provide insights.",
         "skills": [],
     },
@@ -49,6 +54,7 @@ class ChatTemplate(BaseModel):
     """A reusable chat configuration template."""
 
     id: str = Field(description="Unique template identifier (i18n key: templates.{id})")
+    label: str = Field(default="", description="Display label — fallback when i18n key is missing")
     system_prompt: str = ""
     skills: List[str] = Field(default_factory=list)
     model: Optional[str] = None

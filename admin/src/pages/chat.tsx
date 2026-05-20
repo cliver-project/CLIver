@@ -466,7 +466,7 @@ export default function ChatPage() {
                         onClick={() => handleApplyTemplate(tpl)}
                         className="shrink-0 rounded-full border border-border px-3 py-1 text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
                       >
-                        {t(`templates.${tpl.id}`)}
+                        {t(`templates.${tpl.id}`) === `templates.${tpl.id}` ? tpl.label || tpl.id : t(`templates.${tpl.id}`)}
                       </button>
                     ))}
                   </div>

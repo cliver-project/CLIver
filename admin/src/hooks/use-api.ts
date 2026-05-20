@@ -217,6 +217,7 @@ export function useModels() {
 // --- Templates ---
 export interface ChatTemplate {
   id: string;
+  label: string;
   system_prompt: string;
   skills: string[];
   model?: string | null;
