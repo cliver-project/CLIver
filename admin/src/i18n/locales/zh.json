@@ -44,6 +44,7 @@
     "emptyStateTitle": "新建对话",
     "emptyStateDesc": "与 AI 智能体开始新的对话。您的对话将自动保存并可随时继续。",
     "untitled": "未命名对话",
+    "configure": "配置",
     "justNow": "刚刚",
     "minutesAgo": "{count}分钟前",
     "hoursAgo": "{count}小时前",

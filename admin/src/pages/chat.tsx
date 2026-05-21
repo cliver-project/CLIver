@@ -54,12 +54,72 @@ export default function ChatPage() {
   // Composer state
   const [inputText, setInputText] = useState("");
   const [showConfigMenu, setShowConfigMenu] = useState(false);
-  const [selectedAgent, setSelectedAgent] = useState("");
-  const [systemMessage, setSystemMessage] = useState("");
-  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
 
   const { data: conversationDetail } = useConversation(activeConversationId);
   const { data: templates } = useTemplates();
+
+  // Per-chat config from session options (synced with backend)
+  // Falls back to local state for new chats that don't have a session yet
+  const [localAgent, setLocalAgent] = useState("");
+  const [localSystemMsg, setLocalSystemMsg] = useState("");
+  const [localSkills, setLocalSkills] = useState<string[]>([]);
+
+  const sessionOptions = activeConversationId
+    ? ((conversationDetail?.session?.options as Record<string, unknown>) || {})
+    : null;
+  const selectedAgent = sessionOptions ? String(sessionOptions.agent || "") : localAgent;
+  const systemMessage = sessionOptions ? String(sessionOptions.system_prompt || "") : localSystemMsg;
+  const selectedSkills = sessionOptions
+    ? (Array.isArray(sessionOptions.skills) ? sessionOptions.skills : []) as string[]
+    : localSkills;
+
+  const saveSessionOptions = useCallback(
+    async (opts: Record<string, unknown>) => {
+      if (!activeConversationId) return;
+      try {
+        await fetch(`/admin/api/conversations/${encodeURIComponent(activeConversationId)}`, {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ options: opts }),
+        });
+      } catch {
+        // Non-critical
+      }
+    },
+    [activeConversationId],
+  );
+
+  const setSelectedAgent = useCallback(
+    (v: string) => {
+      if (activeConversationId) {
+        saveSessionOptions({ ...sessionOptions, agent: v || null });
+      } else {
+        setLocalAgent(v);
+      }
+    },
+    [activeConversationId, sessionOptions, saveSessionOptions],
+  );
+  const setSystemMessage = useCallback(
+    (v: string) => {
+      if (activeConversationId) {
+        saveSessionOptions({ ...sessionOptions, system_prompt: v || null });
+      } else {
+        setLocalSystemMsg(v);
+      }
+    },
+    [activeConversationId, sessionOptions, saveSessionOptions],
+  );
+  const setSelectedSkills = useCallback(
+    (v: string[]) => {
+      if (activeConversationId) {
+        saveSessionOptions({ ...sessionOptions, skills: v.length > 0 ? v : null });
+      } else {
+        setLocalSkills(v);
+      }
+    },
+    [activeConversationId, sessionOptions, saveSessionOptions],
+  );
 
   // Constrain App wrapper height so only the conversation viewport scrolls
   useEffect(() => {
@@ -375,13 +435,13 @@ export default function ChatPage() {
                   <div className="flex flex-wrap gap-1.5">
                     {selectedAgent && (
                       <span className="inline-flex items-center gap-1 rounded-md bg-primary/10 text-primary text-[11px] px-2 py-0.5">
-                        Agent: {selectedAgent}
+                        {t("agents.title")}: {selectedAgent}
                         <button onClick={() => setSelectedAgent("")}><X className="w-3 h-3" /></button>
                       </span>
                     )}
                     {systemMessage && (
                       <span className="inline-flex items-center gap-1 rounded-md bg-primary/10 text-primary text-[11px] px-2 py-0.5">
-                        System prompt set
+                        {t("agents.systemPrompt")}
                         <button onClick={() => setSystemMessage("")}><X className="w-3 h-3" /></button>
                       </span>
                     )}
@@ -497,6 +557,7 @@ function ComposerConfigPanel({
   onSkillsChange: (v: string[]) => void;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const { data: agents } = useAgents();
   const { data: skills } = useSkills();
 
@@ -510,7 +571,7 @@ function ComposerConfigPanel({
   return (
     <div className="rounded-lg border bg-card p-4 space-y-4">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-medium">Configure</span>
+        <span className="text-sm font-medium">{t("chat.configure")}</span>
         <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
           <X className="w-4 h-4" />
         </button>
@@ -518,7 +579,7 @@ function ComposerConfigPanel({
 
       {/* Agent */}
       <div>
-        <label className="text-[11px] font-medium text-muted-foreground">Agent</label>
+        <label className="text-[11px] font-medium text-muted-foreground">{t("agents.title")}</label>
         <select
           value={selectedAgent}
           onChange={(e) => onAgentChange(e.target.value)}
@@ -531,7 +592,7 @@ function ComposerConfigPanel({
 
       {/* System prompt */}
       <div>
-        <label className="text-[11px] font-medium text-muted-foreground">System prompt</label>
+        <label className="text-[11px] font-medium text-muted-foreground">{t("agents.systemPrompt")}</label>
         <textarea
           value={systemMessage}
           onChange={(e) => onSystemMessageChange(e.target.value)}
@@ -543,7 +604,7 @@ function ComposerConfigPanel({
 
       {/* Skills */}
       <div>
-        <label className="text-[11px] font-medium text-muted-foreground">Skills</label>
+        <label className="text-[11px] font-medium text-muted-foreground">{t("sidebar.skills")}</label>
         {skillList.length === 0 ? (
           <p className="text-xs text-muted-foreground mt-1">No skills available</p>
         ) : (

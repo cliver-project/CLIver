@@ -44,6 +44,7 @@
     "emptyStateTitle": "New Conversation",
     "emptyStateDesc": "Start a new conversation with the AI agent. Your chats are automatically saved and can be resumed later.",
     "untitled": "Untitled",
+    "configure": "Configure",
     "justNow": "Just now",
     "minutesAgo": "{count}m ago",
     "hoursAgo": "{count}h ago",
