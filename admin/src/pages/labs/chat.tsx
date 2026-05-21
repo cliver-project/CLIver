@@ -10,7 +10,7 @@ import {
   type AppendMessage,
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
-import { ArrowUp, Square, Play, FileText, Brain, Package } from "lucide-react";
+import { ArrowUp, Square, Play, FileText, Brain, Package, ChevronRight } from "lucide-react";
 import { useLab, useLabGoldenTests, useRunGoldenTests, type TestRunResult } from "@/hooks/use-api";
 import { LabHeader } from "@/components/lab/LabHeader";
 import { LabConfigPanel } from "@/components/lab/LabConfigPanel";
@@ -273,6 +273,18 @@ export default function LabChatPage() {
 
   return (
     <div className="flex flex-col h-full -m-6">
+      {/* Breadcrumb */}
+      <div className="flex items-center gap-1 px-4 py-2 text-xs text-muted-foreground border-b shrink-0">
+        <button onClick={() => navigate("/admin/labs")} className="hover:text-foreground transition-colors">
+          {t("labs.title")}
+        </button>
+        <ChevronRight className="w-3 h-3" />
+        <button onClick={() => navigate(`/admin/labs/${labId}`)} className="hover:text-foreground transition-colors">
+          {lab.title}
+        </button>
+        <ChevronRight className="w-3 h-3" />
+        <span className="text-foreground">{t("lab.chat")}</span>
+      </div>
       <LabHeader title={lab.title} description={lab.description} />
 
       <div className="flex flex-1 min-h-0">

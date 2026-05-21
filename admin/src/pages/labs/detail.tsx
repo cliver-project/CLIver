@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router";
-import { ArrowLeft, Plus, Trash2, Play, FlaskConical, MessageSquare } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Play, FlaskConical, MessageSquare, ChevronRight } from "lucide-react";
 import { useLab, useUpdateLab, useLabGoldenTests, useCreateGoldenTest, useDeleteGoldenTest, useRunGoldenTests, type TestRunResult } from "@/hooks/use-api";
 import { useTranslation } from "@/i18n";
 import { Button } from "@/components/ui/button";
@@ -59,6 +59,14 @@ export default function LabDetailPage() {
 
   return (
     <div className="space-y-6">
+      {/* Breadcrumb */}
+      <div className="flex items-center gap-1 text-xs text-muted-foreground">
+        <button onClick={() => navigate("/admin/labs")} className="hover:text-foreground transition-colors">
+          {t("labs.title")}
+        </button>
+        <ChevronRight className="w-3 h-3" />
+        <span className="text-foreground">{lab.title}</span>
+      </div>
       <div className="flex items-center gap-3">
         <button onClick={() => navigate("/admin/labs")} className="p-1 hover:bg-muted rounded">
           <ArrowLeft className="w-5 h-5" />
