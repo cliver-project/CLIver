@@ -32,6 +32,8 @@ const navSections: NavSection[] = [
   {
     titleKey: "sidebar.section.workspace",
     items: [
+      { to: "/admin/chat", icon: MessageSquare, labelKey: "sidebar.chat" },
+      { to: "/admin/labs", icon: FlaskConical, labelKey: "sidebar.labs" },
       { to: "/admin/tasks", icon: ListTodo, labelKey: "sidebar.tasks" },
     ],
   },
@@ -86,18 +88,6 @@ export function Sidebar() {
         <NavLink to="/admin/dashboard" className={linkClasses} title={t("sidebar.dashboard")}>
           <LayoutDashboard className="w-4 h-4 shrink-0" />
           {!collapsed && t("sidebar.dashboard")}
-        </NavLink>
-
-        {/* Chat */}
-        <NavLink to="/admin/chat" className={linkClasses} title={t("sidebar.chat")}>
-          <MessageSquare className="w-4 h-4 shrink-0" />
-          {!collapsed && t("sidebar.chat")}
-        </NavLink>
-
-        {/* AI Labs */}
-        <NavLink to="/admin/labs" className={linkClasses} title={t("sidebar.labs")}>
-          <FlaskConical className="w-4 h-4 shrink-0" />
-          {!collapsed && t("sidebar.labs")}
         </NavLink>
 
         {navSections.map((section) => (
