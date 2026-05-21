@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
-import { Plus, Trash2, FlaskConical, Pencil } from "lucide-react";
+import { Plus, Trash2, FlaskConical, Pencil, MessageSquare } from "lucide-react";
 import { useLabs, useCreateLab, useDeleteLab } from "@/hooks/use-api";
 import { useTranslation } from "@/i18n";
 import { Button } from "@/components/ui/button";
@@ -85,6 +85,16 @@ export default function LabListPage() {
             <div className="flex items-center justify-between mt-3 pt-3 border-t">
               <span className="text-xs text-muted-foreground">{timeAgo(lab.updated_at)}</span>
               <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  className="p-1 hover:bg-primary/10 rounded text-primary"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    navigate(`/admin/labs/${lab.id}/chat`);
+                  }}
+                  title={t("lab.chat")}
+                >
+                  <MessageSquare className="w-3.5 h-3.5" />
+                </button>
                 <button
                   className="p-1 hover:bg-muted rounded"
                   onClick={(e) => {
