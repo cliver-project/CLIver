@@ -35,6 +35,10 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
             return JSONResponse({"error": "title is required"}, status_code=400)
         description = body.get("description", "")
         lab = await _run_in_thread(lab_store.create_lab, title, description)
+        # Create a 1:1 session for this lab
+        session_manager = context.get("cli_session_manager")
+        if session_manager:
+            await _run_in_thread(session_manager.create_lab_session, lab.id)
         return JSONResponse(lab.model_dump())
 
     @require_auth
@@ -45,9 +49,16 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
             return JSONResponse({"error": "Lab not found"}, status_code=404)
         session_manager = context.get("cli_session_manager")
         sessions = []
+        session_id = None
         if session_manager:
             sessions = await _run_in_thread(session_manager.list_lab_sessions, lab_id)
-        return JSONResponse({"lab": lab.model_dump(), "sessions": sessions})
+            # Use the first session as the primary lab session (1:1 relationship)
+            if sessions:
+                session_id = sessions[0]["id"]
+            else:
+                # Create one if it doesn't exist yet
+                session_id = await _run_in_thread(session_manager.create_lab_session, lab_id)
+        return JSONResponse({"lab": lab.model_dump(), "sessions": sessions, "session_id": session_id})
 
     @require_auth
     async def handle_update_lab(request: Request):

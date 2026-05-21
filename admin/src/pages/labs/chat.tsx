@@ -12,6 +12,7 @@ import {
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import { ArrowUp, Square, Play, FileText, Brain, Package } from "lucide-react";
 import { useLab, useLabGoldenTests, useRunGoldenTests, type TestRunResult } from "@/hooks/use-api";
+import { useConversation } from "@/hooks/use-conversations";
 import { LabHeader } from "@/components/lab/LabHeader";
 import { LabConfigPanel } from "@/components/lab/LabConfigPanel";
 import { GoldenTestCard } from "@/components/lab/GoldenTestCard";
@@ -30,7 +31,18 @@ export default function LabChatPage() {
   const { data: tests } = useLabGoldenTests(labId);
   const runTests = useRunGoldenTests(labId!);
 
-  const activeSessionId = paramSessionId || null;
+  // The lab's session is created at lab creation time (1:1). Use the session_id
+  // from the URL param, or fall back to the lab's default session_id.
+  const activeSessionId = paramSessionId || labDetail?.session_id || null;
+
+  // Redirect to session URL once we know the session_id
+  useEffect(() => {
+    if (labDetail?.session_id && !paramSessionId) {
+      navigate(`/admin/labs/${labId}/chat/${labDetail.session_id}`, { replace: true });
+    }
+  }, [labDetail?.session_id, paramSessionId, labId, navigate]);
+
+  const { data: conversationDetail } = useConversation(activeSessionId);
 
   const [messagesByConv, setMessagesByConv] = useState<Record<string, ThreadMessageLike[]>>({});
   const [runningConvId, setRunningConvId] = useState<string | null>(null);
@@ -63,23 +75,51 @@ export default function LabChatPage() {
     };
   }, []);
 
+  // Load config from session options — follows the same pattern as the existing
+  // chat.tsx page, using React Query's conversationDetail for reliable loading.
+  const lastLoadedSessionId = useRef<string | null>(null);
   useEffect(() => {
     if (!activeSessionId) {
       setSelectedModel("");
       setSystemPrompt("");
       setSelectedSkills([]);
+      lastLoadedSessionId.current = null;
       return;
     }
-    fetch(`/admin/api/conversations/${encodeURIComponent(activeSessionId)}`, { credentials: "include" })
-      .then((r) => r.json())
-      .then((data) => {
-        const opts = (data?.session?.options as Record<string, unknown>) || {};
-        if (opts.model) setSelectedModel(String(opts.model));
-        if (opts.system_prompt) setSystemPrompt(String(opts.system_prompt));
-        if (opts.skills) setSelectedSkills(opts.skills as string[]);
-      })
-      .catch(() => {});
+    const dataId = conversationDetail?.session?.id;
+    if (!dataId || dataId !== activeSessionId) return;
+    if (lastLoadedSessionId.current === dataId) return;
+    lastLoadedSessionId.current = dataId;
+
+    const opts = (conversationDetail?.session?.options as Record<string, unknown>) || {};
+    if (opts.model) setSelectedModel(String(opts.model));
+    if (opts.system_prompt) setSystemPrompt(String(opts.system_prompt));
+    if (opts.skills) setSelectedSkills(Array.isArray(opts.skills) ? (opts.skills as string[]) : []);
+  }, [activeSessionId, conversationDetail]);
+
+  // Clear load tracker when leaving
+  useEffect(() => {
+    return () => { lastLoadedSessionId.current = null; };
   }, [activeSessionId]);
+
+  // Load turns into messages when conversationDetail changes
+  useEffect(() => {
+    if (activeSessionId && runningConvId === activeSessionId) return;
+    if (activeSessionId && conversationDetail?.turns) {
+      const dataId = conversationDetail.session?.id;
+      if (dataId && dataId !== activeSessionId) return;
+      if (loadedSessionIds.current.has(activeSessionId)) return;
+      loadedSessionIds.current.add(activeSessionId);
+      setMessagesByConv((prev) => ({
+        ...prev,
+        [activeSessionId]: conversationDetail.turns.map((turn) => ({
+          id: generateId(),
+          role: turn.role as "user" | "assistant",
+          content: [{ type: "text" as const, text: turn.content }],
+        })),
+      }));
+    }
+  }, [activeSessionId, conversationDetail, runningConvId]);
 
   useEffect(() => {
     if (scrollAnchorRef.current) {
@@ -88,41 +128,27 @@ export default function LabChatPage() {
   }, [messages]);
 
   const handleSaveConfig = useCallback(async () => {
+    if (!activeSessionId) return;
     setSavingConfig(true);
     try {
-      const options = {
-        model: selectedModel || null,
-        system_prompt: systemPrompt || null,
-        skills: selectedSkills.length > 0 ? selectedSkills : null,
-      };
-      if (activeSessionId) {
-        await fetch(
-          `/admin/api/labs/${encodeURIComponent(labId!)}/chat/${encodeURIComponent(activeSessionId)}`,
-          {
-            method: "PATCH",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ options }),
-          },
-        );
-      } else {
-        const res = await fetch(
-          `/admin/api/labs/${encodeURIComponent(labId!)}/sessions`,
-          {
-            method: "POST",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ options }),
-          },
-        );
-        const data = await res.json();
-        if (data.session_id) {
-          navigate(`/admin/labs/${labId}/chat/${data.session_id}`, { replace: true });
-        }
-      }
+      await fetch(
+        `/admin/api/labs/${encodeURIComponent(labId!)}/chat/${encodeURIComponent(activeSessionId)}`,
+        {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            options: {
+              model: selectedModel || null,
+              system_prompt: systemPrompt || null,
+              skills: selectedSkills.length > 0 ? selectedSkills : null,
+            },
+          }),
+        },
+      );
     } catch {}
     setSavingConfig(false);
-  }, [activeSessionId, labId, selectedModel, systemPrompt, selectedSkills, navigate]);
+  }, [activeSessionId, labId, selectedModel, systemPrompt, selectedSkills]);
 
   const handleSend = useCallback(() => {
     const text = inputText.trim();
@@ -201,7 +227,7 @@ export default function LabChatPage() {
         });
 
         const response = await fetch(
-          `/admin/api/labs/${encodeURIComponent(convLabId)}/chat${convId ? `/${encodeURIComponent(convId)}` : ""}`,
+          `/admin/api/labs/${encodeURIComponent(convLabId)}/chat/${encodeURIComponent(convId!)}`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -235,13 +261,6 @@ export default function LabChatPage() {
             if (line.startsWith("data: ")) {
               try {
                 const raw = JSON.parse(line.slice(6));
-                if (raw.type === "session" && raw.session_id) {
-                  loadedSessionIds.current.add(raw.session_id);
-                  if (!convId) {
-                    navigate(`/admin/labs/${convLabId}/chat/${raw.session_id}`, { replace: true });
-                  }
-                  continue;
-                }
                 if (raw.type === "content" && raw.content) {
                   fullText += raw.content;
                   updateConvMessages((prev) =>
@@ -255,9 +274,7 @@ export default function LabChatPage() {
                 if (raw.type === "done") {
                   setRunningConvId(null);
                   queryClient.invalidateQueries({ queryKey: ["conversations"] });
-                  if (raw.session_id && !convId) {
-                    navigate(`/admin/labs/${convLabId}/chat/${raw.session_id}`, { replace: true });
-                  }
+                  queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
                 }
                 if (raw.type === "error") {
                   setError(raw.message || "Unknown error");
@@ -343,17 +360,17 @@ export default function LabChatPage() {
             <ThreadPrimitive.Root className="grid grid-rows-[1fr_auto] flex-1 min-h-0">
               <ThreadPrimitive.Viewport className="overflow-y-auto min-h-0" autoScroll>
                 <div className="max-w-4xl mx-auto w-full px-4 lg:px-6 py-4 lg:py-6">
-                {showEmptyState && (
-                  <div className="flex flex-col items-center justify-center text-center min-h-[400px]">
-                    <h1 className="text-2xl font-semibold text-foreground mb-2">
-                      {lab.title}
-                    </h1>
-                    <p className="text-sm text-muted-foreground max-w-md leading-relaxed">
-                      {lab.description || t("lab.chat")}
-                    </p>
-                  </div>
-                )}
-                <div className="space-y-4">
+                  {showEmptyState && (
+                    <div className="flex flex-col items-center justify-center text-center min-h-[400px]">
+                      <h1 className="text-2xl font-semibold text-foreground mb-2">
+                        {lab.title}
+                      </h1>
+                      <p className="text-sm text-muted-foreground max-w-md leading-relaxed">
+                        {lab.description || t("lab.chat")}
+                      </p>
+                    </div>
+                  )}
+                  <div className="space-y-4">
                     <ThreadPrimitive.Messages>
                       {({ message }) => (
                         <div

@@ -264,6 +264,7 @@ export interface GoldenTest {
 export interface LabDetail {
   lab: Lab;
   sessions: Array<Record<string, unknown>>;
+  session_id: string | null;
 }
 
 export interface TestRunResult {
