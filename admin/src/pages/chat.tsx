@@ -83,19 +83,21 @@ export default function ChatPage() {
     setSelectedSkills(Array.isArray(opts.skills) ? (opts.skills as string[]) : []);
   }, [activeConversationId, conversationDetail]);
 
-  // Persist config changes to session options
+  // Persist full config to session options (replaces entire JSON each time)
   const persistConfig = useCallback(
     (agent: string, sysMsg: string, skills: string[]) => {
       if (!activeConversationId) return;
-      const opts: Record<string, unknown> = {};
-      if (agent) opts.agent = agent;
-      if (sysMsg) opts.system_prompt = sysMsg;
-      if (skills.length > 0) opts.skills = skills;
       fetch(`/admin/api/conversations/${encodeURIComponent(activeConversationId)}`, {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ options: opts }),
+        body: JSON.stringify({
+          options: {
+            agent: agent || null,
+            system_prompt: sysMsg || null,
+            skills: skills.length > 0 ? skills : null,
+          },
+        }),
       }).catch(() => {});
     },
     [activeConversationId],
