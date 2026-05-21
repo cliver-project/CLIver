@@ -10,6 +10,7 @@ import {
   Plug,
   PanelLeftClose,
   PanelLeft,
+  FlaskConical,
 } from "lucide-react";
 import { CliverLogo } from "@/components/cliver-logo";
 import { useTranslation } from "@/i18n";
@@ -91,6 +92,12 @@ export function Sidebar() {
         <NavLink to="/admin/chat" className={linkClasses} title={t("sidebar.chat")}>
           <MessageSquare className="w-4 h-4 shrink-0" />
           {!collapsed && t("sidebar.chat")}
+        </NavLink>
+
+        {/* AI Labs */}
+        <NavLink to="/admin/labs" className={linkClasses} title={t("sidebar.labs")}>
+          <FlaskConical className="w-4 h-4 shrink-0" />
+          {!collapsed && t("sidebar.labs")}
         </NavLink>
 
         {navSections.map((section) => (

@@ -87,6 +87,7 @@ class Gateway:
         self._start_time = 0.0
         self._thread_queue = ThreadQueue()
         self._template_store = None
+        self._lab_store = None
 
     def init(self) -> None:
         """Initialize components that need to run before fork.
@@ -110,6 +111,16 @@ class Gateway:
             logger.info("Template store initialized")
         except Exception as e:
             logger.error(f"Failed to init template store: {e}")
+
+        # Initialize lab store
+        try:
+            from cliver.lab.store import LabStore
+
+            self._lab_store = LabStore(self.config_dir / "cliver.db")
+            logger.info("Lab store initialized")
+        except Exception as e:
+            logger.error(f"Failed to init lab store: {e}")
+            self._lab_store = None
 
     def _get_config_manager(self) -> "ConfigManager":
         """Get config manager, using pre-resolved config if available."""
@@ -204,6 +215,16 @@ class Gateway:
                     logger.info("Template routes registered")
             except Exception as e:
                 logger.error(f"Failed to register template routes: {e}")
+
+            # Lab routes
+            try:
+                if hasattr(self, "_lab_store") and self._lab_store:
+                    from cliver.gateway.routes.admin_labs import get_lab_routes
+
+                    routes.extend(get_lab_routes(self._lab_store, admin_ctx, shared_auth))
+                    logger.info("Lab routes registered")
+            except Exception as e:
+                logger.error(f"Failed to register lab routes: {e}")
 
             routes.extend(admin_api_routes)
             # SPA catch-all appended LAST — after all API routes

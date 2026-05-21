@@ -241,4 +241,129 @@ export function useAdapters() {
   });
 }
 
+// --- AI Labs ---
 
+export interface Lab {
+  id: string;
+  title: string;
+  description: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GoldenTest {
+  id: string;
+  lab_id: string;
+  name: string;
+  input: string;
+  expected_output: string;
+  expected_files: string;
+  sort_order: number;
+}
+
+export interface LabDetail {
+  lab: Lab;
+  sessions: Array<Record<string, unknown>>;
+}
+
+export interface TestRunResult {
+  test_id: string;
+  name: string;
+  input: string;
+  expected_output: string;
+  actual_output: string;
+  expected_files: string;
+}
+
+export function useLabs() {
+  return useQuery({
+    queryKey: ["labs"],
+    queryFn: () => api<Lab[]>("/labs"),
+  });
+}
+
+export function useLab(id: string | undefined) {
+  return useQuery({
+    queryKey: ["lab", id],
+    queryFn: () => api<LabDetail>(`/labs/${encodeURIComponent(id!)}`),
+    enabled: !!id,
+  });
+}
+
+export function useCreateLab() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { title: string; description?: string }) =>
+      apiPost<Lab>("/labs", data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["labs"] });
+    },
+  });
+}
+
+export function useUpdateLab(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { title?: string; description?: string }) =>
+      api(`/labs/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["lab", id] });
+      qc.invalidateQueries({ queryKey: ["labs"] });
+    },
+  });
+}
+
+export function useDeleteLab() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiDelete(`/labs/${encodeURIComponent(id)}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["labs"] });
+    },
+  });
+}
+
+export function useLabGoldenTests(labId: string | undefined) {
+  return useQuery({
+    queryKey: ["lab-golden-tests", labId],
+    queryFn: () => api<GoldenTest[]>(`/labs/${encodeURIComponent(labId!)}/golden-tests`),
+    enabled: !!labId,
+  });
+}
+
+export function useCreateGoldenTest(labId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { name: string; input: string; expected_output: string; expected_files?: string }) =>
+      apiPost<GoldenTest>(`/labs/${encodeURIComponent(labId)}/golden-tests`, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["lab-golden-tests", labId] });
+    },
+  });
+}
+
+export function useDeleteGoldenTest(labId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (testId: string) =>
+      apiDelete(`/labs/${encodeURIComponent(labId)}/golden-tests/${encodeURIComponent(testId)}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["lab-golden-tests", labId] });
+    },
+  });
+}
+
+export function useRunGoldenTests(labId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      apiPost<{ results: TestRunResult[] }>(`/labs/${encodeURIComponent(labId)}/golden-tests/run`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["lab-golden-tests", labId] });
+    },
+  });
+}

@@ -69,7 +69,16 @@ class SessionManager:
         if self._store is None:
             self._store = SQLiteStore(self._db_path)
             self._store.execute_schema(_SCHEMA)
+            self._migrate_lab_id()
         return self._store
+
+    def _migrate_lab_id(self) -> None:
+        """Add lab_id column to sessions table if it doesn't exist."""
+        with self._get_store().write() as db:
+            cols = db.execute("PRAGMA table_info(sessions)").fetchall()
+            col_names = [c["name"] for c in cols]
+            if "lab_id" not in col_names:
+                db.execute("ALTER TABLE sessions ADD COLUMN lab_id TEXT")
 
     # -- Session lifecycle -----------------------------------------------------
 
@@ -94,6 +103,27 @@ class SessionManager:
                 ),
             )
         return session_id
+
+    def create_lab_session(self, lab_id: str, title: str = "", options: dict | None = None) -> str:
+        """Create a new session linked to a lab. Returns session_id."""
+        session_id = str(uuid.uuid4())[:8]
+        now = _timestamp()
+        with self._get_store().write() as db:
+            db.execute(
+                "INSERT INTO sessions (id, title, lab_id, options, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (session_id, title or None, lab_id, json.dumps(options) if options else None, now, now),
+            )
+        return session_id
+
+    def list_lab_sessions(self, lab_id: str) -> List[Dict[str, Any]]:
+        """List sessions belonging to a lab, most recent first."""
+        with self._get_store().read() as db:
+            rows = db.execute(
+                "SELECT id, title, created_at, updated_at, turn_count, options FROM sessions "
+                "WHERE lab_id = ? ORDER BY updated_at DESC",
+                (lab_id,),
+            ).fetchall()
+        return [_row_to_dict(r) for r in rows]
 
     def list_sessions(self) -> List[Dict[str, Any]]:
         """List all sessions with metadata, most recent first."""
