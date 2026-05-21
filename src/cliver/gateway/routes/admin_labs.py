@@ -161,6 +161,25 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
 
         return JSONResponse({"results": results})
 
+    # -- Lab Sessions (config-only) ----------------------------------------
+
+    @require_auth
+    async def handle_create_lab_session(request: Request):
+        """Create a lab session with options but without running the LLM."""
+        session_manager = context.get("cli_session_manager")
+        if not session_manager:
+            return JSONResponse({"error": "Session manager not available"}, status_code=503)
+
+        lab_id = request.path_params["lab_id"]
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"error": "Invalid JSON"}, status_code=400)
+
+        options = body.get("options") or {}
+        session_id = await _run_in_thread(session_manager.create_lab_session, lab_id, "", options)
+        return JSONResponse({"session_id": session_id, "options": options})
+
     # -- Lab Chat -----------------------------------------------------------
 
     @require_auth
@@ -385,6 +404,8 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
         Route("/admin/api/labs/{lab_id}/golden-tests/{test_id}", handle_update_test, methods=["PATCH"]),
         Route("/admin/api/labs/{lab_id}/golden-tests/{test_id}", handle_delete_test, methods=["DELETE"]),
         Route("/admin/api/labs/{lab_id}/golden-tests/run", handle_run_tests, methods=["POST"]),
+        # Lab sessions (create without running LLM)
+        Route("/admin/api/labs/{lab_id}/sessions", handle_create_lab_session, methods=["POST"]),
         # Lab chat
         Route("/admin/api/labs/{lab_id}/chat", handle_lab_chat, methods=["POST"]),
         Route("/admin/api/labs/{lab_id}/chat/{session_id}", handle_lab_chat, methods=["POST"]),

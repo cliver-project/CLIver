@@ -88,27 +88,41 @@ export default function LabChatPage() {
   }, [messages]);
 
   const handleSaveConfig = useCallback(async () => {
-    if (!activeSessionId) return;
     setSavingConfig(true);
     try {
-      await fetch(
-        `/admin/api/labs/${encodeURIComponent(labId!)}/chat/${encodeURIComponent(activeSessionId)}`,
-        {
-          method: "PATCH",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            options: {
-              model: selectedModel || null,
-              system_prompt: systemPrompt || null,
-              skills: selectedSkills.length > 0 ? selectedSkills : null,
-            },
-          }),
-        },
-      );
+      const options = {
+        model: selectedModel || null,
+        system_prompt: systemPrompt || null,
+        skills: selectedSkills.length > 0 ? selectedSkills : null,
+      };
+      if (activeSessionId) {
+        await fetch(
+          `/admin/api/labs/${encodeURIComponent(labId!)}/chat/${encodeURIComponent(activeSessionId)}`,
+          {
+            method: "PATCH",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ options }),
+          },
+        );
+      } else {
+        const res = await fetch(
+          `/admin/api/labs/${encodeURIComponent(labId!)}/sessions`,
+          {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ options }),
+          },
+        );
+        const data = await res.json();
+        if (data.session_id) {
+          navigate(`/admin/labs/${labId}/chat/${data.session_id}`, { replace: true });
+        }
+      }
     } catch {}
     setSavingConfig(false);
-  }, [activeSessionId, labId, selectedModel, systemPrompt, selectedSkills]);
+  }, [activeSessionId, labId, selectedModel, systemPrompt, selectedSkills, navigate]);
 
   const handleSend = useCallback(() => {
     const text = inputText.trim();
