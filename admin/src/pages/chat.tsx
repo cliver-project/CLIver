@@ -58,68 +58,61 @@ export default function ChatPage() {
   const { data: conversationDetail } = useConversation(activeConversationId);
   const { data: templates } = useTemplates();
 
-  // Per-chat config from session options (synced with backend)
-  // Falls back to local state for new chats that don't have a session yet
-  const [localAgent, setLocalAgent] = useState("");
-  const [localSystemMsg, setLocalSystemMsg] = useState("");
-  const [localSkills, setLocalSkills] = useState<string[]>([]);
+  // Per-chat config — local state synced with session options on load
+  const [selectedAgent, setSelectedAgent] = useState("");
+  const [systemMessage, setSystemMessage] = useState("");
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const prevConvIdRef = useRef<string | null>(null);
 
-  const sessionOptions = activeConversationId
-    ? ((conversationDetail?.session?.options as Record<string, unknown>) || {})
-    : null;
-  const selectedAgent = sessionOptions ? String(sessionOptions.agent || "") : localAgent;
-  const systemMessage = sessionOptions ? String(sessionOptions.system_prompt || "") : localSystemMsg;
-  const selectedSkills = sessionOptions
-    ? (Array.isArray(sessionOptions.skills) ? sessionOptions.skills : []) as string[]
-    : localSkills;
+  // Load config from session options when conversation changes
+  useEffect(() => {
+    if (!activeConversationId) {
+      // New chat — reset to empty
+      setSelectedAgent("");
+      setSystemMessage("");
+      setSelectedSkills([]);
+      prevConvIdRef.current = null;
+      return;
+    }
+    if (prevConvIdRef.current === activeConversationId) return;
+    prevConvIdRef.current = activeConversationId;
 
-  const saveSessionOptions = useCallback(
-    async (opts: Record<string, unknown>) => {
+    const opts = (conversationDetail?.session?.options as Record<string, unknown>) || {};
+    setSelectedAgent(String(opts.agent || ""));
+    setSystemMessage(String(opts.system_prompt || ""));
+    setSelectedSkills(Array.isArray(opts.skills) ? (opts.skills as string[]) : []);
+  }, [activeConversationId, conversationDetail]);
+
+  // Persist config changes to session options
+  const persistConfig = useCallback(
+    (agent: string, sysMsg: string, skills: string[]) => {
       if (!activeConversationId) return;
-      try {
-        await fetch(`/admin/api/conversations/${encodeURIComponent(activeConversationId)}`, {
-          method: "PATCH",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ options: opts }),
-        });
-      } catch {
-        // Non-critical
-      }
+      const opts: Record<string, unknown> = {};
+      if (agent) opts.agent = agent;
+      if (sysMsg) opts.system_prompt = sysMsg;
+      if (skills.length > 0) opts.skills = skills;
+      fetch(`/admin/api/conversations/${encodeURIComponent(activeConversationId)}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ options: opts }),
+      }).catch(() => {});
     },
     [activeConversationId],
   );
 
-  const setSelectedAgent = useCallback(
-    (v: string) => {
-      if (activeConversationId) {
-        saveSessionOptions({ ...sessionOptions, agent: v || null });
-      } else {
-        setLocalAgent(v);
-      }
-    },
-    [activeConversationId, sessionOptions, saveSessionOptions],
-  );
-  const setSystemMessage = useCallback(
-    (v: string) => {
-      if (activeConversationId) {
-        saveSessionOptions({ ...sessionOptions, system_prompt: v || null });
-      } else {
-        setLocalSystemMsg(v);
-      }
-    },
-    [activeConversationId, sessionOptions, saveSessionOptions],
-  );
-  const setSelectedSkills = useCallback(
-    (v: string[]) => {
-      if (activeConversationId) {
-        saveSessionOptions({ ...sessionOptions, skills: v.length > 0 ? v : null });
-      } else {
-        setLocalSkills(v);
-      }
-    },
-    [activeConversationId, sessionOptions, saveSessionOptions],
-  );
+  const handleSetAgent = useCallback((v: string) => {
+    setSelectedAgent(v);
+    persistConfig(v, systemMessage, selectedSkills);
+  }, [systemMessage, selectedSkills, persistConfig]);
+  const handleSetSystemMessage = useCallback((v: string) => {
+    setSystemMessage(v);
+    persistConfig(selectedAgent, v, selectedSkills);
+  }, [selectedAgent, selectedSkills, persistConfig]);
+  const handleSetSkills = useCallback((v: string[]) => {
+    setSelectedSkills(v);
+    persistConfig(selectedAgent, systemMessage, v);
+  }, [selectedAgent, systemMessage, persistConfig]);
 
   // Constrain App wrapper height so only the conversation viewport scrolls
   useEffect(() => {
@@ -173,10 +166,10 @@ export default function ChatPage() {
   }, [inputText, isRunning]);
 
   const handleApplyTemplate = useCallback((tpl: { system_prompt: string; skills: string[]; agent?: string | null }) => {
-    setSystemMessage(tpl.system_prompt);
-    setSelectedSkills(tpl.skills);
-    if (tpl.agent) setSelectedAgent(tpl.agent);
-  }, [setSystemMessage, setSelectedSkills, setSelectedAgent]);
+    handleSetSystemMessage(tpl.system_prompt);
+    handleSetSkills(tpl.skills);
+    if (tpl.agent) handleSetAgent(tpl.agent);
+  }, [handleSetSystemMessage, handleSetSkills, handleSetAgent]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
@@ -436,19 +429,19 @@ export default function ChatPage() {
                     {selectedAgent && (
                       <span className="inline-flex items-center gap-1 rounded-md bg-primary/10 text-primary text-[11px] px-2 py-0.5">
                         {t("agents.title")}: {selectedAgent}
-                        <button onClick={() => setSelectedAgent("")}><X className="w-3 h-3" /></button>
+                        <button onClick={() => handleSetAgent("")}><X className="w-3 h-3" /></button>
                       </span>
                     )}
                     {systemMessage && (
                       <span className="inline-flex items-center gap-1 rounded-md bg-primary/10 text-primary text-[11px] px-2 py-0.5">
                         {t("agents.systemPrompt")}
-                        <button onClick={() => setSystemMessage("")}><X className="w-3 h-3" /></button>
+                        <button onClick={() => handleSetSystemMessage("")}><X className="w-3 h-3" /></button>
                       </span>
                     )}
                     {selectedSkills.map((s) => (
                       <span key={s} className="inline-flex items-center gap-1 rounded-md bg-primary/10 text-primary text-[11px] px-2 py-0.5">
                         {s}
-                        <button onClick={() => setSelectedSkills((p) => p.filter((x) => x !== s))}><X className="w-3 h-3" /></button>
+                        <button onClick={() => handleSetSkills(selectedSkills.filter((x) => x !== s))}><X className="w-3 h-3" /></button>
                       </span>
                     ))}
                   </div>
@@ -507,11 +500,11 @@ export default function ChatPage() {
                 {showConfigMenu && (
                   <ComposerConfigPanel
                     selectedAgent={selectedAgent}
-                    onAgentChange={setSelectedAgent}
+                    onAgentChange={handleSetAgent}
                     systemMessage={systemMessage}
-                    onSystemMessageChange={setSystemMessage}
+                    onSystemMessageChange={handleSetSystemMessage}
                     selectedSkills={selectedSkills}
-                    onSkillsChange={setSelectedSkills}
+                    onSkillsChange={handleSetSkills}
                     onClose={() => setShowConfigMenu(false)}
                   />
                 )}
