@@ -397,7 +397,7 @@
     "savingLab": "保存中..."
   },
   "lab": {
-    "chat": "实验对话",
+    "chat": "对话",
     "config": "配置",
     "saveConfig": "保存配置",
     "configSaved": "配置已保存",

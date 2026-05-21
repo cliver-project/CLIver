@@ -397,7 +397,7 @@
     "savingLab": "Saving..."
   },
   "lab": {
-    "chat": "Experiment Chat",
+    "chat": "Chat",
     "config": "Configuration",
     "saveConfig": "Save Config",
     "configSaved": "Configuration saved",

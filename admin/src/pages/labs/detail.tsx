@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router";
-import { ArrowLeft, Plus, Trash2, Play, FlaskConical, MessageSquare, ChevronRight } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Play, FlaskConical, MessageSquare } from "lucide-react";
 import { useLab, useUpdateLab, useLabGoldenTests, useCreateGoldenTest, useDeleteGoldenTest, useRunGoldenTests, type TestRunResult } from "@/hooks/use-api";
 import { useTranslation } from "@/i18n";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
+import { LabHeader } from "@/components/lab/LabHeader";
 import {
   Dialog,
   DialogContent,
@@ -59,57 +60,58 @@ export default function LabDetailPage() {
 
   return (
     <div className="space-y-6">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-1 text-xs text-muted-foreground">
-        <button onClick={() => navigate("/admin/labs")} className="hover:text-foreground transition-colors">
-          {t("labs.title")}
-        </button>
-        <ChevronRight className="w-3 h-3" />
-        <span className="text-foreground">{lab.title}</span>
-      </div>
-      <div className="flex items-center gap-3">
-        <button onClick={() => navigate("/admin/labs")} className="p-1 hover:bg-muted rounded">
-          <ArrowLeft className="w-5 h-5" />
-        </button>
-        <div className="flex-1">
-          {editing ? (
-            <div className="space-y-2">
-              <Input
-                value={editTitle}
-                onChange={(e) => setEditTitle(e.target.value)}
-                className="text-xl font-semibold"
-              />
-              <Textarea
-                value={editDesc}
-                onChange={(e) => setEditDesc(e.target.value)}
-                rows={3}
-              />
-              <div className="flex gap-2">
-                <Button size="sm" onClick={async () => {
-                  await updateLab.mutateAsync({ title: editTitle, description: editDesc });
-                  setEditing(false);
-                }} disabled={updateLab.isPending}>
-                  {updateLab.isPending ? t("labs.savingLab") : t("labs.saveLab")}
-                </Button>
-                <Button size="sm" variant="outline" onClick={() => setEditing(false)}>{t("common.cancel")}</Button>
-              </div>
-            </div>
-          ) : (
-            <>
-              <h1 className="text-2xl font-semibold">{lab.title}</h1>
-              <p className="text-sm text-muted-foreground mt-1">{lab.description || t("common.noDescription")}</p>
-            </>
-          )}
+      {editing ? (
+        <div className="space-y-4">
+          <div className="flex items-center gap-1 text-xs text-muted-foreground">
+            <button onClick={() => navigate("/admin/labs")} className="hover:text-foreground transition-colors">
+              {t("labs.title")}
+            </button>
+            <span className="mx-0.5">›</span>
+            <span className="text-foreground">{lab.title}</span>
+          </div>
+          <Input
+            value={editTitle}
+            onChange={(e) => setEditTitle(e.target.value)}
+            className="text-xl font-semibold"
+          />
+          <Textarea
+            value={editDesc}
+            onChange={(e) => setEditDesc(e.target.value)}
+            rows={3}
+          />
+          <div className="flex gap-2">
+            <Button size="sm" onClick={async () => {
+              await updateLab.mutateAsync({ title: editTitle, description: editDesc });
+              setEditing(false);
+            }} disabled={updateLab.isPending}>
+              {updateLab.isPending ? t("labs.savingLab") : t("labs.saveLab")}
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setEditing(false)}>{t("common.cancel")}</Button>
+          </div>
         </div>
-        <div className="flex gap-2">
-          {!editing && (
-            <Button variant="outline" onClick={() => setEditing(true)}>{t("labs.editLab")}</Button>
-          )}
-          <Button onClick={() => navigate(`/admin/labs/${labId}/chat`)}>
-            <MessageSquare className="w-4 h-4 mr-1" /> {t("lab.chat")}
-          </Button>
+      ) : (
+        <div>
+          <LabHeader
+            title={lab.title}
+            description={lab.description}
+            breadcrumb={
+              <>
+                <button onClick={() => navigate("/admin/labs")} className="hover:text-foreground transition-colors">
+                  {t("labs.title")}
+                </button>
+                <span className="mx-0.5">›</span>
+                <span className="text-foreground">{lab.title}</span>
+              </>
+            }
+          />
+          <div className="flex gap-2 mt-3">
+            <Button variant="outline" size="sm" onClick={() => setEditing(true)}>{t("labs.editLab")}</Button>
+            <Button size="sm" onClick={() => navigate(`/admin/labs/${labId}/chat`)}>
+              <MessageSquare className="w-4 h-4 mr-1" /> {t("lab.chat")}
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
 
       <Card className="p-4">
         <div className="flex items-center justify-between mb-4">
