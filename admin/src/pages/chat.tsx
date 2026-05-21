@@ -62,24 +62,34 @@ export default function ChatPage() {
   const [selectedAgent, setSelectedAgent] = useState("");
   const [systemMessage, setSystemMessage] = useState("");
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const lastLoadedSessionId = useRef<string | null>(null);
 
-  // Load config from session options when conversation data arrives
+  // Load config from session options — runs only once per conversation load.
+  // lastLoadedSessionId tracks which session's data was applied, so re-renders
+  // from conversationDetail reference changes don't overwrite optimistic state.
   useEffect(() => {
     if (!activeConversationId) {
       setSelectedAgent("");
       setSystemMessage("");
       setSelectedSkills([]);
+      lastLoadedSessionId.current = null;
       return;
     }
-    // Guard: only apply data belonging to the current URL
     const dataId = conversationDetail?.session?.id;
-    if (dataId && dataId !== activeConversationId) return;
+    if (!dataId || dataId !== activeConversationId) return;
+    if (lastLoadedSessionId.current === dataId) return;
+    lastLoadedSessionId.current = dataId;
 
     const opts = (conversationDetail?.session?.options as Record<string, unknown>) || {};
     setSelectedAgent(String(opts.agent || ""));
     setSystemMessage(String(opts.system_prompt || ""));
     setSelectedSkills(Array.isArray(opts.skills) ? (opts.skills as string[]) : []);
   }, [activeConversationId, conversationDetail]);
+
+  // Clear load tracker when leaving a conversation so returning reloads
+  useEffect(() => {
+    return () => { lastLoadedSessionId.current = null; };
+  }, [activeConversationId]);
 
   // Persist config changes — sends only the changed fields as a merge patch
   const persistPatch = useCallback(
