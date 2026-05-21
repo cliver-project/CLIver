@@ -86,7 +86,12 @@ export default function ChatPage() {
     setSelectedSkills(Array.isArray(opts.skills) ? (opts.skills as string[]) : []);
   }, [activeConversationId, conversationDetail]);
 
-  // Persist full config to session options (replaces entire JSON each time)
+  // Ref for latest config values — avoids stale closure issues when
+  // multiple setters are called in the same event (e.g. template apply)
+  const configRef = useRef({ agent: "", systemMessage: "", skills: [] as string[] });
+  configRef.current = { agent: selectedAgent, systemMessage, skills: selectedSkills };
+
+  // Persist full config — always sends all three fields
   const persistConfig = useCallback(
     (agent: string, sysMsg: string, skills: string[]) => {
       if (!activeConversationId) return;
@@ -108,16 +113,19 @@ export default function ChatPage() {
 
   const handleSetAgent = useCallback((v: string) => {
     setSelectedAgent(v);
-    persistConfig(v, systemMessage, selectedSkills);
-  }, [systemMessage, selectedSkills, persistConfig]);
+    const cur = configRef.current;
+    persistConfig(v, cur.systemMessage, cur.skills);
+  }, [persistConfig]);
   const handleSetSystemMessage = useCallback((v: string) => {
     setSystemMessage(v);
-    persistConfig(selectedAgent, v, selectedSkills);
-  }, [selectedAgent, selectedSkills, persistConfig]);
+    const cur = configRef.current;
+    persistConfig(cur.agent, v, cur.skills);
+  }, [persistConfig]);
   const handleSetSkills = useCallback((v: string[]) => {
     setSelectedSkills(v);
-    persistConfig(selectedAgent, systemMessage, v);
-  }, [selectedAgent, systemMessage, persistConfig]);
+    const cur = configRef.current;
+    persistConfig(cur.agent, cur.systemMessage, v);
+  }, [persistConfig]);
 
   // Constrain App wrapper height so only the conversation viewport scrolls
   useEffect(() => {
