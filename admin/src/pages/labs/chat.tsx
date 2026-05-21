@@ -314,26 +314,30 @@ export default function LabChatPage() {
           <AssistantRuntimeProvider runtime={runtime}>
             <ThreadPrimitive.Root className="grid grid-rows-[1fr_auto] flex-1 min-h-0">
               <ThreadPrimitive.Viewport className="overflow-y-auto min-h-0" autoScroll>
-                <div className="max-w-3xl mx-auto w-full px-4 py-4">
-                  {showEmptyState && (
-                    <div className="flex flex-col items-center justify-center text-center min-h-[300px]">
-                      <h2 className="text-lg font-medium text-foreground mb-2">
-                        {lab.title}
-                      </h2>
-                      <p className="text-sm text-muted-foreground max-w-md">
-                        {lab.description || t("lab.chat")}
-                      </p>
-                    </div>
-                  )}
-                  <div className="space-y-3">
+                <div className="max-w-4xl mx-auto w-full px-4 lg:px-6 py-4 lg:py-6">
+                {showEmptyState && (
+                  <div className="flex flex-col items-center justify-center text-center min-h-[400px]">
+                    <h1 className="text-2xl font-semibold text-foreground mb-2">
+                      {lab.title}
+                    </h1>
+                    <p className="text-sm text-muted-foreground max-w-md leading-relaxed">
+                      {lab.description || t("lab.chat")}
+                    </p>
+                  </div>
+                )}
+                <div className="space-y-4">
                     <ThreadPrimitive.Messages>
                       {({ message }) => (
-                        <div className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}>
+                        <div
+                          className={`message-enter flex ${
+                            message.role === "user" ? "justify-end" : "justify-start"
+                          }`}
+                        >
                           <div
-                            className={`max-w-[85%] rounded-xl px-3 py-2 text-sm ${
+                            className={`message-bubble ${
                               message.role === "user"
-                                ? "bg-primary text-primary-foreground"
-                                : "bg-muted text-foreground"
+                                ? "message-bubble-user"
+                                : "message-bubble-assistant"
                             }`}
                           >
                             <MessagePrimitive.Content
@@ -341,10 +345,10 @@ export default function LabChatPage() {
                                 Text: ({ text, status }) => {
                                   if (status?.type === "running" && !text) {
                                     return (
-                                      <div className="flex gap-1 py-1">
-                                        <span className="w-2 h-2 bg-foreground/40 rounded-full animate-bounce" />
-                                        <span className="w-2 h-2 bg-foreground/40 rounded-full animate-bounce [animation-delay:0.1s]" />
-                                        <span className="w-2 h-2 bg-foreground/40 rounded-full animate-bounce [animation-delay:0.2s]" />
+                                      <div className="loading-dots flex gap-1 py-1">
+                                        <span className="w-2 h-2 bg-foreground/40 rounded-full" />
+                                        <span className="w-2 h-2 bg-foreground/40 rounded-full" />
+                                        <span className="w-2 h-2 bg-foreground/40 rounded-full" />
                                       </div>
                                     );
                                   }
