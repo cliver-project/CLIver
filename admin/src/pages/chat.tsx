@@ -62,23 +62,18 @@ export default function ChatPage() {
   const [selectedAgent, setSelectedAgent] = useState("");
   const [systemMessage, setSystemMessage] = useState("");
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
-  const prevConvIdRef = useRef<string | null>(null);
 
-  // Load config from session options when conversation changes
+  // Load config from session options when conversation data arrives
   useEffect(() => {
     if (!activeConversationId) {
-      // New chat — reset to empty
       setSelectedAgent("");
       setSystemMessage("");
       setSelectedSkills([]);
-      prevConvIdRef.current = null;
       return;
     }
-    if (prevConvIdRef.current === activeConversationId) return;
     // Guard: only apply data belonging to the current URL
     const dataId = conversationDetail?.session?.id;
     if (dataId && dataId !== activeConversationId) return;
-    prevConvIdRef.current = activeConversationId;
 
     const opts = (conversationDetail?.session?.options as Record<string, unknown>) || {};
     setSelectedAgent(String(opts.agent || ""));
