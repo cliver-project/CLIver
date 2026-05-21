@@ -22,8 +22,6 @@ _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     title TEXT,
-    lab_id TEXT,
-    cell_id TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     turn_count INTEGER DEFAULT 0,
@@ -71,50 +69,31 @@ class SessionManager:
         if self._store is None:
             self._store = SQLiteStore(self._db_path)
             self._store.execute_schema(_SCHEMA)
-            # Migrate: add lab_id/cell_id columns for existing databases
-            with self._store.write() as db:
-                cols = [r[1] for r in db.execute("PRAGMA table_info(sessions)").fetchall()]
-                if "lab_id" not in cols:
-                    db.execute("ALTER TABLE sessions ADD COLUMN lab_id TEXT")
-                if "cell_id" not in cols:
-                    db.execute("ALTER TABLE sessions ADD COLUMN cell_id TEXT")
-                db.execute(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_lab_cell "
-                    "ON sessions(lab_id, cell_id) "
-                    "WHERE lab_id IS NOT NULL AND cell_id IS NOT NULL"
-                )
         return self._store
 
     # -- Session lifecycle -----------------------------------------------------
 
-    def create_session(self, title: str = "") -> str:
-        """Create a new session. Returns session_id."""
+    def create_session(self, title: str = "", options: dict | None = None) -> str:
+        """Create a new session. Returns session_id.
+
+        Options (agent, system_message, filter_tools, etc.) are saved as JSON
+        in the options column so the session's full configuration is immediately
+        available for reload/fork without re-sending from the client.
+        """
         session_id = str(uuid.uuid4())[:8]
         now = _timestamp()
         with self._get_store().write() as db:
             db.execute(
-                "INSERT INTO sessions (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
-                (session_id, title or None, now, now),
+                "INSERT INTO sessions (id, title, options, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                (
+                    session_id,
+                    title or None,
+                    json.dumps(options) if options else None,
+                    now,
+                    now,
+                ),
             )
         return session_id
-
-    def get_or_create_cell_session(self, lab_id: str, cell_id: str) -> str:
-        """Find existing session for this cell or create one. Returns session_id."""
-        with self._get_store().write() as db:
-            row = db.execute(
-                "SELECT id FROM sessions WHERE lab_id = ? AND cell_id = ?",
-                (lab_id, cell_id),
-            ).fetchone()
-            if row:
-                return row["id"]
-
-            session_id = str(uuid.uuid4())[:8]
-            now = _timestamp()
-            db.execute(
-                "INSERT INTO sessions (id, title, lab_id, cell_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (session_id, None, lab_id, cell_id, now, now),
-            )
-            return session_id
 
     def list_sessions(self) -> List[Dict[str, Any]]:
         """List all sessions with metadata, most recent first."""
@@ -125,14 +104,8 @@ class SessionManager:
         return [_row_to_dict(r) for r in rows]
 
     def list_general_sessions(self) -> List[Dict[str, Any]]:
-        """List sessions without lab_id/cell_id (general chat conversations)."""
-        with self._get_store().read() as db:
-            rows = db.execute(
-                "SELECT id, title, created_at, updated_at, turn_count, options "
-                "FROM sessions WHERE lab_id IS NULL AND cell_id IS NULL "
-                "ORDER BY updated_at DESC"
-            ).fetchall()
-        return [_row_to_dict(r) for r in rows]
+        """List all chat conversation sessions."""
+        return self.list_sessions()
 
     def delete_session(self, session_id: str) -> bool:
         """Delete a session and its turns (CASCADE)."""
@@ -250,9 +223,7 @@ class SessionManager:
         Fields set to ``null`` in the patch are removed from options.
         """
         with self._get_store().write() as db:
-            row = db.execute(
-                "SELECT options FROM sessions WHERE id = ?", (session_id,)
-            ).fetchone()
+            row = db.execute("SELECT options FROM sessions WHERE id = ?", (session_id,)).fetchone()
             if row is None:
                 return
             current: dict = {}

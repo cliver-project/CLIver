@@ -1,8 +1,0 @@
-name: research-ai-lab
-display_name: Research AI Lab
-description: >
-  Complete research workflow: search academic papers, analyze key findings,
-  and generate a structured literature review. Ideal for researchers, students,
-  and knowledge workers who need to survey a topic quickly.
-tags: [research, papers, writing, academic, literature-review]
-agent_requirements: [cliver]

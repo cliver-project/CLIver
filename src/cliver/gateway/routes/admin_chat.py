@@ -71,7 +71,18 @@ def get_chat_routes(context: dict, require_auth: Callable) -> list:
                 loaded = session_manager.load_turns(session_id)
                 raw_history = [{"role": t["role"], "content": t["content"]} for t in loaded]
         elif session_manager:
-            session_id = session_manager.create_session()
+            # Capture options at session creation time so the full configuration
+            # is immediately persisted and available for reload/fork.
+            session_options = {}
+            if agent_name:
+                session_options["agent"] = agent_name
+            if model:
+                session_options["model"] = model
+            if system_message:
+                session_options["system_message"] = system_message
+            if tool_names:
+                session_options["filter_tools"] = tool_names
+            session_id = session_manager.create_session(options=session_options if session_options else None)
 
         if session_manager and session_id:
             try:
@@ -135,6 +146,11 @@ def get_chat_routes(context: dict, require_auth: Callable) -> list:
             pass
 
         async def generate():
+            # Emit session_id immediately so the UI can navigate to the
+            # conversation URL and show "active conversation" state right away.
+            if session_id:
+                yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n".encode()
+
             full_text = ""
             media_files = []
             stream_media = []

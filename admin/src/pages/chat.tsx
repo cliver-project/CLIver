@@ -261,6 +261,12 @@ export default function ChatPage() {
         systemMessage: systemMessage || undefined,
         filterTools: selectedSkills.length > 0 ? selectedSkills : undefined,
         abortSignal: controller.signal,
+        onSessionReady: (sessionId) => {
+          if (!convId) {
+            loadedConversationIds.current.add(sessionId);
+            navigate(`/admin/chat/${encodeURIComponent(sessionId)}`, { replace: true });
+          }
+        },
         onEvent: (event) => {
           let chunk = "";
           if (event.type === "text" && event.content) {

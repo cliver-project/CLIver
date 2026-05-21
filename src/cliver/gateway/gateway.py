@@ -86,10 +86,7 @@ class Gateway:
         self._tasks_run = 0
         self._start_time = 0.0
         self._thread_queue = ThreadQueue()
-        self._lab_store = None
-        self._runtime_manager = None
-        self._project_provider = None
-        self._scenario_registry = None
+        self._template_store = None
 
     def init(self) -> None:
         """Initialize components that need to run before fork.
@@ -104,30 +101,15 @@ class Gateway:
 
         self._agent_factory = AgentFactory(self._resolved_config or self._get_config_manager().config, self._agent_core)
 
-        # Initialize stores early so routes can be built in create_app()
+        # Initialize template store early so routes can be built in create_app()
         try:
-            from cliver.lab.runtime import RuntimeManager
-            from cliver.lab.store import LabStore
-            from cliver.project.local_provider import LocalProvider
-            from cliver.project.scenario_registry import ScenarioRegistry
-
             profile = CliverProfile(self.config_dir)
-            self._lab_store = LabStore(profile.config_dir, db_path=profile.db_path)
             from cliver.chat_templates import ChatTemplateStore
 
             self._template_store = ChatTemplateStore(profile.config_dir)
-            self._runtime_manager = RuntimeManager()
-            self._project_provider = LocalProvider(profile.db_path)
-
-            builtin_scenarios = Path(__file__).parent.parent / "scenarios"
-            user_scenarios = profile.config_dir / "scenarios"
-            dirs = [d for d in [builtin_scenarios, user_scenarios] if d.exists()]
-            self._scenario_registry = ScenarioRegistry(dirs)
-            if builtin_scenarios.exists():
-                self._scenario_registry.set_builtin_dir(builtin_scenarios)
-            logger.info("Lab and project stores initialized")
+            logger.info("Template store initialized")
         except Exception as e:
-            logger.error(f"Failed to init stores: {e}")
+            logger.error(f"Failed to init template store: {e}")
 
     def _get_config_manager(self) -> "ConfigManager":
         """Get config manager, using pre-resolved config if available."""
@@ -213,39 +195,15 @@ class Gateway:
                 username=admin_user, password=admin_pass, context=admin_ctx
             )
 
-            # Lab and project API routes BEFORE admin SPA catch-all
+            # Template routes
             try:
-                if self._lab_store and self._agent_factory and cli_sm:
-                    from cliver.gateway.routes_lab import get_lab_routes
-                    from cliver.gateway.routes_project import get_project_routes
+                if hasattr(self, "_template_store") and self._template_store:
+                    from cliver.gateway.routes.admin_templates import get_template_routes
 
-                    routes.extend(
-                        get_lab_routes(
-                            self._lab_store,
-                            self._runtime_manager,
-                            self._agent_factory,
-                            cli_sm,
-                            shared_auth,
-                        )
-                    )
-                    routes.extend(
-                        get_project_routes(
-                            self._project_provider,
-                            self._scenario_registry,
-                            self._lab_store,
-                            shared_auth,
-                        )
-                    )
-                    logger.info("Lab and project routes registered")
-
-                    # Template routes
-                    if hasattr(self, "_template_store") and self._template_store:
-                        from cliver.gateway.routes.admin_templates import get_template_routes
-
-                        routes.extend(get_template_routes(self._template_store, shared_auth))
-                        logger.info("Template routes registered")
+                    routes.extend(get_template_routes(self._template_store, shared_auth))
+                    logger.info("Template routes registered")
             except Exception as e:
-                logger.error(f"Failed to register lab/project routes: {e}")
+                logger.error(f"Failed to register template routes: {e}")
 
             routes.extend(admin_api_routes)
             # SPA catch-all appended LAST — after all API routes
@@ -296,29 +254,6 @@ class Gateway:
                 self._agent_core = self._create_agent_core()
             except Exception as e:
                 logger.error(f"Failed to create AgentCore: {e}")
-
-        # Stores already initialized in init() — skip if already set
-        if not self._lab_store:
-            try:
-                from cliver.lab.runtime import RuntimeManager
-                from cliver.lab.store import LabStore
-                from cliver.project.local_provider import LocalProvider
-                from cliver.project.scenario_registry import ScenarioRegistry
-
-                profile = CliverProfile(self.config_dir)
-                self._lab_store = LabStore(profile.config_dir, db_path=profile.db_path)
-                self._runtime_manager = RuntimeManager()
-                self._project_provider = LocalProvider(profile.db_path)
-
-                builtin_scenarios = Path(__file__).parent.parent / "scenarios"
-                user_scenarios = profile.config_dir / "scenarios"
-                dirs = [d for d in [builtin_scenarios, user_scenarios] if d.exists()]
-                self._scenario_registry = ScenarioRegistry(dirs)
-                if builtin_scenarios.exists():
-                    self._scenario_registry.set_builtin_dir(builtin_scenarios)
-                logger.info("Lab and project stores initialized (late)")
-            except Exception as e:
-                logger.error(f"Failed to initialize lab/project stores: {e}")
 
         # Cron scheduler
         try:
@@ -389,12 +324,6 @@ class Gateway:
                 self._run_store.close()
             except Exception as e:
                 logger.error(f"Error closing run store: {e}")
-
-        if self._runtime_manager:
-            try:
-                await self._runtime_manager.shutdown_all()
-            except Exception as e:
-                logger.error(f"Error shutting down runtime manager: {e}")
 
         self._thread_queue.cleanup(max_idle_seconds=0)
 

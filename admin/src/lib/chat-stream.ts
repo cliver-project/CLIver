@@ -5,12 +5,13 @@ export interface ChatArtifact {
 }
 
 export interface ChatStreamEvent {
-  type: "thinking" | "text" | "tool" | "tool_use" | "tool_result" | "status" | "done" | "error";
+  type: "thinking" | "text" | "tool" | "tool_use" | "tool_result" | "status" | "session" | "done" | "error";
   content?: string;
   text?: string;
   message?: string;
   data?: unknown;
   artifacts?: ChatArtifact[];
+  session_id?: string;
 }
 
 export interface ConversationMessage {
@@ -20,24 +21,15 @@ export interface ConversationMessage {
 }
 
 export interface ChatStreamConfig {
-  // Lab mode: set both labId and cellId to use lab-cell chat endpoint.
-  // General mode: omit both to use the central /admin/api/chat endpoint.
-  labId?: string;
-  cellId?: string;
-
-  // Common
   message: string;
   abortSignal?: AbortSignal;
   onEvent: (event: ChatStreamEvent) => void;
   onError: (error: Error) => void;
   onDone: (fullText: string, artifacts: ChatArtifact[], sessionId?: string) => void;
+  // Called as soon as the backend creates the session — before any content.
+  // The UI can navigate to the conversation URL immediately.
+  onSessionReady?: (sessionId: string) => void;
 
-  // Lab-specific (used only when labId + cellId are provided)
-  agent?: string;
-  systemPrompt?: string;
-  outputFormat?: string;
-
-  // General-chat params (used only when labId + cellId are omitted)
   agent?: string;
   model?: string;
   systemMessage?: string;
@@ -47,37 +39,22 @@ export interface ChatStreamConfig {
   saveMediaDir?: string;
 }
 
-function isLabMode(config: ChatStreamConfig): config is ChatStreamConfig & { labId: string; cellId: string } {
-  return !!(config.labId && config.cellId);
-}
-
 export async function streamChat(config: ChatStreamConfig): Promise<void> {
   const { message, abortSignal, onEvent, onError, onDone } = config;
 
-  const url = isLabMode(config)
-    ? `/admin/api/labs/${encodeURIComponent(config.labId)}/cells/${encodeURIComponent(config.cellId)}/chat`
-    : "/admin/api/chat";
-
-  const body = isLabMode(config)
-    ? JSON.stringify({
-        message,
-        agent: config.agent,
-        system_prompt: config.systemPrompt || "",
-        output_format: config.outputFormat || "text",
-      })
-    : JSON.stringify({
-        message,
-        agent: config.agent,
-        model: config.model,
-        system_message: config.systemMessage,
-        conversation_history: config.conversationHistory,
-        session_id: config.conversationId,
-        filter_tools: config.filterTools,
-        save_media_dir: config.saveMediaDir,
-      });
+  const body = JSON.stringify({
+    message,
+    agent: config.agent,
+    model: config.model,
+    system_message: config.systemMessage,
+    conversation_history: config.conversationHistory,
+    session_id: config.conversationId,
+    filter_tools: config.filterTools,
+    save_media_dir: config.saveMediaDir,
+  });
 
   try {
-    const response = await fetch(url, {
+    const response = await fetch("/admin/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body,
@@ -101,7 +78,6 @@ export async function streamChat(config: ChatStreamConfig): Promise<void> {
     let fullText = "";
     let artifacts: ChatArtifact[] = [];
 
-    // General chat emits "chunk"/"content" events; normalize to "text" for callers.
     const normalizeEvent = (raw: Record<string, unknown>): ChatStreamEvent => {
       if (raw.type === "chunk" || raw.type === "content") {
         return { type: "text", content: raw.content as string };
@@ -126,12 +102,15 @@ export async function streamChat(config: ChatStreamConfig): Promise<void> {
 
             onEvent(event);
 
+            if (event.type === "session" && event.session_id) {
+              config.onSessionReady?.(event.session_id);
+              continue;
+            }
             if (event.type === "text" && event.content) {
               fullText += event.content;
             }
             if (event.type === "done") {
-              // General chat returns media/media_files, lab chat returns artifacts
-              const rawArtifacts = (raw.media || raw.artifacts || raw.media_files) as ChatArtifact[] | undefined;
+              const rawArtifacts = (raw.media || raw.media_files) as ChatArtifact[] | undefined;
               if (rawArtifacts) {
                 artifacts = rawArtifacts;
               }
