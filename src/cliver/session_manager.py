@@ -235,8 +235,8 @@ class SessionManager:
     # -- Options ---------------------------------------------------------------
 
     def save_options(self, session_id: str, options: Dict[str, Any]) -> None:
-        """Persist session options as JSON."""
-        clean = {k: v for k, v in options.items() if v is not None and k != "statusbar"}
+        """Persist session options as JSON — full replacement, keeps nulls."""
+        clean = {k: v for k, v in options.items() if k != "statusbar"}
         with self._get_store().write() as db:
             db.execute(
                 "UPDATE sessions SET options = ? WHERE id = ?",
