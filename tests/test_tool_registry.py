@@ -52,7 +52,7 @@ class TestDefaultToolsets:
         names = registry.tool_names
         assert "Skill" in names
         assert "TodoRead" in names
-        assert "Ask" in names
+        assert "CliverHelp" in names
 
     def test_web_fetch_always_available(self):
         """web_fetch and web_search should always be available."""

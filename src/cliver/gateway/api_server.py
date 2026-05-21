@@ -32,7 +32,6 @@ def _server_system_appender():
     return (
         "\n## Server Mode\n\n"
         "You are running as a backend API service. "
-        "Do NOT use Ask — there is no human to respond. "
         "Make autonomous decisions. Be concise and direct."
     )
 

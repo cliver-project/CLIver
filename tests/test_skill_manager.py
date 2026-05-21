@@ -690,11 +690,11 @@ class TestBuildSkillToolFilter:
     async def test_extra_filter_applied_first(self):
         skill = self._make_skill(allowed_tools=["Read", "Write"])
 
-        async def remove_ask(ui, tools):
-            return [t for t in tools if t.name != "Ask"]
+        async def remove_bash(ui, tools):
+            return [t for t in tools if t.name != "Bash"]
 
-        tool_filter = build_skill_tool_filter([skill], extra_filter=remove_ask)
-        tools = [self.FakeTool("Read"), self.FakeTool("Ask"), self.FakeTool("Bash")]
+        tool_filter = build_skill_tool_filter([skill], extra_filter=remove_bash)
+        tools = [self.FakeTool("Read"), self.FakeTool("Bash"), self.FakeTool("Write")]
         filtered = await tool_filter("test", tools)
         names = [t.name for t in filtered]
-        assert names == ["Read"]
+        assert names == ["Read", "Write"]

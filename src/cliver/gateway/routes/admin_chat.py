@@ -104,7 +104,6 @@ def get_chat_routes(context: dict, require_auth: Callable) -> list:
             parts.append(
                 "\n## Server Mode\n\n"
                 "You are running as a backend API service via the admin portal. "
-                "Do NOT use Ask — there is no human to respond. "
                 "Make autonomous decisions. Be concise and direct. "
                 "After a tool call completes, summarize the result briefly — "
                 "do NOT repeat the tool input or arguments you already provided."

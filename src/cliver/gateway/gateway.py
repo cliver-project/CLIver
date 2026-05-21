@@ -491,7 +491,7 @@ class Gateway:
             from cliver.skill_manager import SkillManager, build_skill_appender, build_skill_tool_filter
 
             async def _task_filter_tools(_input, tools):
-                return [t for t in tools if t.name != "Ask"]
+                return tools  # No default filtering; skills may add their own
 
             system_appender = None
             tool_filter = _task_filter_tools
@@ -892,16 +892,11 @@ class Gateway:
                 return (
                     "# IM Context\n\n"
                     "You are responding in an IM conversation (e.g. Slack, Telegram).\n\n"
-                    "## No Interactive Input\n\n"
-                    "The Ask tool is NOT available in IM — there is no interactive UI "
-                    "for the user to select options or answer prompts. You MUST NOT "
-                    "attempt to use Ask, present numbered choices, or wait for user "
-                    "selection. Instead:\n"
-                    "- If you need to choose between options, pick the most reasonable "
-                    "default and proceed. State what you chose in your reply so the "
-                    "user can redirect if needed.\n"
-                    "- If you genuinely cannot proceed without user input, reply with "
-                    "a plain text question and wait for the user's next message.\n\n"
+                    "When you need to ask the user a question, use the structured format "
+                    "described in the Interaction Guidelines — the user can reply in the "
+                    "same thread. If you need to choose between options, pick the most "
+                    "reasonable default and proceed. State what you chose so the user "
+                    "can redirect if needed.\n\n"
                     "## Task Creation Rules\n\n"
                     "Prefer the CreateTask tool — it auto-attaches IM origin.\n"
                     "If you must use the shell command instead, you MUST include "
@@ -913,9 +908,6 @@ class Gateway:
                     "- Recurring task: use the `schedule` parameter (cron expression)\n"
                 ) + task_context
 
-            async def _im_filter_tools(user_input, tools):
-                return [t for t in tools if t.name != "Ask"]
-
             try:
                 response = await asyncio.to_thread(
                     self._agent_core.process_user_input,
@@ -924,7 +916,6 @@ class Gateway:
                     audio_files=audio_files or None,
                     conversation_history=conversation_history or None,
                     system_message_appender=_im_system_appender,
-                    filter_tools=_im_filter_tools,
                 )
 
                 from cliver.media_handler import MultimediaResponseHandler, extract_response_text

@@ -1371,8 +1371,15 @@ class AgentCore:
                 When None, tools run without confirmation.
         """
         try:
+            import json
+
             # Track tool calls for skill auto-learning
             ctx.tool_call_count += len(tool_calls)
+
+            # Deduplicate identical tool calls within the same batch.
+            # LLMs occasionally emit the same tool+args twice in one turn;
+            # re-executing is wasteful and can trigger provider errors.
+            seen_keys: set[tuple] = set()
 
             for tool_call in tool_calls:
                 mcp_server = tool_call.get("mcp_server", "")
@@ -1383,6 +1390,23 @@ class AgentCore:
                     logger.warning("Skipping tool call with empty name: %s", tool_call)
                     continue
                 full_tool_name = f"{mcp_server}#{tool_name}" if mcp_server else tool_name
+
+                # Skip duplicate tool calls within the same batch
+                try:
+                    dedup_key = (full_tool_name, json.dumps(args, sort_keys=True, default=str))
+                except Exception:
+                    dedup_key = (full_tool_name, repr(args))
+                if dedup_key in seen_keys:
+                    logger.info("Skipping duplicate tool call: %s", full_tool_name)
+                    messages.append(
+                        ToolMessage(
+                            content="[Duplicate tool call skipped — same tool and arguments "
+                            "were already executed in this batch. See the previous result above.]",
+                            tool_call_id=tool_call_id,
+                        )
+                    )
+                    continue
+                seen_keys.add(dedup_key)
 
                 # Emit start event early so the CLI can stop the spinner
                 # before any permission dialog or tool execution
@@ -1415,18 +1439,26 @@ class AgentCore:
                 # Preserve additional_kwargs from the original LLM response on the
                 # first tool call so that provider-specific fields like DeepSeek's
                 # reasoning_content are retained in conversation history.
-                # Also preserve content blocks (e.g. Anthropic thinking blocks) so
-                # APIs that require round-tripping them don't reject the next call.
+                # Also preserve non-tool_use content blocks (e.g. Anthropic thinking
+                # blocks) so APIs that require round-tripping them don't reject the
+                # next call.  Tool_use blocks are intentionally stripped from content
+                # because the tool_calls dict already provides them; duplicates cause
+                # error 2013 ("tool call result does not follow tool call") on some
+                # Anthropic-compatible providers (e.g. MiniMax).
                 extra_kwargs: Dict[str, Any] = {}
                 msg_content: Any = ""
                 if llm_response is not None:
                     resp_kwargs = getattr(llm_response, "additional_kwargs", None)
                     if resp_kwargs:
                         extra_kwargs = dict(resp_kwargs)
-                    # Preserve list content (Anthropic content blocks including thinking)
                     resp_content = getattr(llm_response, "content", None)
                     if isinstance(resp_content, list) and resp_content:
-                        msg_content = resp_content
+                        # Keep thinking/text blocks; strip tool_use (already in tool_calls)
+                        filtered = [
+                            b for b in resp_content if not (isinstance(b, dict) and b.get("type") == "tool_use")
+                        ]
+                        if filtered:
+                            msg_content = filtered
                     # Only attach to the first tool call message
                     llm_response = None
                 tool_execution_message = AIMessage(
@@ -1567,7 +1599,9 @@ class AgentCore:
                 extra_kwargs = dict(resp_kwargs)
             resp_content = getattr(llm_response, "content", None)
             if isinstance(resp_content, list) and resp_content:
-                msg_content = resp_content
+                filtered = [b for b in resp_content if not (isinstance(b, dict) and b.get("type") == "tool_use")]
+                if filtered:
+                    msg_content = filtered
         messages.append(
             AIMessage(
                 content=msg_content,

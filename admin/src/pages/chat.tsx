@@ -185,6 +185,8 @@ export default function ChatPage() {
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+      // Don't submit while IME is composing (e.g. Chinese/Japanese/Korean input)
+      if (e.nativeEvent.isComposing) return;
       e.preventDefault();
       handleSend();
     }

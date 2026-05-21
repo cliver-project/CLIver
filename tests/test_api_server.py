@@ -150,7 +150,7 @@ class TestServerMode:
         appender = _build_system_appender(None)
         result = appender()
         assert "Server Mode" in result
-        assert "Do NOT use Ask" in result
+        assert "Do NOT use Ask" not in result
 
 
 # ---------------------------------------------------------------------------

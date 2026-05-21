@@ -262,15 +262,11 @@ class TestParseToolCallsFromContent:
 
     def test_tool_calls_with_nested_args(self):
         """Regex-based parsing must handle nested JSON in args."""
-        content = (
-            '{"tool_calls": [{"name": "Ask", '
-            '"args": {"question": "Pick", "options": [{"label": "A", "description": "opt A"}]}, '
-            '"id": "c1"}]}'
-        )
+        content = '{"tool_calls": [{"name": "Read", "args": {"file_path": "/tmp/test"}, "id": "c1"}]}'
         msg = AIMessage(content=content)
         result = parse_tool_calls_from_content(msg)
         assert result is not None
-        assert result[0]["name"] == "Ask"
+        assert result[0]["name"] == "Read"
 
     def test_no_tool_calls_keyword(self):
         msg = AIMessage(content="Just a normal response with no tools")
