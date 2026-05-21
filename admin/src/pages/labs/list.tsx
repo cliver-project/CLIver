@@ -146,7 +146,7 @@ export default function LabListPage() {
 
       <ConfirmDialog
         open={!!deleteTarget}
-        onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
+        onCancel={() => setDeleteTarget(null)}
         title={t("labs.deleteTitle")}
         description={t("labs.deleteDesc", { name: deleteTarget?.title || "" })}
         onConfirm={() => {
@@ -155,7 +155,6 @@ export default function LabListPage() {
             setDeleteTarget(null);
           }
         }}
-        loading={deleteLab.isPending}
       />
     </div>
   );
