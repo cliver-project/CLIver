@@ -86,26 +86,15 @@ export default function ChatPage() {
     setSelectedSkills(Array.isArray(opts.skills) ? (opts.skills as string[]) : []);
   }, [activeConversationId, conversationDetail]);
 
-  // Ref for latest config values — avoids stale closure issues when
-  // multiple setters are called in the same event (e.g. template apply)
-  const configRef = useRef({ agent: "", systemMessage: "", skills: [] as string[] });
-  configRef.current = { agent: selectedAgent, systemMessage, skills: selectedSkills };
-
-  // Persist full config — always sends all three fields
-  const persistConfig = useCallback(
-    (agent: string, sysMsg: string, skills: string[]) => {
+  // Persist config changes — sends only the changed fields as a merge patch
+  const persistPatch = useCallback(
+    (patch: Record<string, unknown>) => {
       if (!activeConversationId) return;
       fetch(`/admin/api/conversations/${encodeURIComponent(activeConversationId)}`, {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          options: {
-            agent: agent || null,
-            system_prompt: sysMsg || null,
-            skills: skills.length > 0 ? skills : null,
-          },
-        }),
+        body: JSON.stringify({ options: patch }),
       }).catch(() => {});
     },
     [activeConversationId],
@@ -113,19 +102,16 @@ export default function ChatPage() {
 
   const handleSetAgent = useCallback((v: string) => {
     setSelectedAgent(v);
-    const cur = configRef.current;
-    persistConfig(v, cur.systemMessage, cur.skills);
-  }, [persistConfig]);
+    persistPatch({ agent: v || null });
+  }, [persistPatch]);
   const handleSetSystemMessage = useCallback((v: string) => {
     setSystemMessage(v);
-    const cur = configRef.current;
-    persistConfig(cur.agent, v, cur.skills);
-  }, [persistConfig]);
+    persistPatch({ system_prompt: v || null });
+  }, [persistPatch]);
   const handleSetSkills = useCallback((v: string[]) => {
     setSelectedSkills(v);
-    const cur = configRef.current;
-    persistConfig(cur.agent, cur.systemMessage, v);
-  }, [persistConfig]);
+    persistPatch({ skills: v.length > 0 ? v : null });
+  }, [persistPatch]);
 
   // Constrain App wrapper height so only the conversation viewport scrolls
   useEffect(() => {
@@ -179,10 +165,18 @@ export default function ChatPage() {
   }, [inputText, isRunning]);
 
   const handleApplyTemplate = useCallback((tpl: { system_prompt: string; skills: string[]; agent?: string | null }) => {
-    handleSetSystemMessage(tpl.system_prompt);
-    handleSetSkills(tpl.skills);
-    if (tpl.agent) handleSetAgent(tpl.agent);
-  }, [handleSetSystemMessage, handleSetSkills, handleSetAgent]);
+    const vAgent = tpl.agent || "";
+    const vSkills = tpl.skills;
+    setSelectedAgent(vAgent);
+    setSystemMessage(tpl.system_prompt);
+    setSelectedSkills(vSkills);
+    // Send all three as a single merge patch
+    persistPatch({
+      agent: vAgent || null,
+      system_prompt: tpl.system_prompt || null,
+      skills: vSkills.length > 0 ? vSkills : null,
+    });
+  }, [persistPatch]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey) {

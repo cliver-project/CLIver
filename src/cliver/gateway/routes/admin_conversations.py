@@ -72,7 +72,7 @@ def get_conversations_routes(context: dict, require_auth: Callable) -> list:
         if title is not None:
             await _run_in_thread(session_manager.update_title, session_id, title)
         if options is not None:
-            await _run_in_thread(session_manager.save_options, session_id, options)
+            await _run_in_thread(session_manager.merge_options, session_id, options)
         return JSONResponse({"status": "updated"})
 
     return [

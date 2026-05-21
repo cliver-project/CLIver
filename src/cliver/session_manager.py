@@ -243,6 +243,36 @@ class SessionManager:
                 (json.dumps(clean, ensure_ascii=False), session_id),
             )
 
+    def merge_options(self, session_id: str, patch: Dict[str, Any]) -> None:
+        """Merge fields into existing options in one transaction.
+
+        Reads current options, applies patch fields, writes back atomically.
+        Fields set to ``null`` in the patch are removed from options.
+        """
+        with self._get_store().write() as db:
+            row = db.execute(
+                "SELECT options FROM sessions WHERE id = ?", (session_id,)
+            ).fetchone()
+            if row is None:
+                return
+            current: dict = {}
+            if row["options"]:
+                try:
+                    current = json.loads(row["options"])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            for k, v in patch.items():
+                if k == "statusbar":
+                    continue
+                if v is None:
+                    current.pop(k, None)
+                else:
+                    current[k] = v
+            db.execute(
+                "UPDATE sessions SET options = ? WHERE id = ?",
+                (json.dumps(current, ensure_ascii=False) if current else None, session_id),
+            )
+
     def load_options(self, session_id: str) -> Dict[str, Any]:
         """Load persisted session options."""
         with self._get_store().read() as db:
