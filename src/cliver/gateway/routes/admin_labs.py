@@ -148,14 +148,16 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
             except Exception as e:
                 actual_text = f"Error: {e}"
 
-            results.append({
-                "test_id": test.id,
-                "name": test.name,
-                "input": test.input,
-                "expected_output": test.expected_output,
-                "actual_output": actual_text,
-                "expected_files": test.expected_files,
-            })
+            results.append(
+                {
+                    "test_id": test.id,
+                    "name": test.name,
+                    "input": test.input,
+                    "expected_output": test.expected_output,
+                    "actual_output": actual_text,
+                    "expected_files": test.expected_files,
+                }
+            )
 
         return JSONResponse({"results": results})
 
@@ -226,7 +228,8 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
                 session_options["system_prompt"] = system_message
             if tool_names:
                 session_options["skills"] = tool_names
-            session_id = session_manager.create_lab_session(lab_id, options=session_options if session_options else None)
+            session_options = session_options if session_options else None
+            session_id = session_manager.create_lab_session(lab_id, options=session_options)
 
         if session_manager and session_id:
             try:
@@ -269,6 +272,7 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
         _tool_filter = None
         if tool_names:
             allowed = set(tool_names)
+
             async def _tool_filter(user_input, tools):
                 return [t for t in tools if t.name in allowed]
 
