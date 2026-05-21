@@ -176,7 +176,7 @@ export default function ChatPage() {
     setSystemMessage(tpl.system_prompt);
     setSelectedSkills(tpl.skills);
     if (tpl.agent) setSelectedAgent(tpl.agent);
-  }, []);
+  }, [setSystemMessage, setSelectedSkills, setSelectedAgent]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
