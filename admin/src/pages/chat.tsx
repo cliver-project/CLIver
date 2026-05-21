@@ -75,6 +75,9 @@ export default function ChatPage() {
       return;
     }
     if (prevConvIdRef.current === activeConversationId) return;
+    // Guard: only apply data belonging to the current URL
+    const dataId = conversationDetail?.session?.id;
+    if (dataId && dataId !== activeConversationId) return;
     prevConvIdRef.current = activeConversationId;
 
     const opts = (conversationDetail?.session?.options as Record<string, unknown>) || {};
