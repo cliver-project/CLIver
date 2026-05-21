@@ -566,6 +566,25 @@ function ComposerConfigPanel({
   const { data: agents } = useAgents();
   const { data: skills } = useSkills();
 
+  // Local textarea state + debounced sync to parent
+  const [localSysMsg, setLocalSysMsg] = useState(systemMessage);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Sync from parent prop when it changes externally (e.g. template apply)
+  useEffect(() => {
+    setLocalSysMsg(systemMessage);
+  }, [systemMessage]);
+
+  const handleSysMsgChange = useCallback((v: string) => {
+    setLocalSysMsg(v);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => onSystemMessageChange(v), 400);
+  }, [onSystemMessageChange]);
+
+  useEffect(() => {
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+  }, []);
+
   const agentList: string[] = agents
     ? (agents as Array<Record<string, unknown>>).map((a) => a.name as string).filter(Boolean)
     : [];
@@ -599,8 +618,8 @@ function ComposerConfigPanel({
       <div>
         <label className="text-[11px] font-medium text-muted-foreground">{t("agents.systemPrompt")}</label>
         <textarea
-          value={systemMessage}
-          onChange={(e) => onSystemMessageChange(e.target.value)}
+          value={localSysMsg}
+          onChange={(e) => handleSysMsgChange(e.target.value)}
           rows={3}
           className="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-ring"
           placeholder="Instructions for the AI..."
