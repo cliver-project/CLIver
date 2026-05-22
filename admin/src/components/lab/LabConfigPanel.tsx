@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useAgents, useSkills } from "@/hooks/use-api";
+import { useModels, useSkills } from "@/hooks/use-api";
 import { useTranslation } from "@/i18n";
 
 interface LabConfigPanelProps {
@@ -24,7 +24,7 @@ export function LabConfigPanel({
   saving,
 }: LabConfigPanelProps) {
   const { t } = useTranslation();
-  const { data: agents } = useAgents();
+  const { data: modelsData } = useModels();
   const { data: skills } = useSkills();
 
   const [localSysMsg, setLocalSysMsg] = useState(systemPrompt);
@@ -44,9 +44,7 @@ export function LabConfigPanel({
     return () => { if (timerRef.current) clearTimeout(timerRef.current); };
   }, []);
 
-  const modelList: string[] = agents
-    ? (agents as Array<Record<string, unknown>>).map((a) => a.name as string).filter(Boolean)
-    : [];
+  const modelList: string[] = modelsData?.models || [];
   const skillList: string[] = skills
     ? (skills as Array<Record<string, unknown>>).map((s) => s.name as string).filter(Boolean)
     : [];
