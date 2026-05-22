@@ -22,24 +22,26 @@ logger = logging.getLogger(__name__)
 class AgentFactory:
     """Creates and caches Agent instances by name from config."""
 
-    def __init__(self, config: "AppConfig", agent_core: "AgentCore"):
+    def __init__(self, config: "AppConfig", agent_core: "AgentCore", agent_store=None):
         self._config = config
         self._agent_core = agent_core
+        self._agent_store = agent_store
         self._agents: Dict[str, Agent] = {}
 
         from cliver.llm.rate_limiter import RateLimiter, parse_period
 
         self._rate_limiter = RateLimiter()
-        for _name, provider in self._config.providers.items():
-            if provider.rate_limit:
-                key = f"{provider.api_url}|{provider.api_key or ''}"
-                period_s = parse_period(provider.rate_limit.period)
-                self._rate_limiter.configure(
-                    key,
-                    requests=provider.rate_limit.requests,
-                    period_seconds=period_s,
-                    margin=provider.rate_limit.margin,
-                )
+        if self._config.providers:
+            for _name, provider in self._config.providers.items():
+                if provider.rate_limit:
+                    key = f"{provider.api_url}|{provider.api_key or ''}"
+                    period_s = parse_period(provider.rate_limit.period)
+                    self._rate_limiter.configure(
+                        key,
+                        requests=provider.rate_limit.requests,
+                        period_seconds=period_s,
+                        margin=provider.rate_limit.margin,
+                    )
 
     def create(self, name: str = None) -> Agent:
         name = name or self._config.default_agent or "default"
@@ -65,6 +67,18 @@ class AgentFactory:
     def _resolve_agent_config(self, name: str) -> "AgentConfig":
         from cliver.config import AgentConfig
 
+        # Try DB store first
+        if self._agent_store:
+            db_agent = self._agent_store.get_agent_by_name(name)
+            if db_agent:
+                return AgentConfig(
+                    type=db_agent.type,
+                    description=db_agent.description,
+                    role=db_agent.role,
+                    model=db_agent.model,
+                )
+
+        # Fall back to config.yaml
         agents = self._config.agents or {}
         if name in agents:
             return agents[name]
@@ -75,7 +89,11 @@ class AgentFactory:
             model_name = self._config.default_model
         if not model_name:
             return None, None
-        model_config = self._config.models.get(model_name)
+        # Use AgentCore's llm_models which are now DB-backed
+        if self._agent_core and self._agent_core.llm_models:
+            model_config = self._agent_core.llm_models.get(model_name)
+        else:
+            model_config = self._config.models.get(model_name)
         provider_config = (
             model_config._provider_config if model_config and hasattr(model_config, "_provider_config") else None
         )

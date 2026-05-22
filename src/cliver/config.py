@@ -371,8 +371,12 @@ class AppConfig(BaseModel):
         default=True,
         description="Automatically fall back to another model when the current one fails (default: on).",
     )
-    agents: Dict[str, AgentConfig] = Field(default_factory=dict, description="Named agent configurations")
-    default_agent: Optional[str] = Field(default=None, description="Default agent name")
+    # Deprecated: agents are now stored in SQLite via AgentStore.
+    # Kept for backward compatibility with existing config.yaml files.
+    agents: Dict[str, AgentConfig] = Field(default_factory=dict, description="Named agent configurations (deprecated, use AgentStore)")
+    # Deprecated: stored in SQLite via AgentStore.
+    # Kept for backward compatibility.
+    default_agent: Optional[str] = Field(default=None, description="Default agent name (deprecated, use AgentStore)")
 
     def resolve_secrets(self, key_store=None) -> None:
         """Resolve all secret references in the config tree.
