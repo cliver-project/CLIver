@@ -55,7 +55,7 @@ def _list_mcp_servers(cliver: Cliver):
             else:
                 info = srv.url or ""
                 if srv.headers:
-                    info += f" [headers]"
+                    info += " [headers]"
                 if srv.auth:
                     try:
                         auth_data = json.loads(srv.auth)

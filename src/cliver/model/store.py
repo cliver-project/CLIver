@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from cliver.db import SQLiteStore
-from cliver.model.models import Provider, Endpoint, Model, _now
+from cliver.model.models import Endpoint, Model, Provider, _now
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS providers (
@@ -138,8 +138,7 @@ class ModelStore:
         """Get a provider by id, or None if not found."""
         with self._get_store().read() as db:
             row = db.execute(
-                "SELECT id, name, type, api_key, rate_limit, created_at, updated_at "
-                "FROM providers WHERE id = ?",
+                "SELECT id, name, type, api_key, rate_limit, created_at, updated_at FROM providers WHERE id = ?",
                 (provider_id,),
             ).fetchone()
         if row is None:
@@ -180,8 +179,7 @@ class ModelStore:
         existing.updated_at = _now()
         with self._get_store().write() as db:
             db.execute(
-                "UPDATE providers SET name=?, type=?, api_key=?, rate_limit=?, updated_at=? "
-                "WHERE id=?",
+                "UPDATE providers SET name=?, type=?, api_key=?, rate_limit=?, updated_at=? WHERE id=?",
                 (
                     existing.name,
                     existing.type,
@@ -213,8 +211,7 @@ class ModelStore:
         )
         with self._get_store().write() as db:
             db.execute(
-                "INSERT INTO endpoints (id, provider_id, base_url, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO endpoints (id, provider_id, base_url, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
                 (
                     endpoint.id,
                     endpoint.provider_id,
@@ -236,8 +233,7 @@ class ModelStore:
                 ).fetchall()
             else:
                 rows = db.execute(
-                    "SELECT id, provider_id, base_url, created_at, updated_at "
-                    "FROM endpoints ORDER BY updated_at DESC"
+                    "SELECT id, provider_id, base_url, created_at, updated_at FROM endpoints ORDER BY updated_at DESC"
                 ).fetchall()
         return [Endpoint(**dict(r)) for r in rows]
 
@@ -245,8 +241,7 @@ class ModelStore:
         """Get an endpoint by id, or None if not found."""
         with self._get_store().read() as db:
             row = db.execute(
-                "SELECT id, provider_id, base_url, created_at, updated_at "
-                "FROM endpoints WHERE id = ?",
+                "SELECT id, provider_id, base_url, created_at, updated_at FROM endpoints WHERE id = ?",
                 (endpoint_id,),
             ).fetchone()
         if row is None:

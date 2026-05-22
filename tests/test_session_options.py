@@ -30,7 +30,6 @@ def _make_session_defaults():
 def _setup(runner, load_cliver):
     """Add a test model and create a Cliver instance with session defaults."""
     from cliver.model.store import ModelStore
-    from cliver.cli import Cliver
 
     store = ModelStore.from_config_dir(Cliver().config_dir)
     provider = store.create_provider("ollama", "ollama")

@@ -1,8 +1,8 @@
-import pytest
 from pathlib import Path
 
+import pytest
+
 from cliver.model.store import ModelStore
-from cliver.model.models import Provider, Endpoint, Model
 
 
 @pytest.fixture
@@ -60,7 +60,9 @@ class TestEndpointCRUD:
     def test_unique_provider_base_url(self, store):
         p = store.create_provider(name="openai", type="openai")
         store.create_endpoint(p.id, "https://api.openai.com/v1")
-        with pytest.raises(Exception):
+        import sqlite3
+
+        with pytest.raises(sqlite3.IntegrityError):
             store.create_endpoint(p.id, "https://api.openai.com/v1")
 
     def test_list_endpoints(self, store):
@@ -101,10 +103,10 @@ class TestModelCRUD:
     def test_list_models_filter_by_capability(self, store):
         p = store.create_provider(name="openai", type="openai")
         ep = store.create_endpoint(p.id, "https://api.openai.com/v1")
-        store.create_model(provider_id=p.id, endpoint_id=ep.id, name="gpt-4o",
-                           capabilities=["text_to_text", "image_to_text"])
-        store.create_model(provider_id=p.id, endpoint_id=ep.id, name="dall-e-3",
-                           capabilities=["text_to_image"])
+        store.create_model(
+            provider_id=p.id, endpoint_id=ep.id, name="gpt-4o", capabilities=["text_to_text", "image_to_text"]
+        )
+        store.create_model(provider_id=p.id, endpoint_id=ep.id, name="dall-e-3", capabilities=["text_to_image"])
         text_models = store.list_models(capability="text_to_text")
         assert len(text_models) == 1
         assert text_models[0].name == "gpt-4o"
@@ -113,8 +115,7 @@ class TestModelCRUD:
         p = store.create_provider(name="openai", type="openai")
         ep = store.create_endpoint(p.id, "https://api.openai.com/v1")
         m1 = store.create_model(provider_id=p.id, endpoint_id=ep.id, name="gpt-4o")
-        m2 = store.create_model(provider_id=p.id, endpoint_id=ep.id, name="gpt-4o-mini",
-                                is_default=1)
+        m2 = store.create_model(provider_id=p.id, endpoint_id=ep.id, name="gpt-4o-mini", is_default=1)
         store.set_default_model(m1.id)
         m1_updated = store.get_model(m1.id)
         m2_updated = store.get_model(m2.id)

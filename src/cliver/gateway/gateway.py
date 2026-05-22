@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from cliver.agent_profile import CliverProfile
+from cliver.agents.store import AgentStore
 from cliver.config import ConfigManager
 from cliver.gateway.adapter_manager import AdapterManager
 from cliver.gateway.adapters import BUILTIN_ADAPTERS
@@ -29,7 +30,6 @@ from cliver.gateway.platform_adapter import (
 from cliver.gateway.scheduler import CronScheduler
 from cliver.gateway.task_store import TaskStore
 from cliver.llm import AgentCore
-from cliver.agents.store import AgentStore
 from cliver.model.store import ModelStore
 from cliver.session_manager import SessionManager
 from cliver.task_manager import TaskDefinition, TaskManager, TaskRun

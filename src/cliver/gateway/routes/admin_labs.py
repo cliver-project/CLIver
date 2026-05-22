@@ -352,7 +352,10 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
 
             logger.info(
                 "Lab chat start — lab=%s session=%s model=%s skills=%d mcp_servers=%s",
-                lab_id, session_id or "new", model, len(tool_names) if tool_names else 0,
+                lab_id,
+                session_id or "new",
+                model,
+                len(tool_names) if tool_names else 0,
                 mcp_server_names or "none",
             )
 

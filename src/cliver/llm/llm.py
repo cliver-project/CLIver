@@ -187,6 +187,7 @@ class AgentCore:
         skill_auto_learn: bool = False,
         model_auto_fallback: bool = True,
         mcp_store=None,
+        model_store=None,
     ):
         self.llm_models = llm_models
         self.default_model = default_model
@@ -200,6 +201,7 @@ class AgentCore:
         self.skill_auto_learn = skill_auto_learn
         self.model_auto_fallback = model_auto_fallback
         self.mcp_store = mcp_store
+        self.model_store = model_store
 
         # Merge database MCP servers with config-based ones; DB takes precedence
         merged_servers = dict(mcp_servers)
@@ -253,6 +255,74 @@ class AgentCore:
                     self.rate_limiter.configure(name, rate_limit.requests, period_s, rate_limit.margin)
                 except Exception as e:
                     logger.warning("Invalid rate limit for provider %s: %s", name, e)
+
+    def refresh_models_from_store(self) -> None:
+        """Reload llm_models dict from ModelStore."""
+        if self.model_store is None:
+            return
+        from cliver.config import ModelConfig, ModelOptions, PricingConfig, ProviderConfig
+        from cliver.model_capabilities import ModelCapability
+
+        providers = {p.id: p for p in self.model_store.list_providers()}
+        endpoints = {}
+        models = self.model_store.list_models()
+        new_models = {}
+
+        for m in models:
+            provider = providers.get(m.provider_id)
+            if not provider:
+                continue
+            if m.endpoint_id not in endpoints:
+                ep = self.model_store.get_endpoint(m.endpoint_id)
+                if ep:
+                    endpoints[m.endpoint_id] = ep
+
+            ep = endpoints.get(m.endpoint_id)
+            canonical = f"{provider.name}/{m.name}"
+
+            prov_config = ProviderConfig(
+                name=provider.name,
+                type=provider.type,
+                api_url=ep.base_url if ep else "",
+                api_key=provider.api_key,
+                rate_limit=provider.rate_limit,
+            )
+
+            mc = ModelConfig(name=canonical, provider=provider.name)
+            mc._provider_config = prov_config
+            if m.options:
+                mc.options = ModelOptions(**m.options)
+            if m.capabilities:
+                try:
+                    mc.capabilities = {ModelCapability(c) for c in m.capabilities}
+                except ValueError:
+                    pass
+            mc.think_mode = bool(m.think_mode) if m.think_mode is not None else None
+            mc.context_window = m.context_window
+            if m.pricing:
+                mc.pricing = PricingConfig(**m.pricing)
+
+            new_models[canonical] = mc
+
+        self.llm_models = new_models
+
+        default = self.model_store.get_default_model()
+        if default:
+            provider = providers.get(default.provider_id)
+            self.default_model = f"{provider.name}/{default.name}" if provider else default.name
+
+        # Also refresh rate limiters
+        provider_configs = {}
+        for p in providers.values():
+            pc = ProviderConfig(
+                name=p.name,
+                type=p.type,
+                api_url="",
+                api_key=p.api_key,
+                rate_limit=p.rate_limit,
+            )
+            provider_configs[p.name] = pc
+        self.configure_rate_limits(provider_configs)
 
     async def _wait_for_rate_limit(self, model: str) -> None:
         """Wait for rate limit if the model's provider has one configured."""

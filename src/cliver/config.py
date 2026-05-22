@@ -4,7 +4,7 @@ Configuration module for Cliver client.
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional, Set
 
 import yaml
 from pydantic import BaseModel, Field, model_validator
@@ -373,7 +373,10 @@ class AppConfig(BaseModel):
     )
     # Deprecated: agents are now stored in SQLite via AgentStore.
     # Kept for backward compatibility with existing config.yaml files.
-    agents: Dict[str, AgentConfig] = Field(default_factory=dict, description="Named agent configurations (deprecated, use AgentStore)")
+    agents: Dict[str, AgentConfig] = Field(
+        default_factory=dict,
+        description="Named agent configurations (deprecated, use AgentStore)",
+    )
     # Deprecated: stored in SQLite via AgentStore.
     # Kept for backward compatibility.
     default_agent: Optional[str] = Field(default=None, description="Default agent name (deprecated, use AgentStore)")
@@ -636,7 +639,6 @@ class ConfigManager:
         """List all LLM Models"""
         return self.config.models
 
-
     def set_user_agent(self, user_agent: str) -> None:
         """Set the User-Agent header string."""
         self.config.user_agent = user_agent
@@ -697,7 +699,6 @@ class ConfigManager:
             self._save_config()
             return True
         return False
-
 
     def list_providers(self) -> Dict[str, ProviderConfig]:
         return self.config.providers

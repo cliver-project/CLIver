@@ -42,8 +42,9 @@ def load_cliver(init_config, config_manager):
 
 @pytest.fixture()
 def simple_mcp_server(init_config, config_manager):
-    from cliver.mcp.store import MCPServerStore
     import json
+
+    from cliver.mcp.store import MCPServerStore
 
     store = MCPServerStore.from_config_dir(init_config)
     store.create_server(

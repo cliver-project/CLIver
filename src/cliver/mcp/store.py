@@ -92,7 +92,8 @@ class MCPServerStore:
         )
         with self._get_store().write() as db:
             db.execute(
-                "INSERT INTO mcp_servers (id, name, transport, url, auth, headers, command, args, envs, created_at, updated_at) "
+                "INSERT INTO mcp_servers "
+                "(id, name, transport, url, auth, headers, command, args, envs, created_at, updated_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     server.id,
@@ -147,8 +148,8 @@ class MCPServerStore:
         existing.updated_at = _now()
         with self._get_store().write() as db:
             db.execute(
-                "UPDATE mcp_servers SET name=?, transport=?, url=?, auth=?, headers=?, command=?, args=?, envs=?, updated_at=? "
-                "WHERE id=?",
+                "UPDATE mcp_servers SET name=?, transport=?, url=?, auth=?, headers=?, "
+                "command=?, args=?, envs=?, updated_at=? WHERE id=?",
                 (
                     existing.name,
                     existing.transport,

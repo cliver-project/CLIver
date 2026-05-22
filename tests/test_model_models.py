@@ -1,5 +1,4 @@
-import json
-from cliver.model.models import Provider, Endpoint, Model
+from cliver.model.models import Endpoint, Model, Provider
 
 
 class TestProvider:

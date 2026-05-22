@@ -130,6 +130,7 @@ class Cliver:
         # Initialize MCP store for database-backed MCP servers
         try:
             from cliver.mcp.store import MCPServerStore
+
             _mcp_store = MCPServerStore.from_config_dir(self.config_dir)
         except Exception:
             _mcp_store = None
@@ -137,6 +138,7 @@ class Cliver:
         # Initialize ModelStore for database-backed model configurations
         try:
             from cliver.model.store import ModelStore
+
             _model_store = ModelStore.from_config_dir(self.config_dir)
         except Exception:
             _model_store = None
@@ -160,7 +162,7 @@ class Cliver:
         )
         self.agent_core.configure_rate_limits(self.config_manager.config.providers)
         # Refresh models from DB store if available
-        if hasattr(self.agent_core, 'model_store') and self.agent_core.model_store:
+        if hasattr(self.agent_core, "model_store") and self.agent_core.model_store:
             self.agent_core.refresh_models_from_store()
 
         from cliver.agent_profile import set_agent_factory

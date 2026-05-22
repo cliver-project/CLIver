@@ -366,9 +366,9 @@ def test_llm_model_remove(load_cliver, init_config):
     store = ModelStore.from_config_dir(init_config)
     provider = store.create_provider("ollama", "ollama")
     endpoint = store.create_endpoint(provider.id, "http://localhost:11434")
-    model = store.create_model(provider.id, endpoint.id, "test_model")
+    store.create_model(provider.id, endpoint.id, "test_model")
 
-    canonical = f"ollama/test_model"
+    canonical = "ollama/test_model"
 
     result = CliRunner().invoke(load_cliver, ["model", "list"])
     assert result.exit_code == 0
@@ -703,5 +703,3 @@ def test_provider_remove_no_models(load_cliver, init_config):
     assert result.exit_code == 0
     cfg = ConfigManager(init_config).config
     assert "orphan" not in cfg.providers
-
-
