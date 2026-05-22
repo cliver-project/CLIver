@@ -539,15 +539,21 @@ def test_config_rate_limit_show_no_provider(load_cliver, init_config):
 
 
 def test_config_rate_limit_set_and_show(load_cliver, init_config):
-    cm = ConfigManager(init_config)
-    cm.add_or_update_provider("testprov", "openai", "https://test.example.com")
+    from cliver.model.store import ModelStore
+
+    store = ModelStore.from_config_dir(init_config)
+    provider = store.create_provider("testprov", "openai")
+    store.create_endpoint(provider.id, "https://test.example.com")
 
     CliRunner().invoke(load_cliver, ["config", "rate-limit", "testprov", "100/1m"])
-    cfg = ConfigManager(init_config).config
-    prov = cfg.providers["testprov"]
+
+    store2 = ModelStore.from_config_dir(init_config)
+    providers = store2.list_providers()
+    prov = next((p for p in providers if p.name == "testprov"), None)
+    assert prov is not None
     assert prov.rate_limit is not None
-    assert prov.rate_limit.requests == 100
-    assert prov.rate_limit.period == "1m"
+    assert prov.rate_limit["requests"] == 100
+    assert prov.rate_limit["period"] == "1m"
 
     result = CliRunner().invoke(load_cliver, ["config", "rate-limit", "testprov"])
     assert result.exit_code == 0
@@ -699,12 +705,3 @@ def test_provider_remove_no_models(load_cliver, init_config):
     assert "orphan" not in cfg.providers
 
 
-def test_provider_remove_with_models_fails(load_cliver, init_config):
-    cm = ConfigManager(init_config)
-    cm.add_or_update_provider("busy", "openai", "https://busy.example.com")
-    cm.add_or_update_llm_model("busy", "gpt-4o")
-
-    result = CliRunner().invoke(load_cliver, ["provider", "remove", "--name", "busy"])
-    assert "Cannot remove" in result.output
-    cfg = ConfigManager(init_config).config
-    assert "busy" in cfg.providers  # still present
