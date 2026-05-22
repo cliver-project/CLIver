@@ -15,7 +15,6 @@ class ProviderEnum(str, Enum):
     OPENAI = "openai"
     ANTHROPIC = "anthropic"
     DEEPSEEK = "deepseek"
-    VLLM = "vllm"
 
 
 class ModelCapability(Enum):
@@ -60,11 +59,6 @@ PROVIDER_CAPABILITIES = {
         ModelCapability.TOOL_CALLING,
         ModelCapability.JSON_MODE,
         ModelCapability.THINK_MODE,
-    },
-    "vllm": {
-        ModelCapability.TEXT_TO_TEXT,
-        ModelCapability.TOOL_CALLING,
-        ModelCapability.JSON_MODE,
     },
 }
 

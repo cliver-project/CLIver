@@ -84,7 +84,7 @@ providers:
 
 | Field | Description |
 |-------|-------------|
-| `type` | Provider type (`openai`, `ollama`, `vllm`) |
+| `type` | Provider type (`openai`, `ollama`, `deepseek`, `anthropic`) |
 | `api_url` | Base URL for the provider API |
 | `api_key` | API key (supports Jinja2 templates) |
 | `rate_limit.requests` | Maximum requests allowed per period |
@@ -147,7 +147,7 @@ cliver model list
 cliver model add --name my-model --provider ollama --url http://localhost:11434 --name-in-provider llama3.2:latest
 
 # Update an LLM model
-cliver model set --name my-model --provider vllm
+cliver model set --name my-model --provider openai
 
 # Remove an LLM model
 cliver model remove --name my-model

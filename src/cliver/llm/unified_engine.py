@@ -246,7 +246,6 @@ _KWARG_BUILDERS: Dict[str, Callable[[ModelConfig, str | None], dict]] = {
     "deepseek": _build_deepseek_kwargs,
     "anthropic": _build_anthropic_kwargs,
     "ollama": _build_ollama_kwargs,
-    "vllm": _build_openai_kwargs,
 }
 
 
