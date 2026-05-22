@@ -498,7 +498,7 @@ export default function LabChatPage() {
           {tests && tests.length > 0 && (
             <div>
               <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
-                {t("lab.goldenTests")} ({tests.length})
+                {t("lab.benchmarks")} ({tests.length})
               </p>
               <div className="space-y-1.5">
                 {tests.map((test) => (

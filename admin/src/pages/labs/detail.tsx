@@ -116,7 +116,7 @@ export default function LabDetailPage() {
       <Card className="p-4">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-medium flex items-center gap-2">
-            <FlaskConical className="w-5 h-5" /> {t("lab.goldenTests")}
+            <FlaskConical className="w-5 h-5" /> {t("lab.benchmarks")}
           </h2>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={() => setShowAddTest(true)}>
