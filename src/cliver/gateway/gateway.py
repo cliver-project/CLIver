@@ -29,6 +29,7 @@ from cliver.gateway.platform_adapter import (
 from cliver.gateway.scheduler import CronScheduler
 from cliver.gateway.task_store import TaskStore
 from cliver.llm import AgentCore
+from cliver.agents.store import AgentStore
 from cliver.model.store import ModelStore
 from cliver.session_manager import SessionManager
 from cliver.task_manager import TaskDefinition, TaskManager, TaskRun
@@ -90,6 +91,7 @@ class Gateway:
         self._template_store = None
         self._lab_store = None
         self._model_store = None
+        self._agent_store = None
 
     def init(self) -> None:
         """Initialize components that need to run before fork.
@@ -107,6 +109,14 @@ class Gateway:
         except Exception as e:
             logger.error(f"Failed to init model store: {e}")
             self._model_store = None
+
+        # Initialize AgentStore
+        try:
+            self._agent_store = AgentStore.from_config_dir(self.config_dir)
+            logger.info("Agent store initialized")
+        except Exception as e:
+            logger.error(f"Failed to init agent store: {e}")
+            self._agent_store = None
 
         from cliver.agents import AgentFactory
 
@@ -222,6 +232,7 @@ class Gateway:
                 "cli_session_manager": cli_sm,
                 "mcp_store": getattr(self, "_mcp_store", None),
                 "model_store": self._model_store,
+                "agent_store": self._agent_store,
             }
             # Admin API routes (returns auth function for reuse)
             admin_api_routes, spa_routes, shared_auth = get_admin_routes(
@@ -644,7 +655,9 @@ class Gateway:
             skill_auto_learn=config_manager.config.skill_auto_learn,
             model_auto_fallback=config_manager.config.model_auto_fallback,
             mcp_store=getattr(self, "_mcp_store", None),
+            model_store=self._model_store,
         )
+        executor.refresh_models_from_store()
         executor.configure_rate_limits(config_manager.config.providers)
         return executor
 

@@ -282,21 +282,6 @@ def get_info_routes(context: dict, require_auth: Callable) -> list:
         return JSONResponse({"error": "not found"}, status_code=404)
 
     @require_auth
-    async def handle_agents(request: Request):
-        from cliver.config import ConfigManager
-
-        config_dir = context.get("config_dir")
-        if not config_dir:
-            return JSONResponse([])
-        cm = ConfigManager(config_dir)
-        return JSONResponse(
-            [
-                {"name": name, "type": ac.type, "model": ac.model, "description": ac.description}
-                for name, ac in cm.config.agents.items()
-            ]
-        )
-
-    @require_auth
     async def handle_models(request: Request):
         gateway = context.get("gateway")
         if not gateway or not getattr(gateway, "_agent_core", None):
@@ -326,7 +311,6 @@ def get_info_routes(context: dict, require_auth: Callable) -> list:
 
     return [
         Route("/admin/api/restart", handle_restart, methods=["POST"]),
-        Route("/admin/api/agents", handle_agents),
         Route("/admin/api/status", handle_status),
         Route("/admin/api/skills", handle_skills),
         Route("/admin/api/adapters", handle_adapters),
