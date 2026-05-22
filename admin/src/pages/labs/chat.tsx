@@ -127,9 +127,12 @@ export default function LabChatPage() {
     }
   }, [messages]);
 
+  const BUILTIN_SKILLS = ["brainstorm", "write-plan", "execute-plan"];
+
   const handleSaveConfig = useCallback(async () => {
     if (!activeSessionId) return;
     setSavingConfig(true);
+    const skills = [...new Set([...BUILTIN_SKILLS, ...selectedSkills])];
     try {
       await fetch(
         `/admin/api/labs/${encodeURIComponent(labId!)}/chat/${encodeURIComponent(activeSessionId)}`,
@@ -141,7 +144,7 @@ export default function LabChatPage() {
             options: {
               model: selectedModel || null,
               system_prompt: systemPrompt || null,
-              skills: selectedSkills.length > 0 ? selectedSkills : null,
+              skills,
             },
           }),
         },
@@ -223,7 +226,7 @@ export default function LabChatPage() {
           conversation_id: convId ?? undefined,
           model: selectedModel || undefined,
           system_message: systemPrompt || undefined,
-          filter_tools: selectedSkills.length > 0 ? selectedSkills : undefined,
+          filter_tools: [...new Set([...BUILTIN_SKILLS, ...selectedSkills])],
         });
 
         const response = await fetch(
@@ -419,9 +422,9 @@ export default function LabChatPage() {
                     onKeyDown={handleKeyDown}
                     placeholder={t("lab.typeMessage")}
                     disabled={isRunning}
-                    rows={1}
+                    rows={3}
                     className="flex-1 min-w-0 rounded-lg border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground disabled:opacity-50 resize-none"
-                    style={{ minHeight: "40px", maxHeight: "160px" }}
+                    style={{ minHeight: "72px", maxHeight: "200px" }}
                     onInput={(e) => {
                       const el = e.currentTarget;
                       el.style.height = "auto";
