@@ -1,14 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useModels, useSkills } from "@/hooks/use-api";
+import { useModels, useSkills, useMCPServers } from "@/hooks/use-api";
 import { useTranslation } from "@/i18n";
 
 interface LabConfigPanelProps {
   selectedModel: string;
   systemPrompt: string;
   selectedSkills: string[];
+  selectedMCPServerIds: string[];
   onModelChange: (v: string) => void;
   onSystemPromptChange: (v: string) => void;
   onSkillsChange: (v: string[]) => void;
+  onMCPServersChange: (v: string[]) => void;
   onSave: () => void;
   saving: boolean;
 }
@@ -17,15 +19,18 @@ export function LabConfigPanel({
   selectedModel,
   systemPrompt,
   selectedSkills,
+  selectedMCPServerIds,
   onModelChange,
   onSystemPromptChange,
   onSkillsChange,
+  onMCPServersChange,
   onSave,
   saving,
 }: LabConfigPanelProps) {
   const { t } = useTranslation();
   const { data: modelsData } = useModels();
   const { data: skills } = useSkills();
+  const { data: mcpServers } = useMCPServers();
 
   const [localSysMsg, setLocalSysMsg] = useState(systemPrompt);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -85,12 +90,40 @@ export function LabConfigPanel({
           />
         </div>
 
-        {/* MCP Servers (placeholder) */}
+        {/* MCP Servers */}
         <div>
           <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
             {t("lab.mcpServers")}
           </label>
-          <p className="text-[11px] text-muted-foreground mt-1">{t("lab.comingSoon")}</p>
+          {!mcpServers || mcpServers.length === 0 ? (
+            <p className="text-[11px] text-muted-foreground mt-1">{t("mcpServers.noServers")}</p>
+          ) : (
+            <div className="mt-1 flex flex-wrap gap-1">
+              {mcpServers.map((srv) => {
+                const active = selectedMCPServerIds.includes(srv.id);
+                return (
+                  <button
+                    key={srv.id}
+                    type="button"
+                    onClick={() =>
+                      onMCPServersChange(
+                        active
+                          ? selectedMCPServerIds.filter((id) => id !== srv.id)
+                          : [...selectedMCPServerIds, srv.id],
+                      )
+                    }
+                    className={`rounded-md px-2 py-0.5 text-[11px] transition-colors ${
+                      active
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground hover:bg-secondary"
+                    }`}
+                  >
+                    {srv.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Knowledge Bases (placeholder) */}

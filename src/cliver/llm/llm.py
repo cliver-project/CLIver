@@ -186,6 +186,7 @@ class AgentCore:
         enabled_toolsets: Optional[List[str]] = None,
         skill_auto_learn: bool = False,
         model_auto_fallback: bool = True,
+        mcp_store=None,
     ):
         self.llm_models = llm_models
         self.default_model = default_model
@@ -198,7 +199,18 @@ class AgentCore:
         self.on_permission_prompt = on_permission_prompt
         self.skill_auto_learn = skill_auto_learn
         self.model_auto_fallback = model_auto_fallback
-        self.mcp_caller = MCPServersCaller(mcp_servers=mcp_servers)
+        self.mcp_store = mcp_store
+
+        # Merge database MCP servers with config-based ones; DB takes precedence
+        merged_servers = dict(mcp_servers)
+        if mcp_store is not None:
+            try:
+                db_servers = mcp_store.get_connection_dicts()
+                merged_servers.update(db_servers)
+            except Exception:
+                pass
+
+        self.mcp_caller = MCPServersCaller(mcp_servers=merged_servers)
         self.llm_engines: Dict[str, LLMInferenceEngine] = {}
 
         # Configure tool registry with toolsets from config

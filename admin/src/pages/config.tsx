@@ -26,10 +26,6 @@ type Provider = {
     capabilities?: string[];
   }>;
 };
-type MCPServer = {
-  transport: string; command?: string; args?: string[]; env?: Record<string, string>;
-  url?: string; headers?: Record<string, string>;
-};
 type Gateway = {
   host: string; port: number; admin_username: string; admin_password: string;
   log_file: string; log_max_bytes: number; log_backup_count: number;
@@ -488,101 +484,6 @@ function ProvidersTab({ providers, onChange }: {
 }
 
 // ─────────────────────────────────────────────
-// Tab: MCP Servers
-// ─────────────────────────────────────────────
-
-function MCPServerCard({ name, server, onChange, onDelete, className }: {
-  name: string; server: MCPServer; onChange: (s: MCPServer) => void; onDelete: () => void; className?: string;
-}) {
-  const { t } = useTranslation();
-  const isStdio = server.transport === "stdio";
-
-  return (
-    <CollapsibleCard title={name} onDelete={onDelete} className={className}>
-      <Field label={t("config.transport")}>
-        <select className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-          value={server.transport} onChange={(e) => onChange({ ...server, transport: e.target.value })}>
-          <option value="stdio">stdio</option>
-          <option value="streamable_http">streamable_http</option>
-          <option value="sse">sse</option>
-          <option value="websocket">websocket</option>
-        </select>
-      </Field>
-      {isStdio ? (
-        <>
-          <Field label={t("config.command")}>
-            <Input value={server.command ?? ""} onChange={(e) => onChange({ ...server, command: e.target.value })} />
-          </Field>
-          <Field label={t("config.args")}>
-            <TagInput tags={server.args ?? []} onChange={(v) => onChange({ ...server, args: v })}
-              placeholder={t("config.argsPlaceholder")} addLabel={t("config.addArg")} />
-          </Field>
-          <Field label={t("config.env")}>
-            <KVEditor entries={server.env ?? {}} onChange={(v) => onChange({ ...server, env: v })}
-              keyLabel={t("config.envKey")} valueLabel={t("config.envValue")} addLabel={t("config.addEnv")} />
-          </Field>
-        </>
-      ) : (
-        <>
-          <Field label={t("config.url")}>
-            <Input value={server.url ?? ""} onChange={(e) => onChange({ ...server, url: e.target.value })} />
-          </Field>
-          <Field label={t("config.headers")}>
-            <KVEditor entries={server.headers ?? {}} onChange={(v) => onChange({ ...server, headers: v })}
-              keyLabel={t("config.headerKey")} valueLabel={t("config.headerValue")} addLabel={t("config.addHeader")} />
-          </Field>
-        </>
-      )}
-    </CollapsibleCard>
-  );
-}
-
-function MCPServersTab({ servers, onChange }: {
-  servers: Record<string, MCPServer>; onChange: (s: Record<string, MCPServer>) => void;
-}) {
-  const { t } = useTranslation();
-  const [adding, setAdding] = useState(false);
-  const [newName, setNewName] = useState("");
-
-  const addServer = () => {
-    if (!newName.trim() || newName in servers) return;
-    onChange({ ...servers, [newName.trim()]: { transport: "stdio", command: "" } });
-    setNewName(""); setAdding(false);
-  };
-
-  return (
-    <div className="space-y-4">
-      {Object.keys(servers).length === 0 && (
-        <p className="text-sm text-muted-foreground">{t("config.noServers")}</p>
-      )}
-      {Object.entries(servers).map(([name, srv], i) => (
-        <MCPServerCard key={name} name={name} server={srv}
-          className={i % 2 === 1 ? "bg-muted/30" : ""}
-          onChange={(s) => onChange({ ...servers, [name]: s })}
-          onDelete={() => { const copy = { ...servers }; delete copy[name]; onChange(copy); }} />
-      ))}
-      {adding ? (
-        <div className="flex gap-2">
-          <Input value={newName} onChange={(e) => setNewName(e.target.value)}
-            placeholder={t("config.serverName")} className="flex-1"
-            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addServer(); } }} />
-          <Button size="sm" onClick={addServer} disabled={!newName.trim()}>
-            {t("config.addServer")}
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => setAdding(false)}>
-            <X className="w-3 h-3" />
-          </Button>
-        </div>
-      ) : (
-        <Button variant="outline" onClick={() => setAdding(true)}>
-          <Plus className="w-4 h-4 mr-1" />{t("config.addServer")}
-        </Button>
-      )}
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────
 // Tab: Gateway
 // ─────────────────────────────────────────────
 
@@ -678,9 +579,6 @@ export default function ConfigPage() {
   const setProviders = useCallback((p: Record<string, Provider>) => {
     setConfig((prev) => ({ ...prev, providers: p })); setDirty(true);
   }, []);
-  const setServers = useCallback((s: Record<string, MCPServer>) => {
-    setConfig((prev) => ({ ...prev, mcpServers: s })); setDirty(true);
-  }, []);
   const setGateway = useCallback((g: Gateway) => {
     setConfig((prev) => ({ ...prev, gateway: g })); setDirty(true);
   }, []);
@@ -768,7 +666,6 @@ export default function ConfigPage() {
         <TabsList>
           <TabsTrigger value="general">{t("config.general")}</TabsTrigger>
           <TabsTrigger value="providers">{t("config.providers")}</TabsTrigger>
-          <TabsTrigger value="mcpServers">{t("config.mcpServers")}</TabsTrigger>
           <TabsTrigger value="gateway">{t("config.gateway")}</TabsTrigger>
           <TabsTrigger value="session">{t("config.session")}</TabsTrigger>
         </TabsList>
@@ -777,9 +674,6 @@ export default function ConfigPage() {
         </TabsContent>
         <TabsContent value="providers">
           <ProvidersTab providers={(config.providers ?? {}) as Record<string, Provider>} onChange={setProviders} />
-        </TabsContent>
-        <TabsContent value="mcpServers">
-          <MCPServersTab servers={(config.mcpServers ?? {}) as Record<string, MCPServer>} onChange={setServers} />
         </TabsContent>
         <TabsContent value="gateway">
           <GatewayTab gateway={(config.gateway as Gateway) ?? null} onChange={setGateway} />

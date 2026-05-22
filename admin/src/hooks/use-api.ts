@@ -368,3 +368,71 @@ export function useRunGoldenTests(labId: string) {
     },
   });
 }
+
+// --- MCP Servers ---
+
+export interface MCPServer {
+  id: string;
+  name: string;
+  transport: string;
+  url?: string;
+  auth?: string;
+  headers?: string;
+  command?: string;
+  args?: string;
+  envs?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export function useMCPServers() {
+  return useQuery({
+    queryKey: ["mcp-servers"],
+    queryFn: () => api<MCPServer[]>("/mcp-servers"),
+  });
+}
+
+export function useMCPServer(id: string | undefined) {
+  return useQuery({
+    queryKey: ["mcp-server", id],
+    queryFn: () => api<MCPServer>(`/mcp-servers/${encodeURIComponent(id!)}`),
+    enabled: !!id,
+  });
+}
+
+export function useCreateMCPServer() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Partial<MCPServer>) =>
+      apiPost<MCPServer>("/mcp-servers", data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["mcp-servers"] });
+    },
+  });
+}
+
+export function useUpdateMCPServer(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Partial<MCPServer>) =>
+      api(`/mcp-servers/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["mcp-server", id] });
+      qc.invalidateQueries({ queryKey: ["mcp-servers"] });
+    },
+  });
+}
+
+export function useDeleteMCPServer() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiDelete(`/mcp-servers/${encodeURIComponent(id)}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["mcp-servers"] });
+    },
+  });
+}

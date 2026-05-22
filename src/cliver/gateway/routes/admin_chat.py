@@ -151,6 +151,8 @@ def get_chat_routes(context: dict, require_auth: Callable) -> list:
             if session_id:
                 yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n".encode()
 
+            logger.info("Chat start — session=%s model=%s", session_id or "new", model)
+
             full_text = ""
             media_files = []
             stream_media = []
@@ -201,7 +203,7 @@ def get_chat_routes(context: dict, require_auth: Callable) -> list:
                 yield f"data: {json.dumps(done_data)}\n\n".encode()
 
             except Exception as e:
-                logger.error("Chat streaming error: %s", e)
+                logger.error("Chat streaming error: %s", e, exc_info=True)
                 yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n".encode()
 
         return StreamingResponse(

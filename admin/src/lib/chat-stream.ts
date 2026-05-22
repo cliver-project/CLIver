@@ -37,6 +37,10 @@ export interface ChatStreamConfig {
   conversationId?: string;
   filterTools?: string[];
   saveMediaDir?: string;
+  // Override the API endpoint (default: /admin/api/chat).
+  apiPath?: string;
+  // Extra fields to include in the request body.
+  extraBody?: Record<string, unknown>;
 }
 
 export async function streamChat(config: ChatStreamConfig): Promise<void> {
@@ -51,10 +55,12 @@ export async function streamChat(config: ChatStreamConfig): Promise<void> {
     session_id: config.conversationId,
     filter_tools: config.filterTools,
     save_media_dir: config.saveMediaDir,
+    ...config.extraBody,
   });
 
   try {
-    const response = await fetch("/admin/api/chat", {
+    const apiPath = config.apiPath || "/admin/api/chat";
+    const response = await fetch(apiPath, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body,

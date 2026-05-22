@@ -42,11 +42,16 @@ def load_cliver(init_config, config_manager):
 
 @pytest.fixture()
 def simple_mcp_server(init_config, config_manager):
-    config_manager.add_or_update_stdio_mcp_server(
+    from cliver.mcp.store import MCPServerStore
+    import json
+
+    store = MCPServerStore.from_config_dir(init_config)
+    store.create_server(
         "ocp",
-        "ocp_mcp_server_start",
-        ["arg-a", "arg-b"],
-        {"KUBECONFIG": "~/.kube/config"},
+        transport="stdio",
+        command="ocp_mcp_server_start",
+        args=json.dumps(["arg-a", "arg-b"]),
+        envs=json.dumps({"KUBECONFIG": "~/.kube/config"}),
     )
 
 

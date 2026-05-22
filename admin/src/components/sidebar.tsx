@@ -11,6 +11,7 @@ import {
   PanelLeftClose,
   PanelLeft,
   FlaskConical,
+  Server,
 } from "lucide-react";
 import { CliverLogo } from "@/components/cliver-logo";
 import { useTranslation } from "@/i18n";
@@ -34,6 +35,7 @@ const navSections: NavSection[] = [
     items: [
       { to: "/admin/chat", icon: MessageSquare, labelKey: "sidebar.chat" },
       { to: "/admin/labs", icon: FlaskConical, labelKey: "sidebar.labs" },
+      { to: "/admin/mcp-servers", icon: Server, labelKey: "sidebar.mcpServers" },
       { to: "/admin/tasks", icon: ListTodo, labelKey: "sidebar.tasks" },
     ],
   },

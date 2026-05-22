@@ -219,7 +219,18 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
         agent_name = body.get("agent", "").strip()
         raw_history = body.get("conversation_history") or []
         tool_names = body.get("filter_tools")
+        mcp_server_ids = body.get("mcp_server_ids") or []
         save_media_dir = body.get("save_media_dir")
+
+        # Resolve MCP server IDs to names for tool prefix filtering.
+        # Run in thread to avoid blocking the event loop.
+        mcp_server_names: list[str] = []
+        if mcp_server_ids:
+            mcp_store = context.get("mcp_store")
+            if mcp_store:
+                all_servers = await _run_in_thread(mcp_store.list_servers)
+                id_to_name = {s.id: s.name for s in all_servers}
+                mcp_server_names = [id_to_name[sid] for sid in mcp_server_ids if sid in id_to_name]
 
         # Resolve agent config
         agent_role = None
@@ -258,6 +269,8 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
                 session_options["system_prompt"] = system_message
             if tool_names:
                 session_options["skills"] = tool_names
+            if mcp_server_ids:
+                session_options["mcp_servers"] = mcp_server_ids
             session_options = session_options if session_options else None
             session_id = session_manager.create_lab_session(lab_id, options=session_options)
 
@@ -300,11 +313,21 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
             return "\n".join(parts)
 
         _tool_filter = None
-        if tool_names:
-            allowed = set(tool_names)
+        if tool_names or mcp_server_names:
+            allowed_skills = set(tool_names) if tool_names else set()
+            allowed_mcp_prefixes = {f"{n}#" for n in mcp_server_names} if mcp_server_names else set()
 
             async def _tool_filter(user_input, tools):
-                return [t for t in tools if t.name in allowed]
+                result = []
+                for t in tools:
+                    name = t.name
+                    if name in allowed_skills:
+                        result.append(t)
+                    elif allowed_mcp_prefixes and any(name.startswith(p) for p in allowed_mcp_prefixes):
+                        result.append(t)
+                    elif not allowed_skills and not allowed_mcp_prefixes:
+                        result.append(t)
+                return result
 
         from cliver.permissions import PermissionMode
 
@@ -326,6 +349,12 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
         async def generate():
             if session_id:
                 yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n".encode()
+
+            logger.info(
+                "Lab chat start — lab=%s session=%s model=%s skills=%d mcp_servers=%s",
+                lab_id, session_id or "new", model, len(tool_names) if tool_names else 0,
+                mcp_server_names or "none",
+            )
 
             full_text = ""
             media_files = []
@@ -377,7 +406,7 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
                 yield f"data: {json.dumps(done_data)}\n\n".encode()
 
             except Exception as e:
-                logger.error("Lab chat streaming error: %s", e)
+                logger.error("Lab chat streaming error: %s", e, exc_info=True)
                 yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n".encode()
 
         return StreamingResponse(

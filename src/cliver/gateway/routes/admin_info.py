@@ -120,7 +120,7 @@ def _get_config(ctx: dict) -> dict:
 
         config_dir = ctx.get("config_dir")
         if not config_dir:
-            return {"models": {}, "providers": {}, "mcp_servers": {}, "agents": {}, "default_agent": None}
+            return {"models": {}, "providers": {}, "agents": {}, "default_agent": None}
 
         cm = ConfigManager(config_dir)
 
@@ -138,28 +138,18 @@ def _get_config(ctx: dict) -> dict:
             if pc.image_model:
                 providers[name]["image_model"] = pc.image_model
 
-        mcp_servers = {}
-        for name, sc in cm.config.mcpServers.items():
-            entry = {"transport": sc.transport}
-            if hasattr(sc, "command"):
-                entry["command"] = sc.command
-            if hasattr(sc, "url"):
-                entry["url"] = sc.url
-            mcp_servers[name] = entry
-
         agents = {
             name: {"type": ac.type, "model": ac.model, "description": ac.description, "role": ac.role}
             for name, ac in cm.config.agents.items()
         }
         return {
             "providers": providers,
-            "mcp_servers": mcp_servers,
             "agents": agents,
             "default_agent": cm.config.default_agent,
         }
     except Exception as e:
         logger.warning("Failed to get config: %s", e)
-        return {"providers": {}, "mcp_servers": {}, "agents": {}}
+        return {"providers": {}, "agents": {}}
 
 
 def get_info_routes(context: dict, require_auth: Callable) -> list:
@@ -211,10 +201,6 @@ def get_info_routes(context: dict, require_auth: Callable) -> list:
                 GatewayConfig,
                 ProviderConfig,
                 SessionConfig,
-                SSEMCPServerConfig,
-                StdioMCPServerConfig,
-                StreamableHttpMCPServerConfig,
-                WebSocketMCPServerConfig,
             )
 
             cm = ConfigManager(config_dir)
@@ -229,23 +215,6 @@ def get_info_routes(context: dict, require_auth: Callable) -> list:
                             cfg.pop("models", None)
                             providers[pname] = ProviderConfig(**cfg)
                     cm.config.providers = providers
-
-                elif key in ("mcpServers", "mcp_servers"):
-                    servers = {}
-                    for sname, sdata in value.items():
-                        if isinstance(sdata, dict):
-                            cfg = {"name": sname}
-                            cfg.update(sdata)
-                            transport = cfg.get("transport")
-                            if transport == "stdio":
-                                servers[sname] = StdioMCPServerConfig(**cfg)
-                            elif transport == "sse":
-                                servers[sname] = SSEMCPServerConfig(**cfg)
-                            elif transport == "streamable_http":
-                                servers[sname] = StreamableHttpMCPServerConfig(**cfg)
-                            elif transport == "websocket":
-                                servers[sname] = WebSocketMCPServerConfig(**cfg)
-                    cm.config.mcpServers = servers
 
                 elif key == "agents":
                     cm.config.agents = {k: AgentConfig(**v) for k, v in value.items()}

@@ -419,6 +419,11 @@ export default function ChatPage() {
                                     </div>
                                   );
                                 }
+                                // Render as plain text during streaming to avoid
+                                // markdown re-parse jank on every incremental chunk.
+                                if (status?.type === "running") {
+                                  return <span className="whitespace-pre-wrap">{text}</span>;
+                                }
                                 return <MarkdownTextPrimitive text={text} />;
                               },
                             }}

@@ -25,6 +25,7 @@ import AdaptersList from "@/pages/adapters/list";
 import LabListPage from "@/pages/labs/list";
 import LabDetailPage from "@/pages/labs/detail";
 import LabChatPage from "@/pages/labs/chat";
+import MCPServersPage from "@/pages/mcp-servers/list";
 import "./globals.css";
 
 const queryClient = new QueryClient({
@@ -64,6 +65,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="labs/:labId" element={<LabDetailPage />} />
               <Route path="labs/:labId/chat" element={<LabChatPage />} />
               <Route path="labs/:labId/chat/:sessionId" element={<LabChatPage />} />
+              <Route path="mcp-servers" element={<MCPServersPage />} />
               <Route path="adapters" element={<AdaptersList />} />
               <Route path="settings" element={<ConfigPage />} />
             </Route>

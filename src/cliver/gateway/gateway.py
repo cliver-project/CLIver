@@ -122,6 +122,16 @@ class Gateway:
             logger.error(f"Failed to init lab store: {e}")
             self._lab_store = None
 
+        # Initialize MCP server store
+        try:
+            from cliver.mcp.store import MCPServerStore
+
+            self._mcp_store = MCPServerStore.from_config_dir(self.config_dir)
+            logger.info("MCP server store initialized")
+        except Exception as e:
+            logger.error(f"Failed to init MCP server store: {e}")
+            self._mcp_store = None
+
     def _get_config_manager(self) -> "ConfigManager":
         """Get config manager, using pre-resolved config if available."""
         return ConfigManager(self.config_dir, config=self._resolved_config)
@@ -200,6 +210,7 @@ class Gateway:
                 "config_dir": self.config_dir,
                 "gateway": self,
                 "cli_session_manager": cli_sm,
+                "mcp_store": getattr(self, "_mcp_store", None),
             }
             # Admin API routes (returns auth function for reuse)
             admin_api_routes, spa_routes, shared_auth = get_admin_routes(
@@ -225,6 +236,16 @@ class Gateway:
                     logger.info("Lab routes registered")
             except Exception as e:
                 logger.error(f"Failed to register lab routes: {e}")
+
+            # MCP server routes
+            try:
+                if hasattr(self, "_mcp_store") and self._mcp_store:
+                    from cliver.gateway.routes.admin_mcp import get_mcp_routes
+
+                    routes.extend(get_mcp_routes(self._mcp_store, shared_auth))
+                    logger.info("MCP server routes registered")
+            except Exception as e:
+                logger.error(f"Failed to register MCP server routes: {e}")
 
             routes.extend(admin_api_routes)
             # SPA catch-all appended LAST — after all API routes
@@ -611,6 +632,7 @@ class Gateway:
             on_tool_event=tool_handler,
             skill_auto_learn=config_manager.config.skill_auto_learn,
             model_auto_fallback=config_manager.config.model_auto_fallback,
+            mcp_store=getattr(self, "_mcp_store", None),
         )
         executor.configure_rate_limits(config_manager.config.providers)
         return executor

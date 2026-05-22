@@ -13,6 +13,7 @@ import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import { ArrowUp, Square, Play, FileText, Brain, Package } from "lucide-react";
 import { useLab, useLabGoldenTests, useRunGoldenTests, type TestRunResult } from "@/hooks/use-api";
 import { useConversation } from "@/hooks/use-conversations";
+import { streamChat } from "@/lib/chat-stream";
 import { LabHeader } from "@/components/lab/LabHeader";
 import { LabConfigPanel } from "@/components/lab/LabConfigPanel";
 import { GoldenTestCard } from "@/components/lab/GoldenTestCard";
@@ -58,6 +59,7 @@ export default function LabChatPage() {
   const [selectedModel, setSelectedModel] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const [selectedMCPServerIds, setSelectedMCPServerIds] = useState<string[]>([]);
   const [savingConfig, setSavingConfig] = useState(false);
   const [testResults, setTestResults] = useState<TestRunResult[] | null>(null);
 
@@ -75,6 +77,13 @@ export default function LabChatPage() {
     };
   }, []);
 
+  // Invalidate cached conversation data on mount so we always load fresh options.
+  useEffect(() => {
+    if (activeSessionId) {
+      queryClient.invalidateQueries({ queryKey: ["conversation", activeSessionId] });
+    }
+  }, [activeSessionId, queryClient]);
+
   // Load config from session options — follows the same pattern as the existing
   // chat.tsx page, using React Query's conversationDetail for reliable loading.
   const lastLoadedSessionId = useRef<string | null>(null);
@@ -83,6 +92,7 @@ export default function LabChatPage() {
       setSelectedModel("");
       setSystemPrompt("");
       setSelectedSkills([]);
+      setSelectedMCPServerIds([]);
       lastLoadedSessionId.current = null;
       return;
     }
@@ -95,6 +105,7 @@ export default function LabChatPage() {
     if (opts.model) setSelectedModel(String(opts.model));
     if (opts.system_prompt) setSystemPrompt(String(opts.system_prompt));
     if (opts.skills) setSelectedSkills(Array.isArray(opts.skills) ? (opts.skills as string[]) : []);
+    if (opts.mcp_servers) setSelectedMCPServerIds(Array.isArray(opts.mcp_servers) ? (opts.mcp_servers as string[]) : []);
   }, [activeSessionId, conversationDetail]);
 
   // Clear load tracker when leaving
@@ -145,13 +156,15 @@ export default function LabChatPage() {
               model: selectedModel || null,
               system_prompt: systemPrompt || null,
               skills,
+              mcp_servers: selectedMCPServerIds,
             },
           }),
         },
       );
+      queryClient.invalidateQueries({ queryKey: ["conversation", activeSessionId] });
     } catch {}
     setSavingConfig(false);
-  }, [activeSessionId, labId, selectedModel, systemPrompt, selectedSkills]);
+  }, [activeSessionId, labId, selectedModel, systemPrompt, selectedSkills, selectedMCPServerIds, queryClient]);
 
   const handleSend = useCallback(() => {
     const text = inputText.trim();
@@ -220,80 +233,56 @@ export default function LabChatPage() {
 
       let fullText = "";
 
-      try {
-        const body = JSON.stringify({
-          message: input,
-          conversation_id: convId ?? undefined,
-          model: selectedModel || undefined,
-          system_message: systemPrompt || undefined,
-          filter_tools: [...new Set([...BUILTIN_SKILLS, ...selectedSkills])],
-        });
-
-        const response = await fetch(
-          `/admin/api/labs/${encodeURIComponent(convLabId)}/chat/${encodeURIComponent(convId!)}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body,
-            signal: controller.signal,
-            credentials: "include",
-          },
-        );
-
-        if (!response.ok) {
-          const text = await response.text();
-          setError(`Error ${response.status}: ${text}`);
-          setRunningConvId(null);
-          return;
-        }
-
-        const reader = response.body?.getReader();
-        if (!reader) { setRunningConvId(null); return; }
-
-        const decoder = new TextDecoder();
-        let buffer = "";
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-
-          for (const line of lines) {
-            if (line.startsWith("data: ")) {
-              try {
-                const raw = JSON.parse(line.slice(6));
-                if (raw.type === "content" && raw.content) {
-                  fullText += raw.content;
-                  updateConvMessages((prev) =>
-                    prev.map((m) =>
-                      m.id === assistantId
-                        ? { ...m, content: [{ type: "text" as const, text: fullText }] }
-                        : m,
-                    ),
-                  );
-                }
-                if (raw.type === "done") {
-                  setRunningConvId(null);
-                  queryClient.invalidateQueries({ queryKey: ["conversations"] });
-                  queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
-                }
-                if (raw.type === "error") {
-                  setError(raw.message || "Unknown error");
-                  setRunningConvId(null);
-                }
-              } catch {}
-            }
+      await streamChat({
+        message: input,
+        apiPath: `/admin/api/labs/${encodeURIComponent(convLabId)}/chat/${encodeURIComponent(convId!)}`,
+        model: selectedModel || undefined,
+        systemMessage: systemPrompt || undefined,
+        filterTools: [...new Set([...BUILTIN_SKILLS, ...selectedSkills])],
+        conversationId: convId ?? undefined,
+        abortSignal: controller.signal,
+        extraBody: { mcp_server_ids: selectedMCPServerIds },
+        onSessionReady: (_sessionId) => {
+          queryClient.invalidateQueries({ queryKey: ["conversations"] });
+        },
+        onEvent: (event) => {
+          let chunk = "";
+          if (event.type === "text" && event.content) {
+            chunk = event.content;
+          } else if (event.type === "thinking" && event.content) {
+            chunk = `\n> ${event.content}\n`;
+          } else if (event.type === "tool_use" && event.content) {
+            chunk = `\n\`\`\`\n${event.content.length > 60 ? event.content.slice(0, 60) + "..." : event.content}\n\`\`\`\n`;
+          } else if (event.type === "tool_result" && event.content) {
+            const truncated = event.content.length > 300 ? event.content.slice(0, 300) + "..." : event.content;
+            chunk = `\n\`\`\`\n${truncated}\n\`\`\`\n`;
+          } else if (event.type === "status" && event.content) {
+            chunk = `\n_${event.content}_\n`;
           }
-        }
-      } catch (err: unknown) {
-        if (err instanceof DOMException && err.name === "AbortError") return;
-        setError(err instanceof Error ? err.message : String(err));
-        setRunningConvId(null);
-      }
+
+          if (chunk) {
+            fullText += chunk;
+            updateConvMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? { ...m, content: [{ type: "text" as const, text: fullText }] }
+                  : m,
+              ),
+            );
+          }
+        },
+        onError: (err) => {
+          setError(err.message);
+          setRunningConvId(null);
+        },
+        onDone: (_fullText, _artifacts, _sessionId) => {
+          setRunningConvId(null);
+          queryClient.invalidateQueries({ queryKey: ["conversations"] });
+          queryClient.invalidateQueries({ queryKey: ["conversation", convId] });
+        },
+      });
     },
-    [activeSessionId, labId, navigate, queryClient, selectedModel, systemPrompt, selectedSkills],
+    [activeSessionId, labId, navigate, queryClient, selectedModel, systemPrompt, selectedSkills, selectedMCPServerIds],
   );
 
   const onNewRef = useRef(onNew);
@@ -344,9 +333,11 @@ export default function LabChatPage() {
             selectedModel={selectedModel}
             systemPrompt={systemPrompt}
             selectedSkills={selectedSkills}
+            selectedMCPServerIds={selectedMCPServerIds}
             onModelChange={setSelectedModel}
             onSystemPromptChange={setSystemPrompt}
             onSkillsChange={setSelectedSkills}
+            onMCPServersChange={setSelectedMCPServerIds}
             onSave={handleSaveConfig}
             saving={savingConfig}
           />
@@ -399,6 +390,11 @@ export default function LabChatPage() {
                                         <span className="w-2 h-2 bg-foreground/40 rounded-full" />
                                       </div>
                                     );
+                                  }
+                                  // Render as plain text during streaming to avoid
+                                  // markdown re-parse jank on every incremental chunk.
+                                  if (status?.type === "running") {
+                                    return <span className="whitespace-pre-wrap">{text}</span>;
                                   }
                                   return <MarkdownTextPrimitive text={text} />;
                                 },
