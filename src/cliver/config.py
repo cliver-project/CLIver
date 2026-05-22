@@ -636,74 +636,6 @@ class ConfigManager:
         """List all LLM Models"""
         return self.config.models
 
-    def add_or_update_llm_model(
-        self,
-        provider: str,
-        model_name: str,
-        options: Dict[str, Any] = None,
-        capabilities: str = None,
-    ) -> None:
-        """Add or update a model under a provider.
-
-        Args:
-            provider: Provider name (must exist in config.providers)
-            model_name: API model name (e.g. 'deepseek-reasoner')
-            options: Optional model options dict
-            capabilities: Optional comma-separated capability strings
-        """
-        if provider not in self.config.providers:
-            raise ValueError(f"Provider '{provider}' not found. Add it first with /provider add.")
-
-        key = f"{provider}/{model_name}"
-        if not self.config.models:
-            self.config.models = {}
-
-        if key in self.config.models:
-            llm = self.config.models[key]
-        else:
-            llm = ModelConfig(name=key, provider=provider)
-            llm._provider_config = self.config.providers[provider]
-            self.config.models[key] = llm
-            if self.config.default_model is None:
-                self.config.default_model = key
-
-        if options:
-            llm.options = ModelOptions(**options)
-
-        if capabilities:
-            try:
-                capability_list = [cap.strip() for cap in capabilities.split(",") if cap.strip()]
-                llm.capabilities = {ModelCapability(cap) for cap in capability_list}
-            except ValueError as e:
-                logger.error("Invalid capability specified: %s, exception: %s", capabilities, e)
-                raise e
-
-        self._save_config()
-
-    def remove_llm_model(self, name: str) -> bool:
-        """Remove a model. Accepts canonical (provider/model) or short-form."""
-        mc = self._resolve_model_name(name)
-        if not mc:
-            return False
-
-        self.config.models.pop(mc.name)
-
-        if self.config.default_model == mc.name:
-            self.config.default_model = next(iter(self.config.models)) if self.config.models else None
-
-        self._save_config()
-        return True
-
-    def set_default_model(self, name: str) -> bool:
-        """Set the default LLM model. Accepts canonical or short-form."""
-        mc = self._resolve_model_name(name)
-        if not mc:
-            return False
-        if self.config.default_model == mc.name:
-            return True
-        self.config.default_model = mc.name
-        self._save_config()
-        return True
 
     def set_user_agent(self, user_agent: str) -> None:
         """Set the User-Agent header string."""
@@ -766,14 +698,6 @@ class ConfigManager:
             return True
         return False
 
-    def set_provider_rate_limit(self, name: str, rate_limit: Optional[RateLimitConfig]) -> bool:
-        """Set or clear the rate limit on an existing provider."""
-        prov = self.config.providers.get(name)
-        if not prov:
-            return False
-        prov.rate_limit = rate_limit
-        self._save_config()
-        return True
 
     def list_providers(self) -> Dict[str, ProviderConfig]:
         return self.config.providers

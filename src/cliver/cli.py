@@ -134,6 +134,13 @@ class Cliver:
         except Exception:
             _mcp_store = None
 
+        # Initialize ModelStore for database-backed model configurations
+        try:
+            from cliver.model.store import ModelStore
+            _model_store = ModelStore.from_config_dir(self.config_dir)
+        except Exception:
+            _model_store = None
+
         self.agent_core = AgentCore(
             llm_models=self.config_manager.list_llm_models(),
             mcp_servers=self.config_manager.list_mcp_servers_for_mcp_caller(),
@@ -149,8 +156,12 @@ class Cliver:
             skill_auto_learn=self.config_manager.config.skill_auto_learn,
             model_auto_fallback=self.config_manager.config.model_auto_fallback,
             mcp_store=_mcp_store,
+            model_store=_model_store,
         )
         self.agent_core.configure_rate_limits(self.config_manager.config.providers)
+        # Refresh models from DB store if available
+        if hasattr(self.agent_core, 'model_store') and self.agent_core.model_store:
+            self.agent_core.refresh_models_from_store()
 
         from cliver.agent_profile import set_agent_factory
         from cliver.agents import AgentFactory

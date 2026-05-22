@@ -120,36 +120,24 @@ def _get_config(ctx: dict) -> dict:
 
         config_dir = ctx.get("config_dir")
         if not config_dir:
-            return {"models": {}, "providers": {}, "agents": {}, "default_agent": None}
+            return {}
 
         cm = ConfigManager(config_dir)
-
-        providers = {}
-        for name, pc in cm.config.providers.items():
-            provider_models = [mc.api_model_name for mc in cm.config.models.values() if mc.provider == name]
-            providers[name] = {
-                "type": pc.type,
-                "api_url": pc.api_url,
-                "api_key": _mask_secret(pc.api_key),
-                "models": provider_models,
-            }
-            if pc.image_url:
-                providers[name]["image_url"] = pc.image_url
-            if pc.image_model:
-                providers[name]["image_model"] = pc.image_model
-
-        agents = {
-            name: {"type": ac.type, "model": ac.model, "description": ac.description, "role": ac.role}
-            for name, ac in cm.config.agents.items()
-        }
+        gw = cm.config.gateway
         return {
-            "providers": providers,
-            "agents": agents,
-            "default_agent": cm.config.default_agent,
+            "gateway": gw.model_dump() if gw else None,
+            "session": cm.config.session.model_dump(),
+            "theme": cm.config.theme,
+            "timezone": cm.config.timezone,
+            "user_agent": cm.config.user_agent,
+            "default_model": cm.config.default_model,
+            "search_engines": cm.config.search_engines,
+            "skill_auto_learn": cm.config.skill_auto_learn,
+            "model_auto_fallback": cm.config.model_auto_fallback,
         }
     except Exception as e:
         logger.warning("Failed to get config: %s", e)
-        return {"providers": {}, "agents": {}}
+        return {}
 
 
 def get_info_routes(context: dict, require_auth: Callable) -> list:
@@ -196,30 +184,15 @@ def get_info_routes(context: dict, require_auth: Callable) -> list:
         try:
             data = await request.json()
             from cliver.config import (
-                AgentConfig,
                 ConfigManager,
                 GatewayConfig,
-                ProviderConfig,
                 SessionConfig,
             )
 
             cm = ConfigManager(config_dir)
 
             for key, value in data.items():
-                if key == "providers":
-                    providers = {}
-                    for pname, pdata in value.items():
-                        if isinstance(pdata, dict):
-                            cfg = {"name": pname}
-                            cfg.update(pdata)
-                            cfg.pop("models", None)
-                            providers[pname] = ProviderConfig(**cfg)
-                    cm.config.providers = providers
-
-                elif key == "agents":
-                    cm.config.agents = {k: AgentConfig(**v) for k, v in value.items()}
-
-                elif key == "gateway":
+                if key == "gateway":
                     cm.config.gateway = GatewayConfig(**value) if value else None
 
                 elif key == "session":
@@ -282,14 +255,6 @@ def get_info_routes(context: dict, require_auth: Callable) -> list:
         return JSONResponse({"error": "not found"}, status_code=404)
 
     @require_auth
-    async def handle_models(request: Request):
-        gateway = context.get("gateway")
-        if not gateway or not getattr(gateway, "_agent_core", None):
-            return JSONResponse({"models": [], "default": None})
-        models = list(gateway._agent_core.llm_models.keys())
-        return JSONResponse({"models": models, "default": gateway._agent_core.default_model})
-
-    @require_auth
     async def handle_restart(request: Request):
         """Trigger gateway restart by stopping the uvicorn server.
 
@@ -320,5 +285,4 @@ def get_info_routes(context: dict, require_auth: Callable) -> list:
         Route("/admin/api/keys", handle_keys_list),
         Route("/admin/api/keys", handle_keys_create, methods=["POST"]),
         Route("/admin/api/keys/{name}", handle_keys_delete, methods=["DELETE"]),
-        Route("/admin/api/models", handle_models),
     ]

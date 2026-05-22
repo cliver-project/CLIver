@@ -184,31 +184,33 @@ def _show_config(cliver: Cliver):
 def _config_rate_limit(cliver: Cliver, provider_name: str, limit: str | None):
     """Set or show rate limit for a provider."""
     from cliver.commands.provider import _parse_rate_limit
+    from cliver.model.store import ModelStore
 
-    providers = cliver.config_manager.list_providers()
-    if provider_name not in providers:
+    store = ModelStore.from_config_dir(cliver.config_dir)
+    providers = store.list_providers()
+    provider = next((p for p in providers if p.name == provider_name), None)
+
+    if not provider:
         cliver.output(f"Provider '{provider_name}' not found.")
-        available = ", ".join(providers.keys()) if providers else "(none)"
+        available = ", ".join(p.name for p in providers) if providers else "(none)"
         cliver.output(f"Available providers: {available}")
         return
 
     if limit is None:
-        prov = providers[provider_name]
-        if prov.rate_limit:
+        if provider.rate_limit:
+            rl = provider.rate_limit
             cliver.output(
                 f"Rate limit for '{provider_name}': "
-                f"{prov.rate_limit.requests}/{prov.rate_limit.period} "
-                f"(margin: {prov.rate_limit.margin:.0%})"
+                f"{rl.get('requests', '?')}/{rl.get('period', '?')} "
+                f"(margin: {rl.get('margin', 0.1):.0%})"
             )
         else:
             cliver.output(f"No rate limit set for '{provider_name}'.")
         return
 
     rl = _parse_rate_limit(limit)
-    if cliver.config_manager.set_provider_rate_limit(provider_name, rl):
-        cliver.output(f"Rate limit for '{provider_name}' set to {rl.requests}/{rl.period}.")
-    else:
-        cliver.output(f"Failed to update rate limit for '{provider_name}'.")
+    store.update_provider(provider.id, rate_limit=rl.model_dump())
+    cliver.output(f"Rate limit for '{provider_name}' set to {rl.requests}/{rl.period}.")
 
 
 def _show_config_path(cliver: Cliver):
