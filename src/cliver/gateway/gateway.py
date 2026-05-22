@@ -29,6 +29,7 @@ from cliver.gateway.platform_adapter import (
 from cliver.gateway.scheduler import CronScheduler
 from cliver.gateway.task_store import TaskStore
 from cliver.llm import AgentCore
+from cliver.model.store import ModelStore
 from cliver.session_manager import SessionManager
 from cliver.task_manager import TaskDefinition, TaskManager, TaskRun
 
@@ -88,6 +89,7 @@ class Gateway:
         self._thread_queue = ThreadQueue()
         self._template_store = None
         self._lab_store = None
+        self._model_store = None
 
     def init(self) -> None:
         """Initialize components that need to run before fork.
@@ -97,6 +99,14 @@ class Gateway:
         state and never touches the keychain.
         """
         self._agent_core = self._create_agent_core()
+
+        # Initialize ModelStore
+        try:
+            self._model_store = ModelStore.from_config_dir(self.config_dir)
+            logger.info("Model store initialized")
+        except Exception as e:
+            logger.error(f"Failed to init model store: {e}")
+            self._model_store = None
 
         from cliver.agents import AgentFactory
 
@@ -211,6 +221,7 @@ class Gateway:
                 "gateway": self,
                 "cli_session_manager": cli_sm,
                 "mcp_store": getattr(self, "_mcp_store", None),
+                "model_store": self._model_store,
             }
             # Admin API routes (returns auth function for reuse)
             admin_api_routes, spa_routes, shared_auth = get_admin_routes(

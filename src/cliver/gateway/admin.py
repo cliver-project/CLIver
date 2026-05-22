@@ -188,6 +188,7 @@ def get_admin_routes(
     from cliver.gateway.routes.admin_info import get_info_routes
     from cliver.gateway.routes.admin_sessions import get_session_routes
     from cliver.gateway.routes.admin_spa import get_spa_routes
+    from cliver.gateway.routes.admin_models import get_model_routes
     from cliver.gateway.routes.admin_tasks import get_task_routes
 
     async def handle_root(request: Request):
@@ -205,6 +206,7 @@ def get_admin_routes(
         *get_info_routes(context, require_auth),
         *get_chat_routes(context, require_auth),
         *get_conversations_routes(context, require_auth),
+        *get_model_routes(context.get("model_store"), require_auth),
     ]
 
     spa_routes = get_spa_routes(spa_dist_dir)
