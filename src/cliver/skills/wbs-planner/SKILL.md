@@ -2,7 +2,7 @@
 name: wbs-planner
 description: Plan and decompose project requirements into a PMI/PMP-compliant Work Breakdown Structure with time-estimated activities, dependency mapping, and an interactive Gantt chart HTML output. Use when the user needs project planning, timeline estimation, or WBS decomposition. Best for detailed requirements documents that need structured planning before execution.
 keywords: wbs, planning, project management, gantt, pmp, decomposition, timeline, estimation, activities
-allowed-tools: Read LS Grep Write Ask
+allowed-tools: Read LS Grep Write
 ---
 
 # WBS Planner
@@ -46,7 +46,7 @@ For each item below, check if the user already provided it. Only ask what's miss
 
 ### Questioning Technique
 
-- Ask ONE question at a time via the `Ask` tool
+- Ask ONE question at a time
 - After each answer, decide if you need clarification or can move on
 - If the user's answer reveals new information, explore it before moving to the next question
 - Layer the questions: start broad (scope, goals), then narrow (constraints, resources), then detail (time unit, risks)
@@ -112,8 +112,8 @@ Each activity shows: `(duration) [resource] — depends on: ...`
 ## Phase 3: Detail Activities
 
 After the WBS is confirmed, generate detailed information for EACH activity.
-Use **parallel subagents** for independent activities (those with no dependencies
-on each other) to speed up generation.
+Work through activities in dependency order: start with activities that have no
+dependencies, then move to those whose dependencies are already detailed.
 
 ### Activity Detail Template
 
@@ -158,21 +158,16 @@ Calculate `start_day` for each activity:
 3. end_day = start_day + duration_days
 4. Critical path = longest chain from start to finish
 
-### Parallel Generation
+### Generation Order
 
-Use subagents to detail activities that have no mutual dependencies:
+Detail activities in **dependency order** to ensure consistency:
 
-```
-Phase 1 activities (no inter-dependencies):
-  → Dispatch subagent for activity 1.1.1
-  → Dispatch subagent for activity 1.1.2
-  → Both run in parallel
+1. Start with activities that have no dependencies (depends_on is empty)
+2. For each activity, reference the deliverables of its predecessors
+3. Move to the next "wave" — activities whose dependencies are all detailed
+4. Continue until all activities are detailed
 
-Activities that depend on 1.1.1 and 1.1.2:
-  → Dispatch AFTER both above complete
-```
-
-Each subagent generates the JSON detail for one activity. Collect all results.
+Generate all activity JSON objects, then proceed to Phase 4 to produce the HTML.
 
 ## Phase 4: Generate HTML
 
