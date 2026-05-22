@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{PROJECT_NAME}} — WBS Gantt Chart</title>
+<style>
+  :root {
+    --bg: #f8f9fa;
+    --card-bg: #ffffff;
+    --text: #1a1a2e;
+    --text-secondary: #6c757d;
+    --border: #dee2e6;
+    --primary: #4a6cf7;
+    --grid-line: #e9ecef;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; font-size: 13px; }
+  .container { max-width: 1400px; margin: 0 auto; padding: 24px; }
+
+  .header { background: var(--card-bg); border-radius: 12px; padding: 24px 32px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  .header h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+  .header .meta { display: flex; gap: 24px; color: var(--text-secondary); font-size: 12px; margin-top: 8px; flex-wrap: wrap; }
+
+  .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .summary-card { background: var(--card-bg); border-radius: 10px; padding: 16px 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  .summary-card .label { font-size: 11px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }
+  .summary-card .value { font-size: 24px; font-weight: 700; margin-top: 2px; }
+
+  .gantt-container { background: var(--card-bg); border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); overflow: hidden; }
+  .gantt-header { display: flex; align-items: center; justify-content: space-between; padding: 16px 20px; border-bottom: 1px solid var(--border); flex-wrap: wrap; gap: 8px; }
+  .gantt-header h2 { font-size: 16px; font-weight: 600; }
+  .gantt-legend { display: flex; gap: 12px; font-size: 11px; flex-wrap: wrap; }
+  .gantt-legend .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 4px; vertical-align: middle; }
+  .gantt-body { overflow-x: auto; }
+  .gantt-table { width: 100%; border-collapse: collapse; min-width: 800px; }
+  .gantt-table th { font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; padding: 10px 12px; text-align: left; border-bottom: 2px solid var(--border); background: #fafbfc; position: sticky; top: 0; z-index: 2; }
+  .gantt-table td { padding: 8px 12px; border-bottom: 1px solid var(--grid-line); vertical-align: middle; }
+  .gantt-table tr:hover { background: #f8f9ff; }
+  .gantt-table .task-name { font-weight: 500; font-size: 12px; }
+  .gantt-table .task-id { color: var(--text-secondary); font-size: 10px; font-family: monospace; }
+  .gantt-table .task-resource { font-size: 10px; color: var(--text-secondary); }
+
+  .bar-cell { min-width: 300px; position: relative; height: 32px; }
+  .bar { position: absolute; top: 4px; height: 24px; border-radius: 4px; cursor: pointer; transition: filter 0.15s; display: flex; align-items: center; padding: 0 8px; font-size: 10px; color: #fff; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 4px; }
+  .bar:hover { filter: brightness(0.85); z-index: 3; }
+  .bar.c0 { background: #4a6cf7; } .bar.c1 { background: #8b5cf6; }
+  .bar.c2 { background: #ec4899; } .bar.c3 { background: #f59e0b; }
+  .bar.c4 { background: #22c55e; } .bar.c5 { background: #06b6d4; }
+  .bar.c6 { background: #ef4444; } .bar.c7 { background: #84cc16; }
+  .bar.milestone { width: 12px !important; height: 12px; border-radius: 50%; top: 10px; padding: 0; min-width: 12px; }
+
+  .detail-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.3); z-index: 100; }
+  .detail-overlay.active { display: block; }
+  .detail-panel { position: fixed; top: 0; right: -520px; width: 500px; max-width: 90vw; height: 100vh; background: var(--card-bg); box-shadow: -4px 0 24px rgba(0,0,0,0.15); z-index: 101; transition: right 0.3s ease; overflow-y: auto; padding: 28px 24px; }
+  .detail-panel.active { right: 0; }
+  .detail-panel .close-btn { position: absolute; top: 16px; right: 16px; background: none; border: none; font-size: 20px; cursor: pointer; color: var(--text-secondary); width: 32px; height: 32px; border-radius: 6px; display: flex; align-items: center; justify-content: center; }
+  .detail-panel .close-btn:hover { background: var(--bg); }
+  .detail-panel h3 { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+  .detail-panel .phase-tag { display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 12px; margin-bottom: 16px; }
+  .detail-panel .field { margin-bottom: 16px; }
+  .detail-panel .field-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); font-weight: 600; margin-bottom: 2px; }
+  .detail-panel .field-value { font-size: 13px; }
+  .detail-panel .deps { display: flex; flex-wrap: wrap; gap: 4px; }
+  .detail-panel .dep-tag { font-size: 10px; padding: 2px 8px; border-radius: 10px; background: var(--bg); border: 1px solid var(--border); cursor: pointer; }
+  .detail-panel .dep-tag:hover { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+  @media (max-width: 768px) {
+    .container { padding: 12px; }
+    .header { padding: 16px; }
+    .summary { grid-template-columns: repeat(2, 1fr); }
+    .detail-panel { width: 100vw; right: -100vw; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>{{PROJECT_NAME}}</h1>
+    <div class="meta">
+      <span>Start: {{START_DATE}}</span>
+      <span>End: {{END_DATE}}</span>
+      <span>Unit: {{TIME_UNIT}}</span>
+      <span>Hours/Day: {{HOURS_PER_DAY}}h</span>
+      <span>Activities: {{TOTAL_ACTIVITIES}}</span>
+    </div>
+  </div>
+
+  <div class="summary">
+    <div class="summary-card"><div class="label">Total Duration</div><div class="value">{{TOTAL_DURATION}}</div></div>
+    <div class="summary-card"><div class="label">Total Person-Days</div><div class="value">{{TOTAL_PERSON_DAYS}}</div></div>
+    <div class="summary-card"><div class="label">Phases</div><div class="value">{{PHASE_COUNT}}</div></div>
+    <div class="summary-card"><div class="label">Critical Path</div><div class="value">{{CRITICAL_PATH_LENGTH}} days</div></div>
+  </div>
+
+  <div class="gantt-container">
+    <div class="gantt-header">
+      <h2>Gantt Chart</h2>
+      <div class="gantt-legend" id="legend"></div>
+    </div>
+    <div class="gantt-body">
+      <table class="gantt-table">
+        <thead><tr><th style="width:80px">ID</th><th style="width:220px">Activity</th><th style="width:60px">Days</th><th style="width:90px">Resource</th><th>Timeline</th></tr></thead>
+        <tbody id="gantt-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="detail-overlay" id="overlay"></div>
+<div class="detail-panel" id="detail-panel">
+  <button class="close-btn">x</button>
+  <div id="detail-content"></div>
+</div>
+
+<script>
+var HOURS_PER_DAY = {{HOURS_PER_DAY_JS}};
+var TOTAL_DAYS = {{TOTAL_DAYS_JS}};
+var PHASES = {{PHASES_JS}};
+var ACTIVITIES = {{ACTIVITIES_JS}};
+
+var COLORS = ['#4a6cf7','#8b5cf6','#ec4899','#f59e0b','#22c55e','#06b6d4','#ef4444','#84cc16'];
+
+(function() {
+  var legend = document.getElementById('legend');
+  PHASES.forEach(function(p, i) {
+    var c = COLORS[i % COLORS.length];
+    var s = document.createElement('span');
+    s.innerHTML = '<span class="dot" style="background:' + c + '"></span>' + p.name;
+    legend.appendChild(s);
+  });
+})();
+
+(function() {
+  var tbody = document.getElementById('gantt-body');
+  ACTIVITIES.forEach(function(act) {
+    var tr = document.createElement('tr');
+    var leftPct = (act.start_day / TOTAL_DAYS) * 100;
+    var widthPct = Math.max((act.duration_days / TOTAL_DAYS) * 100, 1);
+    var phaseIdx = -1;
+    for (var i = 0; i < PHASES.length; i++) {
+      if (PHASES[i].id === act.phase_id) { phaseIdx = i; break; }
+    }
+    var cIdx = phaseIdx >= 0 ? phaseIdx % COLORS.length : 0;
+
+    var td1 = document.createElement('td');
+    td1.innerHTML = '<span class="task-id">' + act.id + '</span>';
+    var td2 = document.createElement('td');
+    td2.innerHTML = '<span class="task-name">' + (act.dep_mark || '') + ' ' + act.name + '</span>';
+    var td3 = document.createElement('td');
+    td3.textContent = act.duration_days;
+    var td4 = document.createElement('td');
+    td4.innerHTML = '<span class="task-resource">' + (act.resource || '') + '</span>';
+    var td5 = document.createElement('td');
+    td5.className = 'bar-cell';
+
+    var bar = document.createElement('div');
+    bar.className = 'bar c' + cIdx + (act.is_milestone ? ' milestone' : '');
+    bar.style.left = leftPct + '%';
+    bar.style.width = act.is_milestone ? '12px' : widthPct + '%';
+    bar.title = act.name + ' (' + act.duration_days + 'd)';
+    if (!act.is_milestone) bar.textContent = act.name;
+    bar.onclick = function() { openDetail(act.id); };
+    td5.appendChild(bar);
+
+    tr.appendChild(td1);
+    tr.appendChild(td2);
+    tr.appendChild(td3);
+    tr.appendChild(td4);
+    tr.appendChild(td5);
+    tbody.appendChild(tr);
+  });
+})();
+
+function openDetail(actId) {
+  var act = null;
+  for (var i = 0; i < ACTIVITIES.length; i++) {
+    if (ACTIVITIES[i].id === actId) { act = ACTIVITIES[i]; break; }
+  }
+  if (!act) return;
+
+  var phaseIdx = -1;
+  for (var i = 0; i < PHASES.length; i++) {
+    if (PHASES[i].id === act.phase_id) { phaseIdx = i; break; }
+  }
+  var phaseColor = COLORS[phaseIdx % COLORS.length] || '#6c757d';
+  var phaseName = PHASES[phaseIdx] ? PHASES[phaseIdx].name : '';
+
+  var depIds = act.depends_on || [];
+  var blockedIds = [];
+  ACTIVITIES.forEach(function(a) {
+    if (a.depends_on && a.depends_on.indexOf(actId) >= 0) blockedIds.push(a.id);
+  });
+
+  var html = '<h3>' + act.id + ': ' + act.name + '</h3>';
+  html += '<span class="phase-tag" style="background:' + phaseColor + '20;color:' + phaseColor + '">' + phaseName + '</span>';
+
+  html += '<div class="field"><div class="field-label">Description</div><div class="field-value">' + (act.description || 'No description.') + '</div></div>';
+  html += '<div class="field"><div class="field-label">Duration</div><div class="field-value">' + act.duration_days + ' day(s) | ' + (act.person_days || act.duration_days) + ' person-day(s) | Start day ' + act.start_day + '</div></div>';
+  html += '<div class="field"><div class="field-label">Resource / Personnel</div><div class="field-value">' + (act.resource || 'No special resource required.') + '</div></div>';
+  html += '<div class="field"><div class="field-label">Deliverables</div><div class="field-value">' + (act.deliverables || 'See description.') + '</div></div>';
+  html += '<div class="field"><div class="field-label">Acceptance Criteria</div><div class="field-value">' + (act.acceptance_criteria || 'See description.') + '</div></div>';
+
+  if (act.risks) {
+    html += '<div class="field"><div class="field-label">Risks / Notes</div><div class="field-value">' + act.risks + '</div></div>';
+  }
+
+  if (depIds.length > 0) {
+    html += '<div class="field"><div class="field-label">Depends On</div><div class="deps">';
+    depIds.forEach(function(did) {
+      html += '<span class="dep-tag" style="cursor:pointer" data-aid="' + did + '">' + did + '</span> ';
+    });
+    html += '</div></div>';
+  }
+
+  if (blockedIds.length > 0) {
+    html += '<div class="field"><div class="field-label">Blocks</div><div class="deps">';
+    blockedIds.forEach(function(did) {
+      html += '<span class="dep-tag" style="cursor:pointer" data-aid="' + did + '">' + did + '</span> ';
+    });
+    html += '</div></div>';
+  }
+
+  document.getElementById('detail-content').innerHTML = html;
+
+  var tags = document.querySelectorAll('#detail-content .dep-tag[data-aid]');
+  for (var i = 0; i < tags.length; i++) {
+    tags[i].addEventListener('click', function() {
+      var aid = this.getAttribute('data-aid');
+      if (aid) openDetail(aid);
+    });
+  }
+
+  document.getElementById('overlay').classList.add('active');
+  document.getElementById('detail-panel').classList.add('active');
+}
+
+function closeDetail() {
+  document.getElementById('overlay').classList.remove('active');
+  document.getElementById('detail-panel').classList.remove('active');
+}
+
+document.getElementById('overlay').addEventListener('click', closeDetail);
+document.querySelector('.detail-panel .close-btn').addEventListener('click', closeDetail);
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeDetail(); });
+</script>
+</body>
+</html>

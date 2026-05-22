@@ -1,297 +1,238 @@
 ---
 name: wbs-planner
-description: Plan and decompose a high-level goal into phases, work packages, and tasks using a Work Breakdown Structure, then generate workflow YAML (including sub-workflows). Best for large or vague requirements that need structured decomposition before execution.
-keywords: wbs, planning, decomposition, project, breakdown, phases
-allowed-tools: Read LS Grep Write Ask Skill WorkflowValidate
+description: Plan and decompose project requirements into a PMI/PMP-compliant Work Breakdown Structure with time-estimated activities, dependency mapping, and an interactive Gantt chart HTML output. Use when the user needs project planning, timeline estimation, or WBS decomposition. Best for detailed requirements documents that need structured planning before execution.
+keywords: wbs, planning, project management, gantt, pmp, decomposition, timeline, estimation, activities
+allowed-tools: Read LS Grep Write Ask
 ---
 
 # WBS Planner
 
-**You are a workflow planner, NOT an executor.** Your ONLY output is workflow YAML files.
-Do NOT perform the user's task directly. Do NOT generate images, write code, create files,
-or produce any deliverable other than workflow YAML. No matter how concrete or actionable
-the user's request is, your job is to decompose it into a reusable workflow that can be
-executed later via `cliver workflow run`.
+**You are a project planner following PMI/PMP standards.** Your output is a Work
+Breakdown Structure with time-estimated, dependency-mapped activities, delivered as
+an interactive HTML Gantt chart. You do NOT generate workflow YAML or executable
+code. You produce project plans, not automation workflows.
 
-Decompose user requirements into a hierarchical Work Breakdown Structure (WBS) and generate
-executable workflow YAML files. Each actionable task becomes an LLM step. Complex work packages
-become sub-workflows linked via `workflow_file`.
+The final deliverable is a self-contained HTML file saved to
+`~/.cliver/wbs-planner/<project-slug>/wbs.html`.
 
-## Interactive vs Non-Interactive Mode
-
-This skill works in two contexts:
-
-**Interactive (CLI):** The `Ask` tool is available. Use it to gather requirements
-and confirm decisions before proceeding.
-
-**Non-interactive (IM / gateway):** The `Ask` tool is NOT available (filtered out).
-In this mode:
-- Do NOT attempt to call `Ask` — it will fail.
-- When you need user input, reply with a clear text message listing what you need
-  and **stop**. Wait for the user's next message before continuing.
-- When you need confirmation, present your proposal in a text reply and ask the
-  user to approve or suggest changes. Stop and wait for their response.
-- When you must choose between options and no user input is possible, pick the
-  most reasonable default, state what you chose, and proceed.
-
-**How to detect:** Check whether `Ask` is in your available tools. If the system
-prompt says "Ask is NOT available" or the tool is absent, you are in non-interactive
-mode.
-
-## 1. Analyze Requirements
-
-The user's original message is the **prompt** — it describes the purpose of the
-workflow. Extract as much as you can from it before asking follow-up questions.
-
-You need the following information. Skip any item the user already provided:
-- **Workflow name**: a short, lowercase slug using underscores (e.g., `user_auth`, `data_pipeline`).
-- **Goal**: the overall goal or deliverable.
-- **Phases**: the major phases or milestones.
-- **Dependencies**: external dependencies, constraints, or deadlines.
-- **Scope**: small (5-10 tasks), medium (10-20), or large (20+).
-
-Only ask about **missing** items — do not re-ask what the user already stated.
-
-**Interactive:** Ask missing questions one at a time using `Ask`.
-**Non-interactive:** Reply with all missing questions in a single text message and
-stop. Wait for the user's response before proceeding to Step 2.
-If the user provided everything, confirm your understanding and proceed.
-
-If the user references an existing WBS or workflow, read it first with `Read` and
-propose modifications rather than starting from scratch (see Step 7).
-
-## 2. Decompose into WBS
-
-Create a hierarchical breakdown with three levels:
-
-- **Level 1: Phases** — major project phases (e.g., Design, Implementation, Testing, Deployment)
-- **Level 2: Work Packages** — deliverable-scoped groups within each phase
-- **Level 3: Tasks** — individual actionable items (each becomes an LLM step)
-
-Present the WBS tree to the user as a numbered outline and get confirmation before proceeding.
-
-**Interactive:** Use `Ask` to confirm.
-**Non-interactive:** Present the tree in a text reply and ask the user to approve
-or suggest changes. Stop and wait for their response.
+## Process Overview
 
 ```
-1. Design Phase
-   1.1 Requirements Analysis
-       1.1.1 Gather stakeholder input
-       1.1.2 Document functional requirements
-   1.2 Architecture Design
-       1.2.1 Design system components
-       1.2.2 Define API contracts
-2. Implementation Phase
+Gather Requirements  →  Decompose WBS  →  Detail Activities  →  Generate HTML
+    (interactive)         (confirm)       (parallel subagents)     (template-based)
+```
+
+## Phase 1: Gather Requirements
+
+Your goal is to understand the project deeply enough to create a complete WBS.
+Ask questions ONE AT A TIME. Do not overwhelm the user.
+
+### Required Information
+
+For each item below, check if the user already provided it. Only ask what's missing:
+
+1. **Project name** — short slug for the output directory (e.g., `erp-migration`)
+2. **Requirements document** — if the user references a file, read it with `Read`
+   first and extract as much as you can before asking follow-ups
+3. **Scope & objectives** — what is the project delivering? What does "done" look like?
+4. **Constraints** — deadlines, budget, regulatory requirements, technology stack
+5. **Available personnel** — who is available? What are their roles/skills?
+6. **Minimum time unit** — what's the smallest meaningful work unit?
+   - Options: 0.5 day, 1 day, 2 days, 3 days, 1 week
+   - Guideline: choose based on project scale. 3 days is a good default for most projects.
+   - Ask the user: "What's the minimum time unit for activities? (e.g., 3 days means no activity shorter than 3 days)"
+7. **Hours per day** — defaults to 8 hours/day. Ask if different.
+8. **Risk tolerance** — any known risks or areas of uncertainty?
+
+### Questioning Technique
+
+- Ask ONE question at a time via the `Ask` tool
+- After each answer, decide if you need clarification or can move on
+- If the user's answer reveals new information, explore it before moving to the next question
+- Layer the questions: start broad (scope, goals), then narrow (constraints, resources), then detail (time unit, risks)
+- When you have enough to create a draft WBS, move to Phase 2
+
+## Phase 2: Decompose into WBS
+
+### WBS Structure (PMI/PMP Standard)
+
+Create a hierarchical breakdown:
+
+- **Level 1: Phases** — major project phases or deliverables
+  - Example: Initiation, Planning, Execution, Monitoring, Closing
+  - Or deliverable-based: Backend API, Frontend UI, Database, Testing, Deployment
+
+- **Level 2: Work Packages** — groups of related activities within a phase
+  - Each work package produces a verifiable deliverable
+
+- **Level 3: Activities** — individual, executable work items
+  - **Each activity MUST be completable by ONE person**
+  - **Each activity has a time estimate in the chosen minimum unit**
+  - **If an activity needs multiple people or special resources, note it explicitly**
+
+### Activity Definition Rules
+
+1. **One person per activity** — if work needs 2 people, split into 2 activities
+2. **Time-bound** — duration calculated as: `person_days / 1 = calendar days` (single person)
+3. **Realistic** — use 8 hours/day unless user specified otherwise. Don't pack activities too tightly.
+4. **Verifiable** — each activity produces a concrete output or deliverable
+5. **Resource-tagged** — mark activities needing: specific skills, external dependencies, tools, access, approvals
+
+### Dependency Mapping
+
+For each activity, identify:
+- **Predecessors (depends_on)** — activities that must complete before this one starts
+- **Successors (blocked_by)** — activities that depend on this one
+- **No false dependencies** — only mark real blockers, not "nice to have" ordering
+
+### Present the WBS
+
+Present the complete WBS as a numbered outline:
+
+```
+1. Initiation Phase
+   1.1 Stakeholder Alignment
+       1.1.1 Draft project charter (3 days) [PM]
+       1.1.2 Identify stakeholders (2 days) [BA]
+   1.2 Requirements Gathering
+       1.2.1 Conduct stakeholder interviews (5 days) [BA] — depends on: 1.1.2
+       1.2.2 Document functional requirements (4 days) [BA] — depends on: 1.2.1
+2. Design Phase
    ...
 ```
 
-## 3. Decide Workflow Structure
+Each activity shows: `(duration) [resource] — depends on: ...`
 
-Based on the WBS complexity, choose a structure:
+**Interactive:** Use `Ask` to confirm the WBS with the user. Ask specifically:
+- "Does this breakdown cover all the work?"
+- "Are the dependencies correct?"
+- "Are the time estimates reasonable?"
+- "Is anyone missing from the resource assignments?"
 
-**Simple** (10 or fewer tasks, 1-2 phases):
-- Single flat workflow YAML file
-- All tasks as LLM steps in one file
+## Phase 3: Detail Activities
 
-**Complex** (more than 10 tasks, 3+ phases, or deeply nested work packages):
-- A main orchestrator workflow with `type: workflow` steps
-- Sub-workflow YAML files per work package, linked via `workflow_file`
-- Sub-workflows stored in a `sub-workflows/` subdirectory
+After the WBS is confirmed, generate detailed information for EACH activity.
+Use **parallel subagents** for independent activities (those with no dependencies
+on each other) to speed up generation.
 
-**Interactive:** Present the proposed structure via `Ask` and get confirmation.
-**Non-interactive:** Present the proposed structure in a text reply and ask the
-user to confirm. Stop and wait for their response.
+### Activity Detail Template
 
-## 4. Generate Workflow YAML
+For each activity, generate:
 
-### Complete YAML format reference
-
-```yaml
-name: my_workflow
-description: What this workflow does
-overview: |
-  High-level context shared with all steps.
-  Do NOT include directory paths here — the execution engine injects output directories automatically.
-
-agents:
-  writer:
-    role: "Content writer"
-    instructions: "Write clear, concise content."
-    model: null
-    tools: null
-    skills: null
-  reviewer:
-    role: "Quality reviewer"
-    instructions: "Check for accuracy and completeness."
-
-inputs:
-  topic: "default topic"
-  language: "en"
-
-steps:
-  - id: write_draft
-    name: Write Draft
-    type: llm
-    prompt: |
-      Write a draft about {{ inputs.topic }} in {{ inputs.language }}.
-    agent: writer
-    output_format: md
-    expected_result: "A complete draft with at least 3 paragraphs"
-    timeout: 1800
-    retry: 0
-
-  - id: generate_image
-    name: Generate Image
-    type: llm
-    prompt: |
-      Generate an illustration for the following draft:
-      {{ write_draft.outputs.result }}
-    agent: writer
-    output_format: md
-    expected_result: "At least one image file generated"
-    depends_on: [write_draft]
-
-  - id: review_content
-    name: Review Content
-    type: llm
-    prompt: |
-      Review the following draft and images:
-      Draft: {{ write_draft.outputs.result }}
-      Images: {{ write_draft.outputs.media_files }}
-    agent: reviewer
-    output_format: md
-    depends_on: [write_draft, generate_image]
+```json
+{
+  "id": "1.1.1",
+  "phase_id": "1",
+  "name": "Draft project charter",
+  "description": "Detailed description of what this activity entails...",
+  "duration_days": 3,
+  "person_days": 3,
+  "start_day": 0,
+  "resource": "PM — Project Manager",
+  "deliverables": "Project charter document (signed by sponsor)",
+  "acceptance_criteria": "Charter includes: project purpose, high-level requirements, key stakeholders, initial budget estimate, sponsor sign-off",
+  "depends_on": [],
+  "risks": "Sponsor may be unavailable for sign-off; schedule review meeting early",
+  "is_milestone": false
+}
 ```
 
-### Critical format rules
+### Field Guidelines
 
-1. **Step IDs**: MUST use lowercase letters, digits, and underscores ONLY.
-   Do NOT use hyphens — they break Jinja2 template references.
-   Good: `write_story`, `generate_images`, `create_pdf`
-   Bad: `write-story`, `generate-images`, `create-pdf`
+- **description**: 2-4 sentences. What specifically needs to be done? How?
+- **duration_days**: calendar days. Based on person_days ÷ 1 person, rounded to the time unit
+- **person_days**: actual work days. 1 person × N days. Use 8h/day
+- **start_day**: day offset from project start (0 = day 1). Calculated based on dependencies
+- **resource**: role and any special requirements. Format: "Role — notes" or "Role (external)" if external
+- **deliverables**: concrete, verifiable output
+- **acceptance_criteria**: how to verify completion
+- **depends_on**: array of activity IDs that MUST complete first
+- **risks**: potential blockers, assumptions, notes. Empty string if none.
+- **is_milestone**: true only for zero-duration checkpoint activities
 
-2. **Agents**: MUST be a dict keyed by agent name, NOT a list.
+### Scheduling Algorithm
 
-3. **No directory paths in workflow**: Do NOT hardcode output directories in prompts.
-   The execution engine automatically injects the output directory into each step's system prompt.
-   Steps should say "save to the outputs directory" not "save to /path/to/dir".
+Calculate `start_day` for each activity:
+1. Activities with no dependencies start at day 0
+2. An activity's start_day = MAX(end_day of all dependencies)
+3. end_day = start_day + duration_days
+4. Critical path = longest chain from start to finish
 
-4. **Output references** (Jinja2 templates for inter-step data flow):
-   - `{{ inputs.param }}` — workflow input parameters
-   - `{{ step_id.outputs.result }}` — text output from a completed step
-   - `{{ step_id.outputs.media_files }}` — list of generated media file paths
-   - `{{ step_id.outputs.media_files[0] }}` — first media file path
-   - `{{ step_id.outputs.outputs_dir }}` — the execution output directory
+### Parallel Generation
 
-5. **Validation fields**:
-   - `expected_result` (str, optional): Describes what the output should contain.
-     When set, the execution engine uses LLM to validate the output and retries if it doesn't match.
-   - `retry` (int, default 0): Max retries. 0 = unlimited (keeps retrying until expected result or timeout).
-   - `timeout` (int, default 1800): Step timeout in seconds (default 30 minutes).
+Use subagents to detail activities that have no mutual dependencies:
 
-6. **Step types**:
-   - `llm`: LLM-powered step with prompt, model, agent, tools
-   - `human`: User approval gate (pauses workflow for input)
-   - `decision`: Conditional branching with Jinja2 conditions
-   - `function`: Python function call
-   - `workflow`: Sub-workflow execution
+```
+Phase 1 activities (no inter-dependencies):
+  → Dispatch subagent for activity 1.1.1
+  → Dispatch subagent for activity 1.1.2
+  → Both run in parallel
 
-For hierarchical structures, the main workflow references sub-workflows:
-```yaml
-steps:
-  - id: design_phase
-    type: workflow
-    name: "Design Phase"
-    workflow_file: ./sub-workflows/design_phase.yaml
-    workflow_inputs:
-      requirements: "{{ inputs.requirements }}"
+Activities that depend on 1.1.1 and 1.1.2:
+  → Dispatch AFTER both above complete
 ```
 
-Each sub-workflow file is self-contained with its own `name`, `overview`, `agents`, and `steps`.
+Each subagent generates the JSON detail for one activity. Collect all results.
 
-### Guidelines for LLM step prompts
+## Phase 4: Generate HTML
 
-- Be specific and actionable — tell the LLM exactly what to produce
-- Reference inputs and prior step outputs via Jinja2
-- Set `output_format` appropriately (md for docs, json for structured data, code for source files)
-- Set `expected_result` for steps where output quality matters
-- Do NOT mention directories in prompts — the engine injects output directory automatically
+### Template Location
 
-## 5. Validate All Workflows
-
-**You MUST validate every workflow YAML before saving.** Do NOT skip this step.
-
-First, call `WorkflowValidate(action='schema')` if you need the complete field reference.
-
-For each generated YAML, call:
+The HTML template is at:
 ```
-WorkflowValidate(action='validate', yaml_content='...')
+src/cliver/skills/wbs-planner/assets/template.html
 ```
 
-The validator checks:
-- YAML syntax
-- Pydantic model validation (field types, required fields, agents as dict)
-- Step ID format (underscores only, no hyphens)
-- Dependency references (all depends_on targets exist)
-- Jinja2 template references (all referenced step IDs exist)
-- Agent references (all step agent refs exist in agents section)
-- Cycle detection
-- LangGraph compilation (the workflow can actually be compiled to a graph)
+Read this template file. It contains placeholder variables:
 
-Fix any reported errors and re-validate until the tool returns `Valid`.
-Never call `Write` to save a workflow that has not passed validation.
+| Placeholder | Description |
+|-------------|-------------|
+| `{{PROJECT_NAME}}` | Project name |
+| `{{START_DATE}}` | Project start date (e.g., 2026-06-01) |
+| `{{END_DATE}}` | Calculated end date |
+| `{{TIME_UNIT}}` | Minimum time unit (e.g., "3 days") |
+| `{{HOURS_PER_DAY}}` | Hours per working day (e.g., "8") |
+| `{{TOTAL_ACTIVITIES}}` | Total number of activities |
+| `{{TOTAL_DURATION}}` | Total calendar days |
+| `{{TOTAL_PERSON_DAYS}}` | Sum of all person_days |
+| `{{PHASE_COUNT}}` | Number of phases |
+| `{{CRITICAL_PATH_LENGTH}}` | Critical path in days |
+| `{{HOURS_PER_DAY_JS}}` | Hours per day (for JS, numeric) |
+| `{{TOTAL_DAYS_JS}}` | Total calendar days (for JS, numeric) |
+| `{{PHASES_JS}}` | JSON array: `[{id, name}]` |
+| `{{ACTIVITIES_JS}}` | JSON array of all activity detail objects |
 
-## 6. Save Workflow Files
+### Replace Placeholders
 
-Use the workflow name chosen in Step 1 as the file name.
-Always save to the **project-local** `.cliver/workflows/` directory (relative to CWD).
+1. Read the template
+2. Replace all `{{...}}` placeholders with actual values
+3. The `{{ACTIVITIES_JS}}` placeholder gets the full JSON array of all activities
+4. The `{{PHASES_JS}}` placeholder gets the JSON array of phases
 
-Save the main workflow:
+### Save Output
+
+Save to `~/.cliver/wbs-planner/<project-slug>/wbs.html`.
+
+Create the directory if it doesn't exist:
 ```
-Write(path='.cliver/workflows/{name}.yaml', content='...')
+~/.cliver/wbs-planner/<project-slug>/
 ```
 
-Save sub-workflows (if hierarchical):
+Tell the user:
 ```
-Write(path='.cliver/workflows/sub-workflows/{package}.yaml', content='...')
+WBS plan saved to ~/.cliver/wbs-planner/<project-slug>/wbs.html
+Open it in your browser to view the interactive Gantt chart.
 ```
-
-Tell the user the workflow is saved and how to run it:
-```
-cliver workflow run .cliver/workflows/{name}.yaml
-```
-
-## 7. Iterative Updates
-
-When the user provides changed or additional requirements:
-
-1. Read the existing workflow(s) with `Read`
-2. Identify which WBS levels are affected by the change
-3. Show a summary of proposed changes to the user:
-   - Steps to add, remove, or modify
-   - Dependencies to update
-   - Sub-workflows affected
-4. Get user confirmation (**Interactive:** via `Ask`; **Non-interactive:** text reply, then stop and wait)
-5. Modify only the affected workflows — preserve unchanged step IDs
-6. Re-validate all modified workflows with `WorkflowValidate`
-7. Save updated files with `Write`
-
-Preserving step IDs is important — changing them invalidates existing checkpoint
-state from prior workflow runs.
 
 ## Rules
 
-- **Always validate before saving** — never save unvalidated YAML
-- Step IDs: lowercase with underscores, descriptive (e.g., `design_api`, `test_auth`). Do NOT use hyphens — they break Jinja2 template references
-- Every LLM step must have a clear, specific prompt — no vague instructions
-- Max ~15 steps per workflow file — split into sub-workflows if larger
-- Sub-workflow files go in a `sub-workflows/` subdirectory relative to the main workflow
-- Use `{{ inputs.param }}` for configurable parameters
-- Use `{{ step_id.outputs.result }}` for inter-step data flow
-- Use `{{ step_id.outputs.media_files[0] }}` for referencing generated files
-- Do NOT hardcode directory paths in prompts — the engine injects output directory
-- Set `expected_result` on steps where output quality is critical
-- When updating, preserve step IDs that haven't changed
-- Each workflow file should have an `overview` providing context for its scope
-- Use `type: human` steps at phase boundaries for user review gates
+- **Always ask one question at a time** — never overwhelm with multiple questions
+- **Confirm WBS before detailing** — don't generate details for an unconfirmed structure
+- **Use 8 hours/day** unless the user specifies otherwise
+- **Don't over-pack** — leave buffer. 80% utilization is realistic.
+- **One person per activity** — if it needs 2+ people, split it
+- **Tag resource needs** — external dependencies, special skills, tools
+- **Parallel subagents** for detailing independent activities
+- **Always read the template file** before generating HTML — don't hardcode the template
+- **Validate the HTML** — make sure all placeholders are replaced
+- Output goes to `~/.cliver/wbs-planner/<project-slug>/` — never to the project directory
