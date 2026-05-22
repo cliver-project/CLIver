@@ -276,11 +276,34 @@ class LLMInferenceEngine(ABC):
         )
 
         if _has("Skill"):
+            parts.append("## Skills\n")
+            try:
+                from cliver.tools.skill import get_skill_manager
+
+                skills = get_skill_manager().list_skills()
+                if skills:
+                    parts.append("Available skills — call `Skill(skill_name='<name>')` to activate:\n")
+                    for skill in skills:
+                        desc = skill.description
+                        if len(desc) > 120:
+                            dot = desc.find(". ")
+                            desc = desc[: dot + 1] if 0 < dot <= 120 else desc[:117] + "..."
+                        parts.append(f"- **{skill.name}**: {desc}")
+                else:
+                    parts.append(
+                        "No skills available. Use `Skill(skill_name='list')` to check. "
+                        "Place SKILL.md files in `.cliver/skills/` (project) "
+                        "or the global skills directory to add skills."
+                    )
+            except Exception:
+                parts.append(
+                    "Use the `Skill` tool to discover and activate specialized skills. "
+                    "Call `Skill(skill_name='list')` to see available skills."
+                )
             parts.append(
-                "## Skills\n\n"
-                "Use the `Skill` tool to discover and activate specialized skills. "
-                "Call `Skill(skill_name='list')` to see available skills. "
-                "When a task matches a skill's domain, activate it to get expert instructions."
+                "\nActivate ONE skill at a time. When you activate a skill, its full "
+                "instructions are loaded into context. If you need a different skill, "
+                "activate the new one and the previous skill's content will be replaced."
             )
 
         has_todo = _has("TodoWrite", "TodoRead")

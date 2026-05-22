@@ -19,14 +19,13 @@ You MUST follow these steps in order. Use `TodoWrite` to create a checklist from
 ### Step 1: Explore Project Context
 
 Before asking questions, understand the current state:
-- Read relevant files (`Read`), check directory structure (`LS`)
-- Check recent git history: `Bash` with `git log --oneline -10`
-- Search for related code: `Grep`
-- Look for existing docs, README, CLAUDE.md, or design files
+- Read relevant files (`Read`), check current working directory structure (`LS`)
+- Search for related code or topics: `Grep`
+- Look for existing docs, README, CLAUDE.md, AGENT.md or design files
 
 ### Step 2: Ask Clarifying Questions
 
-Ask questions **one at a time** using `Ask`. Do not batch multiple questions.
+Ask questions **one at a time**. Do not batch multiple questions.
 
 - Prefer multiple choice when possible — easier to answer than open-ended
 - Focus on understanding: purpose, constraints, success criteria
@@ -40,7 +39,7 @@ Once you understand the requirements, propose 2-3 different approaches:
 - Lead with your recommended option and explain why
 - Keep descriptions concise — focus on the key differentiators
 
-Ask the user which approach they prefer via `Ask`.
+Ask the user which approach they prefer.
 
 ### Step 4: Present Design
 
@@ -58,7 +57,7 @@ Sections to cover (as applicable):
 ### Step 5: Write Design Doc
 
 Save the validated design using `Write`:
-- Path: `temp/design/YYYY-MM-DD-<topic>-design.md`
+- Path: `~/.cliver/temp/design/YYYY-MM-DD-<topic>-design.md`
 - Include: goal, architecture, design decisions, detailed changes, what does NOT change
 
 ### Step 6: Self-Review
