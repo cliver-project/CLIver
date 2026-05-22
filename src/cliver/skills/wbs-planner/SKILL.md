@@ -173,12 +173,13 @@ Generate all activity JSON objects, then proceed to Phase 4 to produce the HTML.
 
 ### Template Location
 
-The HTML template is at:
+The HTML template is bundled with this skill at:
 ```
-src/cliver/skills/wbs-planner/assets/template.html
+assets/template.html
 ```
 
-Read this template file. It contains placeholder variables:
+Combine the **base directory** provided above with this relative path, then `Read`
+the template file. It contains placeholder variables:
 
 | Placeholder | Description |
 |-------------|-------------|
