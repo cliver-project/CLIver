@@ -57,5 +57,9 @@ def simple_mcp_server(init_config, config_manager):
 
 @pytest.fixture()
 def simple_llm_model(init_config, config_manager):
-    config_manager.add_or_update_provider("ollama", "ollama", "http://localhost:11434")
-    config_manager.add_or_update_llm_model("ollama", "llama3.2:latest")
+    from cliver.model.store import ModelStore
+
+    store = ModelStore.from_config_dir(init_config)
+    provider = store.create_provider("ollama", "ollama")
+    endpoint = store.create_endpoint(provider.id, "http://localhost:11434")
+    store.create_model(provider.id, endpoint.id, "llama3.2:latest")

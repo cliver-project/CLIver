@@ -9,13 +9,13 @@ from click.testing import CliRunner
 from cliver.cli import Cliver
 
 
-def _make_session_defaults(cliver_instance):
+def _make_session_defaults():
     """Create session defaults matching the reset command."""
     from cliver.config import ModelOptions
 
     default_options = ModelOptions()
     return {
-        "model": cliver_instance.config_manager.get_llm_model(),
+        "model": None,
         "temperature": default_options.temperature,
         "max_tokens": default_options.max_tokens,
         "top_p": default_options.top_p,
@@ -29,23 +29,16 @@ def _make_session_defaults(cliver_instance):
 
 def _setup(runner, load_cliver):
     """Add a test model and create a Cliver instance with session defaults."""
-    runner.invoke(
-        load_cliver,
-        [
-            "model",
-            "add",
-            "--name",
-            "ollama/llama3.2:latest",
-            "--provider",
-            "ollama",
-            "--url",
-            "http://localhost:11434",
-            "--name-in-provider",
-            "llama3.2:latest",
-        ],
-    )
+    from cliver.model.store import ModelStore
+    from cliver.cli import Cliver
+
+    store = ModelStore.from_config_dir(Cliver().config_dir)
+    provider = store.create_provider("ollama", "ollama")
+    endpoint = store.create_endpoint(provider.id, "http://localhost:11434")
+    store.create_model(provider.id, endpoint.id, "llama3.2:latest")
+
     cliver_instance = Cliver()
-    cliver_instance.init_session(load_cliver, _make_session_defaults(cliver_instance))
+    cliver_instance.init_session(load_cliver, _make_session_defaults())
     return cliver_instance
 
 

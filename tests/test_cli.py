@@ -72,12 +72,25 @@ def test_list_llm_simple(load_cliver, simple_llm_model):
     assert "ollama" in result.output
 
 
-def test_add_llm_simple(load_cliver, init_config, config_manager):
-    config_manager.add_or_update_provider("ollama", "ollama", "http://localhost:11434")
+def test_add_llm_simple(load_cliver, init_config):
+    from cliver.model.store import ModelStore
+
+    store = ModelStore.from_config_dir(init_config)
+    provider = store.create_provider("ollama", "ollama")
+    endpoint = store.create_endpoint(provider.id, "http://localhost:11434")
 
     result = CliRunner().invoke(
         load_cliver,
-        ["model", "add", "--name", "deepseek-coder", "--provider", "ollama"],
+        [
+            "model",
+            "add",
+            "--name",
+            "deepseek-coder",
+            "--provider",
+            provider.id,
+            "--endpoint",
+            endpoint.id,
+        ],
     )
     assert result.exit_code == 0
     assert "Added LLM Model: ollama/deepseek-coder" in result.output

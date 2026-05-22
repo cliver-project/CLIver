@@ -204,9 +204,14 @@ def test_mcp_server_invalid_header_format(load_cliver, init_config):
     assert "Warning: Invalid option format 'INVALID_FORMAT'" in result.output
 
 
-def test_llm_model_add_with_options(load_cliver, init_config, config_manager):
+def test_llm_model_add_with_options(load_cliver, init_config):
     """Test adding LLM model with options."""
-    config_manager.add_or_update_provider("ollama", "ollama", "http://localhost:11434")
+    from cliver.model.store import ModelStore
+
+    store = ModelStore.from_config_dir(init_config)
+    provider = store.create_provider("ollama", "ollama")
+    endpoint = store.create_endpoint(provider.id, "http://localhost:11434")
+
     result = CliRunner().invoke(
         load_cliver,
         [
@@ -215,7 +220,9 @@ def test_llm_model_add_with_options(load_cliver, init_config, config_manager):
             "--name",
             "llama3.2",
             "--provider",
-            "ollama",
+            provider.id,
+            "--endpoint",
+            endpoint.id,
             "--option",
             "temperature=0.7",
             "--option",
@@ -229,13 +236,14 @@ def test_llm_model_add_with_options(load_cliver, init_config, config_manager):
     assert result.exit_code == 0
 
 
-def test_llm_model_set_options(load_cliver, init_config, config_manager):
+def test_llm_model_set_options(load_cliver, init_config):
     """Test updating LLM model options."""
-    config_manager.add_or_update_provider("ollama", "ollama", "http://localhost:11434")
-    CliRunner().invoke(
-        load_cliver,
-        ["model", "add", "--name", "llama3.2", "--provider", "ollama"],
-    )
+    from cliver.model.store import ModelStore
+
+    store = ModelStore.from_config_dir(init_config)
+    provider = store.create_provider("ollama", "ollama")
+    endpoint = store.create_endpoint(provider.id, "http://localhost:11434")
+    store.create_model(provider.id, endpoint.id, "llama3.2")
 
     result = CliRunner().invoke(
         load_cliver,
@@ -351,19 +359,22 @@ def test_mcp_server_remove(load_cliver, init_config):
     assert "test_server" not in result.output
 
 
-def test_llm_model_remove(load_cliver, init_config, config_manager):
+def test_llm_model_remove(load_cliver, init_config):
     """Test removing LLM models."""
-    config_manager.add_or_update_provider("ollama", "ollama", "http://localhost:11434")
-    CliRunner().invoke(
-        load_cliver,
-        ["model", "add", "--name", "test_model", "--provider", "ollama"],
-    )
+    from cliver.model.store import ModelStore
+
+    store = ModelStore.from_config_dir(init_config)
+    provider = store.create_provider("ollama", "ollama")
+    endpoint = store.create_endpoint(provider.id, "http://localhost:11434")
+    model = store.create_model(provider.id, endpoint.id, "test_model")
+
+    canonical = f"ollama/test_model"
 
     result = CliRunner().invoke(load_cliver, ["model", "list"])
     assert result.exit_code == 0
-    assert "test_model" in result.output
+    assert canonical in result.output
 
-    result = CliRunner().invoke(load_cliver, ["model", "remove", "ollama/test_model"])
+    result = CliRunner().invoke(load_cliver, ["model", "remove", canonical])
     assert result.exit_code == 0
     assert "Removed LLM Model: ollama/test_model" in result.output
 
@@ -553,10 +564,15 @@ def test_model_list_empty(load_cliver, init_config):
     assert result.exit_code == 0
 
 
-def test_model_list_with_models(load_cliver, init_config, config_manager):
-    config_manager.add_or_update_provider("ollama", "ollama", "http://localhost:11434")
-    config_manager.add_or_update_llm_model("ollama", "llama3.2:latest")
-    config_manager.add_or_update_llm_model("ollama", "codellama:7b")
+def test_model_list_with_models(load_cliver, init_config):
+    from cliver.model.store import ModelStore
+
+    store = ModelStore.from_config_dir(init_config)
+    provider = store.create_provider("ollama", "ollama")
+    endpoint = store.create_endpoint(provider.id, "http://localhost:11434")
+    store.create_model(provider.id, endpoint.id, "llama3.2:latest")
+    store.create_model(provider.id, endpoint.id, "codellama:7b")
+
     result = CliRunner().invoke(load_cliver, ["model", "list"])
     assert result.exit_code == 0
     assert "ollama/llama3.2:latest" in result.output
@@ -574,13 +590,18 @@ def test_model_default_show_none(load_cliver, init_config):
 
 
 def test_model_default_set_and_show(load_cliver, init_config):
-    cm = ConfigManager(init_config)
-    cm.add_or_update_provider("openai", "openai", "https://api.openai.com")
-    cm.add_or_update_llm_model("openai", "gpt-4o")
+    from cliver.model.store import ModelStore
+
+    store = ModelStore.from_config_dir(init_config)
+    provider = store.create_provider("openai", "openai")
+    endpoint = store.create_endpoint(provider.id, "https://api.openai.com")
+    store.create_model(provider.id, endpoint.id, "gpt-4o")
 
     CliRunner().invoke(load_cliver, ["model", "default", "openai/gpt-4o"])
-    cfg = ConfigManager(init_config).config
-    assert cfg.default_model == "openai/gpt-4o"
+
+    default = store.get_default_model()
+    assert default is not None
+    assert default.name == "gpt-4o"
 
     result = CliRunner().invoke(load_cliver, ["model", "default"])
     assert result.exit_code == 0
@@ -598,19 +619,23 @@ def test_model_default_set_nonexistent(load_cliver, init_config):
 
 
 def test_model_set_options(load_cliver, init_config):
-    cm = ConfigManager(init_config)
-    cm.add_or_update_provider("openai", "openai", "https://api.openai.com")
-    cm.add_or_update_llm_model("openai", "gpt-4o")
+    from cliver.model.store import ModelStore
+
+    store = ModelStore.from_config_dir(init_config)
+    provider = store.create_provider("openai", "openai")
+    endpoint = store.create_endpoint(provider.id, "https://api.openai.com")
+    m = store.create_model(provider.id, endpoint.id, "gpt-4o")
 
     CliRunner().invoke(
         load_cliver,
         ["model", "set", "--name", "openai/gpt-4o", "--option", "temperature=0.5", "--option", "max_tokens=4096"],
     )
-    cfg = ConfigManager(init_config).config
-    model = cfg.models["openai/gpt-4o"]
-    assert model.options is not None
-    assert model.options.temperature == 0.5
-    assert model.options.max_tokens == 4096
+
+    updated = store.get_model(m.id)
+    assert updated is not None
+    assert updated.options is not None
+    assert updated.options.get("temperature") == 0.5
+    assert updated.options.get("max_tokens") == 4096
 
 
 # ──────────────────────────────────────────────────────────────────────────────
