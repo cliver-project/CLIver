@@ -338,6 +338,7 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
                     filter_tools=_tool_filter,
                     conversation_history=conversation_history,
                     outputs_dir=save_media_dir,
+                    enabled_skills=set(tool_names) if tool_names else None,
                 ):
                     if hasattr(chunk, "content") and chunk.content:
                         text = str(chunk.content)
