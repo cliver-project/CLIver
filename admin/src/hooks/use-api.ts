@@ -161,11 +161,74 @@ export function useSaveSkill(name: string) {
   });
 }
 
-// --- Agents ---
+// --- Agents (DB-backed) ---
+
+export interface AgentInfo {
+  id: string;
+  name: string;
+  type: string;
+  description?: string | null;
+  role?: string | null;
+  model?: string | null;
+  is_default: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export function useAgents() {
   return useQuery({
     queryKey: ["agents"],
-    queryFn: () => api<Array<Record<string, unknown>>>("/agents"),
+    queryFn: () => api<AgentInfo[]>("/agents"),
+  });
+}
+
+export function useAgent(id: string | undefined) {
+  return useQuery({
+    queryKey: ["agent", id],
+    queryFn: () => api<AgentInfo>(`/agents/${encodeURIComponent(id!)}`),
+    enabled: !!id,
+  });
+}
+
+export function useCreateAgent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Partial<AgentInfo>) =>
+      apiPost<AgentInfo>("/agents", data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["agents"] }),
+  });
+}
+
+export function useUpdateAgent(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Partial<AgentInfo>) =>
+      api(`/agents/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["agent", id] });
+      qc.invalidateQueries({ queryKey: ["agents"] });
+    },
+  });
+}
+
+export function useDeleteAgent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiDelete(`/agents/${encodeURIComponent(id)}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["agents"] }),
+  });
+}
+
+export function useSetDefaultAgent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiPost<{ status: string }>(`/agents/${encodeURIComponent(id)}/default`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["agents"] }),
   });
 }
 

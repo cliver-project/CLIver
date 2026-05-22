@@ -56,7 +56,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="tasks/:name" element={<TaskDetailPage />} />
               <Route path="keys" element={<KeysList />} />
               <Route path="agents" element={<AgentListPage />} />
-              <Route path="agents/:name" element={<AgentDetailPage />} />
+              <Route path="agents/:id" element={<AgentDetailPage />} />
               <Route path="sessions" element={<SessionsPage />} />
               <Route path="sessions/:source/:id" element={<SessionDetailPage />} />
               <Route path="skills" element={<SkillsPage />} />
