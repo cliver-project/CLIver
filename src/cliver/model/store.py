@@ -449,6 +449,18 @@ class ModelStore:
         with self._get_store().write() as db:
             db.execute("UPDATE models SET is_default=0 WHERE is_default=1")
 
+    def get_default_model(self) -> Optional[Model]:
+        """Get the default model (is_default=1), or None if none is set."""
+        with self._get_store().read() as db:
+            row = db.execute(
+                "SELECT id, provider_id, endpoint_id, name, capabilities, options, "
+                "think_mode, context_window, pricing, is_default, created_at, updated_at "
+                "FROM models WHERE is_default = 1 LIMIT 1",
+            ).fetchone()
+        if row is None:
+            return None
+        return self._parse_model_row(row)
+
     def close(self) -> None:
         """Close the database connection."""
         if self._store:

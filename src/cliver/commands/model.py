@@ -1,9 +1,11 @@
 import click
 from rich import box
+from rich.panel import Panel
 from rich.table import Table
 
 from cliver.cli import Cliver, pass_cliver
 from cliver.commands import click_help, wants_help
+from cliver.model.store import ModelStore
 from cliver.model_capabilities import ModelCapability
 from cliver.util import parse_key_value_options
 
@@ -21,12 +23,40 @@ def model(ctx: click.Context):
 # ---------------------------------------------------------------------------
 
 
+def _get_store(cliver: Cliver):
+    """Get a ModelStore for the current config directory."""
+    return ModelStore.from_config_dir(cliver.config_dir)
+
+
+def _resolve_model(store, name: str):
+    """Resolve a model by canonical name (provider/model) or short name.
+
+    Returns (Model, Provider) or (None, None).
+    """
+    models = store.list_models()
+    providers = {p.id: p for p in store.list_providers()}
+
+    for m in models:
+        p = providers.get(m.provider_id)
+        if not p:
+            continue
+        canonical = f"{p.name}/{m.name}"
+        if canonical == name:
+            return m, p
+        if m.name == name:
+            return m, p
+    return None, None
+
+
 def _list_models(cliver: Cliver):
     """List all configured LLM models grouped by provider."""
-    models = cliver.config_manager.list_llm_models()
+    store = _get_store(cliver)
+    models = store.list_models()
     if not models:
         cliver.output("No LLM Models configured.")
         return
+
+    providers_by_id = {p.id: p for p in store.list_providers()}
 
     table = Table(title="Configured LLM Models", box=box.SQUARE)
     table.add_column("", min_width=1, max_width=1, no_wrap=True)
@@ -34,81 +64,112 @@ def _list_models(cliver: Cliver):
     table.add_column("Provider", style="cyan")
     table.add_column("Modalities", style="blue")
 
-    global_default = cliver.config_manager.config.default_model
-    session_model = (cliver.session_options or {}).get("model")
-    active_model = session_model or global_default
+    try:
+        default_model = store.get_default_model()
+        default_id = default_model.id if default_model else None
+    except Exception:
+        default_id = None
 
-    for _, model_cfg in models.items():
-        capabilities = model_cfg.get_capabilities()
-        modalities = _format_modalities(capabilities) if capabilities else "-"
+    for m in models:
+        provider = providers_by_id.get(m.provider_id)
+        provider_name = provider.name if provider else m.provider_id
+        canonical = f"{provider_name}/{m.name}"
 
-        is_active = model_cfg.name == active_model
-        if not is_active and active_model:
-            is_active = model_cfg.name.endswith(f"/{active_model}")
-        marker = "✔" if is_active else ""
+        modalities = []
+        caps = m.capabilities or []
+        if any(c in caps for c in ["text_to_text"]):
+            modalities.append("text")
+        if any(c in caps for c in ["image_to_text", "text_to_image"]):
+            modalities.append("image")
+        if any(c in caps for c in ["audio_to_text", "text_to_audio"]):
+            modalities.append("audio")
+        if any(c in caps for c in ["video_to_text", "text_to_video"]):
+            modalities.append("video")
 
-        table.add_row(marker, model_cfg.name, model_cfg.provider, modalities)
+        marker = "✔" if m.id == default_id else ""
+        table.add_row(marker, canonical, provider_name, ", ".join(modalities) or "-")
 
     cliver.output(table)
 
 
 def _show_model_detail(cliver: Cliver, name: str):
     """Show detailed information about a specific model."""
-    from rich.panel import Panel
-
-    mc = cliver.config_manager.get_llm_model(name)
-    if not mc:
+    store = _get_store(cliver)
+    model_obj, provider = _resolve_model(store, name)
+    if not model_obj:
         cliver.output(f"Model '{name}' not found.")
-        models = cliver.config_manager.list_llm_models()
+        models = store.list_models()
         if models:
-            cliver.output(f"Available: {', '.join(models.keys())}")
+            providers = {p.id: p for p in store.list_providers()}
+            names = []
+            for m in models:
+                p = providers.get(m.provider_id)
+                names.append(f"{p.name}/{m.name}" if p else m.name)
+            cliver.output(f"Available: {', '.join(names)}")
         return
 
-    is_default = mc.name == cliver.config_manager.config.default_model
-    capabilities = mc.get_capabilities()
+    endpoint = store.get_endpoint(model_obj.endpoint_id) if model_obj.endpoint_id else None
+    provider_name = provider.name if provider else model_obj.provider_id
+
+    is_default = model_obj.is_default == 1
 
     t = Table(box=None, show_header=False, padding=(0, 2))
     t.add_column("Key", style="dim", min_width=18)
     t.add_column("Value")
 
-    t.add_row("Name", f"{mc.name}")
-    t.add_row("API Model Name", mc.api_model_name)
+    canonical = f"{provider_name}/{model_obj.name}"
+    t.add_row("Name", canonical)
+    t.add_row("API Model Name", model_obj.name)
     if is_default:
-        t.add_row("Status", "● default")
-    t.add_row("Provider", f"{mc.provider}")
+        t.add_row("Status", "default")
+    t.add_row("Provider", provider_name)
 
-    url = mc.get_resolved_url()
-    if url:
-        t.add_row("URL", f"{url}")
+    if endpoint:
+        t.add_row("URL", endpoint.base_url)
 
-    if mc._provider_config and mc._provider_config.api_key:
-        t.add_row("API Key", f"(from provider) {_mask_api_key(mc._provider_config.api_key)}")
+    if provider and provider.api_key:
+        t.add_row("API Key", f"(from provider) {_mask_api_key(provider.api_key)}")
 
-    if mc.context_window:
-        t.add_row("Context Window", f"{mc.context_window:,} tokens")
+    if model_obj.context_window:
+        t.add_row("Context Window", f"{model_obj.context_window:,} tokens")
 
-    if mc.think_mode is not None:
-        t.add_row("Think Mode", "enabled" if mc.think_mode else "disabled")
+    if model_obj.think_mode is not None:
+        t.add_row("Think Mode", "enabled" if model_obj.think_mode else "disabled")
 
-    modalities = _format_modalities(capabilities)
-    features = _format_features(capabilities)
+    caps_set = _string_caps_to_set(model_obj.capabilities or [])
+    modalities = _format_modalities(caps_set)
+    features = _format_features(caps_set)
     t.add_row("Modalities", modalities)
     t.add_row("Features", features)
-    cap_names = sorted(c.value for c in capabilities)
+    cap_names = sorted(c.value for c in caps_set) if caps_set else []
     t.add_row("All Capabilities", ", ".join(cap_names) if cap_names else "-")
 
-    if mc.options:
-        opts = mc.options.model_dump(exclude_unset=True)
+    if model_obj.options:
+        opts = model_obj.options
         if opts:
             for k, v in opts.items():
                 t.add_row(f"  {k}", str(v))
 
-    pricing = mc.get_resolved_pricing()
-    if pricing:
-        inp, out, cached, currency = pricing
-        t.add_row("Pricing (per 1M)", f"in: {inp} / out: {out} / cached: {cached} {currency}")
+    if model_obj.pricing:
+        inp = model_obj.pricing.get("input")
+        out = model_obj.pricing.get("output")
+        cached = model_obj.pricing.get("cached_input", inp)
+        currency = model_obj.pricing.get("currency", "USD")
+        if inp is not None and out is not None:
+            t.add_row("Pricing (per 1M)", f"in: {inp} / out: {out} / cached: {cached} {currency}")
 
-    cliver.output(Panel(t, title=f"Model: {mc.name}", border_style="green", padding=(0, 1)))
+    cliver.output(Panel(t, title=f"Model: {canonical}", border_style="green", padding=(0, 1)))
+
+
+def _string_caps_to_set(cap_list):
+    """Convert a list of capability strings to a set of ModelCapability enums."""
+    result = set()
+    for c in cap_list:
+        try:
+            result.add(ModelCapability(c))
+        except ValueError:
+            pass
+    return result
 
 
 def _mask_api_key(key: str) -> str:
@@ -161,8 +222,18 @@ class ModelNameType(click.ParamType):
         try:
             cliver_obj = ctx.find_object(Cliver)
             if cliver_obj:
-                models = cliver_obj.config_manager.list_llm_models()
-                return [click.shell_completion.CompletionItem(name) for name in models if name.startswith(incomplete)]
+                store = _get_store(cliver_obj)
+                models = store.list_models()
+                providers = {p.id: p for p in store.list_providers()}
+
+                names = []
+                for m in models:
+                    p = providers.get(m.provider_id)
+                    canonical = f"{p.name}/{m.name}" if p else m.name
+                    if canonical not in names:
+                        names.append(canonical)
+
+                return [click.shell_completion.CompletionItem(n) for n in names if n.startswith(incomplete)]
         except Exception:
             pass
         return []
@@ -170,62 +241,98 @@ class ModelNameType(click.ParamType):
 
 def _set_default_model(cliver: Cliver, name: str = None):
     """Set or show the default LLM model."""
+    store = _get_store(cliver)
     if not name:
-        current = cliver.config_manager.config.default_model
-        if current:
-            cliver.output(f"Current default model: {current}")
-        else:
+        try:
+            default = store.get_default_model()
+            if default:
+                provider = store.get_provider(default.provider_id)
+                canonical = f"{provider.name}/{default.name}" if provider else default.name
+                cliver.output(f"Current default model: {canonical}")
+            else:
+                cliver.output("No default model set.")
+        except Exception:
             cliver.output("No default model set.")
-        models = cliver.config_manager.list_llm_models()
+
+        models = store.list_models()
         if models:
-            cliver.output(f"Available models: {', '.join(models.keys())}")
+            providers = {p.id: p for p in store.list_providers()}
+            names = []
+            for m in models:
+                p = providers.get(m.provider_id)
+                names.append(f"{p.name}/{m.name}" if p else m.name)
+            cliver.output(f"Available models: {', '.join(names)}")
         return
 
-    if cliver.config_manager.set_default_model(name):
-        mc = cliver.config_manager.get_llm_model(name)
-        cliver.agent_core.default_model = mc.name
-        cliver.output(f"Default model set to: {mc.name}")
-    else:
+    model_obj, provider = _resolve_model(store, name)
+    if not model_obj:
         cliver.output(f"Model '{name}' not found.")
-        models = cliver.config_manager.list_llm_models()
+        models = store.list_models()
         if models:
-            cliver.output(f"Available models: {', '.join(models.keys())}")
+            providers = {p.id: p for p in store.list_providers()}
+            names = []
+            for m in models:
+                p = providers.get(m.provider_id)
+                names.append(f"{p.name}/{m.name}" if p else m.name)
+            cliver.output(f"Available models: {', '.join(names)}")
+        return
+
+    store.set_default_model(model_obj.id)
+    canonical = f"{provider.name}/{model_obj.name}"
+    cliver.output(f"Default model set to: {canonical}")
 
 
 def _remove_model(cliver: Cliver, name: str):
     """Remove a LLM model."""
-    mc = cliver.config_manager.get_llm_model(name)
-    if not mc:
+    store = _get_store(cliver)
+    model_obj, provider = _resolve_model(store, name)
+    if not model_obj:
         cliver.output(f"No LLM Model found with name: {name}")
         return
-    cliver.config_manager.remove_llm_model(mc.name)
-    cliver.output(f"Removed LLM Model: {mc.name}")
+    canonical = f"{provider.name}/{model_obj.name}"
+    store.delete_model(model_obj.id)
+    cliver.output(f"Removed LLM Model: {canonical}")
 
 
 def _add_model(
     cliver: Cliver,
-    provider: str,
+    provider_id: str,
+    endpoint_id: str,
     name: str,
     option: tuple = None,
     capabilities: str = None,
 ):
     """Add a new LLM model to a provider."""
-    if provider not in cliver.config_manager.list_providers():
-        cliver.output(f"Provider '{provider}' not found.")
+    store = _get_store(cliver)
+    provider = store.get_provider(provider_id)
+    if not provider:
+        cliver.output(f"Provider '{provider_id}' not found.")
         return
 
-    key = f"{provider}/{name}"
-    existing = cliver.config_manager.get_llm_model(key)
-    if existing:
-        cliver.output(f"Model '{key}' already exists.")
-        return
+    canonical = f"{provider.name}/{name}"
+    existing_models = store.list_models()
+    for m in existing_models:
+        p = store.get_provider(m.provider_id)
+        if p and f"{p.name}/{m.name}" == canonical:
+            cliver.output(f"Model '{canonical}' already exists.")
+            return
 
     options_dict = {}
     if option:
         options_dict = parse_key_value_options(option, cliver.console)
 
-    cliver.config_manager.add_or_update_llm_model(provider, name, options_dict or None, capabilities)
-    cliver.output(f"Added LLM Model: {key}")
+    caps_list = None
+    if capabilities:
+        caps_list = [c.strip() for c in capabilities.split(",") if c.strip()]
+
+    store.create_model(
+        provider_id=provider_id,
+        endpoint_id=endpoint_id,
+        name=name,
+        capabilities=caps_list,
+        options=options_dict or None,
+    )
+    cliver.output(f"Added LLM Model: {canonical}")
 
 
 def _update_model(
@@ -235,17 +342,24 @@ def _update_model(
     capabilities: str = None,
 ):
     """Update an existing LLM model."""
-    mc = cliver.config_manager.get_llm_model(name)
-    if not mc:
+    store = _get_store(cliver)
+    model_obj, provider = _resolve_model(store, name)
+    if not model_obj:
         cliver.output(f"LLM Model '{name}' not found.")
         return
 
-    options_dict = {}
+    kwargs = {}
     if option:
         options_dict = parse_key_value_options(option, cliver.console)
+        if options_dict:
+            kwargs["options"] = options_dict
+    if capabilities:
+        caps_list = [c.strip() for c in capabilities.split(",") if c.strip()]
+        kwargs["capabilities"] = caps_list
 
-    cliver.config_manager.add_or_update_llm_model(mc.provider, mc.api_model_name, options_dict or None, capabilities)
-    cliver.output(f"LLM Model: {mc.name} updated")
+    store.update_model(model_obj.id, **kwargs)
+    canonical = f"{provider.name}/{model_obj.name}"
+    cliver.output(f"LLM Model: {canonical} updated")
 
 
 # ---------------------------------------------------------------------------
@@ -285,12 +399,7 @@ def dispatch(cliver: Cliver, args: str):
             return
         _remove_model(cliver, name)
     else:
-        mc = cliver.config_manager.get_llm_model(sub)
-        if mc:
-            _show_model_detail(cliver, sub)
-        else:
-            cliver.output(f"Unknown subcommand or model: /model {sub}")
-            cliver.output("Run '/model help' for usage.")
+        _show_model_detail(cliver, sub)
 
 
 def _parse_model_flags(rest: str) -> dict:
@@ -310,6 +419,7 @@ def _parse_model_flags(rest: str) -> dict:
         "-n": "name",
         "--provider": "provider",
         "-p": "provider",
+        "--endpoint": "endpoint",
         "--capabilities": "capabilities",
         "-c": "capabilities",
     }
@@ -331,11 +441,15 @@ def _dispatch_add(cliver: Cliver, rest: str) -> None:
     """Handle /model add from TUI dispatch."""
     opts = _parse_model_flags(rest)
     name = opts.get("name")
-    provider = opts.get("provider")
-    if not name or not provider:
-        cliver.output("Usage: /model add --provider PROVIDER --name NAME [--option K=V]")
+    provider_id = opts.get("provider")
+    endpoint_id = opts.get("endpoint")
+    if not name or not provider_id or not endpoint_id:
+        cliver.output(
+            "Usage: /model add --provider PROVIDER_ID --endpoint ENDPOINT_ID --name NAME "
+            "[--capabilities CAPS] [--option K=V]"
+        )
         return
-    _add_model(cliver, provider, name, option=opts.get("option"), capabilities=opts.get("capabilities"))
+    _add_model(cliver, provider_id, endpoint_id, name, option=opts.get("option"), capabilities=opts.get("capabilities"))
 
 
 def _dispatch_set(cliver: Cliver, rest: str) -> None:
@@ -343,7 +457,7 @@ def _dispatch_set(cliver: Cliver, rest: str) -> None:
     opts = _parse_model_flags(rest)
     name = opts.get("name")
     if not name:
-        cliver.output("Usage: /model set --name NAME [--option K=V]")
+        cliver.output("Usage: /model set --name NAME [--option K=V] [--capabilities CAPS]")
         return
     _update_model(cliver, name, option=opts.get("option"), capabilities=opts.get("capabilities"))
 
@@ -391,7 +505,13 @@ def remove_llm_model(cliver: Cliver, name: str):
     "-p",
     type=str,
     required=True,
-    help="Provider name. Must exist in 'provider list' (e.g. 'deepseek')",
+    help="Provider ID. Must exist in 'provider list' (e.g. 'deepseek')",
+)
+@click.option(
+    "--endpoint",
+    type=str,
+    required=True,
+    help="Endpoint ID. Must exist in 'endpoint list' for the provider",
 )
 @click.option(
     "--option",
@@ -407,8 +527,8 @@ def remove_llm_model(cliver: Cliver, name: str):
     help="Comma-separated capabilities (e.g. 'text_to_text,tool_calling')",
 )
 @pass_cliver
-def add_llm_model(cliver: Cliver, name: str, provider: str, option: tuple, capabilities: str):
-    _add_model(cliver, provider, name, option, capabilities)
+def add_llm_model(cliver: Cliver, name: str, provider: str, endpoint: str, option: tuple, capabilities: str):
+    _add_model(cliver, provider, endpoint, name, option, capabilities)
 
 
 # noinspection PyUnresolvedReferences

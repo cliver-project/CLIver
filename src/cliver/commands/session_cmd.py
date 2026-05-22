@@ -380,7 +380,24 @@ def set_options(
     _llm_options = cliver.session_options.get("options", {})
 
     if model is not None:
-        if not cliver.config_manager.get_llm_model(model):
+        from cliver.model.store import ModelStore
+
+        store = ModelStore.from_config_dir(cliver.config_dir)
+        models = store.list_models()
+        providers = {p.id: p for p in store.list_providers()}
+
+        found = False
+        for m in models:
+            p = providers.get(m.provider_id)
+            if p:
+                canonical = f"{p.name}/{m.name}"
+            else:
+                canonical = m.name
+            if canonical == model or m.name == model:
+                found = True
+                break
+
+        if not found:
             cliver.output(f"Unknown model: {model}, please define it first.")
             return 1
         cliver.session_options["model"] = model
@@ -461,7 +478,20 @@ def reset_options(cliver: Cliver):
 @pass_cliver
 def option_model_exclude(cliver: Cliver, model_name: str):
     """Exclude a model from being used as a fallback target."""
-    if model_name not in cliver.config_manager.list_llm_models():
+    from cliver.model.store import ModelStore
+
+    store = ModelStore.from_config_dir(cliver.config_dir)
+    models = store.list_models()
+    providers = {p.id: p for p in store.list_providers()}
+
+    names = []
+    for m in models:
+        p = providers.get(m.provider_id)
+        canonical = f"{p.name}/{m.name}" if p else m.name
+        names.append(canonical)
+        names.append(m.name)
+
+    if model_name not in names:
         cliver.output(f"Unknown model: {model_name}")
         return
     cliver.agent_core.excluded_models.add(model_name)
