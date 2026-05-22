@@ -12,6 +12,7 @@ import {
   PanelLeft,
   FlaskConical,
   Server,
+  Bot,
 } from "lucide-react";
 import { CliverLogo } from "@/components/cliver-logo";
 import { useTranslation } from "@/i18n";
@@ -42,6 +43,7 @@ const navSections: NavSection[] = [
   {
     titleKey: "sidebar.section.system",
     items: [
+      { to: "/admin/models", icon: Bot, labelKey: "sidebar.models" },
       { to: "/admin/keys", icon: Key, labelKey: "sidebar.keys" },
       { to: "/admin/agents", icon: Users, labelKey: "sidebar.agents" },
       { to: "/admin/sessions", icon: MessageSquare, labelKey: "sidebar.sessions" },
