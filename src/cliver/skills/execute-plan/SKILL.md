@@ -1,7 +1,7 @@
 ---
 name: execute-plan
 description: Systematically execute a written implementation plan task by task with verification. Use after write-plan or when you have a step-by-step plan to implement.
-allowed-tools: Read Write LS Grep Bash TodoWrite TodoRead Ask Skill
+allowed-tools: Read Write LS Grep Bash TodoWrite TodoRead Skill
 ---
 
 # Execute Plan
@@ -15,7 +15,7 @@ Systematically execute a written implementation plan, task by task, with verific
 Read the plan document using `Read`. Before starting execution:
 - Review the plan critically — flag any concerns
 - Check that prerequisites are met (dependencies installed, files exist, etc.)
-- If anything looks wrong or unclear, ask the user via `Ask` before proceeding
+- If anything looks wrong or unclear, ask the user before proceeding
 
 ### Step 2: Create Task Checklist
 
@@ -39,7 +39,7 @@ When you encounter a problem, **stop and ask** — never guess or improvise:
 - Verification output doesn't match expectations
 - Files that don't exist or have unexpected content
 
-Use `Ask` to describe the blocker and ask for guidance.
+Ask user to describe the blocker and ask for guidance.
 
 ### Step 5: Summarize
 

@@ -1,7 +1,7 @@
 ---
 name: write-plan
 description: Create detailed, step-by-step implementation plans from design specs. Use after brainstorming or when you have a spec/requirements for a multi-step task.
-allowed-tools: Read LS Grep Bash TodoWrite TodoRead Ask Write Skill
+allowed-tools: Read LS Grep Bash TodoWrite TodoRead Write Skill
 ---
 
 # Write Plan
