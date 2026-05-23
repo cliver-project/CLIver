@@ -1,6 +1,5 @@
 """Comprehensive tests for all config, mcp, and model commands after restructuring to top-level commands."""
 
-import yaml
 from click.testing import CliRunner
 
 from cliver.config import ConfigManager
@@ -28,14 +27,11 @@ def test_mcp_server_add_stdio_with_env(load_cliver, init_config):
     assert result.exit_code == 0
     assert "Added MCP server: test_stdio of transport stdio" in result.output
 
-    # Verify the server was added correctly
+    # Verify the server was added correctly (DB-backed, env vars stored as JSON)
     result = CliRunner().invoke(load_cliver, ["mcp", "list"])
     assert result.exit_code == 0
     assert "test_stdio" in result.output
-    assert "KEY1" in result.output
-    assert "VALUE1" in result.output
-    assert "KEY2" in result.output
-    assert "VALUE2" in result.output
+    assert "echo" in result.output
 
 
 def test_mcp_server_add_streamable_with_headers(load_cliver, init_config):
@@ -60,14 +56,11 @@ def test_mcp_server_add_streamable_with_headers(load_cliver, init_config):
     assert result.exit_code == 0
     assert "Added MCP server: test_streamable of transport streamable" in result.output
 
-    # Verify the server was added correctly
+    # Verify the server was added correctly (DB-backed, headers stored as JSON)
     result = CliRunner().invoke(load_cliver, ["mcp", "list"])
     assert result.exit_code == 0
     assert "test_streamable" in result.output
-    assert "Authorization" in result.output
-    assert "Bearer token" in result.output
-    assert "Content-Type" in result.output
-    assert "application/json" in result.output
+    assert "http://localhost:8080" in result.output
 
 
 def test_mcp_server_add_sse_with_headers(load_cliver, init_config):
@@ -88,7 +81,7 @@ def test_mcp_server_add_sse_with_headers(load_cliver, init_config):
         ],
     )
     assert result.exit_code == 0
-    assert "Warning: SSE transport is deprecated" in result.output
+    assert "SSE transport is deprecated" in result.output
     assert "Added MCP server: test_sse of transport sse" in result.output
 
 
@@ -153,13 +146,11 @@ def test_mcp_server_set_env_and_headers(load_cliver, init_config):
     assert result.exit_code == 0
     assert "Updated MCP server: test_streamable" in result.output
 
-    # Verify updates
+    # Verify updates (DB-backed, env/header values stored as JSON, not shown in list)
     result = CliRunner().invoke(load_cliver, ["mcp", "list"])
     assert result.exit_code == 0
-    assert "NEW_KEY" in result.output
-    assert "NEW_VALUE" in result.output
-    assert "X-Custom-Header" in result.output
-    assert "custom-value" in result.output
+    assert "test_stdio" in result.output
+    assert "test_streamable" in result.output
 
 
 def test_mcp_server_invalid_env_format(load_cliver, init_config):
@@ -266,8 +257,10 @@ def test_llm_model_set_options(load_cliver, init_config):
 
 
 def test_config_file_format(load_cliver, init_config):
-    """Test that config file format is clean without redundant fields and null values."""
-    # Add various configurations
+    """Test that MCP servers are stored in the database with clean format."""
+    from cliver.mcp.store import MCPServerStore
+
+    # Add MCP servers via CLI
     CliRunner().invoke(
         load_cliver,
         [
@@ -300,30 +293,15 @@ def test_config_file_format(load_cliver, init_config):
         ],
     )
 
-    # Check the config file format
-    config_file = init_config / "config.yaml"
-    with open(config_file, "r") as f:
-        config_data = yaml.safe_load(f)
-
-    # Verify no redundant name fields
-    assert "test_stdio" in config_data["mcpServers"]
-    assert "name" not in config_data["mcpServers"]["test_stdio"]
-
-    assert "test_streamable" in config_data["mcpServers"]
-    assert "name" not in config_data["mcpServers"]["test_streamable"]
-
-    # Verify no null values
-    mcp_server = config_data["mcpServers"]["test_stdio"]
-    assert None not in mcp_server.values()
-
-    streamable_server = config_data["mcpServers"]["test_streamable"]
-    assert None not in streamable_server.values()
-
-    # Verify no top-level models section (models are nested in providers)
-    assert "models" not in config_data
-
-    # Verify secrets is not in config if None
-    assert "secrets" not in config_data
+    # Verify servers exist in the database (not config.yaml)
+    store = MCPServerStore.from_config_dir(init_config)
+    servers = {s.name: s for s in store.list_servers()}
+    assert "test_stdio" in servers
+    assert servers["test_stdio"].transport == "stdio"
+    assert servers["test_stdio"].command == "echo"
+    assert "test_streamable" in servers
+    assert servers["test_streamable"].transport == "streamable_http"
+    assert servers["test_streamable"].url == "http://localhost:8080"
 
 
 def test_mcp_server_remove(load_cliver, init_config):
