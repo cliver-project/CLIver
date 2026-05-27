@@ -7,10 +7,12 @@ import pytest
 def variables():
     return {
         "setup": {"outputs": {"domain": "AI", "agent": "cliver", "count": 10}},
-        "search": {"outputs": {
-            "text": "Found papers",
-            "data": [{"title": "Paper A", "citations": 100}, {"title": "Paper B", "citations": 20}],
-        }},
+        "search": {
+            "outputs": {
+                "text": "Found papers",
+                "data": [{"title": "Paper A", "citations": 100}, {"title": "Paper B", "citations": 20}],
+            }
+        },
         "empty": {"outputs": {}},
     }
 

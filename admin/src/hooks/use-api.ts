@@ -221,3 +221,31 @@ export function useAdapters() {
     queryFn: () => api<Array<Record<string, unknown>>>("/adapters"),
   });
 }
+
+// --- Scenarios ---
+export function useScenarios() {
+  return useQuery({
+    queryKey: ["scenarios"],
+    queryFn: () => api<Array<Record<string, unknown>>>("/scenarios"),
+  });
+}
+
+export function useInstallScenario() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (source: string) => apiPost("/scenarios/install", { source }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["scenarios"] });
+    },
+  });
+}
+
+export function useRemoveScenario() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiDelete(`/scenarios/${encodeURIComponent(id)}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["scenarios"] });
+    },
+  });
+}

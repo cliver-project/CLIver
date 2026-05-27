@@ -1,7 +1,5 @@
 """Tests for Notebook and Cell models."""
 
-import pytest
-
 
 def test_cell_defaults():
     from cliver.notebook.models import Cell
@@ -20,10 +18,13 @@ def test_cell_with_outputs():
     from cliver.notebook.models import Cell
 
     c = Cell(
-        id="search", type="llm", title="Search",
+        id="search",
+        type="llm",
+        title="Search",
         inputs={"prompt": "find papers", "agent": "cliver"},
         outputs={"text": "Found 5 papers", "data": [{"title": "Paper A"}]},
-        status="completed", duration_ms=1500,
+        status="completed",
+        duration_ms=1500,
     )
     assert c.outputs["text"] == "Found 5 papers"
     assert len(c.outputs["data"]) == 1
@@ -40,7 +41,7 @@ def test_cell_type_validation():
 
 
 def test_notebook_creation():
-    from cliver.notebook.models import Notebook, Cell
+    from cliver.notebook.models import Cell, Notebook
 
     nb = Notebook(
         id="nb_abc123",
@@ -75,7 +76,7 @@ def test_notebook_with_metadata():
 
 
 def test_notebook_serialization():
-    from cliver.notebook.models import Notebook, Cell
+    from cliver.notebook.models import Cell, Notebook
 
     nb = Notebook(
         id="nb_test",
@@ -97,9 +98,14 @@ def test_notebook_from_json():
         "id": "nb_test",
         "title": "From JSON",
         "cells": [
-            {"id": "c1", "type": "llm", "title": "LLM Cell",
-             "inputs": {"prompt": "hello"}, "outputs": {"text": "hi"},
-             "status": "completed"},
+            {
+                "id": "c1",
+                "type": "llm",
+                "title": "LLM Cell",
+                "inputs": {"prompt": "hello"},
+                "outputs": {"text": "hi"},
+                "status": "completed",
+            },
         ],
     }
     nb = Notebook.model_validate(raw)
@@ -111,18 +117,23 @@ def test_notebook_summary():
     from cliver.notebook.models import NotebookSummary
 
     s = NotebookSummary(
-        id="nb_abc", title="Test", cell_count=3,
-        status="completed", created_at="2026-01-01", updated_at="2026-01-02",
+        id="nb_abc",
+        title="Test",
+        cell_count=3,
+        status="completed",
+        created_at="2026-01-01",
+        updated_at="2026-01-02",
     )
     assert s.id == "nb_abc"
     assert s.cell_count == 3
 
 
 def test_notebook_get_cell():
-    from cliver.notebook.models import Notebook, Cell
+    from cliver.notebook.models import Cell, Notebook
 
     nb = Notebook(
-        id="nb_test", title="Test",
+        id="nb_test",
+        title="Test",
         cells=[
             Cell(id="a", type="config", title="A"),
             Cell(id="b", type="llm", title="B"),
@@ -134,10 +145,11 @@ def test_notebook_get_cell():
 
 
 def test_notebook_cells_before():
-    from cliver.notebook.models import Notebook, Cell
+    from cliver.notebook.models import Cell, Notebook
 
     nb = Notebook(
-        id="nb_test", title="Test",
+        id="nb_test",
+        title="Test",
         cells=[
             Cell(id="a", type="config", title="A"),
             Cell(id="b", type="llm", title="B"),

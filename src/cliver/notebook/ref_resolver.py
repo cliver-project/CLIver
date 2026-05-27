@@ -35,17 +35,13 @@ def resolve_value(path: str, variables: Dict[str, Any]) -> Any:
             except (ValueError, IndexError):
                 traversed = ".".join(parts[:i])
                 raise ValueError(
-                    f"Reference '${{{path}}}' not found. "
-                    f"'{part}' is not a valid index in list at '{traversed}'"
+                    f"Reference '${{{path}}}' not found. '{part}' is not a valid index in list at '{traversed}'"
                 ) from None
         else:
             traversed = ".".join(parts[:i])
             available = list(current.keys()) if isinstance(current, dict) else []
             hint = f" Available keys: {available}" if available else ""
-            raise ValueError(
-                f"Reference '${{{path}}}' not found. "
-                f"Key '{part}' does not exist at '{traversed}'.{hint}"
-            )
+            raise ValueError(f"Reference '${{{path}}}' not found. Key '{part}' does not exist at '{traversed}'.{hint}")
 
     return current
 

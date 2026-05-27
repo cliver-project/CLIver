@@ -1,0 +1,137 @@
+{
+  "$schema": "cliver-notebook-v1",
+  "title": "${issue.title}",
+  "description": "${issue.description}",
+  "default_agent": "cliver",
+  "cells": [
+    {
+      "id": "setup",
+      "type": "config",
+      "title": "Research Configuration",
+      "inputs": {
+        "schema": {
+          "domain": {
+            "type": "text",
+            "label": "Research Domain",
+            "required": true,
+            "default": "${issue.title}",
+            "placeholder": "e.g., transformer architectures, federated learning"
+          },
+          "year_range": {
+            "type": "range",
+            "label": "Publication Year Range",
+            "min": 2018,
+            "max": 2026,
+            "default": [
+              2024,
+              2026
+            ]
+          },
+          "max_papers": {
+            "type": "select",
+            "label": "Number of Papers",
+            "options": [
+              "5",
+              "10",
+              "20"
+            ],
+            "default": "10"
+          },
+          "agent": {
+            "type": "select",
+            "label": "AI Agent",
+            "options": [
+              "cliver",
+              "claude"
+            ],
+            "default": "cliver"
+          },
+          "review_style": {
+            "type": "select",
+            "label": "Review Writing Style",
+            "options": [
+              "academic",
+              "popular_science",
+              "technical_blog"
+            ],
+            "default": "academic"
+          }
+        }
+      },
+      "outputs": {},
+      "status": "idle"
+    },
+    {
+      "id": "intro",
+      "type": "display",
+      "title": "Welcome",
+      "inputs": {
+        "content": "## Research AI Lab\n\nThis notebook guides you through a complete research workflow:\n\n1. **Search** — Find relevant papers on your topic\n2. **Analyze** — Extract key findings from each paper\n3. **Review** — Generate a structured literature review\n\nStart by configuring your research domain above, then run each step in order.",
+        "format": "markdown"
+      },
+      "outputs": {},
+      "status": "idle"
+    },
+    {
+      "id": "search",
+      "type": "llm",
+      "title": "Paper Search",
+      "inputs": {
+        "agent": "${setup.outputs.agent}",
+        "prompt": "Search for ${setup.outputs.max_papers} academic papers about \"${setup.outputs.domain}\" published between ${setup.outputs.year_range}.\n\nFor each paper, provide:\n- title: the paper title\n- authors: list of author names\n- year: publication year\n- abstract: a brief summary (2-3 sentences)\n- url: link to the paper (use arxiv.org or semanticscholar.org URLs)\n- citations: approximate citation count\n\nReturn the results as a JSON array. Focus on highly-cited and influential papers. Include a mix of survey papers and original research.",
+        "system_prompt": "You are a research assistant specializing in academic paper discovery. Return results strictly as a JSON array of objects with fields: title, authors, year, abstract, url, citations. No additional text or explanation outside the JSON.",
+        "output_format": "json"
+      },
+      "outputs": {},
+      "status": "idle"
+    },
+    {
+      "id": "search_summary",
+      "type": "display",
+      "title": "Search Results",
+      "inputs": {
+        "content": "## Papers Found\n\nThe search returned results for **${setup.outputs.domain}**. Review the papers above, then proceed to the analysis step to extract key findings from each paper.",
+        "format": "markdown"
+      },
+      "outputs": {},
+      "status": "idle"
+    },
+    {
+      "id": "analyze",
+      "type": "llm",
+      "title": "Paper Analysis",
+      "inputs": {
+        "agent": "${setup.outputs.agent}",
+        "prompt": "Analyze the following papers and extract key findings for each:\n\n${search.outputs.text}\n\nFor each paper, provide:\n- paper_title: the title\n- key_findings: list of 2-3 main contributions or findings\n- methodology: brief description of the approach used\n- limitations: any noted limitations or gaps\n- relevance_score: rate from 1-10 how relevant this paper is to \"${setup.outputs.domain}\"\n\nReturn as a JSON array of analysis objects.",
+        "system_prompt": "You are a research analyst. Carefully read each paper's details and extract structured analysis. Return strictly as a JSON array. Each object must have: paper_title, key_findings (array of strings), methodology (string), limitations (string), relevance_score (integer 1-10).",
+        "output_format": "json"
+      },
+      "outputs": {},
+      "status": "idle"
+    },
+    {
+      "id": "review",
+      "type": "llm",
+      "title": "Literature Review Generation",
+      "inputs": {
+        "agent": "${setup.outputs.agent}",
+        "prompt": "Based on the following paper analyses, write a comprehensive literature review about \"${setup.outputs.domain}\".\n\nPaper analyses:\n${analyze.outputs.text}\n\nWriting style: ${setup.outputs.review_style}\n\nThe review should include:\n1. Introduction — context and importance of the topic\n2. Key Themes — organize findings into 3-4 thematic sections\n3. Methodology Overview — common approaches used in the field\n4. Current Gaps — limitations and open questions\n5. Conclusion — summary and future directions\n\nUse proper academic citations (Author, Year) format when referencing papers. Write approximately 1500-2000 words.",
+        "system_prompt": "You are an academic writer producing a literature review. Write in the requested style. Use clear headings, proper citations, and logical flow. The review should synthesize findings across papers, not just summarize each one individually.",
+        "output_format": "text"
+      },
+      "outputs": {},
+      "status": "idle"
+    },
+    {
+      "id": "export_info",
+      "type": "display",
+      "title": "Export Your Review",
+      "inputs": {
+        "content": "## Your Literature Review is Ready\n\nThe review has been generated above. You can:\n\n- **Copy** the text directly from the output\n- **Save** the notebook to preserve your work\n- **Re-run** any step to refine the results\n\nTip: Try changing the writing style in the Configuration step and re-running the Review Generation to get different formats.",
+        "format": "markdown"
+      },
+      "outputs": {},
+      "status": "idle"
+    }
+  ]
+}

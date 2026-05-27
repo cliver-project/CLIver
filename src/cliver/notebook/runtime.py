@@ -56,10 +56,12 @@ class NotebookRuntime:
         self.agent_factory = agent_factory
         self.variables: Dict[str, Any] = {}
         self.ctx = RuntimeContext(
-            self.variables, agent_factory,
+            self.variables,
+            agent_factory,
             notebook.context if isinstance(notebook.context, dict) else {},
         )
         from cliver.notebook.executor import CellExecutor
+
         self._executor = CellExecutor()
         self._lock = asyncio.Lock()
         self.last_active = time.monotonic()
@@ -129,11 +131,13 @@ class NotebookRuntime:
                     preview = str(value)
                     vtype = type(value).__name__
                 fields.append({"path": path, "preview": preview, "type": vtype})
-            result.append({
-                "cell_id": cell.id,
-                "cell_title": cell.title,
-                "fields": fields,
-            })
+            result.append(
+                {
+                    "cell_id": cell.id,
+                    "cell_title": cell.title,
+                    "fields": fields,
+                }
+            )
         return result
 
 
@@ -144,9 +148,7 @@ class RuntimeManager:
         self._runtimes: Dict[str, NotebookRuntime] = {}
         self._timeout_s = timeout_s
 
-    def get_or_create(
-        self, notebook_id: str, notebook: "Notebook", agent_factory: "AgentFactory"
-    ) -> NotebookRuntime:
+    def get_or_create(self, notebook_id: str, notebook: "Notebook", agent_factory: "AgentFactory") -> NotebookRuntime:
         if notebook_id in self._runtimes:
             rt = self._runtimes[notebook_id]
             rt.last_active = time.monotonic()
@@ -162,10 +164,7 @@ class RuntimeManager:
 
     async def cleanup_idle(self) -> None:
         now = time.monotonic()
-        expired = [
-            nid for nid, rt in self._runtimes.items()
-            if now - rt.last_active > self._timeout_s
-        ]
+        expired = [nid for nid, rt in self._runtimes.items() if now - rt.last_active > self._timeout_s]
         for nid in expired:
             logger.info("Removing idle runtime for notebook %s", nid)
             self._runtimes.pop(nid, None)

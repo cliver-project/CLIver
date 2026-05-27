@@ -124,8 +124,11 @@ def test_json_file_exists(store):
 
 
 def test_list_reflects_updates(store):
-    nb = store.create(title="Test", cells=[
-        {"id": "c1", "type": "config", "title": "Config"},
-    ])
+    store.create(
+        title="Test",
+        cells=[
+            {"id": "c1", "type": "config", "title": "Config"},
+        ],
+    )
     summaries = store.list_all()
     assert summaries[0].cell_count == 1

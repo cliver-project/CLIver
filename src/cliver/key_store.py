@@ -43,7 +43,8 @@ def _get_machine_id() -> str:
         try:
             out = subprocess.check_output(
                 ["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"],
-                text=True, timeout=5,
+                text=True,
+                timeout=5,
             )
             match = re.search(r'"IOPlatformUUID"\s*=\s*"([^"]+)"', out)
             if match:
@@ -63,10 +64,9 @@ def _get_machine_id() -> str:
     elif system == "Windows":
         try:
             out = subprocess.check_output(
-                ["reg", "query",
-                 r"HKLM\SOFTWARE\Microsoft\Cryptography",
-                 "/v", "MachineGuid"],
-                text=True, timeout=5,
+                ["reg", "query", r"HKLM\SOFTWARE\Microsoft\Cryptography", "/v", "MachineGuid"],
+                text=True,
+                timeout=5,
             )
             match = re.search(r"MachineGuid\s+REG_SZ\s+(\S+)", out)
             if match:
@@ -138,9 +138,7 @@ class KeyStore:
 
     def get(self, name: str) -> Optional[str]:
         conn = sqlite3.connect(self._db_path)
-        row = conn.execute(
-            "SELECT encrypted_value FROM keys WHERE name=?", (name,)
-        ).fetchone()
+        row = conn.execute("SELECT encrypted_value FROM keys WHERE name=?", (name,)).fetchone()
         conn.close()
         if row is None:
             return None
@@ -160,19 +158,12 @@ class KeyStore:
 
     def list_keys(self) -> List[KeyInfo]:
         conn = sqlite3.connect(self._db_path)
-        rows = conn.execute(
-            "SELECT name, description, created_at, updated_at FROM keys ORDER BY name"
-        ).fetchall()
+        rows = conn.execute("SELECT name, description, created_at, updated_at FROM keys ORDER BY name").fetchall()
         conn.close()
-        return [
-            KeyInfo(name=r[0], description=r[1], created_at=r[2], updated_at=r[3])
-            for r in rows
-        ]
+        return [KeyInfo(name=r[0], description=r[1], created_at=r[2], updated_at=r[3]) for r in rows]
 
     def has(self, name: str) -> bool:
         conn = sqlite3.connect(self._db_path)
-        row = conn.execute(
-            "SELECT 1 FROM keys WHERE name=?", (name,)
-        ).fetchone()
+        row = conn.execute("SELECT 1 FROM keys WHERE name=?", (name,)).fetchone()
         conn.close()
         return row is not None

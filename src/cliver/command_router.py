@@ -40,6 +40,7 @@ HANDLERS: dict[str, str] = {
     "provider": "cliver.commands.provider",
     "task": "cliver.commands.task",
     "keys": "cliver.commands.keys",
+    "scenario": "cliver.commands.scenario",
 }
 
 _task_context = threading.local()
