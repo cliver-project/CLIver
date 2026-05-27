@@ -227,6 +227,12 @@ def _build_anthropic_kwargs(config: ModelConfig, user_agent: str | None) -> dict
         if key in options:
             kwargs[key] = options[key]
 
+    # thinking controls reasoning/thinking mode (Anthropic protocol).
+    # Set options.thinking: {type: disabled} to turn it off.
+    # Valid values: {type: enabled, budget_tokens: N} or {type: disabled}
+    if "thinking" in options:
+        kwargs["thinking"] = options.pop("thinking")
+
     extra = {k: v for k, v in options.items() if k not in kwargs}
     if extra:
         kwargs["model_kwargs"] = extra

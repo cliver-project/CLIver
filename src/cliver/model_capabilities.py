@@ -153,7 +153,16 @@ MODEL_CAPABILITIES = {
         ModelCapability.JSON_MODE,
         ModelCapability.THINK_MODE,
     },
-    # DeepSeek (generic fallback, e.g. deepseek-chat, deepseek-v4)
+    # DeepSeek V4+: Anthropic-protocol models with thinking mode
+    "deepseek-v4*": {
+        ModelCapability.TEXT_TO_TEXT,
+        ModelCapability.IMAGE_TO_TEXT,
+        ModelCapability.AUDIO_TO_TEXT,
+        ModelCapability.TOOL_CALLING,
+        ModelCapability.JSON_MODE,
+        ModelCapability.THINK_MODE,
+    },
+    # DeepSeek (generic fallback, e.g. deepseek-chat)
     "deepseek*": {
         ModelCapability.TEXT_TO_TEXT,
         ModelCapability.IMAGE_TO_TEXT,

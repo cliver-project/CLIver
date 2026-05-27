@@ -9,6 +9,7 @@ Usage:
     routes = get_api_routes(executor, get_status, api_key="secret")
 """
 
+import asyncio
 import json
 import logging
 import time
@@ -169,13 +170,14 @@ def _build_models_response(executor) -> dict:
 # ---------------------------------------------------------------------------
 
 
-async def _handle_sync(agent, request_id: str, parsed: dict):
+async def _handle_sync(executor, request_id: str, parsed: dict):
     """Handle a non-streaming chat completion request."""
     system_appender = _build_system_appender(parsed.get("system_message"))
 
     try:
-        response = await agent.run(
-            parsed["user_input"],
+        response = await asyncio.to_thread(
+            executor.process_user_input,
+            user_input=parsed["user_input"],
             model=parsed["model"],
             options=parsed.get("options"),
             conversation_history=parsed.get("conversation_history"),
@@ -187,8 +189,7 @@ async def _handle_sync(agent, request_id: str, parsed: dict):
         content = extract_response_text(response)
 
         input_tokens, output_tokens = 0, 0
-        core = getattr(agent, "_agent_core", None)
-        tracker = getattr(core, "token_tracker", None) if core else None
+        tracker = getattr(executor, "token_tracker", None)
         if tracker and hasattr(tracker, "last_usage") and tracker.last_usage:
             input_tokens = tracker.last_usage.input_tokens
             output_tokens = tracker.last_usage.output_tokens
@@ -207,14 +208,14 @@ async def _handle_sync(agent, request_id: str, parsed: dict):
         return JSONResponse({"error": {"message": str(e)}}, status_code=500)
 
 
-async def _handle_streaming(agent, request_id: str, parsed: dict):
+async def _handle_streaming(executor, request_id: str, parsed: dict):
     """Handle a streaming chat completion request via SSE."""
     system_appender = _build_system_appender(parsed.get("system_message"))
 
     async def generate():
         try:
-            async for chunk in agent.stream(
-                parsed["user_input"],
+            async for chunk in executor._stream_user_input_async(
+                user_input=parsed["user_input"],
                 model=parsed["model"],
                 options=parsed.get("options"),
                 conversation_history=parsed.get("conversation_history"),
@@ -247,21 +248,20 @@ async def _handle_streaming(agent, request_id: str, parsed: dict):
 
 
 def get_api_routes(
-    agent_factory,
+    executor,
     get_status: Callable,
     api_key: Optional[str] = None,
 ) -> list:
     """Return OpenAI-compatible API routes as a list of Starlette Route objects.
 
     Args:
-        agent_factory: AgentFactory instance
+        executor: AgentCore instance
         get_status: callable returning {"uptime": int, "tasks_run": int, "platforms": [...]}
         api_key: optional API key for authentication
 
     Returns:
         list of starlette.routing.Route
     """
-    executor = agent_factory.agent_core
 
     # --- Auth closure ---
 
@@ -305,11 +305,10 @@ def get_api_routes(
 
         _configure_server_mode(executor)
 
-        agent = agent_factory.create()
         if parsed["stream"]:
-            return await _handle_streaming(agent, request_id, parsed)
+            return await _handle_streaming(executor, request_id, parsed)
         else:
-            return await _handle_sync(agent, request_id, parsed)
+            return await _handle_sync(executor, request_id, parsed)
 
     # --- Return routes ---
 

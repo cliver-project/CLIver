@@ -1,4 +1,4 @@
-"""Built-in skill tool — returns skill body for the LLM to follow inline."""
+"""Built-in skill tool for LLM-driven skill activation."""
 
 import logging
 from typing import Optional, Type
@@ -10,6 +10,7 @@ from cliver.skill_manager import SkillManager
 
 logger = logging.getLogger(__name__)
 
+# Module-level skill manager — lazily initialized, shared by the tool
 _skill_manager = SkillManager()
 
 
@@ -24,27 +25,31 @@ class SkillToolInput(BaseModel):
     skill_name: str = Field(description="Name of the skill to activate. Use 'list' to see all available skills.")
     prompt: Optional[str] = Field(
         default=None,
-        description="Optional context describing what you want the skill to help with.",
+        description="Initial prompt describing what you want the skill to do. "
+        "The skill will execute with this prompt in a fresh context.",
     )
 
 
 class SkillTool(BaseTool):
-    """Activate a skill by returning its instructions for you to follow.
+    """Activate a skill to get specialized instructions and context.
 
-    Skills provide domain-specific knowledge and step-by-step guidance.
+    Skills provide domain-specific knowledge and guidance for tasks.
     Call with skill_name='list' to see available skills, then call
-    with a specific name to get its instructions.
+    with the specific skill name to activate it.
     """
 
     name: str = "Skill"
     description: str = (
-        "Activate a skill to get specialized instructions and guidance. "
-        "The skill body is returned as text — read and follow the instructions "
-        "in the current conversation.\n\n"
+        "Activate a skill and execute it with the skill instructions in the system prompt. "
+        "Skills provide expert knowledge, tool usage guidance, and step-by-step "
+        "instructions for specific tasks.\n\n"
         "Usage:\n"
-        "- Call with skill_name='list' to see all available skills\n"
-        "- Call with a skill name to get its instructions\n"
-        "- Optionally pass a prompt for additional context"
+        "- Call with skill_name='list' to see all available skills and their descriptions\n"
+        "- Call with a specific skill name and prompt to activate and run it\n\n"
+        "When to use:\n"
+        "- When a task matches a skill's domain (e.g., web search, code review, k8s admin)\n"
+        "- When you need specialized guidance beyond your general knowledge\n"
+        "- When the user's request aligns with an available skill's description"
     )
     args_schema: Type[BaseModel] = SkillToolInput
     tags: list = ["skill", "planning", "context"]
@@ -55,7 +60,27 @@ class SkillTool(BaseTool):
         if skill_name == "list":
             return manager.format_skill_list()
 
-        return manager.activate_skill(skill_name, prompt=prompt or "")
+        skill = manager.get_skill(skill_name)
+        if not skill:
+            available = manager.get_skill_names()
+            msg = f"Skill '{skill_name}' not found."
+            if available:
+                msg += f" Available skills: {', '.join(available)}"
+            return msg
+
+        if not prompt:
+            return manager.activate_skill(skill_name)
+
+        from cliver.agent_profile import get_agent_core
+
+        agent_core = get_agent_core()
+        if not agent_core:
+            return manager.activate_skill(skill_name, prompt=prompt)
+
+        response = agent_core.process_skill(skill_name=skill_name, user_input=prompt)
+        from cliver.media_handler import extract_response_text
+
+        return extract_response_text(response, fallback="Skill completed with no output.")
 
 
 skill = SkillTool()

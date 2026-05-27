@@ -2,6 +2,7 @@ import { useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Play, Save, Loader2 } from "lucide-react";
 import { CellStatusBadge } from "@/components/notebook/CellStatusBadge";
+import { useTranslation } from "@/i18n";
 
 interface NotebookToolbarProps {
   title: string;
@@ -25,6 +26,7 @@ export function NotebookToolbar({
   isSaving,
 }: NotebookToolbarProps) {
   const navigate = useNavigate();
+  const { t } = useTranslation();
 
   return (
     <div className="flex items-center justify-between mb-6">
@@ -45,7 +47,7 @@ export function NotebookToolbar({
                 {scenarioId}
               </span>
             )}
-            <span className="text-xs text-muted-foreground">{cellCount} cells</span>
+            <span className="text-xs text-muted-foreground">{t("notebooks.cells", { count: cellCount })}</span>
             <CellStatusBadge status={overallStatus} />
           </div>
         </div>
@@ -62,12 +64,12 @@ export function NotebookToolbar({
           {isRunning ? (
             <>
               <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-              Running...
+              {t("notebook.running")}
             </>
           ) : (
             <>
               <Play className="w-3.5 h-3.5 mr-1.5" />
-              Run All
+              {t("notebook.runAll")}
             </>
           )}
         </Button>
@@ -77,7 +79,7 @@ export function NotebookToolbar({
           ) : (
             <Save className="w-3.5 h-3.5 mr-1.5" />
           )}
-          Save
+          {t("notebook.save")}
         </Button>
       </div>
     </div>

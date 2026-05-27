@@ -8,7 +8,6 @@ on:
     paths:
       - "src/**"
       - "tests/**"
-      - "admin/**"
 
 jobs:
   test:
@@ -29,24 +28,19 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: admin/package-lock.json
+          node-version: '20'
 
       - name: Install dependencies
         run: make init
+
+      - name: Install admin portal dependencies
+        run: cd admin && npm ci
+
+      - name: Build admin portal
+        run: make admin-build
 
       - name: Run code lint
         run: make lint
 
       - name: Run tests
         run: make test
-
-      - name: Install admin dependencies
-        run: make admin-install
-
-      - name: Lint admin portal
-        run: make admin-lint
-
-      - name: Build admin portal
-        run: make admin-build

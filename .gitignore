@@ -186,3 +186,6 @@ claude.prompt.txt
 assets
 generated_images
 docs/wbs/
+
+# Admin portal package data (build artifact)
+src/cliver/gateway/admin_dist/

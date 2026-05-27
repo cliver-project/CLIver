@@ -2,7 +2,6 @@
 End-to-end test for multimedia support in CLIver.
 """
 
-import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -61,12 +60,10 @@ class TestE2EMultimedia:
                 filename="test_image.jpg",
             )
 
-            response = asyncio.run(
-                executor.process_user_input(
-                    user_input="What's in this image?",
-                    images=image_files,
-                    model="openai/gpt-4-vision",
-                )
+            response = executor.process_user_input(
+                user_input="What's in this image?",
+                images=image_files,
+                model="openai/gpt-4-vision",
             )
 
             assert response.content == "The image shows a beautiful landscape with mountains and a lake."
@@ -128,15 +125,12 @@ class TestE2EMultimedia:
 
             chunks = []
 
-            async def collect_chunks():
-                async for chunk in executor.stream_user_input(
-                    user_input="What's in this image?",
-                    images=image_files,
-                    model="openai/gpt-4-vision",
-                ):
-                    chunks.append(chunk)
-
-            asyncio.run(collect_chunks())
+            for chunk in executor.stream_user_input(
+                user_input="What's in this image?",
+                images=image_files,
+                model="openai/gpt-4-vision",
+            ):
+                chunks.append(chunk)
 
             assert len(chunks) == 3
             assert chunks[0].content == "The image shows "

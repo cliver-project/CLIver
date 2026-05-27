@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import TYPE_CHECKING, AsyncIterator, List, Optional
@@ -45,7 +46,8 @@ class CliverAgent(Agent):
     async def _do_run(self, prompt: str, *, images=None, files=None, **kwargs) -> AgentResult:
         start = time.monotonic()
         try:
-            message = await self._agent_core.process_user_input(
+            message = await asyncio.to_thread(
+                self._agent_core.process_user_input,
                 user_input=prompt,
                 images=images or [],
                 files=files or [],
@@ -84,7 +86,7 @@ class CliverAgent(Agent):
         start = time.monotonic()
         full_text = []
         try:
-            async for chunk in self._agent_core.stream_user_input(
+            async for chunk in self._agent_core._stream_user_input_async(
                 user_input=prompt,
                 model=self.config.model,
                 system_message_appender=self._build_system_appender(),

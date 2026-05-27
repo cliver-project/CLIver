@@ -10,16 +10,21 @@ import DashboardPage from "@/pages/dashboard";
 import NotebooksList from "@/pages/notebooks/list";
 import NotebookEditor from "@/pages/notebooks/editor";
 import ProjectsList from "@/pages/projects/list";
+import ScenariosList from "@/pages/scenarios/list";
+import ScenarioDetailPage from "@/pages/scenarios/detail";
 import TaskListPage from "@/pages/tasks/list";
 import TaskCreatePage from "@/pages/tasks/create";
 import TaskDetailPage from "@/pages/tasks/detail";
 import KeysList from "@/pages/keys/list";
+import AgentListPage from "@/pages/agents/list";
+import AgentDetailPage from "@/pages/agents/detail";
 import SessionsPage from "@/pages/sessions";
 import SessionDetailPage from "@/pages/session-detail";
 import SkillsPage from "@/pages/skills";
 import SkillDetailPage from "@/pages/skills/detail";
 import SkillCreatePage from "@/pages/skills/create";
-import SettingsPage from "@/pages/settings";
+import ConfigPage from "@/pages/config";
+import AdaptersList from "@/pages/adapters/list";
 import "./globals.css";
 
 const queryClient = new QueryClient({
@@ -46,16 +51,21 @@ createRoot(document.getElementById("root")!).render(
               <Route path="notebooks" element={<NotebooksList />} />
               <Route path="notebooks/:id" element={<NotebookEditor />} />
               <Route path="projects" element={<ProjectsList />} />
+              <Route path="scenarios" element={<ScenariosList />} />
+              <Route path="scenarios/:id" element={<ScenarioDetailPage />} />
               <Route path="tasks" element={<TaskListPage />} />
               <Route path="tasks/new" element={<TaskCreatePage />} />
               <Route path="tasks/:name" element={<TaskDetailPage />} />
               <Route path="keys" element={<KeysList />} />
+              <Route path="agents" element={<AgentListPage />} />
+              <Route path="agents/:name" element={<AgentDetailPage />} />
               <Route path="sessions" element={<SessionsPage />} />
               <Route path="sessions/:source/:id" element={<SessionDetailPage />} />
               <Route path="skills" element={<SkillsPage />} />
               <Route path="skills/new" element={<SkillCreatePage />} />
               <Route path="skills/:name" element={<SkillDetailPage />} />
-              <Route path="settings" element={<SettingsPage />} />
+              <Route path="adapters" element={<AdaptersList />} />
+              <Route path="settings" element={<ConfigPage />} />
             </Route>
           </Routes>
         </BrowserRouter>

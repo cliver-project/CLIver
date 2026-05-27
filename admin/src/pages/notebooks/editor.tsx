@@ -9,8 +9,10 @@ import { LlmCell } from "@/components/notebook/LlmCell";
 import { CodeCell } from "@/components/notebook/CodeCell";
 import { DisplayCell } from "@/components/notebook/DisplayCell";
 import { AddCellButton } from "@/components/notebook/AddCellButton";
+import { useTranslation } from "@/i18n";
 
 export default function NotebookEditor() {
+  const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const { data: notebook, isLoading, error } = useNotebook(id || "");
   const updateNotebook = useUpdateNotebook(id || "");
@@ -146,7 +148,7 @@ export default function NotebookEditor() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <div className="text-sm text-muted-foreground">Loading notebook...</div>
+        <div className="text-sm text-muted-foreground">{t("notebooks.loading")}</div>
       </div>
     );
   }
@@ -155,7 +157,7 @@ export default function NotebookEditor() {
     return (
       <div className="flex items-center justify-center py-20">
         <div className="text-sm text-red-600">
-          {error ? `Failed to load notebook: ${error.message}` : "Notebook not found"}
+          {error ? t("notebooks.loadError", { error: error.message }) : t("notebooks.notFound")}
         </div>
       </div>
     );

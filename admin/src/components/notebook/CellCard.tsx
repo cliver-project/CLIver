@@ -9,12 +9,13 @@ import {
 import { CellStatusBadge } from "@/components/notebook/CellStatusBadge";
 import { cn } from "@/lib/utils";
 import type { Cell } from "@/hooks/use-notebook";
+import { useTranslation } from "@/i18n";
 
-const TYPE_CONFIG: Record<string, { icon: React.ComponentType<{ className?: string }>; color: string; borderColor: string; bgColor: string; label: string }> = {
-  config: { icon: Settings, color: "text-indigo-600", borderColor: "border-l-indigo-500", bgColor: "bg-indigo-50", label: "Config" },
-  llm: { icon: Bot, color: "text-purple-600", borderColor: "border-l-purple-500", bgColor: "bg-purple-50", label: "LLM" },
-  code: { icon: Code2, color: "text-emerald-600", borderColor: "border-l-emerald-500", bgColor: "bg-emerald-50", label: "Code" },
-  display: { icon: FileText, color: "text-amber-600", borderColor: "border-l-amber-500", bgColor: "bg-amber-50", label: "Display" },
+const TYPE_CONFIG: Record<string, { icon: React.ComponentType<{ className?: string }>; color: string; borderColor: string; bgColor: string; labelKey: string }> = {
+  config: { icon: Settings, color: "text-indigo-600", borderColor: "border-l-indigo-500", bgColor: "bg-indigo-50", labelKey: "notebook.config" },
+  llm: { icon: Bot, color: "text-purple-600", borderColor: "border-l-purple-500", bgColor: "bg-purple-50", labelKey: "notebook.llm" },
+  code: { icon: Code2, color: "text-emerald-600", borderColor: "border-l-emerald-500", bgColor: "bg-emerald-50", labelKey: "notebook.code" },
+  display: { icon: FileText, color: "text-amber-600", borderColor: "border-l-amber-500", bgColor: "bg-amber-50", labelKey: "notebook.display" },
 };
 
 interface CellCardProps {
@@ -42,6 +43,7 @@ export function CellCard({
   isLast,
   children,
 }: CellCardProps) {
+  const { t } = useTranslation();
   const config = TYPE_CONFIG[cell.type] || TYPE_CONFIG["display"]!;
   const Icon = config.icon;
 
@@ -77,7 +79,7 @@ export function CellCard({
 
         {/* Title */}
         <span className="text-sm font-medium text-foreground truncate flex-1">
-          {cell.title || `${config.label} Cell`}
+          {cell.title || `${t(config.labelKey)} Cell`}
         </span>
 
         {/* Status */}
@@ -107,16 +109,16 @@ export function CellCard({
               <DropdownMenuContent align="end">
                 {!isFirst && onMoveUp && (
                   <DropdownMenuItem onClick={onMoveUp}>
-                    <ArrowUp className="w-3.5 h-3.5 mr-2" /> Move Up
+                    <ArrowUp className="w-3.5 h-3.5 mr-2" /> {t("notebook.moveUp")}
                   </DropdownMenuItem>
                 )}
                 {!isLast && onMoveDown && (
                   <DropdownMenuItem onClick={onMoveDown}>
-                    <ArrowDown className="w-3.5 h-3.5 mr-2" /> Move Down
+                    <ArrowDown className="w-3.5 h-3.5 mr-2" /> {t("notebook.moveDown")}
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuItem onClick={onDelete} className="text-destructive">
-                  <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete Cell
+                  <Trash2 className="w-3.5 h-3.5 mr-2" /> {t("notebook.deleteCell")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

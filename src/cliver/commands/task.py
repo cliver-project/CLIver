@@ -2,7 +2,6 @@
 Task management commands for CLIver CLI.
 """
 
-import asyncio
 import uuid
 from typing import Optional
 
@@ -164,11 +163,9 @@ def _run_task(cliver: Cliver, name: str, model: Optional[str] = None) -> int:
         task_perms_pushed = True
 
     try:
-        result = asyncio.run(
-            cliver.agent_core.process_user_input(
-                user_input=task_def.prompt,
-                model=use_model,
-            )
+        result = cliver.agent_core.process_user_input(
+            user_input=task_def.prompt,
+            model=use_model,
         )
 
         from cliver.media_handler import extract_response_text

@@ -24,14 +24,13 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: admin/package-lock.json
+          node-version: '20'
 
       - name: Install dependencies
-        run: |
-          make init
-          make admin-install
+        run: make init
+
+      - name: Install admin portal dependencies
+        run: cd admin && npm ci
 
       - name: Build and release to PyPI
         env:
