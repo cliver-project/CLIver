@@ -95,30 +95,30 @@ export function useUpdateTask(name: string) {
 }
 
 // --- Sessions ---
-export function useSessions(source: "cli" | "gateway") {
+export function useSessions() {
   return useQuery({
-    queryKey: ["sessions", source],
-    queryFn: () => api<Array<Record<string, unknown>>>(`/sessions/${source}`),
+    queryKey: ["sessions"],
+    queryFn: () => api<Array<Record<string, unknown>>>("/sessions"),
   });
 }
 
-export function useSessionTurns(source: string, sessionId: string) {
+export function useSessionTurns(sessionId: string) {
   return useQuery({
-    queryKey: ["session-turns", source, sessionId],
+    queryKey: ["session-turns", sessionId],
     queryFn: () =>
       api<Array<{ role: string; content: string; timestamp?: string }>>(
-        `/sessions/${source}/${encodeURIComponent(sessionId)}`,
+        `/sessions/${encodeURIComponent(sessionId)}`,
       ),
     enabled: !!sessionId,
   });
 }
 
-export function useDeleteSession(source: string) {
+export function useDeleteSession() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (sessionId: string) =>
-      apiDelete(`/sessions/${source}/${encodeURIComponent(sessionId)}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["sessions", source] }),
+      apiDelete(`/sessions/${encodeURIComponent(sessionId)}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["sessions"] }),
   });
 }
 
@@ -161,11 +161,74 @@ export function useSaveSkill(name: string) {
   });
 }
 
-// --- Agents ---
+// --- Agents (DB-backed) ---
+
+export interface AgentInfo {
+  id: string;
+  name: string;
+  type: string;
+  description?: string | null;
+  role?: string | null;
+  model?: string | null;
+  is_default: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export function useAgents() {
   return useQuery({
     queryKey: ["agents"],
-    queryFn: () => api<Array<Record<string, unknown>>>("/agents"),
+    queryFn: () => api<AgentInfo[]>("/agents"),
+  });
+}
+
+export function useAgent(id: string | undefined) {
+  return useQuery({
+    queryKey: ["agent", id],
+    queryFn: () => api<AgentInfo>(`/agents/${encodeURIComponent(id!)}`),
+    enabled: !!id,
+  });
+}
+
+export function useCreateAgent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Partial<AgentInfo>) =>
+      apiPost<AgentInfo>("/agents", data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["agents"] }),
+  });
+}
+
+export function useUpdateAgent(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Partial<AgentInfo>) =>
+      api(`/agents/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["agent", id] });
+      qc.invalidateQueries({ queryKey: ["agents"] });
+    },
+  });
+}
+
+export function useDeleteAgent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiDelete(`/agents/${encodeURIComponent(id)}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["agents"] }),
+  });
+}
+
+export function useSetDefaultAgent() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiPost<{ status: string }>(`/agents/${encodeURIComponent(id)}/default`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["agents"] }),
   });
 }
 
@@ -204,14 +267,6 @@ export function useTestProvider(name: string) {
         `/providers/${encodeURIComponent(name)}/test`,
         model ? { model } : undefined,
       ),
-  });
-}
-
-// --- Models ---
-export function useModels() {
-  return useQuery({
-    queryKey: ["models"],
-    queryFn: () => api<{ models: string[]; default: string }>("/models"),
   });
 }
 
@@ -436,3 +491,122 @@ export function useDeleteMCPServer() {
     },
   });
 }
+
+// --- Models, Providers, Endpoints ---
+
+export interface ModelProvider {
+  id: string;
+  name: string;
+  type: string;
+  api_key?: string;
+  api_url?: string;
+  rate_limit?: { requests: number; period: string; margin: number };
+  pricing?: { currency?: string; input?: number; output?: number; cached_input?: number };
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ModelInfo {
+  id: string;
+  provider: string;
+  name: string;
+  category: string;
+  model: string;
+  api_url: string | null;
+  options: Record<string, unknown>;
+  is_default: number;
+}
+
+export function useModels(category?: string) {
+  const params = category ? `?category=${encodeURIComponent(category)}` : "";
+  return useQuery({
+    queryKey: ["models", category],
+    queryFn: () => api<ModelInfo[]>(`/models${params}`),
+  });
+}
+
+export function useCreateModel() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Partial<ModelInfo>) =>
+      apiPost<ModelInfo>("/models", data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["models"] });
+    },
+  });
+}
+
+export function useUpdateModel(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Partial<ModelInfo>) =>
+      api(`/models/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["models"] });
+    },
+  });
+}
+
+export function useDeleteModel() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiDelete(`/models/${encodeURIComponent(id)}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["models"] }),
+  });
+}
+
+export function useSetDefaultModel() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiPost<{ status: string }>(`/models/${encodeURIComponent(id)}/default`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["models"] }),
+  });
+}
+
+export function useProviders() {
+  return useQuery({
+    queryKey: ["providers"],
+    queryFn: () => api<ModelProvider[]>("/providers"),
+  });
+}
+
+export function useCreateProvider() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Partial<ModelProvider>) =>
+      apiPost<ModelProvider>("/providers", data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["providers"] }),
+  });
+}
+
+export function useUpdateProvider(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Partial<ModelProvider>) =>
+      api(`/providers/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["providers"] });
+      qc.invalidateQueries({ queryKey: ["models"] });
+    },
+  });
+}
+
+export function useDeleteProvider() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => apiDelete(`/providers/${encodeURIComponent(id)}`),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["providers"] });
+      qc.invalidateQueries({ queryKey: ["models"] });
+    },
+  });
+}
+

@@ -22,7 +22,7 @@ async def test_cliver_agent_run_basic():
     from cliver.agents.cliver_agent import CliverAgent
 
     core = _make_mock_core("Hello from AgentCore")
-    config = AgentConfig(type="cliver", model="test/model")
+    config = AgentConfig(name="default", model="test/model")
     agent = CliverAgent(name="default", config=config, agent_core=core)
 
     result = await agent._do_run("What is 2+2?")
@@ -40,7 +40,7 @@ async def test_cliver_agent_run_with_images():
     from cliver.agents.cliver_agent import CliverAgent
 
     core = _make_mock_core("Image analyzed")
-    config = AgentConfig(type="cliver")
+    config = AgentConfig(name="default")
     agent = CliverAgent(name="default", config=config, agent_core=core)
 
     result = await agent._do_run("Describe this", images=["/tmp/img.png"])
@@ -56,7 +56,7 @@ async def test_cliver_agent_run_error():
 
     core = MagicMock()
     core.process_user_input = Mock(side_effect=RuntimeError("LLM unavailable"))
-    config = AgentConfig(type="cliver")
+    config = AgentConfig(name="default")
     agent = CliverAgent(name="default", config=config, agent_core=core)
 
     result = await agent._do_run("test")
@@ -70,7 +70,7 @@ async def test_cliver_agent_with_role():
     from cliver.agents.cliver_agent import CliverAgent
 
     core = _make_mock_core("OK")
-    config = AgentConfig(type="cliver", role="Research assistant")
+    config = AgentConfig(name="researcher", system_prompt="Research assistant")
     agent = CliverAgent(name="researcher", config=config, agent_core=core)
 
     await agent._do_run("test")
@@ -86,7 +86,7 @@ async def test_cliver_agent_without_role():
     from cliver.agents.cliver_agent import CliverAgent
 
     core = _make_mock_core("OK")
-    config = AgentConfig(type="cliver")
+    config = AgentConfig(name="default")
     agent = CliverAgent(name="default", config=config, agent_core=core)
 
     await agent._do_run("test")
@@ -111,7 +111,7 @@ async def test_cliver_agent_stream():
         yield chunk2
 
     core._stream_user_input_async = mock_stream
-    config = AgentConfig(type="cliver", model="test/model")
+    config = AgentConfig(name="default", model="test/model")
     agent = CliverAgent(name="default", config=config, agent_core=core)
 
     chunks = []

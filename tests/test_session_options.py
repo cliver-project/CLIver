@@ -9,13 +9,13 @@ from click.testing import CliRunner
 from cliver.cli import Cliver
 
 
-def _make_session_defaults(cliver_instance):
+def _make_session_defaults():
     """Create session defaults matching the reset command."""
     from cliver.config import ModelOptions
 
     default_options = ModelOptions()
     return {
-        "model": cliver_instance.config_manager.get_llm_model(),
+        "model": None,
         "temperature": default_options.temperature,
         "max_tokens": default_options.max_tokens,
         "top_p": default_options.top_p,
@@ -29,23 +29,10 @@ def _make_session_defaults(cliver_instance):
 
 def _setup(runner, load_cliver):
     """Add a test model and create a Cliver instance with session defaults."""
-    runner.invoke(
-        load_cliver,
-        [
-            "model",
-            "add",
-            "--name",
-            "ollama/llama3.2:latest",
-            "--provider",
-            "ollama",
-            "--url",
-            "http://localhost:11434",
-            "--name-in-provider",
-            "llama3.2:latest",
-        ],
-    )
     cliver_instance = Cliver()
-    cliver_instance.init_session(load_cliver, _make_session_defaults(cliver_instance))
+    cliver_instance.config_manager.add_or_update_provider("ollama", "openai", "http://localhost:11434")
+    cliver_instance.config_manager.add_or_update_llm_model("ollama", "llama3.2:latest")
+    cliver_instance.init_session(load_cliver, _make_session_defaults())
     return cliver_instance
 
 
@@ -71,7 +58,7 @@ def test_set_options(load_cliver, init_config, simple_llm_model):
             "option",
             "set",
             "--model",
-            "ollama/llama3.2:latest",
+            "llama3.2:latest",
             "--temperature",
             "0.8",
             "--stream",
@@ -85,7 +72,7 @@ def test_set_options(load_cliver, init_config, simple_llm_model):
     # Verify by displaying
     result = runner.invoke(load_cliver, ["session", "option"], obj=cliver_instance)
     assert result.exit_code == 0
-    assert "ollama/llama3.2:latest" in result.output
+    assert "llama3.2:latest" in result.output
 
 
 def test_reset_subcommand(load_cliver, init_config, simple_llm_model):
@@ -96,7 +83,7 @@ def test_reset_subcommand(load_cliver, init_config, simple_llm_model):
     # Set some values first
     runner.invoke(
         load_cliver,
-        ["session", "option", "set", "--model", "ollama/llama3.2:latest", "--temperature", "0.8", "--stream"],
+        ["session", "option", "set", "--model", "llama3.2:latest", "--temperature", "0.8", "--stream"],
         obj=cliver_instance,
     )
 
@@ -112,7 +99,7 @@ def test_individual_set_options(load_cliver, init_config, simple_llm_model):
     cliver_instance = _setup(runner, load_cliver)
 
     tests = [
-        (["--model", "ollama/llama3.2:latest"], "Set model to 'ollama/llama3.2:latest'"),
+        (["--model", "llama3.2:latest"], "Set model to 'llama3.2:latest'"),
         (["--temperature", "0.8"], "Set temperature to 0.8"),
         (["--max-tokens", "1024"], "Set max_tokens to 1024"),
         (["--top-p", "0.9"], "Set top_p to 0.9"),

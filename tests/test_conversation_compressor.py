@@ -3,7 +3,7 @@
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from cliver.config import ModelConfig  # noqa: I001
+from cliver.config import ModelConfig, ModelOptions  # noqa: I001
 from cliver.conversation_compressor import (
     SUMMARY_PREFIX,
     TOOL_PRUNE_MIN_CHARS,
@@ -64,7 +64,8 @@ class TestGetContextWindow:
         return ModelConfig(
             name=f"openai/{name}",
             provider="openai",
-            context_window=context_window,
+            model=name,
+            options=ModelOptions(context_window=context_window) if context_window else None,
         )
 
     def test_explicit_context_window(self):
@@ -95,6 +96,7 @@ class TestGetContextWindow:
         m = ModelConfig(
             name="openai/qwen-2.5-coder",
             provider="openai",
+            model="qwen-2.5-coder",
         )
         assert get_context_window(m) == 131072
 
@@ -259,6 +261,7 @@ class TestAgentCoreConversationHistory:
         model_config = ModelConfig(
             name="openai/test-model",
             provider="openai",
+            model="test-model",
         )
 
         with patch("cliver.llm.llm.MCPServersCaller") as mock_mcp:
@@ -313,6 +316,7 @@ class TestAgentCoreConversationHistory:
         model_config = ModelConfig(
             name="openai/test-model",
             provider="openai",
+            model="test-model",
         )
 
         with patch("cliver.llm.llm.MCPServersCaller") as mock_mcp:

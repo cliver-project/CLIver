@@ -131,6 +131,22 @@ def parse_tool_calls_from_content(response: BaseMessage) -> Optional[list[dict]]
     if isinstance(content, dict) and "tool_calls" in content:
         return content.get("tool_calls", [])
 
+    # 2b. Anthropic-style tool_use content blocks (used by MiniMax and other
+    #     providers even when configured as openai protocol)
+    if isinstance(content, list):
+        tool_calls = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "tool_use":
+                tool_calls.append(
+                    {
+                        "name": block.get("name", ""),
+                        "args": block.get("input", {}),
+                        "id": block.get("id", ""),
+                    }
+                )
+        if tool_calls:
+            return tool_calls
+
     # 3. Parse tool_calls from text content (fallback)
     content_str = str(content)
     if '"tool_calls"' not in content_str:
@@ -143,10 +159,7 @@ def parse_tool_calls_from_content(response: BaseMessage) -> Optional[list[dict]]
         if '"tool_calls"' not in cleaned:
             return None
 
-        # Use json_repair to extract — handles nested brackets, trailing commas,
-        # and other malformed JSON that LLMs commonly produce
-        # First try: find the outermost JSON object containing tool_calls
-        # Use bracket-matching to find the complete JSON object
+        # Find the JSON object containing tool_calls
         idx = cleaned.find('"tool_calls"')
         if idx == -1:
             return None
@@ -156,17 +169,59 @@ def parse_tool_calls_from_content(response: BaseMessage) -> Optional[list[dict]]
         if brace_start == -1:
             return None
 
-        # Use json_repair on the substring from the opening brace
-        parsed = json_repair.loads(cleaned[brace_start:])
+        # Walk forward to find the matching closing brace
+        depth = 0
+        brace_end = -1
+        for i in range(brace_start, len(cleaned)):
+            if cleaned[i] == "{":
+                depth += 1
+            elif cleaned[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    brace_end = i + 1
+                    break
+
+        # Parse the JSON block
+        json_str = cleaned[brace_start:brace_end] if brace_end != -1 else cleaned[brace_start:]
+        parsed = json_repair.loads(json_str)
         if isinstance(parsed, dict) and "tool_calls" in parsed:
             tool_calls = parsed["tool_calls"]
             if isinstance(tool_calls, list):
+                # Strip the tool_calls JSON block from the response content
+                _strip_tool_calls_json(response, content_str, brace_start, brace_end, cleaned)
                 return tool_calls
 
     except Exception as e:
         logger.debug(f"Error parsing tool calls from content: {e}")
 
     return None
+
+
+def _strip_tool_calls_json(
+    response: BaseMessage,
+    content_str: str,
+    brace_start: int,
+    brace_end: int,
+    cleaned: str,
+) -> None:
+    """Remove the tool_calls JSON block from the response content."""
+    try:
+        if brace_end == -1:
+            return
+        # Map position in cleaned text back to original content
+        json_block = cleaned[brace_start:brace_end]
+        idx_in_original = content_str.find(json_block)
+        if idx_in_original == -1:
+            return
+        before = content_str[:idx_in_original]
+        after = content_str[idx_in_original + len(json_block):]
+        # Clean up leading/trailing whitespace and newlines around the block
+        new_content = (before.rstrip() + "\n" + after.lstrip()).strip()
+        if hasattr(response, "content") and isinstance(response.content, str):
+            # noinspection PyPropertyAccess
+            response.content = new_content
+    except Exception as e:
+        logger.debug(f"Error stripping tool_calls JSON from content: {e}")
 
 
 # Supported thinking tag formats:
@@ -258,3 +313,44 @@ def extract_reasoning(message: BaseMessage) -> Optional[str]:
             return match.group(1).strip()
 
     return None
+
+
+def strip_tool_calls_from_text(text: str) -> str:
+    """Remove embedded ``{"tool_calls": [...]}`` JSON block from text content.
+
+    Used to clean streamed LLM output when a model (e.g. MiniMax) emits
+    tool calls as inline JSON rather than structured tool_calls.
+    """
+    if not text or '"tool_calls"' not in text:
+        return text
+
+    try:
+        idx = text.find('"tool_calls"')
+        if idx == -1:
+            return text
+
+        brace_start = text.rfind("{", 0, idx)
+        if brace_start == -1:
+            return text
+
+        # Walk forward to find the matching closing brace
+        depth = 0
+        brace_end = -1
+        for i in range(brace_start, len(text)):
+            if text[i] == "{":
+                depth += 1
+            elif text[i] == "}":
+                depth -= 1
+                if depth == 0:
+                    brace_end = i + 1
+                    break
+
+        if brace_end == -1:
+            return text
+
+        before = text[:brace_start]
+        after = text[brace_end:]
+        return (before.rstrip() + "\n" + after.lstrip()).strip()
+    except Exception as e:
+        logger.debug("Error stripping tool_calls from text: %s", e)
+        return text

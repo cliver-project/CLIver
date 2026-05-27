@@ -2,7 +2,7 @@
 
 Ticks every 60 seconds, checks all tasks with a schedule field,
 and runs any that are due. "Last run" is derived from the task_runs
-table in gateway.db — no separate state file needed.
+table in cliver.db — no separate state file needed.
 """
 
 import asyncio

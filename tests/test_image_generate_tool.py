@@ -25,7 +25,7 @@ class TestImageGenerateTool:
         mock_media = MediaContent(type=MediaType.IMAGE, data="https://img.png", mime_type="image/png", source="url")
         mock_result = AIMessage(content="Generated 1 image(s).")
 
-        def mock_generate(prompt, ctx):
+        def mock_generate(prompt, ctx, model=None):
             ctx.generated_media.append(mock_media)
             return mock_result
 

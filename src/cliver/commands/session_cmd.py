@@ -7,6 +7,8 @@ and inference options via /session option.
 Session recording happens automatically in chat.py after each LLM response.
 """
 
+import asyncio
+
 import click
 from langchain_core.messages import AIMessage, HumanMessage
 
@@ -138,6 +140,44 @@ def _load_session(cliver: Cliver, session_id: str):
     cliver.output("Continue chatting — the conversation history is active.")
 
 
+def _show_session(cliver: Cliver, session_id: str = None):
+    """Show detailed information about a session, or the current session if no ID given."""
+    sm = cliver.get_session_manager()
+    sid = session_id or getattr(cliver, "current_session_id", None)
+    if not sid:
+        cliver.output("No active session. Use '/session list' to see all sessions, or '/session new' to start one.")
+        return
+
+    info = sm.get_session_info(sid)
+    if not info:
+        cliver.output(f"Session '{sid}' not found.")
+        return
+
+    from rich.panel import Panel
+    from rich.table import Table
+
+    t = Table(box=None, show_header=False, padding=(0, 2))
+    t.add_column("Key", style="dim", min_width=14)
+    t.add_column("Value")
+
+    t.add_row("ID", sid)
+    t.add_row("Title", info.get("title", "(untitled)"))
+    t.add_row("Turns", str(info.get("turn_count", 0)))
+    t.add_row("Created", info.get("created_at", "-"))
+    t.add_row("Updated", info.get("updated_at", "-"))
+
+    # Show active options
+    options = sm.load_options(sid)
+    if options:
+        opts_str = ", ".join(f"{k}={v}" for k, v in options.items())
+        t.add_row("Options", opts_str)
+
+    active = "yes" if hasattr(cliver, "current_session_id") and sid == cliver.current_session_id else "no"
+    t.add_row("Active", active)
+
+    cliver.output(Panel(t, title=f"Session: {sid[:12]}...", border_style="green", padding=(0, 1)))
+
+
 def _new_session(cliver: Cliver):
     """Create a new empty session and set it as current."""
     sm = cliver.get_session_manager()
@@ -188,9 +228,7 @@ def _compress_session(cliver: Cliver):
     before_count = len(cliver.conversation_messages)
 
     try:
-        from cliver.util import run_async
-
-        compressed = run_async(compressor.compress(cliver.conversation_messages, llm_engine, force=True))
+        compressed = asyncio.run(compressor.compress(cliver.conversation_messages, llm_engine, force=True))
     except Exception as e:
         cliver.output(f"Compression failed: {e}")
         return
@@ -242,9 +280,7 @@ def _compress_loaded_session(cliver):
     llm_engine = agent_core.get_llm_engine(model_name)
 
     try:
-        from cliver.util import run_async
-
-        compressed = run_async(compressor.compress(cliver.conversation_messages, llm_engine))
+        compressed = asyncio.run(compressor.compress(cliver.conversation_messages, llm_engine))
         cliver.conversation_messages = compressed
         after_tokens = estimate_tokens(cliver.conversation_messages)
         cliver.output(f"[Session compressed: ~{before_tokens} → ~{after_tokens} tokens]")
@@ -382,7 +418,10 @@ def set_options(
     _llm_options = cliver.session_options.get("options", {})
 
     if model is not None:
-        if not cliver.config_manager.get_llm_model(model):
+        models = cliver.config_manager.list_llm_models()
+        found = model in models or any(k.endswith(f"/{model}") for k in models)
+
+        if not found:
             cliver.output(f"Unknown model: {model}, please define it first.")
             return 1
         cliver.session_options["model"] = model
@@ -463,7 +502,9 @@ def reset_options(cliver: Cliver):
 @pass_cliver
 def option_model_exclude(cliver: Cliver, model_name: str):
     """Exclude a model from being used as a fallback target."""
-    if model_name not in cliver.config_manager.list_llm_models():
+    models = cliver.config_manager.list_llm_models()
+    found = model_name in models or any(k.endswith(f"/{model_name}") for k in models)
+    if not found:
         cliver.output(f"Unknown model: {model_name}")
         return
     cliver.agent_core.excluded_models.add(model_name)
@@ -611,6 +652,8 @@ def dispatch(cliver: Cliver, args: str):
 
     if sub == "list" or sub == "":
         _show_current_session(cliver)
+    elif sub == "show":
+        _show_session(cliver, rest.strip() if rest else None)
     elif sub == "search":
         if not rest:
             cliver.output("Missing search query")
@@ -749,6 +792,14 @@ def load_session(cliver: Cliver, session_id: str):
     _load_session(cliver, session_id)
 
 
+@session_cmd.command(name="show", help="Show detailed information about a specific session or the current session")
+@click.argument("session_id", required=False)
+@pass_cliver
+def show_session(cliver: Cliver, session_id: str = None):
+    """Show detailed session info."""
+    _show_session(cliver, session_id)
+
+
 @session_cmd.command(name="new", help="Start a fresh session (clears current conversation history)")
 @pass_cliver
 def new_session(cliver: Cliver):
@@ -777,6 +828,7 @@ def compress_session(cliver: Cliver):
 # Subcommand lookups for dispatch help
 _SUBCOMMANDS = {
     "list": list_sessions,
+    "show": show_session,
     "search": search_sessions,
     "load": load_session,
     "new": new_session,

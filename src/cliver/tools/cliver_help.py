@@ -38,7 +38,7 @@ _COMMAND_SUMMARIES = {
     "config": "Manage CLIver configuration (show, validate, set, theme, rate-limit)",
     "cost": "View token usage and cost statistics (session or all-time)",
     "gateway": "Manage the gateway daemon (start, stop, status, platform adapters)",
-    "identity": "Manage the agent's identity profile (show, chat, clear)",
+    "identity": "Manage the agent's identity profile (show, edit, clear)",
     "memory": "Manage persistent memory (show, add, clear)",
     "mcp": "Manage MCP server connections (list, add, set, remove)",
     "model": "Manage LLM model configurations (list, add, set, default, remove)",

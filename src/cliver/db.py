@@ -27,6 +27,7 @@ class SQLiteStore:
         self._busy_timeout_ms = busy_timeout_ms
         self._write_lock = threading.Lock()
         self._local = threading.local()
+        self._applied_schemas: set[str] = set()
 
     def _get_conn(self) -> sqlite3.Connection:
         if not hasattr(self._local, "conn") or self._local.conn is None:
@@ -58,9 +59,15 @@ class SQLiteStore:
                 raise
 
     def execute_schema(self, schema: str):
+        sid = schema.strip()[:80]  # first line identifies the schema
+        if sid in self._applied_schemas:
+            return
         with self._write_lock:
+            if sid in self._applied_schemas:
+                return
             conn = self._get_conn()
             conn.executescript(schema)
+            self._applied_schemas.add(sid)
 
     def close(self):
         if hasattr(self._local, "conn") and self._local.conn:

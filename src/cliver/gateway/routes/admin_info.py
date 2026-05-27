@@ -47,21 +47,23 @@ def _get_skills() -> list:
         return []
 
 
-def _get_adapters(ctx: dict) -> list:
+def _get_adapters(ctx: dict, config_manager=None) -> list:
     try:
-        from cliver.config import ConfigManager
-
         gateway = ctx.get("gateway")
         statuses = {}
         if gateway and gateway._adapter_manager:
             for s in gateway._adapter_manager.platform_statuses:
                 statuses[s["name"]] = s
 
-        config_dir = ctx.get("config_dir")
-        if not config_dir:
-            return list(statuses.values())
+        cm = config_manager
+        if cm is None:
+            from cliver.config import ConfigManager
 
-        cm = ConfigManager(config_dir)
+            config_dir = ctx.get("config_dir")
+            if not config_dir:
+                return list(statuses.values())
+            cm = ConfigManager(config_dir)
+
         gw_cfg = cm.config.gateway
         if not gw_cfg or not gw_cfg.platforms:
             return list(statuses.values())
@@ -114,46 +116,72 @@ def _get_agent_info(ctx: dict) -> dict:
         return {"name": ctx.get("agent_name", "CLIver"), "identity": "", "memory": ""}
 
 
-def _get_config(ctx: dict) -> dict:
+def _get_config(ctx: dict, config_manager=None) -> dict:
     try:
-        from cliver.config import ConfigManager
+        cm = config_manager
+        if cm is None:
+            from cliver.config import ConfigManager
 
-        config_dir = ctx.get("config_dir")
-        if not config_dir:
-            return {"models": {}, "providers": {}, "agents": {}, "default_agent": None}
+            config_dir = ctx.get("config_dir")
+            if not config_dir:
+                return {}
+            cm = ConfigManager(config_dir)
 
-        cm = ConfigManager(config_dir)
-
-        providers = {}
-        for name, pc in cm.config.providers.items():
-            provider_models = [mc.api_model_name for mc in cm.config.models.values() if mc.provider == name]
-            providers[name] = {
-                "type": pc.type,
-                "api_url": pc.api_url,
-                "api_key": _mask_secret(pc.api_key),
-                "models": provider_models,
-            }
-            if pc.image_url:
-                providers[name]["image_url"] = pc.image_url
-            if pc.image_model:
-                providers[name]["image_model"] = pc.image_model
-
-        agents = {
-            name: {"type": ac.type, "model": ac.model, "description": ac.description, "role": ac.role}
-            for name, ac in cm.config.agents.items()
-        }
+        gw = cm.config.gateway
         return {
-            "providers": providers,
-            "agents": agents,
+            "gateway": gw.model_dump() if gw else None,
+            "session": cm.config.session.model_dump(),
+            "theme": cm.config.theme,
+            "timezone": cm.config.timezone,
+            "user_agent": cm.config.user_agent,
+            "default_model": cm.config.default_model,
             "default_agent": cm.config.default_agent,
+            "search_engines": cm.config.search_engines,
+            "skill_auto_learn": cm.config.skill_auto_learn,
+            "model_auto_fallback": cm.config.model_auto_fallback,
+            "providers": {n: p.model_dump() for n, p in cm.config.providers.items()},
+            "mcp_servers": {n: s.model_dump() for n, s in cm.config.mcpServers.items()},
+            "models": {n: m.model_dump() for n, m in cm.config.models.items()},
+            "agents": {n: a.model_dump() for n, a in (cm.config.agents or {}).items()},
         }
     except Exception as e:
         logger.warning("Failed to get config: %s", e)
-        return {"providers": {}, "agents": {}}
+        return {}
 
 
-def get_info_routes(context: dict, require_auth: Callable) -> list:
-    """Return info/config/keys/models API routes."""
+def get_info_routes(context: dict, require_auth: Callable, config_manager=None) -> list:
+    """Return info/config/keys/models API routes.
+
+    config_manager is a pre-loaded ConfigManager instance (avoids re-reading
+    config.yaml from disk on every request). Falls back to creating one from
+    config_dir if not provided.
+    """
+
+    async def handle_icon(request: Request):
+        """Serve the CLIver icon for the admin UI."""
+        import importlib.resources
+
+        try:
+            data = importlib.resources.files("cliver").joinpath("gateway/admin_dist/icon.png").read_bytes()
+        except Exception:
+            try:
+                # Development fallback: read from repo docs/images/
+                from pathlib import Path as _Path
+
+                icon_path = _Path(__file__).parent.parent.parent.parent.parent / "docs" / "images" / "icon.png"
+                if icon_path.exists():
+                    data = icon_path.read_bytes()
+                else:
+                    from starlette.responses import Response
+
+                    return Response("", status_code=404)
+            except Exception:
+                from starlette.responses import Response
+
+                return Response("", status_code=404)
+        from starlette.responses import Response
+
+        return Response(data, media_type="image/png", headers={"Cache-Control": "public, max-age=86400"})
 
     @require_auth
     async def handle_status(request: Request):
@@ -174,7 +202,7 @@ def get_info_routes(context: dict, require_auth: Callable) -> list:
 
     @require_auth
     async def handle_adapters(request: Request):
-        adapters = _get_adapters(context)
+        adapters = _get_adapters(context, config_manager)
         return JSONResponse(adapters)
 
     @require_auth
@@ -184,42 +212,29 @@ def get_info_routes(context: dict, require_auth: Callable) -> list:
 
     @require_auth
     async def handle_config(request: Request):
-        config = _get_config(context)
+        config = _get_config(context, config_manager)
         return JSONResponse(config)
 
     @require_auth
     async def handle_config_update(request: Request):
-        config_dir = context.get("config_dir")
-        if not config_dir:
-            return JSONResponse({"error": "No config dir"}, status_code=500)
+        from cliver.config import (
+            ConfigManager,
+            GatewayConfig,
+            SessionConfig,
+        )
+
+        cm = config_manager
+        if cm is None:
+            config_dir = context.get("config_dir")
+            if not config_dir:
+                return JSONResponse({"error": "No config dir"}, status_code=500)
+            cm = ConfigManager(config_dir)
 
         try:
             data = await request.json()
-            from cliver.config import (
-                AgentConfig,
-                ConfigManager,
-                GatewayConfig,
-                ProviderConfig,
-                SessionConfig,
-            )
-
-            cm = ConfigManager(config_dir)
 
             for key, value in data.items():
-                if key == "providers":
-                    providers = {}
-                    for pname, pdata in value.items():
-                        if isinstance(pdata, dict):
-                            cfg = {"name": pname}
-                            cfg.update(pdata)
-                            cfg.pop("models", None)
-                            providers[pname] = ProviderConfig(**cfg)
-                    cm.config.providers = providers
-
-                elif key == "agents":
-                    cm.config.agents = {k: AgentConfig(**v) for k, v in value.items()}
-
-                elif key == "gateway":
+                if key == "gateway":
                     cm.config.gateway = GatewayConfig(**value) if value else None
 
                 elif key == "session":
@@ -237,12 +252,9 @@ def get_info_routes(context: dict, require_auth: Callable) -> list:
 
     @require_auth
     async def handle_keys_list(request: Request):
-        from cliver.key_store import KeyStore
-
-        config_dir = context.get("config_dir")
-        if not config_dir:
+        ks = context.get("key_store")
+        if not ks:
             return JSONResponse([])
-        ks = KeyStore(config_dir / "cliver.db")
         keys = ks.list_keys()
         return JSONResponse(
             [
@@ -253,12 +265,9 @@ def get_info_routes(context: dict, require_auth: Callable) -> list:
 
     @require_auth
     async def handle_keys_create(request: Request):
-        from cliver.key_store import KeyStore
-
-        config_dir = context.get("config_dir")
-        if not config_dir:
-            return JSONResponse({"error": "No config dir"}, status_code=500)
-        ks = KeyStore(config_dir / "cliver.db")
+        ks = context.get("key_store")
+        if not ks:
+            return JSONResponse({"error": "Key store not available"}, status_code=500)
         data = await request.json()
         name = data.get("name", "").strip()
         value = data.get("value", "")
@@ -270,39 +279,13 @@ def get_info_routes(context: dict, require_auth: Callable) -> list:
 
     @require_auth
     async def handle_keys_delete(request: Request):
-        from cliver.key_store import KeyStore
-
-        config_dir = context.get("config_dir")
-        if not config_dir:
-            return JSONResponse({"error": "No config dir"}, status_code=500)
-        ks = KeyStore(config_dir / "cliver.db")
+        ks = context.get("key_store")
+        if not ks:
+            return JSONResponse({"error": "Key store not available"}, status_code=500)
         name = request.path_params["name"]
         if ks.delete(name):
             return JSONResponse({"status": "ok"})
         return JSONResponse({"error": "not found"}, status_code=404)
-
-    @require_auth
-    async def handle_agents(request: Request):
-        from cliver.config import ConfigManager
-
-        config_dir = context.get("config_dir")
-        if not config_dir:
-            return JSONResponse([])
-        cm = ConfigManager(config_dir)
-        return JSONResponse(
-            [
-                {"name": name, "type": ac.type, "model": ac.model, "description": ac.description}
-                for name, ac in cm.config.agents.items()
-            ]
-        )
-
-    @require_auth
-    async def handle_models(request: Request):
-        gateway = context.get("gateway")
-        if not gateway or not getattr(gateway, "_agent_core", None):
-            return JSONResponse({"models": [], "default": None})
-        models = list(gateway._agent_core.llm_models.keys())
-        return JSONResponse({"models": models, "default": gateway._agent_core.default_model})
 
     @require_auth
     async def handle_restart(request: Request):
@@ -325,8 +308,8 @@ def get_info_routes(context: dict, require_auth: Callable) -> list:
         return JSONResponse({"status": "restarting"})
 
     return [
+        Route("/admin/icon.png", handle_icon),
         Route("/admin/api/restart", handle_restart, methods=["POST"]),
-        Route("/admin/api/agents", handle_agents),
         Route("/admin/api/status", handle_status),
         Route("/admin/api/skills", handle_skills),
         Route("/admin/api/adapters", handle_adapters),
@@ -336,5 +319,4 @@ def get_info_routes(context: dict, require_auth: Callable) -> list:
         Route("/admin/api/keys", handle_keys_list),
         Route("/admin/api/keys", handle_keys_create, methods=["POST"]),
         Route("/admin/api/keys/{name}", handle_keys_delete, methods=["DELETE"]),
-        Route("/admin/api/models", handle_models),
     ]

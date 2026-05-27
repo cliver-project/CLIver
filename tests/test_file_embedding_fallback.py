@@ -10,7 +10,6 @@ from langchain_core.messages import AIMessage
 from cliver.config import ModelConfig, ModelOptions, ProviderConfig
 from cliver.llm.base import LLMInferenceEngine
 from cliver.llm.llm import AgentCore
-from cliver.model_capabilities import ModelCapability
 
 
 class TestFileEmbeddingFallback:
@@ -23,6 +22,7 @@ class TestFileEmbeddingFallback:
         config = ModelConfig(
             name="test/test-model",
             provider="test",
+            model="test",
             options=ModelOptions(
                 temperature=0.5,
             ),
@@ -32,14 +32,6 @@ class TestFileEmbeddingFallback:
         # Create a mock engine
         engine = Mock(spec=LLMInferenceEngine)
         engine.config = config
-
-        # Mock capabilities (no file upload support)
-        engine.config.get_capabilities = Mock(
-            return_value={
-                ModelCapability.TEXT_TO_TEXT,
-                ModelCapability.TOOL_CALLING,
-            }
-        )
 
         # Mock other required methods
         engine.system_message = Mock(return_value="You are a helpful assistant.")

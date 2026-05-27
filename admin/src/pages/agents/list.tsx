@@ -15,31 +15,22 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { useAgents, useConfig, useModels, useSaveConfig } from "@/hooks/use-api";
+import { useAgents, useModels, useCreateAgent, useDeleteAgent, type AgentInfo } from "@/hooks/use-api";
 import { useTranslation } from "@/i18n";
 
 export default function AgentListPage() {
   const { t } = useTranslation();
   const { data, isLoading } = useAgents();
-  const { data: configData } = useConfig();
-  const saveConfig = useSaveConfig();
+  const deleteAgent = useDeleteAgent();
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
 
-  const agents = (data ?? []) as Array<Record<string, unknown>>;
+  const agents = (data ?? []) as AgentInfo[];
 
   if (isLoading) return <p className="text-muted-foreground">{t("common.loading")}</p>;
 
-  const handleDelete = (name: string) => {
-    if (!configData) return;
-    const config = configData as Record<string, unknown>;
-    const currentAgents = (config.agents ?? {}) as Record<string, Record<string, unknown>>;
-    const updated = { ...currentAgents };
-    delete updated[name];
-    saveConfig.mutate(
-      { ...config, agents: updated },
-      { onSuccess: () => setDeleteTarget(null) },
-    );
+  const handleDelete = (id: string) => {
+    deleteAgent.mutate(id, { onSuccess: () => setDeleteTarget(null) });
   };
 
   return (
@@ -53,13 +44,7 @@ export default function AgentListPage() {
 
       {showCreate && (
         <CreateAgentDialog
-          saving={saveConfig.isPending}
-          onSave={(name, cfg) => {
-            if (!configData) return;
-            const config = configData as Record<string, unknown>;
-            const agents = { ...(config.agents ?? {}) as Record<string, unknown>, [name]: cfg };
-            saveConfig.mutate({ ...config, agents }, { onSuccess: () => setShowCreate(false) });
-          }}
+          onSave={() => setShowCreate(false)}
           onCancel={() => setShowCreate(false)}
         />
       )}
@@ -79,28 +64,26 @@ export default function AgentListPage() {
           </TableHeader>
           <TableBody className="[&>tr:nth-child(even)]:bg-muted/30">
             {agents.map((agent) => {
-              const name = String(agent.name);
-              const defaultAgent = String(configData?.default_agent ?? "");
-              const isDefault = defaultAgent !== "" && defaultAgent === name;
+              const isDefault = agent.is_default === 1;
               return (
-                <TableRow key={name}>
+                <TableRow key={agent.id}>
                   <TableCell>
                     <Link
-                      to={`/admin/agents/${encodeURIComponent(name)}`}
+                      to={`/admin/agents/${agent.id}`}
                       className="text-primary hover:underline font-medium"
                     >
-                      {name}
+                      {agent.name}
                     </Link>
                   </TableCell>
                   <TableCell className="text-sm">
-                    {String(agent.type || "cliver")}
+                    {agent.type || "cliver"}
                   </TableCell>
                   <TableCell className="text-muted-foreground text-sm max-w-xs truncate">
-                    {agent.description ? String(agent.description) : t("common.noDescription")}
+                    {agent.description ? agent.description : t("common.noDescription")}
                   </TableCell>
                   <TableCell>
                     {agent.model ? (
-                      <Badge variant="secondary">{String(agent.model)}</Badge>
+                      <Badge variant="secondary">{agent.model}</Badge>
                     ) : (
                       <span className="text-muted-foreground text-xs">—</span>
                     )}
@@ -113,7 +96,7 @@ export default function AgentListPage() {
                       <Button
                         size="icon"
                         variant="ghost"
-                        onClick={() => setDeleteTarget(name)}
+                        onClick={() => setDeleteTarget(agent.id)}
                         title={t("common.delete")}
                       >
                         <Trash2 className="w-4 h-4 text-destructive" />
@@ -141,27 +124,27 @@ export default function AgentListPage() {
 }
 
 function CreateAgentDialog({
-  saving,
   onSave,
   onCancel,
 }: {
-  saving: boolean;
-  onSave: (name: string, cfg: Record<string, unknown>) => void;
+  onSave: () => void;
   onCancel: () => void;
 }) {
   const { t } = useTranslation();
-  const { data: modelsData } = useModels();
-  const models = modelsData?.models ?? [];
+  const { data: models } = useModels();
+  const createAgent = useCreateAgent();
   const [name, setName] = useState("");
   const [model, setModel] = useState("");
   const [desc, setDesc] = useState("");
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!name.trim()) return;
-    onSave(name.trim(), {
+    await createAgent.mutateAsync({
+      name: name.trim(),
       ...(model ? { model } : {}),
       ...(desc ? { description: desc } : {}),
     });
+    onSave();
   };
 
   return (
@@ -182,7 +165,7 @@ function CreateAgentDialog({
               <SelectTrigger><SelectValue placeholder="(default)" /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="__default__">(default)</SelectItem>
-                {models.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                {(models ?? []).map((m) => <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -193,8 +176,8 @@ function CreateAgentDialog({
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onCancel}>{t("common.cancel")}</Button>
-          <Button onClick={handleSave} disabled={!name.trim() || saving}>
-            {saving && <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />}
+          <Button onClick={handleSave} disabled={!name.trim() || createAgent.isPending}>
+            {createAgent.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" />}
             {t("common.save")}
           </Button>
         </DialogFooter>

@@ -26,7 +26,7 @@ class TestSearchSessionsTool:
             }
         ]
         mock_agent = MagicMock()
-        mock_agent.sessions_dir = "/tmp/sessions"
+        mock_agent.db_path = "/tmp/cliver.db"
         mock_profile.return_value = mock_agent
 
         tool = SearchSessionsTool()
@@ -49,7 +49,7 @@ class TestSearchSessionsTool:
         mock_sm = MagicMock()
         mock_sm.search.return_value = []
         mock_agent = MagicMock()
-        mock_agent.sessions_dir = "/tmp/sessions"
+        mock_agent.db_path = "/tmp/cliver.db"
         mock_profile.return_value = mock_agent
 
         tool = SearchSessionsTool()

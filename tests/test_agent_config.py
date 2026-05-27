@@ -4,49 +4,30 @@
 def test_agent_config_defaults():
     from cliver.config import AgentConfig
 
-    cfg = AgentConfig()
-    assert cfg.type == "cliver"
+    cfg = AgentConfig(name="test")
+    assert cfg.name == "test"
     assert cfg.description is None
     assert cfg.role is None
+    assert cfg.system_prompt is None
     assert cfg.model is None
-    assert cfg.command is None
-    assert cfg.args is None
-    assert cfg.env is None
-    assert cfg.working_dir is None
-    assert cfg.timeout_s == 300
-    assert cfg.max_retries == 0
+    assert cfg.skills is None
+    assert cfg.toolsets is None
     assert cfg.auto_fallback is None
 
 
-def test_agent_config_cli_type():
+def test_agent_config_with_model():
     from cliver.config import AgentConfig
 
     cfg = AgentConfig(
-        type="claude",
-        model="anthropic/claude-sonnet-4-20250514",
-        working_dir="./src",
-        timeout_s=600,
-        max_retries=2,
+        name="coder",
+        model="deepseek/deepseek-chat",
+        system_prompt="You are a helpful assistant",
+        toolsets=["code", "web"],
     )
-    assert cfg.type == "claude"
-    assert cfg.timeout_s == 600
-    assert cfg.max_retries == 2
-
-
-def test_agent_config_custom_type():
-    from cliver.config import AgentConfig
-
-    cfg = AgentConfig(
-        type="aider",
-        command="aider",
-        args=["--message"],
-        env={"OPENAI_API_KEY": "sk-test"},
-        timeout_s=600,
-    )
-    assert cfg.type == "aider"
-    assert cfg.command == "aider"
-    assert cfg.args == ["--message"]
-    assert cfg.env == {"OPENAI_API_KEY": "sk-test"}
+    assert cfg.name == "coder"
+    assert cfg.model == "deepseek/deepseek-chat"
+    assert cfg.system_prompt == "You are a helpful assistant"
+    assert cfg.toolsets == ["code", "web"]
 
 
 def test_app_config_agents_field():
@@ -54,14 +35,15 @@ def test_app_config_agents_field():
 
     cfg = AppConfig(
         agents={
-            "researcher": AgentConfig(type="cliver", model="deepseek/deepseek-r1"),
-            "coder": AgentConfig(type="claude", timeout_s=600),
+            "researcher": AgentConfig(name="researcher", model="deepseek/deepseek-r1", toolsets=["web"]),
+            "coder": AgentConfig(name="coder", model="deepseek/deepseek-chat", toolsets=["code"]),
         },
         default_agent="researcher",
     )
     assert len(cfg.agents) == 2
-    assert cfg.agents["researcher"].type == "cliver"
-    assert cfg.agents["coder"].type == "claude"
+    assert cfg.agents["researcher"].name == "researcher"
+    assert cfg.agents["coder"].name == "coder"
+    assert cfg.agents["researcher"].toolsets == ["web"]
     assert cfg.default_agent == "researcher"
 
 

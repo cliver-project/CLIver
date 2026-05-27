@@ -116,10 +116,10 @@ def _render_login_page(context, error=None):
 # ---------------------------------------------------------------------------
 
 
-async def _run_in_thread(fn, *args):
+async def _run_in_thread(fn, *args, **kwargs):
     """Run a blocking function in a thread executor to avoid blocking the event loop."""
     loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, fn, *args)
+    return await loop.run_in_executor(None, lambda: fn(*args, **kwargs))
 
 
 # ---------------------------------------------------------------------------
@@ -181,11 +181,13 @@ def get_admin_routes(
 
     # --- Assemble routes from sub-modules ---
 
+    from cliver.gateway.routes.admin_agents import get_agent_routes
     from cliver.gateway.routes.admin_auth import get_auth_routes
     from cliver.gateway.routes.admin_browse import get_browse_routes
     from cliver.gateway.routes.admin_chat import get_chat_routes
     from cliver.gateway.routes.admin_conversations import get_conversations_routes
     from cliver.gateway.routes.admin_info import get_info_routes
+    from cliver.gateway.routes.admin_models import get_model_routes
     from cliver.gateway.routes.admin_sessions import get_session_routes
     from cliver.gateway.routes.admin_spa import get_spa_routes
     from cliver.gateway.routes.admin_tasks import get_task_routes
@@ -202,9 +204,11 @@ def get_admin_routes(
         *get_task_routes(context, require_auth),
         *get_session_routes(context, require_auth),
         *get_browse_routes(require_auth),
-        *get_info_routes(context, require_auth),
+        *get_info_routes(context, require_auth, config_manager=context.get("config_manager")),
         *get_chat_routes(context, require_auth),
         *get_conversations_routes(context, require_auth),
+        *get_model_routes(context.get("config_manager"), require_auth),
+        *get_agent_routes(context.get("config_manager"), require_auth),
     ]
 
     spa_routes = get_spa_routes(spa_dist_dir)

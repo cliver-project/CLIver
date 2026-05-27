@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List, Optional
 
-from cliver.db import SQLiteStore
+from cliver.db import SQLiteStore, get_store
 from cliver.lab.models import GoldenTest, Lab
 
 _SCHEMA = """
@@ -38,7 +38,7 @@ class LabStore:
 
     def _get_store(self) -> SQLiteStore:
         if self._store is None:
-            self._store = SQLiteStore(self._db_path)
+            self._store = get_store(self._db_path)
             self._store.execute_schema(_SCHEMA)
         return self._store
 

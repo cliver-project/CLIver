@@ -8,10 +8,6 @@ allowed-tools: Read LS Grep Bash TodoWrite TodoRead Ask Write Skill
 
 Help turn ideas into fully formed designs through natural collaborative dialogue.
 
-## Prompt Required
-
-If no prompt was provided (the user's request section is empty or missing), use `Ask` to ask the user what they want to brainstorm before proceeding. Example: "What would you like to design or brainstorm?"
-
 ## Hard Gate
 
 Do NOT write any implementation code, scaffold any project, or take any implementation action until you have presented a design and the user has approved it. This applies to EVERY task regardless of perceived simplicity.

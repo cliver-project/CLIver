@@ -9,10 +9,18 @@ const locales: Record<Locale, Record<string, unknown>> = { en, zh };
 const STORAGE_KEY = "cliver-locale";
 
 function detectLocale(): Locale {
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored === "en" || stored === "zh") return stored;
-  const nav = navigator.language;
-  return nav.startsWith("zh") ? "zh" : "en";
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored === "en" || stored === "zh") return stored;
+  } catch {
+    // localStorage unavailable (e.g. privacy settings, iframe)
+  }
+  try {
+    if (navigator.language.startsWith("zh")) return "zh";
+  } catch {
+    // navigator unavailable
+  }
+  return "en";
 }
 
 function lookup(obj: Record<string, unknown>, path: string): string | undefined {
@@ -40,7 +48,11 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   const setLocale = useCallback((l: Locale) => {
     setLocaleState(l);
-    localStorage.setItem(STORAGE_KEY, l);
+    try {
+      localStorage.setItem(STORAGE_KEY, l);
+    } catch {
+      // localStorage unavailable
+    }
   }, []);
 
   const t: TFunction = useCallback(

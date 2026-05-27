@@ -10,7 +10,6 @@ from langchain_core.messages import AIMessage
 from cliver.config import ModelConfig
 from cliver.llm.unified_engine import UnifiedInferenceEngine
 from cliver.media import MediaType
-from cliver.model_capabilities import ModelCapability
 
 
 class TestLLMMediaExtraction:
@@ -31,14 +30,6 @@ class TestLLMMediaExtraction:
         config.get_provider_type = Mock(return_value="openai")
         config.options = None
 
-        config.get_capabilities = Mock(
-            return_value={
-                ModelCapability.TEXT_TO_TEXT,
-                ModelCapability.IMAGE_TO_TEXT,
-                ModelCapability.TOOL_CALLING,
-            }
-        )
-
         return UnifiedInferenceEngine(config)
 
     @pytest.fixture
@@ -49,20 +40,12 @@ class TestLLMMediaExtraction:
 
         config = Mock(spec=ModelConfig)
         config.name = "ollama/llava"
-        config.provider = "ollama"
+        config.provider = "openai"
         config.api_model_name = "llava"
         config.get_resolved_url = Mock(return_value="http://localhost:11434")
-        config.get_provider_type = Mock(return_value="ollama")
+        config.get_provider_type = Mock(return_value="openai")
         config.options = None
         config.model_dump = Mock(return_value={})
-
-        config.get_capabilities = Mock(
-            return_value={
-                ModelCapability.TEXT_TO_TEXT,
-                ModelCapability.IMAGE_TO_TEXT,
-                ModelCapability.TOOL_CALLING,
-            }
-        )
 
         return UnifiedInferenceEngine(config)
 
@@ -86,7 +69,7 @@ class TestLLMMediaExtraction:
         assert len(media_content) == 1
         assert media_content[0].type == MediaType.IMAGE
         assert media_content[0].mime_type == "image/jpeg"
-        assert "ollama_generated" in media_content[0].filename
+        assert "openai_generated" in media_content[0].filename
 
     def test_engines_inherit_extract_method(self, openai_engine, ollama_engine):
         """Test that both engines inherit the extract_media_from_response method."""

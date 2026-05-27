@@ -1,13 +1,4 @@
-# Stage 1: Build the admin portal (React SPA)
-FROM node:22-slim AS admin-builder
-
-WORKDIR /app/admin
-COPY admin/package.json admin/package-lock.json ./
-RUN npm ci
-COPY admin/ ./
-RUN npm run build
-
-# Stage 2: Build the Python wheel
+# Stage 1: Build the wheel
 FROM python:3.13-slim AS builder
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
@@ -15,7 +6,6 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY src/ src/
-COPY --from=admin-builder /app/admin/dist/ admin/dist/
 
 # Export locked requirements and build the wheel
 RUN uv export --no-dev --locked --no-hashes --no-emit-project -o requirements.txt

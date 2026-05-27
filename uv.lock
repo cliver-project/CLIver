@@ -503,7 +503,6 @@ version = "0.1.4"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
-    { name = "croniter" },
     { name = "cryptography" },
     { name = "httpx" },
     { name = "jinja2" },
@@ -529,12 +528,14 @@ dependencies = [
 [package.optional-dependencies]
 all = [
     { name = "aiohttp" },
+    { name = "croniter" },
     { name = "discord-py" },
     { name = "firecrawl-py" },
     { name = "playwright" },
     { name = "python-telegram-bot" },
     { name = "slack-bolt" },
     { name = "slack-sdk" },
+    { name = "starlette" },
 ]
 api = [
     { name = "aiohttp" },
@@ -548,6 +549,10 @@ discord = [
 ]
 feishu = [
     { name = "aiohttp" },
+]
+gateway = [
+    { name = "croniter" },
+    { name = "starlette" },
 ]
 slack = [
     { name = "slack-bolt" },
@@ -584,7 +589,8 @@ requires-dist = [
     { name = "aiohttp", marker = "extra == 'feishu'", specifier = ">=3.9" },
     { name = "aiohttp", marker = "extra == 'wechat'", specifier = ">=3.9" },
     { name = "click", specifier = ">=8.1.0" },
-    { name = "croniter", specifier = ">=2.0.0" },
+    { name = "croniter", marker = "extra == 'all'", specifier = ">=2.0" },
+    { name = "croniter", marker = "extra == 'gateway'", specifier = ">=2.0" },
     { name = "cryptography", specifier = ">=42.0.0" },
     { name = "discord-py", marker = "extra == 'all'", specifier = ">=2.3" },
     { name = "discord-py", marker = "extra == 'discord'", specifier = ">=2.3" },
@@ -616,9 +622,11 @@ requires-dist = [
     { name = "slack-bolt", marker = "extra == 'slack'", specifier = ">=1.18" },
     { name = "slack-sdk", marker = "extra == 'all'", specifier = ">=3.27" },
     { name = "slack-sdk", marker = "extra == 'slack'", specifier = ">=3.27" },
+    { name = "starlette", marker = "extra == 'all'", specifier = ">=0.38" },
+    { name = "starlette", marker = "extra == 'gateway'", specifier = ">=0.38" },
     { name = "tomli", marker = "python_full_version < '3.11'" },
 ]
-provides-extras = ["telegram", "discord", "slack", "wechat", "feishu", "api", "browser", "all"]
+provides-extras = ["gateway", "telegram", "discord", "slack", "wechat", "feishu", "api", "browser", "all"]
 
 [package.metadata.requires-dev]
 dev = [

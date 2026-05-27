@@ -33,13 +33,11 @@ from cliver.config import ModelConfig
 from cliver.llm.base import LLMInferenceEngine
 from cliver.llm.call_context import CallContext
 from cliver.llm.errors import TaskTimeoutError, get_friendly_error_message
-from cliver.llm.llm_utils import is_thinking, normalize_tool_calls
-from cliver.llm.media_generation import get_image_helper
+from cliver.llm.llm_utils import normalize_tool_calls
 from cliver.llm.rate_limiter import RateLimiter, parse_period
 from cliver.llm.unified_engine import UnifiedInferenceEngine
 from cliver.mcp_server_caller import MCPServersCaller
 from cliver.media import load_media_file
-from cliver.model_capabilities import ModelCapability
 from cliver.permissions import PermissionAction, PermissionDecision, PermissionManager
 from cliver.prompt_enhancer import apply_template
 from cliver.tool_events import ToolEvent, ToolEventHandler, ToolEventType
@@ -186,7 +184,6 @@ class AgentCore:
         enabled_toolsets: Optional[List[str]] = None,
         skill_auto_learn: bool = False,
         model_auto_fallback: bool = True,
-        mcp_store=None,
     ):
         self.llm_models = llm_models
         self.default_model = default_model
@@ -199,18 +196,7 @@ class AgentCore:
         self.on_permission_prompt = on_permission_prompt
         self.skill_auto_learn = skill_auto_learn
         self.model_auto_fallback = model_auto_fallback
-        self.mcp_store = mcp_store
-
-        # Merge database MCP servers with config-based ones; DB takes precedence
-        merged_servers = dict(mcp_servers)
-        if mcp_store is not None:
-            try:
-                db_servers = mcp_store.get_connection_dicts()
-                merged_servers.update(db_servers)
-            except Exception:
-                pass
-
-        self.mcp_caller = MCPServersCaller(mcp_servers=merged_servers)
+        self.mcp_caller = MCPServersCaller(mcp_servers=mcp_servers)
         self.llm_engines: Dict[str, LLMInferenceEngine] = {}
 
         # Configure tool registry with toolsets from config
@@ -234,6 +220,23 @@ class AgentCore:
         from cliver.agent_profile import set_agent_core
 
         set_agent_core(self)
+
+    def _get_agent_configs(self) -> dict | None:
+        """Return configured agents dict from config if available.
+
+        Cached on the instance to avoid re-reading config.yaml on every request.
+        """
+        if hasattr(self, "_cached_agent_configs"):
+            return self._cached_agent_configs
+        try:
+            from cliver.config import ConfigManager
+            from cliver.util import get_config_dir
+
+            cfg = ConfigManager(get_config_dir())
+            self._cached_agent_configs = getattr(cfg.config, "agents", None) or None
+        except Exception:
+            self._cached_agent_configs = None
+        return self._cached_agent_configs
 
     def _emit_tool_event(self, event: ToolEvent) -> None:
         """Emit a tool event to the registered handler, if any."""
@@ -272,24 +275,25 @@ class AgentCore:
         await self.rate_limiter.wait(provider_name)
 
     async def generate_image(self, prompt: str, model: str = None, *, ctx: "CallContext", **params) -> BaseMessage:
-        """Generate images from a text prompt via the provider's image API.
+        """Generate images from a text prompt via an image-category model."""
+        from cliver.llm.media_generation import get_media_helper
 
-        All HTTP calls are made here — helpers only format requests and parse
-        responses. The model name sent to the API comes from
-        ProviderConfig.image_model.
-        """
-        provider_config, model_name = self._resolve_image_provider(model)
-        if not provider_config or not getattr(provider_config, "image_url", None):
-            return AIMessage(content="Error: No model or provider with image generation support configured.")
+        mc, api_url = self._resolve_generation_model("image", model)
+        if not mc or not api_url:
+            return AIMessage(content="Error: No model with image generation support configured.")
 
-        await self.rate_limiter.wait(provider_config.name)
+        await self.rate_limiter.wait(mc.provider)
 
         try:
-            helper = get_image_helper(provider_config.image_url)
-            request_body = helper.build_request(prompt, model_name, **params)
+            helper = get_media_helper(mc.provider, category="image")
+            merged = {}
+            if mc.options:
+                merged.update(mc.options.model_dump(exclude_unset=True))
+            merged.update(params)
+            request_body = helper.build_request(prompt, mc.model, **merged)
             response_data = await self._call_generation_api(
-                provider_config.image_url,
-                provider_config.get_api_key(),
+                api_url,
+                mc.get_api_key(),
                 request_body,
             )
             media_list = helper.parse_response(response_data)
@@ -302,11 +306,7 @@ class AgentCore:
         return AIMessage(content=f"Generated {len(media_list)} image(s).")
 
     async def _call_generation_api(self, url: str, api_key: str, body: dict) -> dict:
-        """Make an HTTP POST to a generation API endpoint.
-
-        Centralizes all generation API calls (image, audio) so that
-        rate limiting, error handling, and logging are in one place.
-        """
+        """Make an HTTP POST to a generation API endpoint."""
         import httpx
 
         headers = {
@@ -318,33 +318,25 @@ class AgentCore:
             resp.raise_for_status()
             return resp.json()
 
-    def _resolve_image_provider(self, model: str = None):
-        """Resolve which provider and model name to use for image generation.
+    def _resolve_generation_model(self, category: str, model: str = None):
+        """Resolve a model for media generation.
 
-        Returns (ProviderConfig, image_model) or (None, None).
-        The image_model comes from ProviderConfig.image_model — the
-        provider-facing model name for image generation.
-        If not set, helpers fall back to their own defaults.
-
-        Resolution order:
-        1. If model specified → use its provider's image config
-        2. Scan providers for any with image_url set
+        Returns (ModelConfig, api_url) or (None, None).
+        If ``model`` is specified, look it up (must match ``category``).
+        Otherwise return the first model in the given category.
         """
         if model:
             mc = self._get_llm_model(model)
-            if mc:
-                prov = getattr(mc, "_provider_config", None)
-                if prov and getattr(prov, "image_url", None):
-                    return prov, prov.image_model
+            if mc and mc.category == category:
+                url = mc.api_url or mc.get_resolved_url()
+                if url:
+                    return mc, url
 
-        seen = set()
         for mc in self.llm_models.values():
-            prov = getattr(mc, "_provider_config", None)
-            if prov and prov.name not in seen:
-                seen.add(prov.name)
-                if getattr(prov, "image_url", None):
-                    return prov, prov.image_model
-
+            if mc.category == category:
+                url = mc.api_url or mc.get_resolved_url()
+                if url:
+                    return mc, url
         return None, None
 
     def _track_tokens(self, response, model: str) -> None:
@@ -367,6 +359,16 @@ class AgentCore:
     def _select_llm_engine(self, model: str = None) -> LLMInferenceEngine:
         _model = self._get_llm_model(model)
         if not _model:
+            if not self.llm_models:
+                raise RuntimeError(
+                    "No LLM models configured yet. Here's how to get started:\n\n"
+                    "  Step 1 - Add a provider:\n"
+                    "  /provider add -n <name> -t openai -u <api_url> -k <api_key_env_var>\n"
+                    "  Example: /provider add -n deepseek -t openai -u https://api.deepseek.com -k DEEPSEEK_API_KEY\n\n"
+                    "  Step 2 - Add a model (endpoint auto-detected, single model becomes default):\n"
+                    "  /model add --provider <provider_id> --name <model_name>\n\n"
+                    "Run '/help' for more information."
+                )
             raise RuntimeError(f"No model named {model}.")
         if _model.name in self.llm_engines:
             llm_engine = self.llm_engines[_model.name]
@@ -377,6 +379,10 @@ class AgentCore:
 
     def _get_llm_model(self, model: str | None) -> ModelConfig:
         name = model or self.default_model
+        if not name and self.llm_models:
+            # Auto-select single model as default
+            name = next(iter(self.llm_models.keys()))
+            self.default_model = name
         if not name:
             return None
         return self._resolve_model(name)
@@ -401,45 +407,14 @@ class AgentCore:
         """
         return self._select_llm_engine(model)
 
-    @staticmethod
-    def _compute_required_capabilities(
-        images: List[str] | None,
-        audio_files: List[str] | None,
-        video_files: List[str] | None,
-        has_tools: bool,
-    ) -> set:
-        """Determine which capabilities this request requires."""
-        from cliver.model_capabilities import ModelCapability
-
-        caps = {ModelCapability.TEXT_TO_TEXT}
-        if images:
-            caps.add(ModelCapability.IMAGE_TO_TEXT)
-        if audio_files:
-            caps.add(ModelCapability.AUDIO_TO_TEXT)
-        if video_files:
-            caps.add(ModelCapability.VIDEO_TO_TEXT)
-        if has_tools:
-            caps.add(ModelCapability.TOOL_CALLING)
-        return caps
-
-    def _find_fallback_model(
-        self,
-        failed_model: str,
-        required_capabilities: set,
-        tried_models: set,
-    ) -> str | None:
-        """Find the next configured model with matching capabilities.
-
-        Iterates self.llm_models in insertion order (config.yaml order).
-        Skips models already tried, session-excluded models, and models
-        missing required capabilities.
-        """
+    def _find_fallback_model(self, tried_models: set) -> str | None:
+        """Find the next text-category model to try."""
         for name, config in self.llm_models.items():
+            if config.category != "text":
+                continue
             if name in tried_models or name in self.excluded_models:
                 continue
-            model_caps = config.get_capabilities()
-            if required_capabilities.issubset(model_caps):
-                return name
+            return name
         return None
 
     async def _compress_for_retry(
@@ -749,12 +724,6 @@ class AgentCore:
             ctx.outputs_dir = outputs_dir
         ctx.activate()
 
-        required_caps = self._compute_required_capabilities(
-            images,
-            audio_files,
-            video_files,
-            has_tools=bool(llm_tools),
-        )
         deadline = (time.monotonic() + timeout_s) if timeout_s else None
 
         async for chunk in self._stream_messages(
@@ -769,7 +738,6 @@ class AgentCore:
             tool_error_check=tool_error_check,
             options=options,
             deadline=deadline,
-            required_capabilities=required_caps,
             auto_fallback=auto_fallback,
             tried_models={model} if model else set(),
             on_pending_input=on_pending_input,
@@ -817,7 +785,14 @@ class AgentCore:
         available_tool_names = {t.name for t in llm_tools}
 
         # Build a single system prompt with all sections
-        system_parts = [llm_engine.system_message(available_tools=available_tool_names, enabled_skills=enabled_skills)]
+        system_parts = [
+            llm_engine.system_message(
+                available_tools=available_tool_names,
+                enabled_skills=enabled_skills,
+                models=self.llm_models,
+                agents=self._get_agent_configs(),
+            )
+        ]
         if system_message_appender:
             system_message_extra = system_message_appender()
             if system_message_extra and len(system_message_extra) > 0:
@@ -873,21 +848,19 @@ class AgentCore:
         if images or audio_files or video_files:
             model_config = self._get_llm_model(model)
             if model_config:
-                model_caps = model_config.get_capabilities()
-                if images and ModelCapability.IMAGE_TO_TEXT not in model_caps:
+                if images and model_config.category != "text":
                     logger.warning(
-                        "Model '%s' does not have IMAGE_TO_TEXT capability — "
-                        "image data will be sent but the model may not be able to process it",
+                        "Model '%s' may not support image input",
                         model_config.name,
                     )
-                if audio_files and ModelCapability.AUDIO_TO_TEXT not in model_caps:
+                if audio_files:
                     logger.warning(
-                        "Model '%s' does not have AUDIO_TO_TEXT capability",
+                        "Model '%s' may not support audio input",
                         model_config.name,
                     )
-                if video_files and ModelCapability.VIDEO_TO_TEXT not in model_caps:
+                if video_files:
                     logger.warning(
-                        "Model '%s' does not have VIDEO_TO_TEXT capability",
+                        "Model '%s' may not support video input",
                         model_config.name,
                     )
 
@@ -1105,12 +1078,6 @@ class AgentCore:
             ctx.outputs_dir = outputs_dir
         ctx.activate()
 
-        required_caps = self._compute_required_capabilities(
-            images,
-            audio_files,
-            video_files,
-            has_tools=bool(llm_tools),
-        )
         deadline = (time.monotonic() + timeout_s) if timeout_s else None
 
         result = await self._process_messages(
@@ -1125,7 +1092,6 @@ class AgentCore:
             tool_error_check=tool_error_check,
             options=options,
             deadline=deadline,
-            required_capabilities=required_caps,
             auto_fallback=auto_fallback,
             tried_models={model} if model else set(),
             on_pending_input=on_pending_input,
@@ -1155,7 +1121,6 @@ class AgentCore:
         tool_error_check: Optional[Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]] = None,
         options: Dict[str, Any] = None,
         deadline: Optional[float] = None,
-        required_capabilities: Optional[set] = None,
         auto_fallback: bool = True,
         tried_models: Optional[set] = None,
         on_pending_input: Optional[Callable[[], Optional[str]]] = None,
@@ -1284,11 +1249,7 @@ class AgentCore:
                     )
                     if should_failover and auto_fallback:
                         tried.add(current_model)
-                        next_model = self._find_fallback_model(
-                            current_model,
-                            required_capabilities or set(),
-                            tried,
-                        )
+                        next_model = self._find_fallback_model(tried)
                         if next_model:
                             reason = classified.reason
                             if retries >= max_retries:
@@ -1398,6 +1359,10 @@ class AgentCore:
             # LLMs occasionally emit the same tool+args twice in one turn;
             # re-executing is wasteful and can trigger provider errors.
             seen_keys: set[tuple] = set()
+            # reasoning_content is captured once from the LLM response and
+            # reused for every tool call AIMessage in this batch (required
+            # by DeepSeek when thinking mode is enabled).
+            _batch_reasoning_content: str | None = None
 
             for tool_call in tool_calls:
                 mcp_server = tool_call.get("mcp_server", "")
@@ -1471,14 +1436,19 @@ class AgentCore:
                         extra_kwargs = dict(resp_kwargs)
                     resp_content = getattr(llm_response, "content", None)
                     if isinstance(resp_content, list) and resp_content:
-                        # Keep thinking/text blocks; strip tool_use (already in tool_calls)
                         filtered = [
                             b for b in resp_content if not (isinstance(b, dict) and b.get("type") == "tool_use")
                         ]
                         if filtered:
                             msg_content = filtered
-                    # Only attach to the first tool call message
+                    # Extract reasoning_content once and reuse it for every
+                    # tool call in this response.  DeepSeek requires it on
+                    # EVERY assistant message when thinking mode is enabled.
+                    if not _batch_reasoning_content:
+                        _batch_reasoning_content = extra_kwargs.pop("reasoning_content", None)
                     llm_response = None
+                if _batch_reasoning_content:
+                    extra_kwargs["reasoning_content"] = _batch_reasoning_content
                 tool_execution_message = AIMessage(
                     content=msg_content,
                     tool_calls=[
@@ -1729,7 +1699,6 @@ class AgentCore:
         tool_error_check: Optional[Callable[[str, list[Dict[str, Any]]], Tuple[bool, str | None]]],
         options: Dict[str, Any] = None,
         deadline: Optional[float] = None,
-        required_capabilities: Optional[set] = None,
         auto_fallback: bool = True,
         tried_models: Optional[set] = None,
         on_pending_input: Optional[Callable[[], Optional[str]]] = None,
@@ -1802,12 +1771,9 @@ class AgentCore:
                 # Pace calls according to provider rate limit
                 await self._wait_for_rate_limit(current_model)
 
-                # For proper tool call handling in streaming, we'll process differently
                 tool_calls = None
                 accumulated_chunks = None
                 content_yielded = False
-                was_thinking = False
-                post_think_strip = False  # strip leading whitespace after </think>
                 try:
                     options = options or {}
                     async for chunk in llm_engine.stream(messages, mcp_tools, **options):
@@ -1819,82 +1785,26 @@ class AgentCore:
                                 accumulated_chunks = accumulated_chunks + chunk
                         except Exception as e:
                             logger.debug(f"Chunk accumulation error (non-fatal): {e}")
-                            # If chunk addition fails, keep what we have and skip
 
-                        # Filter out thinking/reasoning content from stream output.
-                        # Reasoning may arrive in three forms:
-                        # 1. additional_kwargs with reasoning_content (DeepSeek API)
-                        # 2. Content block list with type='thinking' (Anthropic API)
-                        # 3. <think>/<thinking> tags in string content (OpenAI-compat)
-                        #
-                        # Form 2 (Anthropic blocks) is always filtered because
-                        # any model can emit them regardless of declared capability.
+                        # Filter thinking content blocks from stream output.
+                        # Structured reasoning (reasoning_content / reasoning_details
+                        # in additional_kwargs) is surfaced at the engine level
+                        # (base.py).  We only need to handle Anthropic-style
+                        # content block lists where thinking blocks are mixed
+                        # with text blocks.
                         chunk_content = getattr(chunk, "content", None)
                         if isinstance(chunk_content, list):
                             text_parts = []
-                            has_thinking = False
                             for block in chunk_content:
-                                if isinstance(block, dict):
-                                    if block.get("type") == "thinking":
-                                        has_thinking = True
-                                    elif block.get("type") == "text":
-                                        text_parts.append(block.get("text", ""))
-                            if has_thinking and not text_parts:
-                                was_thinking = True
+                                if isinstance(block, str):
+                                    text_parts.append(block)
+                                elif isinstance(block, dict) and block.get("type") == "text":
+                                    text_parts.append(block.get("text", ""))
+                            if not text_parts:
                                 continue
-                            # Convert list-of-blocks to plain string
-                            joined = "".join(text_parts)
-                            if has_thinking:
-                                was_thinking = False
                             # noinspection PyArgumentList
-                            chunk = type(chunk)(content=joined)
-                            chunk_content = joined
+                            chunk = type(chunk)(content="".join(text_parts))
 
-                        if llm_engine.supports_capability(ModelCapability.THINK_MODE):
-                            # Check for structured reasoning in additional_kwargs
-                            chunk_kwargs = getattr(chunk, "additional_kwargs", {}) or {}
-                            if chunk_kwargs.get("reasoning_content") or chunk_kwargs.get("reasoning"):
-                                was_thinking = True
-                                continue
-
-                            # Check for <think> tags in accumulated string content
-                            if isinstance(chunk_content, str) or chunk_content is None:
-                                acc_content = getattr(accumulated_chunks, "content", "") or ""
-                                if isinstance(acc_content, str):
-                                    chunks_content = acc_content
-                                    if (
-                                        len(chunks_content) <= 7 and "<think".startswith(chunks_content)
-                                    ) or is_thinking(chunks_content):
-                                        was_thinking = True
-                                        continue
-                                    # Exiting think mode: strip the think block from
-                                    # accumulated text, yield only the clean remainder.
-                                    if was_thinking:
-                                        was_thinking = False
-                                        from cliver.llm.llm_utils import remove_thinking_sections
-
-                                        cleaned = remove_thinking_sections(chunks_content).lstrip("\n")
-                                        if cleaned:
-                                            # noinspection PyArgumentList
-                                            chunk = type(chunk)(content=cleaned)
-                                        else:
-                                            post_think_strip = True
-                                            continue
-
-                            # Exiting think mode from Anthropic blocks
-                            if was_thinking and isinstance(chunk_content, str):
-                                was_thinking = False
-                                post_think_strip = True
-
-                            # Strip leading blank lines from subsequent chunks
-                            # until we reach real content after a think block.
-                            if post_think_strip and hasattr(chunk, "content") and isinstance(chunk.content, str):
-                                stripped = chunk.content.lstrip("\n")
-                                if not stripped:
-                                    continue
-                                post_think_strip = False
-                                # noinspection PyArgumentList
-                                chunk = type(chunk)(content=stripped)
                         if hasattr(chunk, "content") and chunk.content:
                             content_yielded = True
                         yield chunk
@@ -1908,8 +1818,18 @@ class AgentCore:
                         self._track_tokens(accumulated_chunks, current_model)
 
                     if accumulated_chunks:
-                        raw_tool_calls = llm_engine.parse_tool_calls(accumulated_chunks, current_model)
-                        tool_calls = normalize_tool_calls(raw_tool_calls) if raw_tool_calls else None
+                        try:
+                            raw_tool_calls = llm_engine.parse_tool_calls(accumulated_chunks, current_model)
+                            tool_calls = normalize_tool_calls(raw_tool_calls) if raw_tool_calls else None
+                        except Exception as parse_err:
+                            logger.warning(
+                                "Tool call parsing failed for %s: %s (content type: %s)",
+                                current_model,
+                                parse_err,
+                                type(getattr(accumulated_chunks, "content", None)).__name__,
+                            )
+                            raw_tool_calls = None
+                            tool_calls = None
                     else:
                         raw_tool_calls = None
                         tool_calls = None
@@ -1972,11 +1892,7 @@ class AgentCore:
                     )
                     if should_failover and auto_fallback:
                         tried.add(current_model)
-                        next_model = self._find_fallback_model(
-                            current_model,
-                            required_capabilities or set(),
-                            tried,
-                        )
+                        next_model = self._find_fallback_model(tried)
                         if next_model:
                             reason = classified.reason
                             if retries >= max_retries:

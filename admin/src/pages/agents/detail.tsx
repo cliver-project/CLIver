@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { useAgents, useConfig, useSaveConfig, useModels } from "@/hooks/use-api";
+import { useAgent, useModels, useUpdateAgent, useCreateAgent, useSetDefaultAgent, useDeleteAgent, type AgentInfo } from "@/hooks/use-api";
 import { useTranslation } from "@/i18n";
 
 interface AgentFormData {
@@ -24,21 +24,16 @@ function emptyForm(): AgentFormData {
 
 export default function AgentDetailPage() {
   const { t } = useTranslation();
-  const { name } = useParams<{ name: string }>();
+  const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const isNew = !name;
+  const isNew = !id;
 
-  const { data: agentsData, isLoading: agentsLoading } = useAgents();
-  const { data: configData } = useConfig();
-  const { data: modelsData } = useModels();
-  const saveConfig = useSaveConfig();
-
-  const modelList = (modelsData as { models?: string[] })?.models ?? [];
-  const config = configData as Record<string, unknown> | undefined;
-  const defaultAgent = (config?.default_agent as string) || "";
-
-  const agents = (agentsData ?? []) as Array<Record<string, unknown>>;
-  const agent = name ? agents.find((a) => String(a.name) === name) : undefined;
+  const { data: agent, isLoading: agentLoading } = useAgent(id);
+  const { data: models } = useModels();
+  const updateAgent = useUpdateAgent(id ?? "");
+  const createAgent = useCreateAgent();
+  const setDefaultAgent = useSetDefaultAgent();
+  const deleteAgent = useDeleteAgent();
 
   const [form, setForm] = useState<AgentFormData>(emptyForm());
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -47,63 +42,63 @@ export default function AgentDetailPage() {
   useEffect(() => {
     if (agent) {
       setForm({
-        name: String(agent.name ?? ""),
-        description: String(agent.description ?? ""),
-        role: String(agent.role ?? ""),
-        system_prompt: String(agent.system_prompt ?? ""),
-        model: String(agent.model ?? ""),
-        isDefault: defaultAgent === String(agent.name),
+        name: agent.name ?? "",
+        description: agent.description ?? "",
+        role: agent.role ?? "",
+        system_prompt: "",
+        model: agent.model ?? "",
+        isDefault: agent.is_default === 1,
       });
     }
-  }, [agent, defaultAgent]);
+  }, [agent]);
 
   const set = <K extends keyof AgentFormData>(k: K, v: AgentFormData[K]) =>
     setForm((prev) => ({ ...prev, [k]: v }));
 
-  const handleSave = () => {
-    if (!config) return;
-    const currentAgents = (config.agents ?? {}) as Record<string, Record<string, unknown>>;
-    const agentPayload: Record<string, unknown> = {
+  const handleSave = async () => {
+    const agentPayload: Partial<AgentInfo> = {
+      name: form.name,
       description: form.description || null,
-      role: form.role || null,
       model: form.model || null,
     };
+    let combinedRole = form.role;
     if (form.system_prompt) {
-      if (form.role) {
-        agentPayload.role = `${form.role}\n\n${form.system_prompt}`.trim();
+      combinedRole = form.role
+        ? `${form.role}\n\n${form.system_prompt}`.trim()
+        : form.system_prompt;
+    }
+    agentPayload.role = combinedRole || null;
+
+    try {
+      if (isNew) {
+        const created = await createAgent.mutateAsync(agentPayload);
+        if (form.isDefault) {
+          await setDefaultAgent.mutateAsync(created.id);
+        }
+        navigate(`/admin/agents/${created.id}`);
       } else {
-        agentPayload.role = form.system_prompt;
-      }
-    }
-    const updated = { ...currentAgents, [form.name]: agentPayload };
-    const updatedConfig: Record<string, unknown> = { ...config, agents: updated };
-    if (form.isDefault) {
-      updatedConfig.default_agent = form.name;
-    } else if (defaultAgent === form.name) {
-      updatedConfig.default_agent = null;
-    }
-    saveConfig.mutate(updatedConfig, {
-      onSuccess: () => {
+        await updateAgent.mutateAsync(agentPayload);
+        if (form.isDefault && agent && agent.is_default !== 1) {
+          await setDefaultAgent.mutateAsync(id!);
+        }
         setSaveSuccess(true);
-        if (isNew) navigate(`/admin/agents/${encodeURIComponent(form.name)}`);
-      },
-    });
+      }
+    } catch {
+      // error handled by react-query
+    }
   };
 
   const handleDelete = () => {
-    if (!config || !name) return;
-    const currentAgents = (config.agents ?? {}) as Record<string, Record<string, unknown>>;
-    const updated = { ...currentAgents };
-    delete updated[name];
-    const updatedConfig: Record<string, unknown> = { ...config, agents: updated };
-    if (defaultAgent === name) updatedConfig.default_agent = null;
-    saveConfig.mutate(updatedConfig, { onSuccess: () => navigate("/admin/agents") });
+    if (!id) return;
+    deleteAgent.mutate(id, { onSuccess: () => navigate("/admin/agents") });
   };
 
-  if (agentsLoading) return <p className="text-muted-foreground">{t("common.loading")}</p>;
+  if (agentLoading) return <p className="text-muted-foreground">{t("common.loading")}</p>;
   if (!isNew && !agent) return <p className="text-muted-foreground">{t("agents.noAgents")}</p>;
 
   const selectClass = "w-full rounded-md border border-input bg-background px-3 py-2 text-sm";
+
+  const savePending = updateAgent.isPending || createAgent.isPending;
 
   return (
     <div className="space-y-6">
@@ -112,10 +107,10 @@ export default function AgentDetailPage() {
         <Link to="/admin/agents">
           <Button variant="ghost" size="icon"><ArrowLeft className="w-4 h-4" /></Button>
         </Link>
-        <h1 className="text-2xl font-bold flex-1">{isNew ? t("agents.createAgent") : name}</h1>
-        <Button size="sm" onClick={handleSave} disabled={saveConfig.isPending || !form.name.trim()}>
-          {saveConfig.isPending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Save className="w-4 h-4 mr-1" />}
-          {saveConfig.isPending ? t("common.loading") : t("agents.saveAgent")}
+        <h1 className="text-2xl font-bold flex-1">{isNew ? t("agents.createAgent") : agent?.name}</h1>
+        <Button size="sm" onClick={handleSave} disabled={savePending || !form.name.trim()}>
+          {savePending ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Save className="w-4 h-4 mr-1" />}
+          {savePending ? t("common.loading") : t("agents.saveAgent")}
         </Button>
         {!isNew && (
           <Button size="sm" variant="destructive" onClick={() => setConfirmDelete(true)}>
@@ -125,21 +120,21 @@ export default function AgentDetailPage() {
       </div>
 
       {/* Save feedback */}
-      {saveSuccess && !saveConfig.isPending && (
+      {saveSuccess && !savePending && (
         <div className="flex items-center gap-2 p-3 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-sm">
           <CheckCircle className="w-4 h-4 shrink-0" />{t("config.saved")}
         </div>
       )}
-      {saveConfig.isError && (
+      {(updateAgent.isError || createAgent.isError) && (
         <div className="flex items-center gap-2 p-3 rounded-md bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 text-sm">
-          <XCircle className="w-4 h-4 shrink-0" />{t("config.saveError", { error: saveConfig.error?.message ?? "Unknown error" })}
+          <XCircle className="w-4 h-4 shrink-0" />{t("config.saveError", { error: (updateAgent.error ?? createAgent.error)?.message ?? "Unknown error" })}
         </div>
       )}
 
       <ConfirmDialog
         open={confirmDelete}
         title={t("agents.deleteAgent")}
-        description={t("agents.deleteAgentDescription", { name: name ?? "" })}
+        description={t("agents.deleteAgentDescription", { name: agent?.name ?? "" })}
         destructive
         onCancel={() => setConfirmDelete(false)}
         onConfirm={() => { setConfirmDelete(false); handleDelete(); }}
@@ -172,7 +167,7 @@ export default function AgentDetailPage() {
             <Label>{t("agents.model")}</Label>
             <select className={selectClass} value={form.model} onChange={(e) => set("model", e.target.value)}>
               <option value="">{t("agents.noneSelected")}</option>
-              {modelList.map((m) => <option key={m} value={m}>{m}</option>)}
+              {(models ?? []).map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
             </select>
           </div>
 

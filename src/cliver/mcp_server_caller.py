@@ -1,4 +1,5 @@
 import logging
+import os as _os
 from typing import Any, Dict, Optional, Union
 
 from langchain_core.documents.base import Blob
@@ -30,6 +31,8 @@ def _get_mcp_server_connection(
     transport = server_config.get("transport", "stdio")
     if transport == "stdio":
         stdio_dict = filter_dict_for_typed_dict(server_config, StdioConnection)
+        if "args" not in stdio_dict:
+            stdio_dict["args"] = []
         return StdioConnection(**stdio_dict)
     elif transport == "sse":
         sse_dict = filter_dict_for_typed_dict(server_config, SSEConnection)
@@ -84,14 +87,27 @@ class MCPServersCaller:
             else:
                 server_connections = self.mcp_client.connections
 
+            import sys as _sys
+
             for s_name, connection in server_connections.items():
-                server_tools = await load_mcp_tools(None, connection=connection)
+                try:
+                    # Suppress stderr from MCP library during connection
+                    _old_stderr = _sys.stderr
+                    _sys.stderr = open(_os.devnull, "w")
+                    try:
+                        server_tools = await load_mcp_tools(None, connection=connection)
+                    finally:
+                        _sys.stderr.close()
+                        _sys.stderr = _old_stderr
+                except Exception:
+                    logger.warning("Failed to load tools from MCP server '%s'", s_name)
+                    continue
                 for tool in server_tools:
                     tool.name = f"{s_name}#{tool.name}"
                 tools.extend(server_tools)
             return tools
-        except Exception as e:
-            logger.error("Failed to load MCP tools", exc_info=e)
+        except Exception:
+            logger.warning("Failed to load MCP tools", exc_info=True)
             return tools
 
     async def get_mcp_prompt(

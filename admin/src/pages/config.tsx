@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
-  Save, Loader2, CheckCircle, XCircle, Plus, Trash2, X, ChevronDown, ChevronRight,
-  Zap, AlertTriangle, RotateCw,
+  Save, Loader2, CheckCircle, XCircle, Trash2, X, ChevronDown, ChevronRight, RotateCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,22 +9,10 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConfirmDialog } from "@/components/confirm-dialog";
-import { useConfig, useModels, useSaveConfig, useTestProvider, useRestartGateway } from "@/hooks/use-api";
+import { useConfig, useSaveConfig, useRestartGateway } from "@/hooks/use-api";
 import { useTranslation } from "@/i18n";
 
 type Config = Record<string, unknown>;
-type Provider = {
-  type: string; api_url: string; api_key: string;
-  rate_limit?: { requests: number; period: string; margin: number };
-  pricing?: { currency?: string; input?: number; output?: number; cached_input?: number };
-  image_url?: string; image_model?: string; audio_url?: string; audio_model?: string;
-  models: Array<{
-    name: string; options?: Record<string, number | undefined>; think_mode?: boolean | null;
-    context_window?: number | null;
-    pricing?: { currency?: string; input?: number; output?: number; cached_input?: number };
-    capabilities?: string[];
-  }>;
-};
 type Gateway = {
   host: string; port: number; admin_username: string; admin_password: string;
   log_file: string; log_max_bytes: number; log_backup_count: number;
@@ -163,21 +150,14 @@ function NumberInput({ value, onChange, ...props }: {
 // Tab: General
 // ─────────────────────────────────────────────
 
-function GeneralTab({ config, setConfig, modelList }: {
-  config: Config; setConfig: (c: Config) => void; modelList: string[];
+function GeneralTab({ config, setConfig }: {
+  config: Config; setConfig: (c: Config) => void;
 }) {
   const { t } = useTranslation();
   const set = (k: string, v: unknown) => setConfig({ ...config, [k]: v });
 
   return (
     <div className="space-y-4">
-      <Field label={t("config.defaultModel")}>
-        <select className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-          value={String(config.default_model ?? "")} onChange={(e) => set("default_model", e.target.value)}>
-          <option value="">—</option>
-          {modelList.map((m) => <option key={m} value={m}>{m}</option>)}
-        </select>
-      </Field>
       <Field label={t("config.userAgent")}>
         <Input value={String(config.user_agent ?? "")} onChange={(e) => set("user_agent", e.target.value)} />
       </Field>
@@ -227,261 +207,6 @@ function GeneralTab({ config, setConfig, modelList }: {
   );
 }
 
-// ─────────────────────────────────────────────
-// Tab: Providers & Models
-// ─────────────────────────────────────────────
-
-function ProviderCard({ name, prov, onChange, onDelete, className }: {
-  name: string; prov: Provider; onChange: (p: Provider) => void; onDelete: () => void; className?: string;
-}) {
-  const { t } = useTranslation();
-  const set = (k: string, v: unknown) => onChange({ ...prov, [k]: v } as Provider);
-  const [addingModel, setAddingModel] = useState(false);
-  const [newModelName, setNewModelName] = useState("");
-  const testProvider = useTestProvider(name);
-  const [testResult, setTestResult] = useState<{ status: string; message?: string; error?: string } | null>(null);
-
-  const handleTest = () => {
-    setTestResult(null);
-    testProvider.mutate(undefined, {
-      onSuccess: (data) => setTestResult(data),
-      onError: (err) => setTestResult({ status: "error", error: err.message }),
-    });
-  };
-
-  const addModel = () => {
-    if (!newModelName.trim()) return;
-    onChange({ ...prov, models: [...prov.models, { name: newModelName.trim() }] });
-    setNewModelName(""); setAddingModel(false);
-  };
-
-  return (
-    <CollapsibleCard title={name} onDelete={onDelete} className={className}>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label={t("config.providerType")}>
-          <select className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            value={prov.type} onChange={(e) => set("type", e.target.value)}>
-            <option value="openai">openai</option>
-            <option value="deepseek">deepseek</option>
-            <option value="anthropic">anthropic</option>
-            <option value="ollama">ollama</option>
-          </select>
-        </Field>
-        <Field label={t("config.providerApiUrl")}>
-          <Input value={prov.api_url} onChange={(e) => set("api_url", e.target.value)} />
-        </Field>
-      </div>
-      <Field label={t("config.providerApiKey")}>
-        <Input value={prov.api_key} onChange={(e) => set("api_key", e.target.value)}
-          placeholder={t("config.providerApiKeyPlaceholder")} />
-        {prov.api_key?.includes("****") ? (
-          <p className="text-xs text-muted-foreground mt-1">{t("config.providerApiKeyMasked")}</p>
-        ) : (
-          <p className="text-xs text-muted-foreground mt-1">{t("config.secretHint")}</p>
-        )}
-      </Field>
-
-      {/* Connectivity test */}
-      <div className="flex items-center gap-2">
-        <Button type="button" variant="outline" size="sm" onClick={handleTest}
-          disabled={testProvider.isPending || prov.models.length === 0}>
-          {testProvider.isPending ? (
-            <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-          ) : (
-            <Zap className="w-3 h-3 mr-1" />
-          )}
-          {testProvider.isPending ? t("config.testing") : t("config.testConnection")}
-        </Button>
-        {prov.models.length === 0 && (
-          <span className="text-xs text-muted-foreground">{t("config.testNeedsModel")}</span>
-        )}
-      </div>
-      {testResult?.status === "ok" && (
-        <div className="flex items-start gap-2 p-3 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-sm">
-          <CheckCircle className="w-4 h-4 shrink-0 mt-0.5" />
-          <span className="break-all">{testResult.message}</span>
-        </div>
-      )}
-      {testResult?.status === "error" && (
-        <div className="flex items-start gap-2 p-3 rounded-md bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 text-sm">
-          <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-          <span className="break-all">{testResult.error}</span>
-        </div>
-      )}
-
-      <div className="grid grid-cols-2 gap-3">
-        <Field label={t("config.imageUrl")}>
-          <Input value={prov.image_url ?? ""} onChange={(e) => set("image_url", e.target.value || undefined)} />
-        </Field>
-        <Field label={t("config.imageModel")}>
-          <Input value={prov.image_model ?? ""} onChange={(e) => set("image_model", e.target.value || undefined)} />
-        </Field>
-        <Field label={t("config.audioUrl")}>
-          <Input value={prov.audio_url ?? ""} onChange={(e) => set("audio_url", e.target.value || undefined)} />
-        </Field>
-        <Field label={t("config.audioModel")}>
-          <Input value={prov.audio_model ?? ""} onChange={(e) => set("audio_model", e.target.value || undefined)} />
-        </Field>
-      </div>
-
-      {/* Rate Limit */}
-      <CollapsibleCard title={t("config.rateLimit")}>
-        <div className="grid grid-cols-3 gap-3">
-          <Field label={t("config.rateLimitRequests")}>
-            <NumberInput value={prov.rate_limit?.requests} onChange={(v) =>
-              set("rate_limit", { ...prov.rate_limit, requests: v ?? 100, period: prov.rate_limit?.period ?? "1h", margin: prov.rate_limit?.margin ?? 0.1 })} />
-          </Field>
-          <Field label={t("config.rateLimitPeriod")}>
-            <Input value={prov.rate_limit?.period ?? ""} onChange={(e) =>
-              set("rate_limit", { ...prov.rate_limit, requests: prov.rate_limit?.requests ?? 100, period: e.target.value, margin: prov.rate_limit?.margin ?? 0.1 })} />
-          </Field>
-          <Field label={t("config.rateLimitMargin")}>
-            <NumberInput value={prov.rate_limit?.margin} onChange={(v) =>
-              set("rate_limit", { ...prov.rate_limit, requests: prov.rate_limit?.requests ?? 100, period: prov.rate_limit?.period ?? "1h", margin: v ?? 0.1 })} />
-          </Field>
-        </div>
-      </CollapsibleCard>
-
-      {/* Pricing */}
-      <CollapsibleCard title={t("config.pricing")}>
-        <div className="grid grid-cols-4 gap-3">
-          <Field label={t("config.pricingCurrency")}>
-            <Input value={prov.pricing?.currency ?? ""} onChange={(e) =>
-              set("pricing", { ...prov.pricing, currency: e.target.value || undefined })} />
-          </Field>
-          <Field label={t("config.pricingInput")}>
-            <NumberInput value={prov.pricing?.input} onChange={(v) => set("pricing", { ...prov.pricing, input: v })} />
-          </Field>
-          <Field label={t("config.pricingOutput")}>
-            <NumberInput value={prov.pricing?.output} onChange={(v) => set("pricing", { ...prov.pricing, output: v })} />
-          </Field>
-          <Field label={t("config.pricingCachedInput")}>
-            <NumberInput value={prov.pricing?.cached_input} onChange={(v) => set("pricing", { ...prov.pricing, cached_input: v })} />
-          </Field>
-        </div>
-      </CollapsibleCard>
-
-      {/* Models */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <Label className="text-xs font-medium">{t("config.models")}</Label>
-          <Button variant="outline" size="sm" onClick={() => setAddingModel(true)}>
-            <Plus className="w-3 h-3 mr-1" />{t("config.addModel")}
-          </Button>
-        </div>
-        {addingModel && (
-          <div className="flex gap-2">
-            <Input value={newModelName} onChange={(e) => setNewModelName(e.target.value)}
-              placeholder={t("config.modelName")} className="flex-1"
-              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addModel(); } }} />
-            <Button size="sm" onClick={addModel} disabled={!newModelName.trim()}>
-              {t("config.addModel")}
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => setAddingModel(false)}>
-              <X className="w-3 h-3" />
-            </Button>
-          </div>
-        )}
-        {prov.models.map((m, i) => (
-          <CollapsibleCard key={m.name} title={m.name}
-            onDelete={() => onChange({ ...prov, models: prov.models.filter((_, j) => j !== i) })}>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label={t("config.temperature")}>
-                <NumberInput value={m.options?.temperature} onChange={(v) => {
-                  const models = [...prov.models];
-                  models[i] = { ...m, options: { ...m.options, temperature: v } };
-                  onChange({ ...prov, models });
-                }} />
-              </Field>
-              <Field label={t("config.topP")}>
-                <NumberInput value={m.options?.top_p} onChange={(v) => {
-                  const models = [...prov.models];
-                  models[i] = { ...m, options: { ...m.options, top_p: v } };
-                  onChange({ ...prov, models });
-                }} />
-              </Field>
-              <Field label={t("config.maxTokens")}>
-                <NumberInput value={m.options?.max_tokens} onChange={(v) => {
-                  const models = [...prov.models];
-                  models[i] = { ...m, options: { ...m.options, max_tokens: v } };
-                  onChange({ ...prov, models });
-                }} />
-              </Field>
-              <Field label={t("config.contextWindow")}>
-                <NumberInput value={m.context_window} onChange={(v) => {
-                  const models = [...prov.models];
-                  models[i] = { ...m, context_window: v };
-                  onChange({ ...prov, models });
-                }} />
-              </Field>
-              <Field label={t("config.thinkMode")}>
-                <select
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                  value={m.think_mode === true ? "true" : m.think_mode === false ? "false" : "auto"}
-                  onChange={(e) => {
-                    const models = [...prov.models];
-                    const v = e.target.value;
-                    models[i] = { ...m, think_mode: v === "auto" ? null : v === "true" };
-                    onChange({ ...prov, models });
-                  }}
-                >
-                  <option value="auto">{t("config.thinkModeAuto")}</option>
-                  <option value="true">{t("config.thinkModeOn")}</option>
-                  <option value="false">{t("config.thinkModeOff")}</option>
-                </select>
-              </Field>
-            </div>
-          </CollapsibleCard>
-        ))}
-      </div>
-    </CollapsibleCard>
-  );
-}
-
-function ProvidersTab({ providers, onChange }: {
-  providers: Record<string, Provider>; onChange: (p: Record<string, Provider>) => void;
-}) {
-  const { t } = useTranslation();
-  const [addingProvider, setAddingProvider] = useState(false);
-  const [newName, setNewName] = useState("");
-
-  const addProvider = () => {
-    if (!newName.trim() || newName in providers) return;
-    onChange({ ...providers, [newName.trim()]: { type: "openai", api_url: "", api_key: "", models: [] } });
-    setNewName(""); setAddingProvider(false);
-  };
-
-  return (
-    <div className="space-y-4">
-      {Object.keys(providers).length === 0 && (
-        <p className="text-sm text-muted-foreground">{t("config.noProviders")}</p>
-      )}
-      {Object.entries(providers).map(([name, prov], i) => (
-        <ProviderCard key={name} name={name} prov={prov}
-          className={i % 2 === 1 ? "bg-muted/30" : ""}
-          onChange={(p) => onChange({ ...providers, [name]: p })}
-          onDelete={() => { const copy = { ...providers }; delete copy[name]; onChange(copy); }} />
-      ))}
-      {addingProvider ? (
-        <div className="flex gap-2">
-          <Input value={newName} onChange={(e) => setNewName(e.target.value)}
-            placeholder={t("config.providerName")} className="flex-1"
-            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addProvider(); } }} />
-          <Button size="sm" onClick={addProvider} disabled={!newName.trim()}>
-            {t("config.addProvider")}
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => setAddingProvider(false)}>
-            <X className="w-3 h-3" />
-          </Button>
-        </div>
-      ) : (
-        <Button variant="outline" onClick={() => setAddingProvider(true)}>
-          <Plus className="w-4 h-4 mr-1" />{t("config.addProvider")}
-        </Button>
-      )}
-    </div>
-  );
-}
 
 // ─────────────────────────────────────────────
 // Tab: Gateway
@@ -565,7 +290,6 @@ function SessionTab({ session, onChange }: {
 export default function ConfigPage() {
   const { t } = useTranslation();
   const { data: rawConfig, isLoading } = useConfig();
-  const { data: modelsData } = useModels();
   const saveConfig = useSaveConfig();
 
   const [config, setConfig] = useState<Config>({});
@@ -576,9 +300,6 @@ export default function ConfigPage() {
   }, [rawConfig]);
 
   const update = useCallback((c: Config) => { setConfig(c); setDirty(true); }, []);
-  const setProviders = useCallback((p: Record<string, Provider>) => {
-    setConfig((prev) => ({ ...prev, providers: p })); setDirty(true);
-  }, []);
   const setGateway = useCallback((g: Gateway) => {
     setConfig((prev) => ({ ...prev, gateway: g })); setDirty(true);
   }, []);
@@ -625,8 +346,6 @@ export default function ConfigPage() {
     });
   };
 
-  const modelList = (modelsData as { models?: string[] })?.models ?? [];
-
   if (isLoading) return <p className="text-muted-foreground">{t("common.loading")}</p>;
 
   return (
@@ -665,15 +384,11 @@ export default function ConfigPage() {
       <Tabs defaultValue="general">
         <TabsList>
           <TabsTrigger value="general">{t("config.general")}</TabsTrigger>
-          <TabsTrigger value="providers">{t("config.providers")}</TabsTrigger>
           <TabsTrigger value="gateway">{t("config.gateway")}</TabsTrigger>
           <TabsTrigger value="session">{t("config.session")}</TabsTrigger>
         </TabsList>
         <TabsContent value="general">
-          <GeneralTab config={config} setConfig={update} modelList={modelList} />
-        </TabsContent>
-        <TabsContent value="providers">
-          <ProvidersTab providers={(config.providers ?? {}) as Record<string, Provider>} onChange={setProviders} />
+          <GeneralTab config={config} setConfig={update} />
         </TabsContent>
         <TabsContent value="gateway">
           <GatewayTab gateway={(config.gateway as Gateway) ?? null} onChange={setGateway} />

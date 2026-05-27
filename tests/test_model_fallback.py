@@ -3,7 +3,6 @@
 from click.testing import CliRunner
 
 from cliver.llm.error_classifier import ErrorAction, classify_error
-from cliver.model_capabilities import ModelCapability
 
 
 class TestErrorClassification:
@@ -116,10 +115,11 @@ class TestFallbackSelection:
         from cliver.llm.llm import AgentCore
 
         mock_models = {}
-        for name, caps in models_dict.items():
+        for name, props in models_dict.items():
             config = MagicMock()
             config.name = name
-            config.get_capabilities.return_value = caps
+            config.model = name
+            config.category = props.get("category", "text")
             mock_models[name] = config
 
         return AgentCore(llm_models=mock_models, mcp_servers={})
@@ -127,146 +127,43 @@ class TestFallbackSelection:
     def test_finds_model_with_matching_capabilities(self):
         executor = self._make_executor(
             {
-                "qwen": {ModelCapability.TEXT_TO_TEXT, ModelCapability.TOOL_CALLING},
-                "deepseek": {ModelCapability.TEXT_TO_TEXT, ModelCapability.TOOL_CALLING},
+                "qwen": {},
+                "deepseek": {},
             }
         )
-        result = executor._find_fallback_model(
-            "qwen",
-            {ModelCapability.TEXT_TO_TEXT, ModelCapability.TOOL_CALLING},
-            {"qwen"},
-        )
+        result = executor._find_fallback_model({"qwen"})
         assert result == "deepseek"
 
-    def test_skips_models_without_required_capabilities(self):
+    def test_skips_non_text_models(self):
         executor = self._make_executor(
             {
-                "qwen": {ModelCapability.TEXT_TO_TEXT, ModelCapability.TOOL_CALLING},
-                "simple": {ModelCapability.TEXT_TO_TEXT},
-                "deepseek": {ModelCapability.TEXT_TO_TEXT, ModelCapability.TOOL_CALLING},
+                "qwen": {},
+                "simple": {"category": "image"},
+                "deepseek": {},
             }
         )
-        result = executor._find_fallback_model(
-            "qwen",
-            {ModelCapability.TEXT_TO_TEXT, ModelCapability.TOOL_CALLING},
-            {"qwen"},
-        )
+        result = executor._find_fallback_model({"qwen"})
         assert result == "deepseek"
 
     def test_skips_already_tried_models(self):
         executor = self._make_executor(
             {
-                "qwen": {ModelCapability.TEXT_TO_TEXT, ModelCapability.TOOL_CALLING},
-                "deepseek": {ModelCapability.TEXT_TO_TEXT, ModelCapability.TOOL_CALLING},
-                "gpt4": {ModelCapability.TEXT_TO_TEXT, ModelCapability.TOOL_CALLING},
+                "qwen": {},
+                "deepseek": {},
+                "gpt4": {},
             }
         )
-        result = executor._find_fallback_model(
-            "qwen",
-            {ModelCapability.TEXT_TO_TEXT, ModelCapability.TOOL_CALLING},
-            {"qwen", "deepseek"},
-        )
+        result = executor._find_fallback_model({"qwen", "deepseek"})
         assert result == "gpt4"
 
     def test_returns_none_when_no_fallback_available(self):
         executor = self._make_executor(
             {
-                "qwen": {ModelCapability.TEXT_TO_TEXT, ModelCapability.TOOL_CALLING},
+                "qwen": {},
             }
         )
-        result = executor._find_fallback_model(
-            "qwen",
-            {ModelCapability.TEXT_TO_TEXT, ModelCapability.TOOL_CALLING},
-            {"qwen"},
-        )
+        result = executor._find_fallback_model({"qwen"})
         assert result is None
-
-    def test_requires_image_capability_when_images_used(self):
-        executor = self._make_executor(
-            {
-                "qwen": {ModelCapability.TEXT_TO_TEXT, ModelCapability.IMAGE_TO_TEXT},
-                "deepseek": {ModelCapability.TEXT_TO_TEXT, ModelCapability.TOOL_CALLING},
-                "llava": {ModelCapability.TEXT_TO_TEXT, ModelCapability.IMAGE_TO_TEXT},
-            }
-        )
-        result = executor._find_fallback_model(
-            "qwen",
-            {ModelCapability.TEXT_TO_TEXT, ModelCapability.IMAGE_TO_TEXT},
-            {"qwen"},
-        )
-        assert result == "llava"
-
-
-class TestComputeRequiredCapabilities:
-    def test_text_only(self):
-        from cliver.llm.llm import AgentCore
-
-        caps = AgentCore._compute_required_capabilities(
-            images=None,
-            audio_files=None,
-            video_files=None,
-            has_tools=False,
-        )
-        assert caps == {ModelCapability.TEXT_TO_TEXT}
-
-    def test_with_images(self):
-        from cliver.llm.llm import AgentCore
-
-        caps = AgentCore._compute_required_capabilities(
-            images=["img.png"],
-            audio_files=None,
-            video_files=None,
-            has_tools=False,
-        )
-        assert ModelCapability.IMAGE_TO_TEXT in caps
-
-    def test_with_tools(self):
-        from cliver.llm.llm import AgentCore
-
-        caps = AgentCore._compute_required_capabilities(
-            images=None,
-            audio_files=None,
-            video_files=None,
-            has_tools=True,
-        )
-        assert ModelCapability.TOOL_CALLING in caps
-
-    def test_with_audio(self):
-        from cliver.llm.llm import AgentCore
-
-        caps = AgentCore._compute_required_capabilities(
-            images=None,
-            audio_files=["audio.mp3"],
-            video_files=None,
-            has_tools=False,
-        )
-        assert ModelCapability.AUDIO_TO_TEXT in caps
-
-    def test_with_video(self):
-        from cliver.llm.llm import AgentCore
-
-        caps = AgentCore._compute_required_capabilities(
-            images=None,
-            audio_files=None,
-            video_files=["vid.mp4"],
-            has_tools=False,
-        )
-        assert ModelCapability.VIDEO_TO_TEXT in caps
-
-    def test_combined(self):
-        from cliver.llm.llm import AgentCore
-
-        caps = AgentCore._compute_required_capabilities(
-            images=["a.png"],
-            audio_files=None,
-            video_files=None,
-            has_tools=True,
-        )
-        assert caps == {
-            ModelCapability.TEXT_TO_TEXT,
-            ModelCapability.IMAGE_TO_TEXT,
-            ModelCapability.TOOL_CALLING,
-        }
 
 
 class TestReActLoopFallback:
@@ -281,19 +178,13 @@ class TestReActLoopFallback:
 
         model_a = MagicMock()
         model_a.name = "model_a"
-        model_a.get_capabilities.return_value = {
-            ModelCapability.TEXT_TO_TEXT,
-            ModelCapability.TOOL_CALLING,
-        }
-        model_a.context_window = 8192
+        model_a.model = "model_a"
+        model_a.category = "text"
 
         model_b = MagicMock()
         model_b.name = "model_b"
-        model_b.get_capabilities.return_value = {
-            ModelCapability.TEXT_TO_TEXT,
-            ModelCapability.TOOL_CALLING,
-        }
-        model_b.context_window = 32768
+        model_b.model = "model_b"
+        model_b.category = "text"
 
         executor = AgentCore(
             llm_models={"model_a": model_a, "model_b": model_b},
@@ -336,10 +227,6 @@ class TestReActLoopFallback:
                 None,
                 None,
                 options={},
-                required_capabilities={
-                    ModelCapability.TEXT_TO_TEXT,
-                    ModelCapability.TOOL_CALLING,
-                },
                 auto_fallback=True,
                 tried_models={"model_a"},
             )
@@ -372,7 +259,6 @@ class TestReActLoopFallback:
                 None,
                 None,
                 options={},
-                required_capabilities={ModelCapability.TEXT_TO_TEXT},
                 auto_fallback=False,
                 tried_models={"model_a"},
             )
@@ -413,7 +299,6 @@ class TestReActLoopFallback:
                     None,
                     None,
                     options={},
-                    required_capabilities={ModelCapability.TEXT_TO_TEXT},
                     auto_fallback=True,
                     tried_models={"model_a"},
                 )

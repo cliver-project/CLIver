@@ -26,7 +26,7 @@ class TestTaskDefinition:
         t = TaskDefinition(name="t", prompt="do something")
         assert t.name == "t"
         assert t.prompt == "do something"
-        assert t.agent is None
+        assert t.model is None
         assert t.schedule is None
 
     def test_full(self):
@@ -34,11 +34,11 @@ class TestTaskDefinition:
             name="daily",
             description="Run daily",
             prompt="Research AI trends",
-            agent="researcher",
+            model="deepseek-r1",
             schedule="0 9 * * *",
         )
         assert t.schedule == "0 9 * * *"
-        assert t.agent == "researcher"
+        assert t.model == "deepseek-r1"
 
 
 # ---------------------------------------------------------------------------

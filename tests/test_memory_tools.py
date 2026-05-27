@@ -1,10 +1,10 @@
-"""Tests for memory_read and memory_write builtin tools."""
+"""Tests for memory_read, memory_write, and identity_update builtin tools."""
 
 import pytest
 
 import cliver.agent_profile as ap
 from cliver.agent_profile import CliverProfile
-from cliver.tools.memory import MemoryReadTool, MemoryWriteTool
+from cliver.tools.memory import IdentityUpdateTool, MemoryReadTool, MemoryWriteTool
 
 
 @pytest.fixture
@@ -122,10 +122,48 @@ class TestMemoryRoundTrip:
         assert "Old entry" not in result
 
 
+# ---------------------------------------------------------------------------
+# identity_update
+# ---------------------------------------------------------------------------
+
+
+class TestIdentityUpdate:
+    def test_update_creates_identity(self, profile):
+        tool = IdentityUpdateTool()
+        result = tool._run(content="# User Profile\n\n- Name: Alice\n- Role: Developer")
+        assert "updated" in result
+
+        loaded = profile.load_identity()
+        assert "Alice" in loaded
+        assert "Developer" in loaded
+
+    def test_update_replaces_entirely(self, profile):
+        tool = IdentityUpdateTool()
+        tool._run(content="# V1\nOld data")
+        tool._run(content="# V2\nNew data")
+
+        loaded = profile.load_identity()
+        assert "New data" in loaded
+        assert "Old data" not in loaded
+
+    def test_no_profile_returns_message(self, monkeypatch):
+        monkeypatch.setattr(ap, "_current_profile", None)
+        tool = IdentityUpdateTool()
+        result = tool._run(content="test")
+        assert "not available" in result
+
+
+# ---------------------------------------------------------------------------
+# System prompt includes memory & identity section
+# ---------------------------------------------------------------------------
+
+
 class TestSystemPromptMemory:
-    def test_system_prompt_contains_memory(self):
+    def test_system_prompt_contains_memory_and_identity(self):
         from cliver.llm.base import LLMInferenceEngine
 
         prompt = LLMInferenceEngine._section_interaction_guidelines()
+        assert "Memory & Identity" in prompt
         assert "MemoryRead" in prompt
         assert "MemoryWrite" in prompt
+        assert "Identity" in prompt

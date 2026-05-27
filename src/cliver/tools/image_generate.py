@@ -9,8 +9,10 @@ Saving behavior:
 - URL images: returned as URLs without downloading
 """
 
+import asyncio
 import logging
 import os
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Type
@@ -25,13 +27,39 @@ logger = logging.getLogger(__name__)
 
 def _run_async(coro):
     """Run an async coroutine from sync context, even inside a running event loop."""
-    from cliver.util import run_async
+    result = None
+    exception = None
 
-    return run_async(coro)
+    def _thread_target():
+        nonlocal result, exception
+        try:
+            result = asyncio.run(coro)
+        except Exception as e:
+            exception = e
+
+    thread = threading.Thread(target=_thread_target)
+    thread.start()
+    thread.join()
+
+    if exception:
+        raise exception
+    return result
 
 
 class ImageGenerateInput(BaseModel):
     prompt: str = Field(description="Text description of the image to generate")
+    model: str = Field(
+        default="",
+        description="Model name to use for image generation. Pick from the Available Models "
+        "list in the system prompt — choose one with 'image generation' capability. "
+        "Leave empty to auto-select the first available image-capable model.",
+    )
+    output_dir: str = Field(
+        default="",
+        description="Directory to save the generated image. If the user specifies a target "
+        "directory, use it here directly (e.g. '.cliver/images/'). "
+        "Leave empty to use the default output directory.",
+    )
 
 
 class ImageGenerateTool(BaseTool):
@@ -39,11 +67,15 @@ class ImageGenerateTool(BaseTool):
     description: str = (
         "Generate an image from a text description and save it to disk. "
         "Returns the saved file path(s) or URL(s). "
-        "Use when the user asks to create, draw, or generate an image. "
+        "Use the `model` parameter to select a specific image-capable model "
+        "(see Available Models in the system prompt). Leave empty for auto-detect. "
+        "Use `output_dir` to save directly to a user-specified directory "
+        "(e.g. '.cliver/images/') instead of the default output directory. "
+        "Use when the user asks to create, draw, or generate an image."
     )
     args_schema: Type[BaseModel] = ImageGenerateInput
 
-    def _run(self, prompt: str) -> str:
+    def _run(self, prompt: str, model: str = "", output_dir: str = "") -> str:
         executor = get_agent_core()
         if not executor:
             return "Error: No AgentCore available for image generation."
@@ -55,13 +87,14 @@ class ImageGenerateTool(BaseTool):
             ctx = CallContext.get_current() or CallContext()
             media_count_before = len(ctx.generated_media)
 
-            _run_async(executor.generate_image(prompt, ctx=ctx))
+            model_arg = model.strip() if model else None
+            _run_async(executor.generate_image(prompt, model=model_arg, ctx=ctx))
 
             new_media = ctx.generated_media[media_count_before:]
             if not new_media:
                 return "Image generation completed but no media was returned."
 
-            save_dir = ctx.outputs_dir or os.path.join(os.getcwd(), "generated_images")
+            save_dir = output_dir.strip() or ctx.outputs_dir or os.path.join(os.getcwd(), ".cliver", "generated-images")
 
             file_paths = []
             for i, m in enumerate(new_media):

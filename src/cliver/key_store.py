@@ -21,7 +21,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
-from cliver.db import SQLiteStore
+from cliver.db import get_store
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,10 @@ class KeyInfo:
 
 
 def _get_machine_id() -> str:
-    """Get a platform-specific machine identifier."""
+    """Get a platform-specific machine identifier (cached per process)."""
+    global _machine_id
+    if _machine_id is not None:
+        return _machine_id
     system = platform.system()
 
     if system == "Darwin":
@@ -59,7 +62,8 @@ def _get_machine_id() -> str:
             )
             match = re.search(r'"IOPlatformUUID"\s*=\s*"([^"]+)"', out)
             if match:
-                return match.group(1)
+                _machine_id = match.group(1)
+                return _machine_id
         except (subprocess.SubprocessError, OSError):
             pass
 
@@ -68,7 +72,8 @@ def _get_machine_id() -> str:
             try:
                 mid = Path(path).read_text().strip()
                 if mid:
-                    return mid
+                    _machine_id = mid
+                    return _machine_id
             except OSError:
                 continue
 
@@ -81,13 +86,19 @@ def _get_machine_id() -> str:
             )
             match = re.search(r"MachineGuid\s+REG_SZ\s+(\S+)", out)
             if match:
-                return match.group(1)
+                _machine_id = match.group(1)
+                return _machine_id
         except (subprocess.SubprocessError, OSError):
             pass
 
     fallback = f"{socket.gethostname()}-{getpass.getuser()}"
     logger.debug("Using fallback machine ID: hostname + username")
-    return hashlib.sha256(fallback.encode()).hexdigest()
+    _machine_id = hashlib.sha256(fallback.encode()).hexdigest()
+    return _machine_id
+
+
+_machine_id: str | None = None
+_fernet_cache: dict[str, object] = {}  # module-level cache for Fernet instances
 
 
 class KeyStore:
@@ -96,15 +107,20 @@ class KeyStore:
     def __init__(self, db_path: Path):
         self._db_path = db_path
         self._fernet = self._create_fernet()
-        self._store = SQLiteStore(db_path)
+        self._store = get_store(db_path)
         self._store.execute_schema(_SCHEMA)
 
-    def _create_fernet(self):
+    @staticmethod
+    def _create_fernet():
         from cryptography.fernet import Fernet
         from cryptography.hazmat.primitives import hashes
         from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
         machine_id = _get_machine_id()
+        cache_key = machine_id
+        if cache_key in _fernet_cache:
+            return _fernet_cache[cache_key]
+
         kdf = PBKDF2HMAC(
             algorithm=hashes.SHA256(),
             length=32,
@@ -112,7 +128,9 @@ class KeyStore:
             iterations=100_000,
         )
         key = base64.urlsafe_b64encode(kdf.derive(machine_id.encode()))
-        return Fernet(key)
+        fernet = Fernet(key)
+        _fernet_cache[cache_key] = fernet
+        return fernet
 
     def _now(self) -> str:
         return datetime.now(timezone.utc).isoformat()

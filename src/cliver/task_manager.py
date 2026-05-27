@@ -5,7 +5,7 @@ A task is a YAML definition that provides a prompt for the LLM,
 optional model override, and optional cron schedule. Tasks are stored
 per-agent in {config_dir}/agents/{agent_name}/tasks/.
 
-The **database** (``tasks`` table in gateway.db) is the source of truth
+The **database** (``tasks`` table in cliver.db) is the source of truth
 for which tasks exist.  Each row stores a ``yaml_path`` (relative to
 tasks_dir) that points to the YAML file holding the task content.
 YAML files without a corresponding database row are ignored.
@@ -95,7 +95,7 @@ class TaskManager:
         ├── daily-research.yaml        # task content
         └── code-review.yaml
 
-    Run history is stored in gateway.db via TaskStore.
+    Run history is stored in cliver.db via TaskStore.
     """
 
     def __init__(self, tasks_dir: Path, run_store: TaskStore):

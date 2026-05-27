@@ -82,7 +82,10 @@ def get_chat_routes(context: dict, require_auth: Callable) -> list:
                 session_options["system_message"] = system_message
             if tool_names:
                 session_options["filter_tools"] = tool_names
-            session_id = session_manager.create_session(options=session_options if session_options else None)
+            session_id = session_manager.create_session(
+                kind="chat",
+                options=session_options if session_options else None,
+            )
 
         if session_manager and session_id:
             try:
@@ -134,16 +137,7 @@ def get_chat_routes(context: dict, require_auth: Callable) -> list:
             executor.permission_manager.set_mode(PermissionMode.YOLO)
         executor.on_permission_prompt = lambda tool, args: "allow"
 
-        uses_thinking = False
-        try:
-            from cliver.model_capabilities import ModelCapability
-
-            effective_model = model or executor.default_model
-            mc = executor._get_llm_model(effective_model) if effective_model else None
-            if mc and ModelCapability.THINK_MODE in mc.get_capabilities():
-                uses_thinking = True
-        except Exception:
-            pass
+        uses_thinking = True
 
         async def generate():
             # Emit session_id immediately so the UI can navigate to the
@@ -184,16 +178,21 @@ def get_chat_routes(context: dict, require_auth: Callable) -> list:
                     except Exception as e:
                         logger.warning("Failed to save media: %s", e)
 
+                # Strip inline tool_calls JSON from the accumulated text
+                from cliver.llm.llm_utils import strip_tool_calls_from_text
+
+                clean_text = strip_tool_calls_from_text(full_text)
+
                 # Persist assistant turn
                 if session_manager and session_id:
                     try:
-                        session_manager.append_turn(session_id, "assistant", full_text)
+                        session_manager.append_turn(session_id, "assistant", clean_text)
                     except Exception as e:
                         logger.warning("Failed to persist assistant turn: %s", e)
 
                 done_data = {
                     "type": "done",
-                    "content": full_text,
+                    "content": clean_text,
                     "media": media_files,
                     "media_files": media_files,
                     "session_id": session_id,

@@ -1,4 +1,3 @@
-import asyncio
 import logging
 import os
 import platform
@@ -6,63 +5,15 @@ import re
 import select
 import stat
 import sys
-import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Awaitable, Callable, List, Optional, TypeVar
+from typing import Any, Awaitable, Callable, List, Optional
 from zoneinfo import ZoneInfo
 
 from langchain_core.tools import BaseTool
 
 from cliver.constants import APP_NAME, CONFIG_DIR
-
-T = TypeVar("T")
-
-
-class _BackgroundLoop:
-    """Persistent event loop running in a daemon thread.
-
-    Reuses a single loop so httpx/aiohttp connections don't get orphaned
-    when loops are created and destroyed per call.
-    """
-
-    def __init__(self):
-        self._loop: asyncio.AbstractEventLoop | None = None
-        self._thread: threading.Thread | None = None
-        self._lock = threading.Lock()
-
-    def _ensure_started(self) -> asyncio.AbstractEventLoop:
-        with self._lock:
-            if self._loop is None or self._loop.is_closed():
-                self._loop = asyncio.new_event_loop()
-                self._thread = threading.Thread(target=self._loop.run_forever, daemon=True, name="cliver-async")
-                self._thread.start()
-            return self._loop
-
-    def run(self, coro: Awaitable[T]) -> T:
-        loop = self._ensure_started()
-        future = asyncio.run_coroutine_threadsafe(coro, loop)
-        return future.result()
-
-
-_bg_loop = _BackgroundLoop()
-
-
-def run_async(coro: Awaitable[T]) -> T:
-    """Run an async coroutine from sync context, safely handling nested loops.
-
-    Uses a persistent background event loop so httpx/aiohttp connections
-    are never orphaned by loop closure. Works from TUI, CLI, and threads.
-    """
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        loop = None
-    if loop and loop.is_running():
-        return _bg_loop.run(coro)
-    return asyncio.run(coro)
-
 
 logger = logging.getLogger(__name__)
 
@@ -364,10 +315,9 @@ def _confirm_tool_execution(prompt="Are you sure? (y/n): ") -> bool:
     return response.lower() in ("y", "yes")
 
 
-# Context files checked in priority order; first one found is used.
+# Primary context file; falls back to CLAUDE.md if Cliver.md is absent.
 _DEFAULT_CONTEXT_FILES = [
     "Cliver.md",
-    "AGENTS.md",
     "CLAUDE.md",
 ]
 
@@ -389,8 +339,8 @@ def read_context_files(
     Read context from context files found in the project tree.
 
     Default behaviour (no *file_filter*): reads only the **first** file
-    found from ``[Cliver.md, AGENTS.md, CLAUDE.md]`` in priority order.
-    This keeps the system prompt lean.
+    found from ``[Cliver.md, CLAUDE.md]`` — Cliver.md is preferred,
+    CLAUDE.md serves as fallback.  This keeps the system prompt lean.
 
     When *file_filter* is provided explicitly, **all** matching files are
     included (backwards-compatible with callers that pass a custom list).

@@ -25,7 +25,7 @@ import { StatusPill } from "@/components/status-pill";
 import { Plus, Trash2 } from "lucide-react";
 import { useTranslation } from "@/i18n";
 
-const ADAPTER_TYPES = ["slack", "telegram", "discord", "feishu", "wechat"];
+const ADAPTER_TYPES = ["slack"];
 
 interface Adapter {
   name: string;
@@ -115,7 +115,7 @@ export default function AdaptersList() {
       ) : adapters.length === 0 ? (
         <div className="text-center py-12">
           <p className="text-sm text-muted-foreground">
-            No adapters configured. Click &quot;Add&quot; to connect a messaging platform.
+            {t("adapters.emptyState")}
           </p>
         </div>
       ) : (
@@ -139,14 +139,14 @@ export default function AdaptersList() {
               <CardContent>
                 <div className="text-xs text-muted-foreground space-y-1">
                   <div>
-                    Type: <span className="text-foreground">{a.type}</span>
+                    {t("adapters.type")}: <span className="text-foreground">{a.type}</span>
                   </div>
                   <div>
-                    Token: <span className="text-foreground">{(a.token || "").substring(0, 8)}****</span>
+                    {t("adapters.token")}: <span className="text-foreground">{(a.token || "").substring(0, 8)}****</span>
                   </div>
                   {a.home_channel ? (
                     <div>
-                      Channel: <span className="text-foreground">{a.home_channel}</span>
+                      {t("adapters.channel")}: <span className="text-foreground">{a.home_channel}</span>
                     </div>
                   ) : null}
                   {a.error ? (
@@ -163,20 +163,20 @@ export default function AdaptersList() {
       <Dialog open={showAdd} onOpenChange={setShowAdd}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Add Adapter</DialogTitle>
-            <DialogDescription>Connect a messaging platform to CLIver.</DialogDescription>
+            <DialogTitle>{t("adapters.addTitle")}</DialogTitle>
+            <DialogDescription>{t("adapters.addDesc")}</DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
             <div>
-              <Label>Name</Label>
+              <Label>{t("adapters.nameLabel")}</Label>
               <Input
-                placeholder="e.g. my-slack"
+                placeholder={t("adapters.namePlaceholder")}
                 value={form.name}
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
               />
             </div>
             <div>
-              <Label>Type</Label>
+              <Label>{t("adapters.typeLabel")}</Label>
               <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
                 <SelectTrigger>
                   <SelectValue />
@@ -191,27 +191,27 @@ export default function AdaptersList() {
               </Select>
             </div>
             <div>
-              <Label>Token</Label>
+              <Label>{t("adapters.tokenLabel")}</Label>
               <Input
                 type="password"
-                placeholder="Bot token"
+                placeholder={t("adapters.tokenPlaceholder")}
                 value={form.token}
                 onChange={(e) => setForm({ ...form, token: e.target.value })}
               />
             </div>
             <div>
-              <Label>App Token (optional)</Label>
+              <Label>{t("adapters.appTokenLabel")}</Label>
               <Input
                 type="password"
-                placeholder="App-level token (Slack only)"
+                placeholder={t("adapters.appTokenPlaceholder")}
                 value={form.app_token}
                 onChange={(e) => setForm({ ...form, app_token: e.target.value })}
               />
             </div>
             <div>
-              <Label>Home Channel (optional)</Label>
+              <Label>{t("adapters.homeChannelLabel")}</Label>
               <Input
-                placeholder="Channel ID"
+                placeholder={t("adapters.homeChannelPlaceholder")}
                 value={form.home_channel}
                 onChange={(e) => setForm({ ...form, home_channel: e.target.value })}
               />
@@ -231,8 +231,8 @@ export default function AdaptersList() {
       {/* Delete Confirmation */}
       <ConfirmDialog
         open={!!deleteTarget}
-        title="Delete Adapter"
-        description={`Remove adapter "${deleteTarget}"? Restart the gateway for changes to take effect.`}
+        title={t("adapters.deleteTitle")}
+        description={t("adapters.deleteDesc", { name: deleteTarget || "" })}
         onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}
         destructive

@@ -1,11 +1,18 @@
+from enum import Enum
+
 import click
 from rich import box
+from rich.panel import Panel
 from rich.table import Table
 
 from cliver.cli import Cliver, pass_cliver
 from cliver.commands import click_help, wants_help
 from cliver.config import RateLimitConfig
-from cliver.model_capabilities import ProviderEnum
+
+
+class ProviderEnum(str, Enum):
+    OPENAI = "openai"
+    ANTHROPIC = "anthropic"
 
 
 def _parse_rate_limit(value: str) -> RateLimitConfig:
@@ -31,6 +38,43 @@ def provider(ctx: click.Context):
 
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _parse_provider_flags(rest: str) -> dict:
+    """Parse --flag value pairs from a rest string for provider commands."""
+    from shlex import split as shlex_split
+
+    try:
+        tokens = shlex_split(rest)
+    except ValueError:
+        tokens = rest.split()
+
+    opts: dict = {}
+    i = 0
+    flag_map = {
+        "--name": "name",
+        "-n": "name",
+        "--type": "type",
+        "-t": "type",
+        "--api-url": "api_url",
+        "-u": "api_url",
+        "--api-key": "api_key",
+        "-k": "api_key",
+        "--rate-limit": "rate_limit",
+        "-r": "rate_limit",
+    }
+    while i < len(tokens):
+        if tokens[i] in flag_map and i + 1 < len(tokens):
+            opts[flag_map[tokens[i]]] = tokens[i + 1]
+            i += 2
+        else:
+            i += 1
+    return opts
+
+
+# ---------------------------------------------------------------------------
 # Business logic functions
 # ---------------------------------------------------------------------------
 
@@ -41,35 +85,56 @@ def _list_providers(cliver: Cliver):
     if not providers:
         cliver.output("No providers configured.")
         return
+
     table = Table(title="Configured Providers", box=box.SQUARE)
     table.add_column("Name", style="green")
     table.add_column("Type", style="cyan")
     table.add_column("API URL", style="dim")
     table.add_column("API Key", style="dim")
     table.add_column("Rate Limit", style="yellow")
-    table.add_column("Image URL", style="dim")
-
     for name, prov in providers.items():
         api_key_display = "***" if prov.api_key else "-"
         rl = f"{prov.rate_limit.requests}/{prov.rate_limit.period}" if prov.rate_limit else "-"
-        table.add_row(name, prov.type, prov.api_url, api_key_display, rl, prov.image_url or "-")
+        table.add_row(
+            name,
+            prov.type,
+            prov.api_url or "-",
+            api_key_display,
+            rl,
+        )
     cliver.output(table)
 
 
 def _add_provider(
-    cliver: Cliver, name: str, ptype: str, api_url: str, api_key: str, rate_limit: str, image_url: str, audio_url: str
+    cliver: Cliver,
+    name: str,
+    ptype: str,
+    api_url: str,
+    api_key: str,
+    rate_limit: str,
 ):
     """Add a new provider."""
     if name in cliver.config_manager.list_providers():
-        cliver.output(f"Provider '{name}' already exists. Use 'provider set' to update.")
+        cliver.output(f"Provider '{name}' already exists. Use '/provider set' to update.")
         return
     rl = _parse_rate_limit(rate_limit) if rate_limit else None
-    cliver.config_manager.add_or_update_provider(name, ptype, api_url, api_key, rl, image_url, audio_url)
+    cliver.config_manager.add_or_update_provider(
+        name,
+        ptype,
+        api_url,
+        api_key,
+        rl,
+    )
     cliver.output(f"Added provider: {name}")
 
 
 def _set_provider(
-    cliver: Cliver, name: str, ptype: str, api_url: str, api_key: str, rate_limit: str, image_url: str, audio_url: str
+    cliver: Cliver,
+    name: str,
+    ptype: str,
+    api_url: str,
+    api_key: str,
+    rate_limit: str,
 ):
     """Update an existing provider."""
     existing = cliver.config_manager.list_providers().get(name)
@@ -81,12 +146,37 @@ def _set_provider(
         name,
         ptype or existing.type,
         api_url or existing.api_url,
-        api_key if api_key is not None else existing.api_key,
+        api_key if api_key else existing.api_key,
         rl,
-        image_url,
-        audio_url,
     )
     cliver.output(f"Updated provider: {name}")
+
+
+def _show_provider(cliver: Cliver, name: str):
+    """Show detailed information about a specific provider."""
+    providers = cliver.config_manager.list_providers()
+    prov = providers.get(name)
+    if not prov:
+        cliver.output(f"Provider '{name}' not found.")
+        return
+
+    t = Table(box=None, show_header=False, padding=(0, 2))
+    t.add_column("Key", style="dim", min_width=14)
+    t.add_column("Value")
+
+    t.add_row("Name", name)
+    t.add_row("Type", prov.type)
+    t.add_row("API URL", prov.api_url or "-")
+    t.add_row("API Key", "***" if prov.api_key else "-")
+    if prov.rate_limit:
+        t.add_row("Rate Limit", f"{prov.rate_limit.requests}/{prov.rate_limit.period}")
+
+    # List models under this provider
+    models = cliver.config_manager.list_llm_models()
+    attached = [n for n, m in models.items() if m.provider == name]
+    t.add_row("Models", ", ".join(attached) if attached else "-")
+
+    cliver.output(Panel(t, title=f"Provider: {name}", border_style="green", padding=(0, 1)))
 
 
 def _remove_provider(cliver: Cliver, name: str):
@@ -105,6 +195,42 @@ def _remove_provider(cliver: Cliver, name: str):
 # ---------------------------------------------------------------------------
 
 
+def _dispatch_add(cliver: Cliver, rest: str) -> None:
+    """Handle /provider add from TUI dispatch."""
+    opts = _parse_provider_flags(rest)
+    name = opts.get("name")
+    ptype = opts.get("type")
+    api_url = opts.get("api_url")
+    if not name or not ptype or not api_url:
+        cliver.output("Usage: /provider add -n NAME -t TYPE -u API_URL [-k API_KEY] [-r RATE_LIMIT]")
+        return
+    _add_provider(
+        cliver,
+        name=name,
+        ptype=ptype,
+        api_url=api_url,
+        api_key=opts.get("api_key", ""),
+        rate_limit=opts.get("rate_limit", ""),
+    )
+
+
+def _dispatch_set(cliver: Cliver, rest: str) -> None:
+    """Handle /provider set from TUI dispatch."""
+    opts = _parse_provider_flags(rest)
+    name = opts.get("name")
+    if not name:
+        cliver.output("Usage: /provider set -n NAME [-t TYPE] [-u API_URL] [-k API_KEY] [-r RATE_LIMIT]")
+        return
+    _set_provider(
+        cliver,
+        name=name,
+        ptype=opts.get("type", ""),
+        api_url=opts.get("api_url", ""),
+        api_key=opts.get("api_key", ""),
+        rate_limit=opts.get("rate_limit", ""),
+    )
+
+
 def dispatch(cliver: Cliver, args: str):
     """Manage LLM providers — list, add, set, remove."""
     parts = args.strip().split(None, 1) if args.strip() else []
@@ -121,6 +247,22 @@ def dispatch(cliver: Cliver, args: str):
 
     if sub == "list":
         _list_providers(cliver)
+    elif sub == "show":
+        name = rest.strip()
+        if not name:
+            cliver.output(click_help(_SUBCOMMANDS["show"], "/provider show"))
+            return
+        _show_provider(cliver, name)
+    elif sub == "add":
+        _dispatch_add(cliver, rest)
+    elif sub == "set":
+        _dispatch_set(cliver, rest)
+    elif sub == "remove":
+        name = rest.strip()
+        if not name:
+            cliver.output(click_help(_SUBCOMMANDS["remove"], "/provider remove"))
+            return
+        _remove_provider(cliver, name)
     else:
         cliver.output(f"Unknown subcommand: /provider {sub}")
         cliver.output("Run '/provider help' for usage.")
@@ -174,13 +316,16 @@ def list_providers(cliver: Cliver):
     default=None,
     help="Rate limit as 'requests/period' (e.g. '5000/5h', '100/1m')",
 )
-@click.option("--image-url", type=str, default=None, help="Separate image generation endpoint URL (optional)")
-@click.option("--audio-url", type=str, default=None, help="Separate audio generation endpoint URL (optional)")
 @pass_cliver
 def add_provider(
-    cliver: Cliver, name: str, ptype: str, api_url: str, api_key: str, rate_limit: str, image_url: str, audio_url: str
+    cliver: Cliver,
+    name: str,
+    ptype: str,
+    api_url: str,
+    api_key: str,
+    rate_limit: str,
 ):
-    _add_provider(cliver, name, ptype, api_url, api_key, rate_limit, image_url, audio_url)
+    _add_provider(cliver, name, ptype, api_url, api_key, rate_limit)
 
 
 @provider.command(name="set", help="Update an existing provider (only provided values are changed)")
@@ -214,13 +359,16 @@ def add_provider(
     default=None,
     help="New rate limit as 'requests/period' (e.g. '5000/5h')",
 )
-@click.option("--image-url", type=str, default=None, help="New image generation endpoint URL")
-@click.option("--audio-url", type=str, default=None, help="New audio generation endpoint URL")
 @pass_cliver
 def set_provider(
-    cliver: Cliver, name: str, ptype: str, api_url: str, api_key: str, rate_limit: str, image_url: str, audio_url: str
+    cliver: Cliver,
+    name: str,
+    ptype: str,
+    api_url: str,
+    api_key: str,
+    rate_limit: str,
 ):
-    _set_provider(cliver, name, ptype, api_url, api_key, rate_limit, image_url, audio_url)
+    _set_provider(cliver, name, ptype, api_url, api_key, rate_limit)
 
 
 @provider.command(name="remove", help="Remove a provider (fails if models still reference it)")
@@ -236,9 +384,17 @@ def remove_provider(cliver: Cliver, name: str):
     _remove_provider(cliver, name)
 
 
+@provider.command(name="show", help="Show detailed information about a specific provider (including attached models)")
+@click.option("--name", "-n", type=str, required=True, help="Provider name")
+@pass_cliver
+def show_provider(cliver: Cliver, name: str):
+    _show_provider(cliver, name)
+
+
 # Subcommand lookup for dispatch help
 _SUBCOMMANDS = {
     "list": list_providers,
+    "show": show_provider,
     "add": add_provider,
     "set": set_provider,
     "remove": remove_provider,

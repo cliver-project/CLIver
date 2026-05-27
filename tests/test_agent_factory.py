@@ -10,8 +10,8 @@ from cliver.config import AgentConfig, AppConfig
 def _make_config(**kwargs):
     return AppConfig(
         agents={
-            "researcher": AgentConfig(type="cliver", model="test/model", role="Research assistant"),
-            "coder": AgentConfig(model="test/model-2", description="Code-focused agent"),
+            "researcher": AgentConfig(name="researcher", model="test/model", system_prompt="Research assistant"),
+            "coder": AgentConfig(name="coder", model="test/model-2", description="Code-focused agent"),
         },
         default_agent="researcher",
         **kwargs,
@@ -34,7 +34,7 @@ def test_create_cliver_agent():
 
     assert isinstance(agent, CliverAgent)
     assert agent.name == "researcher"
-    assert agent.config.role == "Research assistant"
+    assert agent.config.system_prompt == "Research assistant"
 
 
 def test_create_agent_with_role_and_model():

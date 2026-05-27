@@ -61,6 +61,8 @@ class Skill:
     frontmatter: dict = field(default_factory=dict)
 
     # Optional spec fields
+    license: Optional[str] = None
+    compatibility: Optional[str] = None
     metadata: Optional[Dict[str, str]] = None
     allowed_tools: Optional[List[str]] = None
 
@@ -109,6 +111,10 @@ def validate_skill(skill: "Skill") -> SkillValidationResult:
         result.errors.append("description is required")
     elif len(skill.description) > 1024:
         result.warnings.append(f"description exceeds 1024 characters ({len(skill.description)})")
+
+    # Compatibility validation
+    if skill.compatibility and len(skill.compatibility) > 500:
+        result.warnings.append(f"compatibility exceeds 500 characters ({len(skill.compatibility)})")
 
     # Body size recommendation
     if skill.body and len(skill.body.splitlines()) > 500:
@@ -189,10 +195,16 @@ def _parse_skill_md(path: Path, source: str = "") -> Optional[Skill]:
         logger.warning(f"Skill '{name}' at {path} has no description — LLM won't know when to activate it")
 
     # Parse optional fields
+    license_val = frontmatter.get("license")
+    compatibility = frontmatter.get("compatibility")
     metadata = frontmatter.get("metadata")
     allowed_tools = _parse_allowed_tools(frontmatter)
 
     # Coerce types
+    if license_val is not None:
+        license_val = str(license_val).strip()
+    if compatibility is not None:
+        compatibility = str(compatibility).strip()
     if metadata is not None and isinstance(metadata, dict):
         metadata = {str(k): str(v) for k, v in metadata.items()}
     else:
@@ -204,6 +216,8 @@ def _parse_skill_md(path: Path, source: str = "") -> Optional[Skill]:
         body=body,
         base_dir=path.parent,
         frontmatter=frontmatter,
+        license=license_val,
+        compatibility=compatibility,
         metadata=metadata,
         allowed_tools=allowed_tools,
         source=source,
@@ -371,20 +385,9 @@ class SkillManager:
                 msg += f" Available skills: {', '.join(available)}"
             return msg
 
-        preamble = (
-            "[Skill activated] Follow the instructions below directly. "
-            "Do NOT summarize, echo, or explain the skill content to the user. "
-            "Just start executing the skill's steps as if continuing a normal conversation."
-        )
-        parts = [preamble, f"Base directory for this skill: {skill.base_dir}/\n\n{skill.body}"]
+        parts = [f"Base directory for this skill: {skill.base_dir}/\n\n{skill.body}"]
         if prompt:
             parts.append(f"# User's Request\n\n{prompt}")
-        else:
-            parts.append(
-                "# User's Request\n\n"
-                "(No prompt provided. If the skill requires user input to proceed, "
-                "ask the user what they need help with before starting.)"
-            )
         return "\n\n".join(parts)
 
     def reload(self) -> None:

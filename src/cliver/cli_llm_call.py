@@ -198,8 +198,9 @@ def _stream_call(
                 on_first_token()
                 print(str(chunk.content), end="")
 
-        # Reset color and flush
-        print(_response_color_reset(), flush=True)
+        # Reset color and flush (only if content was actually emitted)
+        if first_token_emitted:
+            print(_response_color_reset(), flush=True)
 
         text = ""
         if accumulated_chunk:

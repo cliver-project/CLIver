@@ -21,11 +21,7 @@ class CreateTaskInput(BaseModel):
         "This is the task content — NOT called 'content' or 'command'.",
     )
     description: Optional[str] = Field(None, description="What this task does")
-    agent: Optional[str] = Field(None, description="Agent name to run this task (null = default agent)")
-    context: Optional[str] = Field(
-        None,
-        description="URL or file path with additional context (read and appended to prompt at execution time)",
-    )
+    model: Optional[str] = Field(None, description="Model override")
     schedule: Optional[str] = Field(
         None,
         description="Cron expression for RECURRING tasks ONLY (e.g. '0 9 * * *' for daily 9am). "
@@ -44,7 +40,7 @@ class CreateTaskTool(BaseTool):
         "Create a scheduled or deferred task. "
         "Required parameters: 'name' (snake_case identifier) and 'prompt' (the instruction text). "
         "Do NOT use 'content' or 'command' — the field is called 'prompt'. "
-        "Optional: 'schedule' (cron), 'run_at' (ISO 8601 datetime), 'agent', 'context', 'description'. "
+        "Optional: 'schedule' (cron), 'run_at' (ISO 8601 datetime), 'model', 'description'. "
         "ALWAYS use this tool instead of shell commands like 'cliver task create'. "
         "This tool auto-attaches IM origin so task results are delivered back to the conversation."
     )
@@ -57,8 +53,7 @@ class CreateTaskTool(BaseTool):
         name: str,
         prompt: str,
         description: Optional[str] = None,
-        agent: Optional[str] = None,
-        context: Optional[str] = None,
+        model: Optional[str] = None,
         schedule: Optional[str] = None,
         run_at: Optional[str] = None,
     ) -> str:
@@ -95,8 +90,7 @@ class CreateTaskTool(BaseTool):
             name=name,
             description=description,
             prompt=prompt,
-            agent=agent,
-            context=context,
+            model=model,
             schedule=schedule,
             run_at=run_at,
             session_id=im_session_id,
@@ -105,7 +99,7 @@ class CreateTaskTool(BaseTool):
         from cliver.gateway.task_store import TaskStore
 
         profile = get_current_profile()
-        db_path = profile.gateway_db if profile else tasks_dir.parent / "cliver.db"
+        db_path = profile.db_path if profile else tasks_dir.parent / "cliver.db"
         store = TaskStore(db_path)
         manager = TaskManager(tasks_dir, store)
         path = manager.save_task(task)

@@ -52,8 +52,9 @@ Conversation:
 
 def get_context_window(config: ModelConfig) -> int:
     """Get context window size for a model, with heuristic defaults."""
-    if config.context_window:
-        return config.context_window
+    opts = config.options
+    if opts and opts.context_window is not None:
+        return opts.context_window
 
     name = config.api_model_name.lower()
     for pattern, size in _CONTEXT_WINDOW_DEFAULTS.items():

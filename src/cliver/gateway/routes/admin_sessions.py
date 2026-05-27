@@ -1,4 +1,8 @@
-"""Session management routes for the admin portal."""
+"""Session management routes for the admin portal.
+
+Sessions are stored in the ``sessions`` / ``turns`` tables in cliver.db.
+One SessionManager instance is shared across all sources (CLI, gateway, lab).
+"""
 
 from __future__ import annotations
 
@@ -12,50 +16,51 @@ from starlette.routing import Route
 logger = logging.getLogger(__name__)
 
 
-def _get_session_manager(ctx, source):
-    if source == "gateway":
-        gw = ctx.get("gateway")
-        return gw._session_manager if gw else None
-    elif source == "cli":
-        return ctx.get("cli_session_manager")
-    return None
+def _get_session_manager(ctx) -> object | None:
+    """Return the shared SessionManager — prefer gateway, fall back to CLI."""
+    gw = ctx.get("gateway")
+    if gw and getattr(gw, "_session_manager", None):
+        return gw._session_manager
+    return ctx.get("cli_session_manager")
 
 
-def _get_sessions_by_source(ctx, source):
-    sm = _get_session_manager(ctx, source)
+def _enrich_session(s: dict) -> dict:
+    """Add display_title and optional platform to a session dict."""
+    title = s.get("title") or ""
+    if ":" in title:
+        parts = title.split(":", 2)
+        s["platform"] = parts[0]
+        s["display_title"] = parts[2] if len(parts) > 2 else parts[1]
+    elif title:
+        s["display_title"] = title[:80]
+    return s
+
+
+def _list_all_sessions(ctx) -> list[dict]:
+    sm = _get_session_manager(ctx)
     if not sm:
         return []
     try:
         sessions = sm.list_sessions()
-        if source == "gateway":
-            for s in sessions:
-                title = s.get("title") or ""
-                parts = title.split(":", 2)
-                if len(parts) >= 2:
-                    s["platform"] = parts[0]
-                    turns = sm.load_turns(s["id"])
-                    first_user = next((t["content"] for t in turns if t["role"] == "user"), None)
-                    if first_user:
-                        s["display_title"] = first_user[:80]
-        return sessions
+        return [_enrich_session(s) for s in sessions]
     except Exception as e:
-        logger.warning("Failed to get %s sessions: %s", source, e)
+        logger.warning("Failed to list sessions: %s", e)
         return []
 
 
-def _get_session_turns(ctx, source, session_id):
-    sm = _get_session_manager(ctx, source)
+def _get_session_turns(ctx, session_id: str) -> list[dict]:
+    sm = _get_session_manager(ctx)
     if not sm:
         return []
     try:
         return sm.load_turns(session_id)
     except Exception as e:
-        logger.warning("Failed to get session turns: %s", e)
+        logger.warning("Failed to load session turns: %s", e)
         return []
 
 
-def _delete_session(ctx, source, session_id):
-    sm = _get_session_manager(ctx, source)
+def _delete_session(ctx, session_id: str) -> bool:
+    sm = _get_session_manager(ctx)
     if not sm:
         return False
     try:
@@ -69,40 +74,31 @@ def get_session_routes(context: dict, require_auth: Callable) -> list:
     """Return session management API routes."""
 
     @require_auth
-    async def handle_sessions_by_source(request: Request):
+    async def handle_list_sessions(request: Request):
         from cliver.gateway.admin import _run_in_thread
 
-        source = request.path_params["source"]
-        if source not in ("cli", "gateway"):
-            return JSONResponse({"error": f"Invalid source '{source}'. Use 'cli' or 'gateway'."}, status_code=400)
-        sessions = await _run_in_thread(_get_sessions_by_source, context, source)
+        sessions = await _run_in_thread(_list_all_sessions, context)
         return JSONResponse(sessions)
 
     @require_auth
-    async def handle_session_turns(request: Request):
+    async def handle_get_turns(request: Request):
         from cliver.gateway.admin import _run_in_thread
 
-        source = request.path_params["source"]
         session_id = request.path_params["id"]
-        if source not in ("cli", "gateway"):
-            return JSONResponse({"error": f"Invalid source '{source}'."}, status_code=400)
-        turns = await _run_in_thread(_get_session_turns, context, source, session_id)
+        turns = await _run_in_thread(_get_session_turns, context, session_id)
         return JSONResponse(turns)
 
     @require_auth
     async def handle_delete_session(request: Request):
-        source = request.path_params["source"]
         session_id = request.path_params["id"]
-        if source not in ("cli", "gateway"):
-            return JSONResponse({"error": f"Invalid source '{source}'."}, status_code=400)
-        logger.info("[admin] Session '%s' (%s) deleted via admin portal", session_id, source)
-        deleted = _delete_session(context, source, session_id)
+        logger.info("[admin] Session '%s' deleted via admin portal", session_id)
+        deleted = _delete_session(context, session_id)
         if deleted:
             return JSONResponse({"status": "deleted"})
         return JSONResponse({"error": "session not found"}, status_code=404)
 
     return [
-        Route("/admin/api/sessions/{source}", handle_sessions_by_source),
-        Route("/admin/api/sessions/{source}/{id}", handle_session_turns),
-        Route("/admin/api/sessions/{source}/{id}", handle_delete_session, methods=["DELETE"]),
+        Route("/admin/api/sessions", handle_list_sessions),
+        Route("/admin/api/sessions/{id}", handle_get_turns),
+        Route("/admin/api/sessions/{id}", handle_delete_session, methods=["DELETE"]),
     ]

@@ -1,7 +1,7 @@
 """
 Session Manager — manages conversation sessions backed by SQLite.
 
-Each agent has a single sessions.db with:
+Stores session data in the unified cliver.db with:
 - sessions table: metadata (id, title, timestamps, options)
 - turns table: conversation turns (role, content, timestamp)
 - turns_fts: FTS5 virtual table for full-text search across all turns
@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from cliver.db import SQLiteStore
+from cliver.db import SQLiteStore, get_store
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +22,8 @@ _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
     id TEXT PRIMARY KEY,
     title TEXT,
+    lab_id TEXT,
+    kind TEXT DEFAULT 'general',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     turn_count INTEGER DEFAULT 0,
@@ -65,24 +67,15 @@ class SessionManager:
         self._db_path = db_path
         self._store: Optional[SQLiteStore] = None
 
-    def _get_store(self) -> SQLiteStore:
+    def _get_store(self):
         if self._store is None:
-            self._store = SQLiteStore(self._db_path)
+            self._store = get_store(self._db_path)
             self._store.execute_schema(_SCHEMA)
-            self._migrate_lab_id()
         return self._store
-
-    def _migrate_lab_id(self) -> None:
-        """Add lab_id column to sessions table if it doesn't exist."""
-        with self._get_store().write() as db:
-            cols = db.execute("PRAGMA table_info(sessions)").fetchall()
-            col_names = [c["name"] for c in cols]
-            if "lab_id" not in col_names:
-                db.execute("ALTER TABLE sessions ADD COLUMN lab_id TEXT")
 
     # -- Session lifecycle -----------------------------------------------------
 
-    def create_session(self, title: str = "", options: dict | None = None) -> str:
+    def create_session(self, title: str = "", options: dict | None = None, kind: str = "general") -> str:
         """Create a new session. Returns session_id.
 
         Options (agent, system_message, filter_tools, etc.) are saved as JSON
@@ -93,10 +86,11 @@ class SessionManager:
         now = _timestamp()
         with self._get_store().write() as db:
             db.execute(
-                "INSERT INTO sessions (id, title, options, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                "INSERT INTO sessions (id, title, kind, options, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
                 (
                     session_id,
                     title or None,
+                    kind,
                     json.dumps(options) if options else None,
                     now,
                     now,
@@ -104,14 +98,15 @@ class SessionManager:
             )
         return session_id
 
-    def create_lab_session(self, lab_id: str, title: str = "", options: dict | None = None) -> str:
+    def create_lab_session(self, lab_id: str, title: str = "", options: dict | None = None, kind: str = "lab") -> str:
         """Create a new session linked to a lab. Returns session_id."""
         session_id = str(uuid.uuid4())[:8]
         now = _timestamp()
         with self._get_store().write() as db:
             db.execute(
-                "INSERT INTO sessions (id, title, lab_id, options, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (session_id, title or None, lab_id, json.dumps(options) if options else None, now, now),
+                "INSERT INTO sessions (id, title, lab_id, kind, options, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (session_id, title or None, lab_id, kind, json.dumps(options) if options else None, now, now),
             )
         return session_id
 
@@ -119,7 +114,7 @@ class SessionManager:
         """List sessions belonging to a lab, most recent first."""
         with self._get_store().read() as db:
             rows = db.execute(
-                "SELECT id, title, created_at, updated_at, turn_count, options FROM sessions "
+                "SELECT id, title, kind, created_at, updated_at, turn_count, options FROM sessions "
                 "WHERE lab_id = ? ORDER BY updated_at DESC",
                 (lab_id,),
             ).fetchall()
@@ -129,13 +124,19 @@ class SessionManager:
         """List all sessions with metadata, most recent first."""
         with self._get_store().read() as db:
             rows = db.execute(
-                "SELECT id, title, created_at, updated_at, turn_count, options FROM sessions ORDER BY updated_at DESC"
+                "SELECT id, title, kind, created_at, updated_at, turn_count, options "
+                "FROM sessions ORDER BY updated_at DESC"
             ).fetchall()
         return [_row_to_dict(r) for r in rows]
 
     def list_general_sessions(self) -> List[Dict[str, Any]]:
-        """List all chat conversation sessions."""
-        return self.list_sessions()
+        """List chat sessions (kind='chat'), most recent first."""
+        with self._get_store().read() as db:
+            rows = db.execute(
+                "SELECT id, title, kind, created_at, updated_at, turn_count, options "
+                "FROM sessions WHERE kind = 'chat' ORDER BY updated_at DESC"
+            ).fetchall()
+        return [_row_to_dict(r) for r in rows]
 
     def delete_session(self, session_id: str) -> bool:
         """Delete a session and its turns (CASCADE)."""
@@ -228,7 +229,8 @@ class SessionManager:
         """Get metadata for a session."""
         with self._get_store().read() as db:
             row = db.execute(
-                "SELECT id, title, lab_id, created_at, updated_at, turn_count, options FROM sessions WHERE id = ?",
+                "SELECT id, title, lab_id, kind, created_at, updated_at, turn_count, options "
+                "FROM sessions WHERE id = ?",
                 (session_id,),
             ).fetchone()
         if row is None:

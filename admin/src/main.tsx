@@ -26,6 +26,7 @@ import LabListPage from "@/pages/labs/list";
 import LabDetailPage from "@/pages/labs/detail";
 import LabChatPage from "@/pages/labs/chat";
 import MCPServersPage from "@/pages/mcp-servers/list";
+import ModelsPage from "@/pages/models/list";
 import "./globals.css";
 
 const queryClient = new QueryClient({
@@ -55,9 +56,9 @@ createRoot(document.getElementById("root")!).render(
               <Route path="tasks/:name" element={<TaskDetailPage />} />
               <Route path="keys" element={<KeysList />} />
               <Route path="agents" element={<AgentListPage />} />
-              <Route path="agents/:name" element={<AgentDetailPage />} />
+              <Route path="agents/:id" element={<AgentDetailPage />} />
               <Route path="sessions" element={<SessionsPage />} />
-              <Route path="sessions/:source/:id" element={<SessionDetailPage />} />
+              <Route path="sessions/:id" element={<SessionDetailPage />} />
               <Route path="skills" element={<SkillsPage />} />
               <Route path="skills/new" element={<SkillCreatePage />} />
               <Route path="skills/:name" element={<SkillDetailPage />} />
@@ -65,6 +66,7 @@ createRoot(document.getElementById("root")!).render(
               <Route path="labs/:labId" element={<LabDetailPage />} />
               <Route path="labs/:labId/chat" element={<LabChatPage />} />
               <Route path="labs/:labId/chat/:sessionId" element={<LabChatPage />} />
+              <Route path="models" element={<ModelsPage />} />
               <Route path="mcp-servers" element={<MCPServersPage />} />
               <Route path="adapters" element={<AdaptersList />} />
               <Route path="settings" element={<ConfigPage />} />

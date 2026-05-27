@@ -11,7 +11,6 @@ from cliver.config import ModelConfig
 from cliver.llm.llm import AgentCore
 from cliver.llm.unified_engine import UnifiedInferenceEngine
 from cliver.media import MediaContent, MediaType, load_media_file
-from cliver.model_capabilities import ModelCapability
 
 
 class TestMediaContent:
@@ -54,14 +53,6 @@ class TestOpenAIEngine:
         config.get_provider_type = Mock(return_value="openai")
         config.options = None
 
-        config.get_capabilities = Mock(
-            return_value={
-                ModelCapability.TEXT_TO_TEXT,
-                ModelCapability.IMAGE_TO_TEXT,
-                ModelCapability.TOOL_CALLING,
-            }
-        )
-
         engine = UnifiedInferenceEngine(config)
         engine.llm = AsyncMock()
         return engine
@@ -99,24 +90,16 @@ class TestOllamaEngine:
         config.provider = "ollama"
         config.api_model_name = "llava"
         config.get_resolved_url = Mock(return_value="http://localhost:11434")
-        config.get_provider_type = Mock(return_value="ollama")
+        config.get_provider_type = Mock(return_value="openai")
         config.options = None
         config.model_dump = Mock(return_value={})
-
-        config.get_capabilities = Mock(
-            return_value={
-                ModelCapability.TEXT_TO_TEXT,
-                ModelCapability.IMAGE_TO_TEXT,
-                ModelCapability.TOOL_CALLING,
-            }
-        )
 
         engine = UnifiedInferenceEngine(config)
         engine.llm = AsyncMock()
         return engine
 
-    def test_convert_messages_to_ollama_format(self, ollama_engine):
-        """Test converting messages to Ollama format."""
+    def test_convert_messages_pass_through(self, ollama_engine):
+        """Messages pass through unchanged (no provider-specific conversion)."""
         media = MediaContent(
             type=MediaType.IMAGE,
             data="base64image",
@@ -133,8 +116,9 @@ class TestOllamaEngine:
         converted_message = converted[0]
         assert isinstance(converted_message, HumanMessage)
         assert converted_message.content == "What's in this image?"
-        assert "images" in converted_message.additional_kwargs
-        assert converted_message.additional_kwargs["images"] == ["base64image"]
+        # Media is consumed during _prepare_user_messages, not during
+        # convert_messages_to_engine_specific — the message passes through.
+        assert "images" not in converted_message.additional_kwargs
 
 
 class TestAgentCore:

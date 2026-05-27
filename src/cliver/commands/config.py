@@ -75,12 +75,11 @@ def _show_config(cliver: Cliver):
             prov_table.add_column("API URL", style="blue")
             prov_table.add_column("API Key", style="dim")
             prov_table.add_column("Rate Limit", style="yellow")
-            prov_table.add_column("Image URL", style="dim")
 
             for name, prov in cfg.providers.items():
                 api_key_display = _mask_value(prov.api_key) if prov.api_key else "-"
                 rl = f"{prov.rate_limit.requests}/{prov.rate_limit.period}" if prov.rate_limit else "-"
-                prov_table.add_row(name, prov.type, prov.api_url, api_key_display, rl, prov.image_url or "-")
+                prov_table.add_row(name, prov.type, prov.api_url, api_key_display, rl)
 
             console.print(
                 Panel(
@@ -106,10 +105,6 @@ def _show_config(cliver: Cliver):
                 url = model.get_resolved_url()
                 if url:
                     t.add_row("URL", f"{url}")
-                if model.think_mode is not None:
-                    t.add_row("Think Mode", "on" if model.think_mode else "off")
-                if model.context_window:
-                    t.add_row("Context Window", f"{model.context_window:,} tokens")
 
                 # Capabilities
                 caps = model.get_capabilities()
@@ -186,29 +181,31 @@ def _config_rate_limit(cliver: Cliver, provider_name: str, limit: str | None):
     from cliver.commands.provider import _parse_rate_limit
 
     providers = cliver.config_manager.list_providers()
-    if provider_name not in providers:
+    provider = providers.get(provider_name)
+
+    if not provider:
         cliver.output(f"Provider '{provider_name}' not found.")
         available = ", ".join(providers.keys()) if providers else "(none)"
         cliver.output(f"Available providers: {available}")
         return
 
     if limit is None:
-        prov = providers[provider_name]
-        if prov.rate_limit:
-            cliver.output(
-                f"Rate limit for '{provider_name}': "
-                f"{prov.rate_limit.requests}/{prov.rate_limit.period} "
-                f"(margin: {prov.rate_limit.margin:.0%})"
-            )
+        if provider.rate_limit:
+            rl = provider.rate_limit
+            cliver.output(f"Rate limit for '{provider_name}': {rl.requests}/{rl.period}")
         else:
             cliver.output(f"No rate limit set for '{provider_name}'.")
         return
 
     rl = _parse_rate_limit(limit)
-    if cliver.config_manager.set_provider_rate_limit(provider_name, rl):
-        cliver.output(f"Rate limit for '{provider_name}' set to {rl.requests}/{rl.period}.")
-    else:
-        cliver.output(f"Failed to update rate limit for '{provider_name}'.")
+    cliver.config_manager.add_or_update_provider(
+        provider_name,
+        provider.type,
+        provider.api_url,
+        api_key=provider.api_key,
+        rate_limit=rl,
+    )
+    cliver.output(f"Rate limit for '{provider_name}' set to {rl.requests}/{rl.period}.")
 
 
 def _show_config_path(cliver: Cliver):

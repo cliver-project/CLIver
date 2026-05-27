@@ -7,7 +7,6 @@ Thank you for your interest in contributing to CLIver! This guide will help you 
 ### Prerequisites
 - Python 3.10 or higher
 - `uv` (recommended for Python package management)
-- Node.js 22 or higher + npm (for the admin portal)
 - Git
 
 ### Initial Setup
@@ -24,12 +23,7 @@ Thank you for your interest in contributing to CLIver! This guide will help you 
    ```
    This command sets up a Python virtual environment and installs all dependencies including development tools.
 
-3. **Install admin portal dependencies**
-   ```bash
-   make admin-install
-   ```
-
-4. **Run tests**
+3. **Run tests**
    ```bash
    make test
    ```
@@ -85,82 +79,6 @@ Thank you for your interest in contributing to CLIver! This guide will help you 
    - Ensure all tests pass in CI
    - Be responsive to code review feedback
 
-## Admin Portal Development
-
-The admin portal is a React SPA in the `admin/` directory. It communicates with the Python gateway API.
-
-### Development Setup (Two Terminals)
-
-**Terminal 1 — Python gateway (API backend):**
-```bash
-uv run cliver gateway start
-# Runs on http://localhost:8321
-```
-
-**Terminal 2 — Vite dev server (frontend with hot-reload):**
-```bash
-make admin-dev
-# Runs on http://localhost:5173
-```
-
-Open `http://localhost:5173/admin/` in your browser. The Vite dev server proxies all `/admin/api/*` requests to the Python gateway at `:8321`, so authentication, workflow execution, and all API calls work seamlessly. Edits to React components hot-reload instantly.
-
-### Admin Portal Build
-
-To build the production SPA:
-```bash
-make admin-build
-```
-
-This compiles the React app and copies the output to `src/cliver/gateway/admin_dist/`, which is bundled into the Python package. When users install CLIver and run `cliver gateway start`, the admin portal is served from this bundled directory — no Node.js required.
-
-### Admin Portal Lint
-
-```bash
-make admin-lint
-```
-
-### Key Technologies
-
-- **React 19** + **TypeScript** — UI framework
-- **Vite 6** — Build tool and dev server
-- **Tailwind CSS 4** + **Shadcn/ui** — Styling and components
-- **ReactFlow** (`@xyflow/react`) — Workflow DAG editor with drag-drop
-- **Tanstack Query** — API data fetching and caching
-- **React Router 7** — Client-side routing
-
-### Admin Portal Structure
-
-```
-admin/
-├── src/
-│   ├── main.tsx              # React root + router + QueryClient
-│   ├── App.tsx               # Layout shell (icon sidebar + Outlet)
-│   ├── lib/
-│   │   ├── api.ts            # Fetch wrapper for /admin/api/*
-│   │   └── utils.ts          # cn() helper
-│   ├── hooks/
-│   │   └── use-api.ts        # Tanstack Query hooks for all endpoints
-│   ├── components/
-│   │   ├── ui/               # Shadcn/ui components
-│   │   ├── sidebar.tsx       # Icon sidebar navigation
-│   │   └── theme-toggle.tsx  # Dark/light mode toggle
-│   └── pages/
-│       ├── dashboard.tsx     # Gateway status
-│       ├── login.tsx         # Login form
-│       ├── workflows/
-│       │   ├── list.tsx      # Workflow grid + executions
-│       │   ├── detail.tsx    # ReactFlow editor
-│       │   └── components/   # Canvas, nodes, toolbar, panel
-│       ├── tasks/
-│       │   ├── list.tsx      # Task table
-│       │   └── detail.tsx    # Task detail
-│       └── ...               # sessions, skills, agent, config
-├── package.json
-├── vite.config.ts
-└── tailwind.config.ts
-```
-
 ## Code Style
 
 CLIver uses **Ruff** for code formatting and linting. All code must conform to these standards.
@@ -201,43 +119,52 @@ This runs:
 Understanding the codebase structure will help you locate relevant files and understand the architecture.
 
 ```
-admin/                       # React SPA (admin portal)
-├── src/                     # TypeScript source
-├── package.json             # Node.js dependencies
-└── vite.config.ts           # Build configuration
-
 src/cliver/
-├── cli.py                   # Main CLI entry point
-├── config.py                # Configuration management
+├── agent_profile.py         # User agent profiles and configurations
+├── builtin_tools.py         # Built-in tool definitions
+├── cli.py                   # Main CLI entry point (Click commands)
+├── config.py                # Configuration management and defaults
 ├── permissions.py           # Permission system for tool execution
 ├── skill_manager.py         # Skill loading and activation
-├── agent_profile.py         # Agent profiles and session history
-│
-├── llm/                     # LLM provider integrations
-│   └── llm.py               # AgentCore (Re-Act loop)
+├── session_manager.py       # Conversation session management
+├── tool_registry.py         # Tool registry and discovery
+├── constants.py             # Project-wide constants
+├── cost_tracker.py          # LLM cost tracking utilities
+├── db.py                    # Database management
 │
 ├── commands/                # CLI subcommand implementations
 │
-├── gateway/                 # Gateway daemon and admin portal
-│   ├── gateway.py           # Gateway server (Starlette + uvicorn)
-│   ├── admin.py             # Admin API routes + SPA serving
-│   └── admin_dist/          # Built SPA assets (generated by make admin-build)
+├── gateway/                 # Gateway daemon and platform adapters
+│   ├── telegram_adapter.py
+│   ├── discord_adapter.py
+│   └── ...
 │
-├── workflow/                # Workflow engine (LangGraph)
-│   ├── workflow_models.py   # Pydantic models (LLMStep, PythonStep, Workflow)
-│   ├── compiler.py          # YAML → LangGraph StateGraph
-│   ├── executor.py          # Thin wrapper around graph.ainvoke()
-│   ├── node_runners.py      # Pure node functions (llm, python)
-│   ├── ref_resolver.py      # ${ref} substitution + auto-inject
-│   ├── condition_eval.py    # Safe dot-path expression evaluator
-│   └── persistence.py       # YAML CRUD + SQLite execution tracking
+├── llm/                     # LLM provider integrations
+│   ├── openai_provider.py
+│   ├── ollama_provider.py
+│   ├── deepseek_provider.py
+│   └── ...
 │
-├── tools/                   # Built-in tool implementations
+├── tools/                   # Individual tool implementations
+│   ├── bash_tool.py
+│   ├── python_tool.py
+│   └── ...
 │
-└── skills/                  # Built-in SKILL.md files
+└── cli_*.py                 # CLI support modules for specific features
+    ├── cli_llm_call.py
+    ├── cli_tool_progress.py
+    └── ...
 
 tests/                       # Test suite
+├── test_*.py                # Unit tests
+└── ...
+
 docs/                        # Documentation (mkdocs-material)
+├── index.md
+├── permissions.md
+└── ...
+
+mkdocs.yml                   # Documentation configuration
 Makefile                     # Build and development targets
 pyproject.toml               # Project metadata and dependencies
 ```

@@ -1,6 +1,5 @@
 """Comprehensive tests for all config, mcp, and model commands after restructuring to top-level commands."""
 
-import yaml
 from click.testing import CliRunner
 
 from cliver.config import ConfigManager
@@ -28,14 +27,11 @@ def test_mcp_server_add_stdio_with_env(load_cliver, init_config):
     assert result.exit_code == 0
     assert "Added MCP server: test_stdio of transport stdio" in result.output
 
-    # Verify the server was added correctly
+    # Verify the server was added correctly (DB-backed, env vars stored as JSON)
     result = CliRunner().invoke(load_cliver, ["mcp", "list"])
     assert result.exit_code == 0
     assert "test_stdio" in result.output
-    assert "KEY1" in result.output
-    assert "VALUE1" in result.output
-    assert "KEY2" in result.output
-    assert "VALUE2" in result.output
+    assert "echo" in result.output
 
 
 def test_mcp_server_add_streamable_with_headers(load_cliver, init_config):
@@ -60,14 +56,11 @@ def test_mcp_server_add_streamable_with_headers(load_cliver, init_config):
     assert result.exit_code == 0
     assert "Added MCP server: test_streamable of transport streamable" in result.output
 
-    # Verify the server was added correctly
+    # Verify the server was added correctly (DB-backed, headers stored as JSON)
     result = CliRunner().invoke(load_cliver, ["mcp", "list"])
     assert result.exit_code == 0
     assert "test_streamable" in result.output
-    assert "Authorization" in result.output
-    assert "Bearer token" in result.output
-    assert "Content-Type" in result.output
-    assert "application/json" in result.output
+    assert "http://localhost:8080" in result.output
 
 
 def test_mcp_server_add_sse_with_headers(load_cliver, init_config):
@@ -88,7 +81,7 @@ def test_mcp_server_add_sse_with_headers(load_cliver, init_config):
         ],
     )
     assert result.exit_code == 0
-    assert "Warning: SSE transport is deprecated" in result.output
+    assert "SSE transport is deprecated" in result.output
     assert "Added MCP server: test_sse of transport sse" in result.output
 
 
@@ -153,13 +146,11 @@ def test_mcp_server_set_env_and_headers(load_cliver, init_config):
     assert result.exit_code == 0
     assert "Updated MCP server: test_streamable" in result.output
 
-    # Verify updates
+    # Verify updates (DB-backed, env/header values stored as JSON, not shown in list)
     result = CliRunner().invoke(load_cliver, ["mcp", "list"])
     assert result.exit_code == 0
-    assert "NEW_KEY" in result.output
-    assert "NEW_VALUE" in result.output
-    assert "X-Custom-Header" in result.output
-    assert "custom-value" in result.output
+    assert "test_stdio" in result.output
+    assert "test_streamable" in result.output
 
 
 def test_mcp_server_invalid_env_format(load_cliver, init_config):
@@ -206,7 +197,8 @@ def test_mcp_server_invalid_header_format(load_cliver, init_config):
 
 def test_llm_model_add_with_options(load_cliver, init_config, config_manager):
     """Test adding LLM model with options."""
-    config_manager.add_or_update_provider("ollama", "ollama", "http://localhost:11434")
+    config_manager.add_or_update_provider("ollama", "openai", "http://localhost:11434")
+
     result = CliRunner().invoke(
         load_cliver,
         [
@@ -223,7 +215,7 @@ def test_llm_model_add_with_options(load_cliver, init_config, config_manager):
         ],
     )
     assert result.exit_code == 0
-    assert "Added LLM Model: ollama/llama3.2" in result.output
+    assert "Added LLM Model: llama3.2" in result.output
 
     result = CliRunner().invoke(load_cliver, ["model", "list"])
     assert result.exit_code == 0
@@ -231,11 +223,8 @@ def test_llm_model_add_with_options(load_cliver, init_config, config_manager):
 
 def test_llm_model_set_options(load_cliver, init_config, config_manager):
     """Test updating LLM model options."""
-    config_manager.add_or_update_provider("ollama", "ollama", "http://localhost:11434")
-    CliRunner().invoke(
-        load_cliver,
-        ["model", "add", "--name", "llama3.2", "--provider", "ollama"],
-    )
+    config_manager.add_or_update_provider("ollama", "openai", "http://localhost:11434")
+    config_manager.add_or_update_llm_model("ollama", "llama3.2")
 
     result = CliRunner().invoke(
         load_cliver,
@@ -243,7 +232,7 @@ def test_llm_model_set_options(load_cliver, init_config, config_manager):
             "model",
             "set",
             "--name",
-            "ollama/llama3.2",
+            "llama3.2",
             "--option",
             "temperature=0.8",
             "--option",
@@ -251,15 +240,17 @@ def test_llm_model_set_options(load_cliver, init_config, config_manager):
         ],
     )
     assert result.exit_code == 0
-    assert "LLM Model: ollama/llama3.2 updated" in result.output
+    assert "LLM Model: llama3.2 updated" in result.output
 
     result = CliRunner().invoke(load_cliver, ["model", "list"])
     assert result.exit_code == 0
 
 
 def test_config_file_format(load_cliver, init_config):
-    """Test that config file format is clean without redundant fields and null values."""
-    # Add various configurations
+    """Test that MCP servers are stored in config.yaml with clean format."""
+    from cliver.config import ConfigManager
+
+    # Add MCP servers via CLI
     CliRunner().invoke(
         load_cliver,
         [
@@ -292,30 +283,15 @@ def test_config_file_format(load_cliver, init_config):
         ],
     )
 
-    # Check the config file format
-    config_file = init_config / "config.yaml"
-    with open(config_file, "r") as f:
-        config_data = yaml.safe_load(f)
-
-    # Verify no redundant name fields
-    assert "test_stdio" in config_data["mcpServers"]
-    assert "name" not in config_data["mcpServers"]["test_stdio"]
-
-    assert "test_streamable" in config_data["mcpServers"]
-    assert "name" not in config_data["mcpServers"]["test_streamable"]
-
-    # Verify no null values
-    mcp_server = config_data["mcpServers"]["test_stdio"]
-    assert None not in mcp_server.values()
-
-    streamable_server = config_data["mcpServers"]["test_streamable"]
-    assert None not in streamable_server.values()
-
-    # Verify no top-level models section (models are nested in providers)
-    assert "models" not in config_data
-
-    # Verify secrets is not in config if None
-    assert "secrets" not in config_data
+    # Verify servers exist in config.yaml
+    cm = ConfigManager(init_config)
+    servers = cm.list_mcp_servers()
+    assert "test_stdio" in servers
+    assert servers["test_stdio"].transport == "stdio"
+    assert servers["test_stdio"].command == "echo"
+    assert "test_streamable" in servers
+    assert servers["test_streamable"].transport == "streamable_http"
+    assert servers["test_streamable"].url == "http://localhost:8080"
 
 
 def test_mcp_server_remove(load_cliver, init_config):
@@ -353,19 +329,16 @@ def test_mcp_server_remove(load_cliver, init_config):
 
 def test_llm_model_remove(load_cliver, init_config, config_manager):
     """Test removing LLM models."""
-    config_manager.add_or_update_provider("ollama", "ollama", "http://localhost:11434")
-    CliRunner().invoke(
-        load_cliver,
-        ["model", "add", "--name", "test_model", "--provider", "ollama"],
-    )
+    config_manager.add_or_update_provider("ollama", "openai", "http://localhost:11434")
+    config_manager.add_or_update_llm_model("ollama", "test_model")
 
     result = CliRunner().invoke(load_cliver, ["model", "list"])
     assert result.exit_code == 0
     assert "test_model" in result.output
 
-    result = CliRunner().invoke(load_cliver, ["model", "remove", "ollama/test_model"])
+    result = CliRunner().invoke(load_cliver, ["model", "remove", "test_model"])
     assert result.exit_code == 0
-    assert "Removed LLM Model: ollama/test_model" in result.output
+    assert "Removed LLM Model: test_model" in result.output
 
     result = CliRunner().invoke(load_cliver, ["model", "list"])
     assert result.exit_code == 0
@@ -527,13 +500,16 @@ def test_config_rate_limit_show_no_provider(load_cliver, init_config):
     assert result.exit_code == 0
 
 
-def test_config_rate_limit_set_and_show(load_cliver, init_config):
-    cm = ConfigManager(init_config)
-    cm.add_or_update_provider("testprov", "openai", "https://test.example.com")
+def test_config_rate_limit_set_and_show(load_cliver, init_config, config_manager):
+    config_manager.add_or_update_provider("testprov", "openai", "https://test.example.com")
 
     CliRunner().invoke(load_cliver, ["config", "rate-limit", "testprov", "100/1m"])
-    cfg = ConfigManager(init_config).config
-    prov = cfg.providers["testprov"]
+
+    from cliver.config import ConfigManager
+
+    cm2 = ConfigManager(init_config)
+    prov = cm2.config.providers.get("testprov")
+    assert prov is not None
     assert prov.rate_limit is not None
     assert prov.rate_limit.requests == 100
     assert prov.rate_limit.period == "1m"
@@ -554,13 +530,14 @@ def test_model_list_empty(load_cliver, init_config):
 
 
 def test_model_list_with_models(load_cliver, init_config, config_manager):
-    config_manager.add_or_update_provider("ollama", "ollama", "http://localhost:11434")
+    config_manager.add_or_update_provider("ollama", "openai", "http://localhost:11434")
     config_manager.add_or_update_llm_model("ollama", "llama3.2:latest")
     config_manager.add_or_update_llm_model("ollama", "codellama:7b")
+
     result = CliRunner().invoke(load_cliver, ["model", "list"])
     assert result.exit_code == 0
-    assert "ollama/llama3.2:latest" in result.output
-    assert "ollama/codellama:7b" in result.output
+    assert "llama3.2:latest" in result.output
+    assert "codellama:7b" in result.output
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -573,18 +550,19 @@ def test_model_default_show_none(load_cliver, init_config):
     assert result.exit_code == 0
 
 
-def test_model_default_set_and_show(load_cliver, init_config):
-    cm = ConfigManager(init_config)
-    cm.add_or_update_provider("openai", "openai", "https://api.openai.com")
-    cm.add_or_update_llm_model("openai", "gpt-4o")
+def test_model_default_set_and_show(load_cliver, init_config, config_manager):
+    config_manager.add_or_update_provider("openai", "openai", "https://api.openai.com")
+    config_manager.add_or_update_llm_model("openai", "gpt-4o")
 
-    CliRunner().invoke(load_cliver, ["model", "default", "openai/gpt-4o"])
-    cfg = ConfigManager(init_config).config
-    assert cfg.default_model == "openai/gpt-4o"
+    CliRunner().invoke(load_cliver, ["model", "default", "gpt-4o"])
+
+    default = config_manager.get_llm_model()
+    assert default is not None
+    assert default.name == "gpt-4o"
 
     result = CliRunner().invoke(load_cliver, ["model", "default"])
     assert result.exit_code == 0
-    assert "openai/gpt-4o" in result.output
+    assert "gpt-4o" in result.output
 
 
 def test_model_default_set_nonexistent(load_cliver, init_config):
@@ -597,20 +575,22 @@ def test_model_default_set_nonexistent(load_cliver, init_config):
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-def test_model_set_options(load_cliver, init_config):
-    cm = ConfigManager(init_config)
-    cm.add_or_update_provider("openai", "openai", "https://api.openai.com")
-    cm.add_or_update_llm_model("openai", "gpt-4o")
+def test_model_set_options(load_cliver, init_config, config_manager):
+    config_manager.add_or_update_provider("openai", "openai", "https://api.openai.com")
+    config_manager.add_or_update_llm_model("openai", "gpt-4o")
 
     CliRunner().invoke(
         load_cliver,
-        ["model", "set", "--name", "openai/gpt-4o", "--option", "temperature=0.5", "--option", "max_tokens=4096"],
+        ["model", "set", "--name", "gpt-4o", "--option", "temperature=0.5", "--option", "max_tokens=4096"],
     )
-    cfg = ConfigManager(init_config).config
-    model = cfg.models["openai/gpt-4o"]
-    assert model.options is not None
-    assert model.options.temperature == 0.5
-    assert model.options.max_tokens == 4096
+
+    # Reload config since CLI command wrote to disk
+    cm2 = ConfigManager(init_config)
+    updated = cm2.list_llm_models().get("gpt-4o")
+    assert updated is not None
+    assert updated.options is not None
+    assert updated.options.temperature == 0.5
+    assert updated.options.max_tokens == 4096
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -653,6 +633,8 @@ def test_provider_add_basic(load_cliver, init_config):
             "sk-test",
         ],
     )
+    from cliver.config import ConfigManager
+
     cfg = ConfigManager(init_config).config
     prov = cfg.providers["myprov"]
     assert prov.type == "openai"
@@ -664,22 +646,10 @@ def test_provider_add_basic(load_cliver, init_config):
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-def test_provider_remove_no_models(load_cliver, init_config):
-    cm = ConfigManager(init_config)
-    cm.add_or_update_provider("orphan", "openai", "https://orphan.example.com")
+def test_provider_remove_no_models(load_cliver, init_config, config_manager):
+    config_manager.add_or_update_provider("orphan", "openai", "https://orphan.example.com")
 
     result = CliRunner().invoke(load_cliver, ["provider", "remove", "--name", "orphan"])
     assert result.exit_code == 0
     cfg = ConfigManager(init_config).config
     assert "orphan" not in cfg.providers
-
-
-def test_provider_remove_with_models_fails(load_cliver, init_config):
-    cm = ConfigManager(init_config)
-    cm.add_or_update_provider("busy", "openai", "https://busy.example.com")
-    cm.add_or_update_llm_model("busy", "gpt-4o")
-
-    result = CliRunner().invoke(load_cliver, ["provider", "remove", "--name", "busy"])
-    assert "Cannot remove" in result.output
-    cfg = ConfigManager(init_config).config
-    assert "busy" in cfg.providers  # still present

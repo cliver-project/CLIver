@@ -1,11 +1,16 @@
 """
 CliverProfile — manages instance-scoped resources for CLIver.
 
-Single instance per host. Resources stored directly under {config_dir}/:
-- identity.md — YAML frontmatter (name, role, preferences) + free-form body
-- memory.md   — persistent knowledge, append-only
-- tasks/      — scheduled task definitions
-- sessions/   — chat session tracking
+Single instance per host. Resources stored under {config_dir}/:
+
+  Files (human-editable):
+    identity.md     — YAML frontmatter (name, role, preferences) + free-form body
+    memory.md       — persistent knowledge, append-only
+    tasks/          — scheduled task definitions (YAML)
+    audit_logs/     — token usage logs (JSONL, one file per month)
+
+  SQLite (structured data):
+    cliver.db       — sessions, turns, keys, labs, golden tests, task runs
 """
 
 import logging
@@ -25,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 _current_profile: Optional["CliverProfile"] = None
 
-_agent_factory = None
+_agent_core = None
 
 _agent_factory = None
 
@@ -43,20 +48,13 @@ def get_current_profile() -> Optional["CliverProfile"]:
     return _current_profile
 
 
-def set_agent_factory(factory) -> None:
-    global _agent_factory
-    _agent_factory = factory
-
-
-def get_agent_factory():
-    return _agent_factory
+def set_agent_core(executor) -> None:
+    global _agent_core
+    _agent_core = executor
 
 
 def get_agent_core():
-    """Backward-compat shim — returns AgentCore from the current factory."""
-    if _agent_factory is not None:
-        return _agent_factory.agent_core
-    return None
+    return _agent_core
 
 
 def set_agent_factory(factory) -> None:
@@ -111,13 +109,13 @@ preferences:
 class CliverProfile:
     """Manages instance-scoped resources under {config_dir}/.
 
-    Directory layout:
+    Layout:
         {config_dir}/
-        ├── identity.md                    # YAML frontmatter + free-form body
-        ├── memory.md                      # persistent knowledge
-        ├── tasks/                         # scheduled tasks
-        ├── sessions/                      # chat sessions
-        └── cliver.db                      # unified database (all tables)
+        ├── identity.md          # YAML frontmatter + free-form body
+        ├── memory.md            # persistent knowledge
+        ├── tasks/               # scheduled task definitions (YAML)
+        ├── audit_logs/          # token usage logs (JSONL per month)
+        └── cliver.db            # unified SQLite database (all tables)
     """
 
     def __init__(self, config_dir: Optional[Path] = None):
@@ -126,17 +124,11 @@ class CliverProfile:
         self.memory_file = self.config_dir / "memory.md"
         self.identity_file = self.config_dir / "identity.md"
         self.tasks_dir = self.config_dir / "tasks"
-        self.sessions_dir = self.config_dir / "sessions"
 
     @property
     def db_path(self) -> Path:
         """Unified SQLite database path shared by all stores."""
         return self.config_dir / "cliver.db"
-
-    @property
-    def gateway_db(self) -> Path:
-        """Backward-compatible alias for db_path."""
-        return self.db_path
 
     def ensure_dirs(self) -> None:
         self.config_dir.mkdir(parents=True, exist_ok=True)

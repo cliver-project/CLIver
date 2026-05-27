@@ -63,15 +63,11 @@ def _create_skill(cliver: Cliver, name: str, description: str, save_global: bool
         return
     content = result
 
-    error = _validate_skill_content(content)
-    if error:
-        cliver.output(f"Error: {error}")
-        cliver.output("Skill not created. Try again with a clearer description.")
-        return
-
+    # Write to disk
     skills_dir.mkdir(parents=True, exist_ok=True)
     skill_file.write_text(content, encoding="utf-8")
     cliver.output(f"Created skill at: {skill_file}")
+    cliver.output("You can edit the file to refine the skill content.")
 
 
 def _show_skill(cliver: Cliver, name: str):
@@ -95,7 +91,8 @@ def _show_skill(cliver: Cliver, name: str):
 def _edit_skill(cliver: Cliver, name: str):
     """Open a skill's SKILL.md in $EDITOR."""
     import os
-    import subprocess
+
+    from cliver.commands.identity import _run_editor
 
     manager = SkillManager()
     skill = manager.get_skill(name)
@@ -109,17 +106,9 @@ def _edit_skill(cliver: Cliver, name: str):
         cliver.output(f"Skill file not found: {skill_file}")
         return
 
-    original = skill_file.read_text(encoding="utf-8")
     editor = os.environ.get("EDITOR", "vi")
     try:
-        subprocess.run([editor, str(skill_file)], check=True)
-        content = skill_file.read_text(encoding="utf-8")
-        error = _validate_skill_content(content)
-        if error:
-            skill_file.write_text(original, encoding="utf-8")
-            cliver.output(f"Error: {error}")
-            cliver.output("Changes reverted. Original content restored.")
-            return
+        _run_editor(editor, str(skill_file))
         cliver.output(f"Saved {skill_file}")
     except Exception as e:
         cliver.output(f"Error: {e}")
@@ -148,12 +137,6 @@ def _update_skill(cliver: Cliver, name: str, instructions: str):
         return
     content = result
 
-    error = _validate_skill_content(content)
-    if error:
-        cliver.output(f"Error: {error}")
-        cliver.output("Skill not updated. Original content preserved.")
-        return
-
     skill_file.write_text(content, encoding="utf-8")
     cliver.output(f"Updated skill at: {skill_file}")
 
@@ -176,9 +159,7 @@ def _compress_if_needed(cliver, agent_core, model_config, model_name, new_input)
             compressor.compress(cliver.conversation_messages, llm_engine)
         )
     except RuntimeError:
-        from cliver.util import run_async
-
-        compressed = run_async(compressor.compress(cliver.conversation_messages, llm_engine))
+        compressed = asyncio.run(compressor.compress(cliver.conversation_messages, llm_engine))
 
     cliver.conversation_messages = compressed
     after_tokens = estimate_tokens(cliver.conversation_messages)
@@ -493,29 +474,6 @@ def _suggest_available(cliver: Cliver, manager: SkillManager) -> None:
 async def _no_tools(_user_input, _tools):
     """filter_tools callback that disables all tools."""
     return []
-
-
-def _validate_skill_content(content: str) -> str | None:
-    """Check SKILL.md has valid frontmatter with name and description."""
-    import yaml
-
-    text = content.strip()
-    if not text.startswith("---"):
-        return "Must start with YAML frontmatter (---)"
-    parts = text.split("---", 2)
-    if len(parts) < 3:
-        return "Missing closing frontmatter (---)"
-    try:
-        fm = yaml.safe_load(parts[1])
-    except Exception as e:
-        return f"Invalid YAML: {e}"
-    if not isinstance(fm, dict):
-        return "Frontmatter must be a YAML mapping"
-    if not fm.get("name"):
-        return "Frontmatter missing 'name'"
-    if not fm.get("description"):
-        return "Frontmatter missing 'description'"
-    return None
 
 
 def _llm_generate(cliver: Cliver, prompt: str, model: str, status_msg: str) -> str | None:

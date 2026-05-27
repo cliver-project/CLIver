@@ -122,16 +122,6 @@ class Gateway:
             logger.error(f"Failed to init lab store: {e}")
             self._lab_store = None
 
-        # Initialize MCP server store
-        try:
-            from cliver.mcp.store import MCPServerStore
-
-            self._mcp_store = MCPServerStore.from_config_dir(self.config_dir)
-            logger.info("MCP server store initialized")
-        except Exception as e:
-            logger.error(f"Failed to init MCP server store: {e}")
-            self._mcp_store = None
-
     def _get_config_manager(self) -> "ConfigManager":
         """Get config manager, using pre-resolved config if available."""
         return ConfigManager(self.config_dir, config=self._resolved_config)
@@ -204,13 +194,21 @@ class Gateway:
                 logger.debug("CLI sessions not available: %s", e)
 
             profile = CliverProfile(self.config_dir)
+            config_manager = self._get_config_manager()
+
+            # Shared KeyStore — one instance for the gateway lifecycle
+            from cliver.key_store import KeyStore
+
+            key_store = KeyStore(self.config_dir / "cliver.db")
+
             admin_ctx = {
                 "get_status": self._get_status_async,
                 "profile_name": profile.profile_name,
                 "config_dir": self.config_dir,
                 "gateway": self,
                 "cli_session_manager": cli_sm,
-                "mcp_store": getattr(self, "_mcp_store", None),
+                "config_manager": config_manager,
+                "key_store": key_store,
             }
             # Admin API routes (returns auth function for reuse)
             admin_api_routes, spa_routes, shared_auth = get_admin_routes(
@@ -237,13 +235,12 @@ class Gateway:
             except Exception as e:
                 logger.error(f"Failed to register lab routes: {e}")
 
-            # MCP server routes
+            # MCP server routes (config.yaml backed)
             try:
-                if hasattr(self, "_mcp_store") and self._mcp_store:
-                    from cliver.gateway.routes.admin_mcp import get_mcp_routes
+                from cliver.gateway.routes.admin_mcp import get_mcp_routes
 
-                    routes.extend(get_mcp_routes(self._mcp_store, shared_auth))
-                    logger.info("MCP server routes registered")
+                routes.extend(get_mcp_routes(config_manager, shared_auth))
+                logger.info("MCP server routes registered")
             except Exception as e:
                 logger.error(f"Failed to register MCP server routes: {e}")
 
@@ -632,7 +629,6 @@ class Gateway:
             on_tool_event=tool_handler,
             skill_auto_learn=config_manager.config.skill_auto_learn,
             model_auto_fallback=config_manager.config.model_auto_fallback,
-            mcp_store=getattr(self, "_mcp_store", None),
         )
         executor.configure_rate_limits(config_manager.config.providers)
         return executor

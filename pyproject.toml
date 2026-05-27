@@ -40,7 +40,6 @@ dependencies = [
     "requests>=2.32.3",
     "json-repair>=0.52.0",
     "cryptography>=42.0.0",
-    "croniter>=2.0.0",
     "tomli; python_version < '3.11'",
     "langchain-anthropic>=1.4.0",
     "langchain-deepseek>=1.0.0",
@@ -65,6 +64,7 @@ docs = [
 ]
 
 [project.optional-dependencies]
+gateway = ["croniter>=2.0", "starlette>=0.38"]
 telegram = ["python-telegram-bot>=21.0"]
 discord = ["discord.py>=2.3"]
 slack = ["slack-bolt>=1.18", "slack-sdk>=3.27"]
@@ -72,7 +72,17 @@ wechat = ["aiohttp>=3.9"]
 feishu = ["aiohttp>=3.9"]
 api = ["aiohttp>=3.9"]
 browser = ["firecrawl-py>=1.0", "playwright>=1.40"]
-all = ["python-telegram-bot>=21.0", "discord.py>=2.3", "slack-bolt>=1.18", "slack-sdk>=3.27", "aiohttp>=3.9", "firecrawl-py>=1.0", "playwright>=1.40"]
+all = [
+    "croniter>=2.0",
+    "starlette>=0.38",
+    "python-telegram-bot>=21.0",
+    "discord.py>=2.3",
+    "slack-bolt>=1.18",
+    "slack-sdk>=3.27",
+    "aiohttp>=3.9",
+    "firecrawl-py>=1.0",
+    "playwright>=1.40",
+]
 
 [project.scripts]
 cliver = "cliver.cli:cliver_main"

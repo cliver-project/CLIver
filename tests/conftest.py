@@ -42,20 +42,16 @@ def load_cliver(init_config, config_manager):
 
 @pytest.fixture()
 def simple_mcp_server(init_config, config_manager):
-    from cliver.mcp.store import MCPServerStore
-    import json
-
-    store = MCPServerStore.from_config_dir(init_config)
-    store.create_server(
+    config_manager.add_or_update_mcp_server(
         "ocp",
         transport="stdio",
         command="ocp_mcp_server_start",
-        args=json.dumps(["arg-a", "arg-b"]),
-        envs=json.dumps({"KUBECONFIG": "~/.kube/config"}),
+        args=["arg-a", "arg-b"],
+        env={"KUBECONFIG": "~/.kube/config"},
     )
 
 
 @pytest.fixture()
 def simple_llm_model(init_config, config_manager):
-    config_manager.add_or_update_provider("ollama", "ollama", "http://localhost:11434")
+    config_manager.add_or_update_provider("ollama", "openai", "http://localhost:11434")
     config_manager.add_or_update_llm_model("ollama", "llama3.2:latest")

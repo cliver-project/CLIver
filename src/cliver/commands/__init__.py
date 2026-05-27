@@ -1,12 +1,9 @@
 import importlib
 import logging
 import os
-import sys
 from typing import Callable, List
 
 import click
-
-from cliver.util import get_config_dir
 
 logger = logging.getLogger(__name__)
 
@@ -19,16 +16,6 @@ def loads_commands(group: click.Group) -> None:
         package_name="cliver.commands",
         filter_fn=lambda f_name: f_name != "__init__.py",
     )
-
-
-# This will load py modules from config directory
-# This assumes the py modules are safe and should be set up manually.
-def loads_external_commands(group: click.Group) -> None:
-    config_dir = get_config_dir()
-    dir_str = str(config_dir.absolute() / "commands")
-    if dir_str not in sys.path:
-        sys.path.append(dir_str)
-    _load_commands_from_dir(dir_str, group, log=True)
 
 
 def _load_commands_from_dir(

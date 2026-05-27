@@ -10,7 +10,6 @@ from langchain_core.tools import BaseTool
 from cliver.config import ModelConfig
 from cliver.llm.llm_utils import parse_tool_calls_from_content
 from cliver.media import MediaContent
-from cliver.model_capabilities import ModelCapability
 
 logger = logging.getLogger(__name__)
 
@@ -21,10 +20,6 @@ class LLMInferenceEngine(ABC):
         self.user_agent = user_agent
         self.agent_name = agent_name
         self.llm = None
-
-    def supports_capability(self, capability: ModelCapability) -> bool:
-        """Check if the model supports a specific capability."""
-        return self.config.get_model_capabilities().supports(capability)
 
     # This method focus on the real LLM inference only.
     # Exceptions are NOT caught here — they propagate to the Re-Act loop
@@ -57,7 +52,11 @@ class LLMInferenceEngine(ABC):
         _llm = await self._reconstruct_llm(self.llm, tools)
         # noinspection PyTypeChecker
         async for chunk in _llm.astream(input=converted_messages, **kwargs):
-            yield chunk
+            # Yield chunks as-is.  reasoning_content / reasoning_details
+            # stay in additional_kwargs so they survive chunk accumulation
+            # and are available for round-tripping back to the API on the
+            # next request (required by DeepSeek and other providers).
+            yield getattr(chunk, "message", chunk)
 
     def _log_message_summary(self, messages: List[BaseMessage]) -> None:
         """Log a summary of message types and content blocks for debugging."""
@@ -122,6 +121,8 @@ class LLMInferenceEngine(ABC):
         self,
         available_tools: Optional[Set[str]] = None,
         enabled_skills: Optional[Set[str]] = None,
+        models: Optional[dict] = None,
+        agents: Optional[dict] = None,
     ) -> str:
         """
         Build the builtin system prompt for CLIver.
@@ -133,12 +134,16 @@ class LLMInferenceEngine(ABC):
                 If None (default), only builtin skills (brainstorm, write-plan,
                 execute-plan) are shown. Pass an empty set to show none.
                 Pass a set of names to show only those skills.
+            models: Dict of model_name -> ModelConfig for model awareness.
+            agents: Dict of agent_name -> AgentConfig for agent awareness.
 
         This method can be overridden by engine subclasses.
         User-provided system messages are appended separately by AgentCore.
         """
         sections = [self._section_identity(self.agent_name)]
         sections.append(self._section_self_awareness(available_tools))
+        if models:
+            sections.append(self._section_models_and_agents(models, agents))
         sections.append(self._section_tool_usage())
         sections.append(self._section_interaction_guidelines(available_tools, enabled_skills))
         sections.append(self._section_response_format())
@@ -215,6 +220,53 @@ class LLMInferenceEngine(ABC):
             "mcp, skills, identity, profile, cost, provider, task. "
             "Use the CliverHelp tool for syntax."
         )
+        return "\n".join(lines)
+
+    def _section_models_and_agents(self, models: dict, agents: dict | None) -> str:
+        """Build a section listing available models grouped by category."""
+        current = getattr(self.config, "name", None) if self.config else None
+
+        lines = ["# Available Models\n"]
+
+        # Group by category
+        by_cat: dict[str, list] = {}
+        for name, mc in models.items():
+            cat = getattr(mc, "category", "text") or "text"
+            by_cat.setdefault(cat, []).append((name, mc))
+
+        category_labels = {
+            "text": "Text (chat, reasoning)",
+            "image": "Image Generation",
+            "audio": "Audio Generation (TTS)",
+            "video": "Video Generation",
+        }
+        tool_hints = {
+            "image": "ImageGenerate",
+            "audio": "AudioGenerate",
+            "video": "VideoGenerate",
+        }
+
+        for cat in ("text", "image", "audio", "video"):
+            items = by_cat.get(cat, [])
+            if not items:
+                continue
+            lines.append(f"\n## {category_labels.get(cat, cat.title())}")
+            for name, _ in items:
+                marker = " ★ (current)" if name == current else ""
+                lines.append(f"- **`{name}`**{marker}")
+            if cat in tool_hints and items:
+                lines.append(f"\nTo use these models, call `{tool_hints[cat]}` with `model='{items[0][0]}'`.")
+
+        if agents:
+            lines.append("\n## Agents\n")
+            for aname, acfg in agents.items():
+                role = getattr(acfg, "role", None) or getattr(acfg, "description", None) or ""
+                model = getattr(acfg, "model", None) or "default"
+                parts = [f"model: `{model}`"]
+                if role:
+                    parts.insert(0, role)
+                lines.append(f"- **{aname}**: {', '.join(parts)}")
+
         return "\n".join(lines)
 
     @staticmethod
@@ -407,14 +459,9 @@ class LLMInferenceEngine(ABC):
 
     async def _reconstruct_llm(self, _llm: BaseChatModel, tools: Optional[list[BaseTool]]) -> BaseChatModel:
         if tools and len(tools) > 0:
-            capabilities = self.config.get_capabilities()
-            if ModelCapability.TOOL_CALLING in capabilities:
-                if ModelCapability.FUNCTION_CALLING in capabilities:
-                    # Native OpenAI: use strict function calling
+            if self.config.is_text:
+                if self.config.can_strict_tool_call:
                     _llm = _llm.bind_tools(tools, strict=True)
                 else:
-                    # Other providers: bind tools without the strict field.
-                    # Passing strict=False explicitly adds "strict": false to
-                    # each function schema, which some providers reject.
                     _llm = _llm.bind_tools(tools)
         return _llm

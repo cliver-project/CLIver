@@ -127,13 +127,6 @@ class Cliver:
 
         configure_timezone(self.config_manager.config.timezone)
 
-        # Initialize MCP store for database-backed MCP servers
-        try:
-            from cliver.mcp.store import MCPServerStore
-            _mcp_store = MCPServerStore.from_config_dir(self.config_dir)
-        except Exception:
-            _mcp_store = None
-
         self.agent_core = AgentCore(
             llm_models=self.config_manager.list_llm_models(),
             mcp_servers=self.config_manager.list_mcp_servers_for_mcp_caller(),
@@ -148,7 +141,6 @@ class Cliver:
             enabled_toolsets=self.config_manager.config.enabled_toolsets,
             skill_auto_learn=self.config_manager.config.skill_auto_learn,
             model_auto_fallback=self.config_manager.config.model_auto_fallback,
-            mcp_store=_mcp_store,
         )
         self.agent_core.configure_rate_limits(self.config_manager.config.providers)
 
@@ -236,7 +228,25 @@ class Cliver:
 pass_cliver = click.make_pass_decorator(Cliver)
 
 
-@click.group(invoke_without_command=True)
+class CliverGroup(click.Group):
+    """Custom Click group that treats unrecognized commands as chat queries.
+
+    e.g., ``cliver "tell me a joke"`` is equivalent to a chat query.
+    """
+
+    def resolve_command(self, ctx, args):
+        cmd_name = args[0] if args else None
+        if cmd_name and cmd_name in self.commands:
+            return super().resolve_command(ctx, args)
+        if cmd_name and cmd_name.startswith("-"):
+            return super().resolve_command(ctx, args)
+        if args:
+            args = ["chat"] + list(args)
+            return super().resolve_command(ctx, args)
+        return super().resolve_command(ctx, args)
+
+
+@click.group(cls=CliverGroup, invoke_without_command=True)
 @click.version_option(version=__version__, prog_name="cliver")
 @click.option("--model", "-m", type=str, default=None, help="LLM model to use")
 @click.option("--prompt", "-p", type=str, default=None, help="Prompt to send to the LLM")
@@ -301,13 +311,20 @@ def cliver_cli(
 
     # Check for piped stdin
     effective_prompt = prompt
-    if not effective_prompt and stdin_is_piped():
+    piped_content = None
+    if stdin_is_piped():
         try:
-            effective_prompt = read_piped_input()
+            piped_content = read_piped_input()
         except Exception:
-            effective_prompt = None
+            piped_content = None
+        if piped_content:
+            if effective_prompt:
+                # Combine piped stdin with -p text
+                effective_prompt = f"<stdin>\n{piped_content}\n</stdin>\n\n{effective_prompt}"
+            else:
+                effective_prompt = piped_content
 
-    if effective_prompt:
+    if effective_prompt and ctx.invoked_subcommand is None:
         from cliver.command_router import CommandRouter
 
         if model:
@@ -325,6 +342,11 @@ def cliver_cli(
         )
         router.shutdown()
         return
+
+    # Piped stdin with a subcommand (e.g., "chat" from CliverGroup) —
+    # store piped content in ctx.meta so the subcommand can combine it
+    if piped_content and ctx.invoked_subcommand is not None:
+        ctx.meta["piped_stdin"] = piped_content
 
     if ctx.invoked_subcommand is None:
         # If no subcommand is invoked, start interactive mode
@@ -362,10 +384,8 @@ def interact(cli: Cliver, session_options: Dict[str, Any] = None) -> None:
 
 
 def loads_commands():
+    """Register builtin CLI subcommands and CommandRouter handlers."""
     commands.loads_commands(cliver_cli)
-    # Loads extended commands from config dir
-    commands.loads_external_commands(cliver_cli)
-    # Auto-register subcommands from CommandRouter HANDLERS
     _register_handler_commands()
 
 
@@ -378,10 +398,14 @@ def _register_handler_commands():
     from cliver.command_router import HANDLERS
 
     for handler_name in HANDLERS:
-        # Skip if already registered (e.g. by loads_commands discovering a Click command)
+        # Skip if already registered
         if handler_name in cliver_cli.commands:
             continue
         _make_cli_command(handler_name)
+
+    # Register the chat command (handles free-form text + piped stdin)
+    if "chat" not in cliver_cli.commands:
+        _make_chat_command()
 
 
 def _make_cli_command(handler_name: str):
@@ -397,6 +421,39 @@ def _make_cli_command(handler_name: str):
 
         router = CommandRouter(cliver_inst)
         router.command_sync(handler_name, " ".join(args))
+        router.shutdown()
+
+    return cmd
+
+
+def _make_chat_command():
+    """Register the ``chat`` Click subcommand.
+
+    This handles free-form text routed by CliverGroup (e.g. ``cliver "tell me a joke"``)
+    and combines piped stdin content with the user's prompt when both are present.
+    """
+
+    @cliver_cli.command(
+        name="chat",
+        context_settings={"ignore_unknown_options": True, "allow_extra_args": True},
+    )
+    @click.argument("args", nargs=-1, type=click.UNPROCESSED)
+    @click.pass_context
+    def cmd(ctx, args):
+        cliver_inst = ctx.ensure_object(Cliver)
+        text = " ".join(args)
+        piped = ctx.meta.get("piped_stdin")
+        if piped:
+            text = f"<stdin>\n{piped}\n</stdin>\n\n{text}"
+        if not text:
+            return
+        from cliver.command_router import CommandRouter
+
+        if hasattr(ctx.parent, "params") and ctx.parent.params.get("model"):
+            cliver_inst.session_options["model"] = ctx.parent.params["model"]
+
+        router = CommandRouter(cliver_inst)
+        router.query_sync(text)
         router.shutdown()
 
     return cmd

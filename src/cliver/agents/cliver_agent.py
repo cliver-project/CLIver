@@ -124,9 +124,9 @@ class CliverAgent(Agent):
         )
 
     def _build_system_appender(self):
-        if not self.config.role:
+        if not self.config.system_prompt:
             return None
-        role = self.config.role
+        role = self.config.system_prompt
         return lambda: f"\n\nYour role: {role}"
 
     def _extract_artifacts_from_message(self, message) -> List[Artifact]:

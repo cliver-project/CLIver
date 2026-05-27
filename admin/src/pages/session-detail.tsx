@@ -89,7 +89,7 @@ function MediaBlock({ media, sessionSource, sessionId }: {
   );
 }
 
-function TurnCard({ turn, source, sessionId }: { turn: TurnData; source?: string; sessionId?: string }) {
+function TurnCard({ turn, sessionId }: { turn: TurnData; sessionId?: string }) {
   const isUser = turn.role === "user";
   const isTool = turn.role === "tool";
   const reasoning = turn.additional_kwargs?.reasoning_content as string | undefined;
@@ -136,7 +136,7 @@ function TurnCard({ turn, source, sessionId }: { turn: TurnData; source?: string
             {reasoning && <ReasoningBlock content={reasoning} />}
             <MarkdownView content={turn.content} />
             <ToolCallsBlock calls={turn.tool_calls} />
-            <MediaBlock media={turn.media} sessionSource={source} sessionId={sessionId} />
+            <MediaBlock media={turn.media} sessionId={sessionId} />
           </div>
         </div>
       </CardContent>
@@ -146,28 +146,28 @@ function TurnCard({ turn, source, sessionId }: { turn: TurnData; source?: string
 
 export default function SessionDetailPage() {
   const { t } = useTranslation();
-  const { source, id } = useParams<{ source: string; id: string }>();
+  const { id } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const title = searchParams.get("title");
   const navigate = useNavigate();
-  const { data: turns, isLoading } = useSessionTurns(source!, id!);
-  const deleteSession = useDeleteSession(source!);
+  const { data: turns, isLoading } = useSessionTurns(id!);
+  const deleteSession = useDeleteSession();
   const [confirmOpen, setConfirmOpen] = useState(false);
 
   async function handleDelete() {
     await deleteSession.mutateAsync(id!);
-    navigate(`/admin/sessions?tab=${source}`);
+    navigate("/admin/sessions");
   }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => navigate(`/admin/sessions?tab=${source}`)}>
+        <Button variant="ghost" size="icon" onClick={() => navigate("/admin/sessions")}>
           <ArrowLeft className="w-4 h-4" />
         </Button>
         <div className="flex-1 min-w-0">
           <h1 className="text-2xl font-bold truncate">{title || t("sessions.session")}</h1>
-          <p className="text-xs text-muted-foreground font-mono truncate">{source} / {id}</p>
+          <p className="text-xs text-muted-foreground font-mono truncate">{id}</p>
         </div>
         <Button variant="destructive" size="sm" onClick={() => setConfirmOpen(true)} disabled={deleteSession.isPending}>
           <Trash2 className="w-4 h-4 mr-1" />
@@ -190,7 +190,7 @@ export default function SessionDetailPage() {
       {turns && turns.length > 0 && (
         <div className="space-y-3">
           {(turns as TurnData[]).map((turn, i) => (
-            <TurnCard key={i} turn={turn} source={source} sessionId={id} />
+            <TurnCard key={i} turn={turn} sessionId={id} />
           ))}
         </div>
       )}

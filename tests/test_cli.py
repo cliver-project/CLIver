@@ -11,7 +11,8 @@ def test_list_mcp_servers_simple(load_cliver, simple_mcp_server):
     result = CliRunner().invoke(load_cliver, ["mcp", "list"])
     assert result.exit_code == 0
     assert "stdio" in result.output
-    assert "ocp_mcp_server_start ['arg-a', 'arg-b']" in result.output
+    assert "ocp_mcp_server_start" in result.output
+    assert "arg-a" in result.output
 
 
 def test_add_stdio_mcp_server(load_cliver, init_config):
@@ -73,21 +74,29 @@ def test_list_llm_simple(load_cliver, simple_llm_model):
 
 
 def test_add_llm_simple(load_cliver, init_config, config_manager):
-    config_manager.add_or_update_provider("ollama", "ollama", "http://localhost:11434")
+    config_manager.add_or_update_provider("ollama", "openai", "http://localhost:11434")
 
     result = CliRunner().invoke(
         load_cliver,
-        ["model", "add", "--name", "deepseek-coder", "--provider", "ollama"],
+        [
+            "model",
+            "add",
+            "--name",
+            "deepseek-coder",
+            "--provider",
+            "ollama",
+        ],
     )
     assert result.exit_code == 0
-    assert "Added LLM Model: ollama/deepseek-coder" in result.output
+    assert "Added LLM Model: deepseek-coder (set as default)" in result.output
     result = CliRunner().invoke(load_cliver, ["model", "list"])
     assert result.exit_code == 0
-    assert "ollama/deepseek" in result.output
+    assert "deepseek-coder" in result.output
+    assert "ollama" in result.output
 
-    result = CliRunner().invoke(load_cliver, ["model", "remove", "ollama/deepseek-coder"])
+    result = CliRunner().invoke(load_cliver, ["model", "remove", "deepseek-coder"])
     assert result.exit_code == 0
-    assert "Removed LLM Model: ollama/deepseek-coder" in result.output
+    assert "Removed LLM Model: deepseek-coder" in result.output
     result = CliRunner().invoke(load_cliver, ["model", "list"])
     assert result.exit_code == 0
     assert "No LLM Models configured." in result.output

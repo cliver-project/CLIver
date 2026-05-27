@@ -4,17 +4,11 @@ Configuration module for Cliver client.
 
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional
 
 import yaml
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field
 
-# Import model capabilities
-from cliver.model_capabilities import (
-    ModelCapabilities,
-    ModelCapability,
-    ModelCapabilityDetector,
-)
 from cliver.template_utils import render_template_if_needed
 
 logger = logging.getLogger(__name__)
@@ -46,14 +40,10 @@ class ProviderConfig(BaseModel):
     """
 
     name: str
-    type: str = Field(description="Provider type: openai, ollama, anthropic")
+    type: str = Field(description="API protocol: openai (OpenAI-compatible) or anthropic")
     api_url: str = Field(description="Base URL for the provider API")
     api_key: Optional[str] = Field(default=None, description="API key (supports Jinja2 templates)")
     rate_limit: Optional[RateLimitConfig] = Field(default=None, description="Rate limit for API calls")
-    image_url: Optional[str] = Field(default=None, description="Full URL for image generation endpoint")
-    image_model: Optional[str] = Field(default=None, description="Model name for image generation API requests")
-    audio_url: Optional[str] = Field(default=None, description="Full URL for audio generation endpoint")
-    audio_model: Optional[str] = Field(default=None, description="Model name for audio generation API requests")
     pricing: Optional[PricingConfig] = Field(default=None, description="Token pricing for cost tracking")
     models: Optional[List] = Field(default=None, description="Models served by this provider (YAML load/save only)")
 
@@ -83,45 +73,27 @@ class ModelOptions(BaseModel):
 class ModelConfig(BaseModel):
     """Configuration for a single LLM model.
 
-    The ``name`` field uses canonical ``provider/model_name`` format
-    (e.g. ``deepseek/deepseek-reasoner``).  The part after the slash
-    is the API-facing model name, accessible via ``api_model_name``.
-
-    ``provider`` is auto-derived from ``name`` if omitted.
+    Models are organized by category (text/image/audio/video).  ``name``
+    is a short config key (e.g. ``minimax-2.7``).  ``model`` is the
+    API-facing model name (e.g. ``MiniMax-M2.7``).
     """
 
     name: str
-    provider: str = Field(default="", description="Provider name (derived from name if empty)")
+    provider: str
+    model: str = Field(description="API-facing model name sent to the provider")
+    category: str = Field(default="text", description="Category: text, image, audio, or video")
+    api_url: Optional[str] = Field(default=None, description="Per-model endpoint override")
     options: Optional[ModelOptions] = Field(default=None, description="Options for model")
-    capabilities: Optional[Set[ModelCapability]] = Field(default=None, description="Model capabilities")
-    think_mode: Optional[bool] = Field(
-        default=None,
-        description="Override thinking mode: true to enable, false to disable, null to auto-detect from model name.",
-    )
-    context_window: Optional[int] = Field(
-        default=None,
-        description="Context window size in tokens. Used for conversation history compression.",
-    )
-    pricing: Optional[PricingConfig] = Field(default=None, description="Token pricing (overrides provider)")
 
     model_config = {"extra": "allow"}
 
     # Internal: set during config loading, not serialized
     _provider_config: Optional["ProviderConfig"] = None
 
-    @model_validator(mode="before")
-    @classmethod
-    def auto_provider(cls, data: Any) -> Any:
-        """Derive provider from name if not explicitly set."""
-        if isinstance(data, dict) and not data.get("provider") and "name" in data:
-            name = data["name"]
-            data["provider"] = name.split("/", 1)[0] if "/" in name else name
-        return data
-
     @property
     def api_model_name(self) -> str:
         """The model name as sent to the provider API."""
-        return self.name.split("/", 1)[1] if "/" in self.name else self.name
+        return self.model
 
     def get_provider_type(self) -> str:
         if self._provider_config is not None:
@@ -139,60 +111,24 @@ class ModelConfig(BaseModel):
         return None
 
     def get_resolved_pricing(self) -> Optional[tuple]:
-        """Resolve pricing: model-level fields override provider-level fields.
+        """Get provider-level pricing.
 
-        Returns (input, output, cached_input, currency) per million tokens,
-        or None if pricing is not configured with at least input and output.
+        Returns (input, output, cached_input, currency) per million tokens.
         """
-        currency = None
-        input_price = None
-        output_price = None
-        cached_price = None
-
         if self._provider_config is not None and self._provider_config.pricing is not None:
             pp = self._provider_config.pricing
-            currency = pp.currency
-            input_price = pp.input
-            output_price = pp.output
-            cached_price = pp.cached_input
+            if pp.input is not None and pp.output is not None:
+                cached = pp.cached_input or pp.input
+                return (pp.input, pp.output, cached, pp.currency or "USD")
+        return None
 
-        if self.pricing is not None:
-            mp = self.pricing
-            if mp.currency is not None:
-                currency = mp.currency
-            if mp.input is not None:
-                input_price = mp.input
-            if mp.output is not None:
-                output_price = mp.output
-            if mp.cached_input is not None:
-                cached_price = mp.cached_input
+    @property
+    def is_text(self) -> bool:
+        return self.category == "text"
 
-        if input_price is None or output_price is None:
-            return None
-
-        if cached_price is None:
-            cached_price = input_price
-        if currency is None:
-            currency = "USD"
-
-        return (input_price, output_price, cached_price, currency)
-
-    def get_capabilities(self) -> Set[ModelCapability]:
-        if self.capabilities is not None:
-            caps = set(self.capabilities)
-        else:
-            caps = set(self.get_model_capabilities().capabilities)
-
-        if self.think_mode is True:
-            caps.add(ModelCapability.THINK_MODE)
-        elif self.think_mode is False:
-            caps.discard(ModelCapability.THINK_MODE)
-
-        return caps
-
-    def get_model_capabilities(self) -> ModelCapabilities:
-        detector = ModelCapabilityDetector()
-        return detector.detect_capabilities(self.get_provider_type(), self.api_model_name)
+    @property
+    def can_strict_tool_call(self) -> bool:
+        return self.get_provider_type() == "openai"
 
     def model_dump(self, **kwargs):
         """Override to exclude internal fields and null values."""
@@ -200,12 +136,7 @@ class ModelConfig(BaseModel):
         data.pop("name", None)
         data.pop("provider", None)
         data.pop("_provider_config", None)
-        result = {k: v for k, v in data.items() if v is not None}
-
-        if "capabilities" in result and result["capabilities"]:
-            result["capabilities"] = [cap.value for cap in result["capabilities"]]
-
-        return result
+        return {k: v for k, v in data.items() if v is not None}
 
 
 class MCPServerConfig(BaseModel):
@@ -325,25 +256,31 @@ class SessionConfig(BaseModel):
 
 
 class AgentConfig(BaseModel):
-    """Configuration for a named agent instance."""
+    """Configuration profile for a named agent around AgentCore."""
 
-    type: str = Field(default="cliver", description="Agent type (cliver)")
+    name: str = Field(description="Agent name (derived from config.agents key, not serialized)")
     description: Optional[str] = Field(default=None, description="Human-readable purpose")
-    role: Optional[str] = Field(default=None, description="System prompt / persona")
+    role: Optional[str] = Field(default=None, description="Role name (e.g. 'code-reviewer', 'research-assistant')")
+    system_prompt: Optional[str] = Field(default=None, description="Full system prompt / persona text")
     model: Optional[str] = Field(default=None, description="Model name from models config")
-    command: Optional[str] = Field(default=None, description="CLI command override")
-    args: Optional[List[str]] = Field(default=None, description="CLI args override")
-    env: Optional[Dict[str, str]] = Field(default=None, description="Extra env vars for subprocess")
-    working_dir: Optional[str] = Field(default=None, description="Working directory")
-    timeout_s: int = Field(default=300, description="Execution timeout in seconds")
-    max_retries: int = Field(default=0, description="Retry count on failure")
-    auto_fallback: Optional[bool] = Field(default=None, description="Model auto-fallback (cliver only)")
+    skills: Optional[List[str]] = Field(default=None, description="Skill names to activate for this agent")
+    toolsets: Optional[List[str]] = Field(
+        default=None, description="Tool groups to enable (e.g. ['code', 'web']). None = all"
+    )
+    auto_fallback: Optional[bool] = Field(default=None, description="Model auto-fallback")
+
+    def model_dump(self, **kwargs):
+        data = super().model_dump(**kwargs)
+        data.pop("name", None)
+        return {k: v for k, v in data.items() if v is not None}
 
 
 class AppConfig(BaseModel):
     providers: Dict[str, ProviderConfig] = Field(default_factory=dict)
     mcpServers: Dict[str, MCPServerConfig] = {}
-    models: Dict[str, ModelConfig] = {}
+    models: Dict[str, Dict[str, ModelConfig]] = Field(
+        default_factory=dict, description="Models grouped by category (text/image/audio/video)"
+    )
     default_model: Optional[str] = Field(default=None, description="The default LLM model")
     user_agent: Optional[str] = Field(default="CLIver", description="User-Agent header for LLM provider HTTP requests")
     enabled_toolsets: Optional[List[str]] = Field(
@@ -371,7 +308,10 @@ class AppConfig(BaseModel):
         default=True,
         description="Automatically fall back to another model when the current one fails (default: on).",
     )
-    agents: Dict[str, AgentConfig] = Field(default_factory=dict, description="Named agent configurations")
+    agents: Dict[str, AgentConfig] = Field(
+        default_factory=dict,
+        description="Named agent configurations (profiles around AgentCore)",
+    )
     default_agent: Optional[str] = Field(default=None, description="Default agent name")
 
     def resolve_secrets(self, key_store=None) -> None:
@@ -506,35 +446,35 @@ class ConfigManager:
             config_data.pop("agent_name", None)
             config_data.pop("default_agent_name", None)
 
-            # Parse providers and flatten their nested models
-            flat_models: Dict[str, ModelConfig] = {}
+            # Parse providers
+            providers: Dict[str, ProviderConfig] = {}
             if "providers" in config_data and isinstance(config_data["providers"], dict):
                 for pname, pdata in config_data["providers"].items():
                     if isinstance(pdata, dict):
-                        model_entries = pdata.pop("models", None) or []
                         pdata["name"] = pname
                         prov = ProviderConfig(**pdata)
+                        providers[pname] = prov
                         config_data["providers"][pname] = prov
 
-                        for entry in model_entries:
-                            if isinstance(entry, str):
-                                model_name = entry
-                                mc = ModelConfig(name=f"{pname}/{model_name}", provider=pname)
-                            elif isinstance(entry, dict):
-                                model_name = entry.pop("name")
-                                if "capabilities" in entry and entry["capabilities"]:
-                                    try:
-                                        entry["capabilities"] = {ModelCapability(cap) for cap in entry["capabilities"]}
-                                    except ValueError as e:
-                                        logger.warning("Invalid capability in %s/%s: %s", pname, model_name, e)
-                                        entry.pop("capabilities", None)
-                                mc = ModelConfig(name=f"{pname}/{model_name}", provider=pname, **entry)
-                            else:
-                                continue
-                            mc._provider_config = prov
-                            flat_models[mc.name] = mc
+            # Parse models by category
+            flat_models: Dict[str, ModelConfig] = {}
+            cat_models: Dict[str, Dict[str, ModelConfig]] = {}
+            if "models" in config_data and isinstance(config_data["models"], dict):
+                for cat_name, cat_data in config_data["models"].items():
+                    if isinstance(cat_data, dict) and cat_data:
+                        cat_models[cat_name] = {}
+                        for model_key, model_data in cat_data.items():
+                            if isinstance(model_data, dict):
+                                model_data["name"] = model_key
+                                model_data["category"] = cat_name
+                                provider_name = model_data.get("provider", "")
+                                mc = ModelConfig(**model_data)
+                                if provider_name and provider_name in providers:
+                                    mc._provider_config = providers[provider_name]
+                                flat_models[mc.name] = mc
+                                cat_models[cat_name][mc.name] = mc
 
-            config_data["models"] = flat_models
+            config_data["models"] = cat_models
 
             mcp_servers_data = config_data.get("mcpServers")
             if mcp_servers_data and isinstance(mcp_servers_data, dict):
@@ -557,6 +497,12 @@ class ConfigManager:
                             raise ValueError(f"Unknown transport {transport}")
                 config_data["mcpServers"] = converted_servers
 
+            # Inject agent name from dict key (matches provider/MCP pattern)
+            if "agents" in config_data and isinstance(config_data["agents"], dict):
+                for aname, adata in list(config_data["agents"].items()):
+                    if isinstance(adata, dict):
+                        adata["name"] = aname
+
             return AppConfig(**config_data)
         except Exception as e:
             logger.error("Error loading configuration: %s", e, stack_info=True, exc_info=True)
@@ -565,9 +511,7 @@ class ConfigManager:
     def _save_config(self) -> None:
         """Save configuration to YAML file.
 
-        Models are nested back into their provider's ``models`` list.
-        Simple models (no overrides) are serialized as plain strings;
-        models with overrides become objects with a ``name`` key.
+        Models are grouped by category, providers by name.
         """
         try:
             if not self.config_dir.exists():
@@ -575,27 +519,27 @@ class ConfigManager:
 
             config_data = self.config.model_dump()
 
-            # Nest models back into providers
-            provider_models: Dict[str, list] = {name: [] for name in self.config.providers}
-            for model in self.config.models.values():
-                overrides = model.model_dump()
-                if overrides:
-                    overrides["name"] = model.api_model_name
-                    provider_models.setdefault(model.provider, []).append(overrides)
-                else:
-                    provider_models.setdefault(model.provider, []).append(model.api_model_name)
+            # Group models by category
+            cat_models: Dict[str, dict] = {}
+            for model in self.all_models().values():
+                cat = model.category or "text"
+                if cat not in cat_models:
+                    cat_models[cat] = {}
+                entry = {"provider": model.provider, "model": model.model}
+                if model.api_url:
+                    entry["api_url"] = model.api_url
+                if model.options:
+                    opts = model.options.model_dump(exclude_unset=True)
+                    if opts:
+                        entry["options"] = opts
+                cat_models[cat][model.name] = entry
+            config_data["models"] = cat_models
 
+            # Serialize providers
             serialized_providers = {}
             for name, prov in self.config.providers.items():
-                prov_data = prov.model_dump()
-                models_list = provider_models.get(name, [])
-                if models_list:
-                    prov_data["models"] = models_list
-                serialized_providers[name] = prov_data
+                serialized_providers[name] = prov.model_dump()
             config_data["providers"] = serialized_providers
-
-            # Remove flat models from output (they're nested in providers now)
-            config_data.pop("models", None)
 
             if "mcpServers" in config_data:
                 serialized_servers = {}
@@ -628,64 +572,122 @@ class ConfigManager:
         # MCP server caller
         return {name: server.model_dump() for name, server in self.config.mcpServers.items()}
 
+    def add_or_update_mcp_server(
+        self,
+        name: str,
+        transport: str = "stdio",
+        command: str = None,
+        args: list = None,
+        env: dict = None,
+        url: str = None,
+        headers: dict = None,
+    ) -> None:
+        """Add or update an MCP server in config."""
+        # Normalize short transport names
+        if transport == "streamable":
+            transport = "streamable_http"
+        if transport == "stdio":
+            if not command:
+                raise ValueError("Command is required for stdio transport")
+            self.config.mcpServers[name] = StdioMCPServerConfig(name=name, command=command, args=args, env=env)
+        elif transport == "sse":
+            if not url:
+                raise ValueError("URL is required for SSE transport")
+            self.config.mcpServers[name] = SSEMCPServerConfig(name=name, url=url, headers=headers)
+        elif transport == "streamable_http":
+            if not url:
+                raise ValueError("URL is required for streamable_http transport")
+            self.config.mcpServers[name] = StreamableHttpMCPServerConfig(name=name, url=url, headers=headers)
+        elif transport == "websocket":
+            if not url:
+                raise ValueError("URL is required for websocket transport")
+            self.config.mcpServers[name] = WebSocketMCPServerConfig(name=name, url=url)
+        else:
+            raise ValueError(f"Unsupported transport: {transport}")
+        self._save_config()
+
+    def remove_mcp_server(self, name: str) -> bool:
+        """Remove an MCP server by name. Returns True if found and removed."""
+        if name in self.config.mcpServers:
+            del self.config.mcpServers[name]
+            self._save_config()
+            return True
+        return False
+
+    def all_models(self) -> Dict[str, ModelConfig]:
+        """Return all models as a flat dict (name -> ModelConfig) across all categories."""
+        result: Dict[str, ModelConfig] = {}
+        for cat_data in self.config.models.values():
+            if isinstance(cat_data, dict):
+                result.update(cat_data)
+        return result
+
     def list_llm_models(self) -> Dict[str, ModelConfig]:
-        """List all LLM Models"""
-        return self.config.models
+        """List all LLM Models (flat dict)."""
+        return self.all_models()
 
     def add_or_update_llm_model(
         self,
         provider: str,
         model_name: str,
+        api_model_name: str = "",
+        category: str = "text",
+        api_url: Optional[str] = None,
         options: Dict[str, Any] = None,
-        capabilities: str = None,
+        is_default: bool = None,
     ) -> None:
         """Add or update a model under a provider.
 
         Args:
             provider: Provider name (must exist in config.providers)
-            model_name: API model name (e.g. 'deepseek-reasoner')
+            model_name: Config key (short name, e.g. 'minimax-2.7')
+            api_model_name: API-facing model name (e.g. 'MiniMax-M2.7')
+            category: One of 'text', 'image', 'audio', 'video'
+            api_url: Optional per-model endpoint override
             options: Optional model options dict
-            capabilities: Optional comma-separated capability strings
+            is_default: Set this model as the default
         """
         if provider not in self.config.providers:
             raise ValueError(f"Provider '{provider}' not found. Add it first with /provider add.")
 
-        key = f"{provider}/{model_name}"
-        if not self.config.models:
-            self.config.models = {}
+        if not api_model_name:
+            api_model_name = model_name
 
-        if key in self.config.models:
-            llm = self.config.models[key]
+        if category not in self.config.models:
+            self.config.models[category] = {}
+
+        if model_name in self.config.models.get(category, {}):
+            llm = self.config.models[category][model_name]
         else:
-            llm = ModelConfig(name=key, provider=provider)
+            llm = ModelConfig(
+                name=model_name, provider=provider, model=api_model_name, category=category, api_url=api_url
+            )
             llm._provider_config = self.config.providers[provider]
-            self.config.models[key] = llm
+            self.config.models.setdefault(category, {})[model_name] = llm
             if self.config.default_model is None:
-                self.config.default_model = key
+                self.config.default_model = model_name
 
+        if api_url is not None:
+            llm.api_url = api_url
         if options:
             llm.options = ModelOptions(**options)
-
-        if capabilities:
-            try:
-                capability_list = [cap.strip() for cap in capabilities.split(",") if cap.strip()]
-                llm.capabilities = {ModelCapability(cap) for cap in capability_list}
-            except ValueError as e:
-                logger.error("Invalid capability specified: %s, exception: %s", capabilities, e)
-                raise e
+        if is_default:
+            self.config.default_model = model_name
 
         self._save_config()
 
     def remove_llm_model(self, name: str) -> bool:
-        """Remove a model. Accepts canonical (provider/model) or short-form."""
+        """Remove a model by config key."""
         mc = self._resolve_model_name(name)
         if not mc:
             return False
 
-        self.config.models.pop(mc.name)
+        cat = mc.category or "text"
+        self.config.models.get(cat, {}).pop(mc.name, None)
 
         if self.config.default_model == mc.name:
-            self.config.default_model = next(iter(self.config.models)) if self.config.models else None
+            defaults = self.all_models()
+            self.config.default_model = next(iter(defaults)) if defaults else None
 
         self._save_config()
         return True
@@ -713,10 +715,7 @@ class ConfigManager:
         api_url: str,
         api_key: Optional[str] = None,
         rate_limit: Optional[RateLimitConfig] = None,
-        image_url: Optional[str] = None,
-        image_model: Optional[str] = None,
-        audio_url: Optional[str] = None,
-        audio_model: Optional[str] = None,
+        pricing: Optional[Dict[str, Any]] = None,
     ) -> None:
         prov = self.config.providers.get(name)
         if prov:
@@ -726,14 +725,8 @@ class ConfigManager:
                 prov.api_key = api_key
             if rate_limit is not None:
                 prov.rate_limit = rate_limit
-            if image_url is not None:
-                prov.image_url = image_url
-            if image_model is not None:
-                prov.image_model = image_model
-            if audio_url is not None:
-                prov.audio_url = audio_url
-            if audio_model is not None:
-                prov.audio_model = audio_model
+            if pricing is not None:
+                prov.pricing = PricingConfig(**pricing)
         else:
             self.config.providers[name] = ProviderConfig(
                 name=name,
@@ -741,35 +734,23 @@ class ConfigManager:
                 api_url=api_url,
                 api_key=api_key,
                 rate_limit=rate_limit,
-                image_url=image_url,
-                image_model=image_model,
-                audio_url=audio_url,
-                audio_model=audio_model,
+                pricing=PricingConfig(**pricing) if pricing else None,
             )
         # Re-link models referencing this provider
-        for model in self.config.models.values():
+        for model in self.all_models().values():
             if model.provider == name:
                 model._provider_config = self.config.providers[name]
         self._save_config()
 
     def remove_provider(self, name: str) -> bool:
         if name in self.config.providers:
-            referencing = [m.name for m in self.config.models.values() if m.provider == name]
+            referencing = [m.name for m in self.all_models().values() if m.provider == name]
             if referencing:
                 raise ValueError(f"Cannot remove provider '{name}': used by models: {', '.join(referencing)}")
             self.config.providers.pop(name)
             self._save_config()
             return True
         return False
-
-    def set_provider_rate_limit(self, name: str, rate_limit: Optional[RateLimitConfig]) -> bool:
-        """Set or clear the rate limit on an existing provider."""
-        prov = self.config.providers.get(name)
-        if not prov:
-            return False
-        prov.rate_limit = rate_limit
-        self._save_config()
-        return True
 
     def list_providers(self) -> Dict[str, ProviderConfig]:
         return self.config.providers
@@ -782,14 +763,12 @@ class ConfigManager:
         return self._resolve_model_name(name)
 
     def _resolve_model_name(self, name: str) -> Optional[ModelConfig]:
-        """Resolve a model name to a ModelConfig.
-
-        Tries exact match first, then short-form (model name without provider prefix).
-        """
-        if name in self.config.models:
-            return self.config.models[name]
-        suffix = f"/{name}"
-        matches = [mc for key, mc in self.config.models.items() if key.endswith(suffix)]
+        """Resolve a model name to a ModelConfig across all categories."""
+        all_models = self.all_models()
+        if name in all_models:
+            return all_models[name]
+        # Short-form fallback: match by suffix
+        matches = [mc for key, mc in all_models.items() if key.endswith(f"/{name}") or key == name]
         if len(matches) == 1:
             return matches[0]
         return None

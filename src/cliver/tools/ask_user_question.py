@@ -116,7 +116,10 @@ class AskUserQuestionTool(BaseTool):
                 result = cliver_inst.ui.ask_input("  > ")
             else:
                 print(f"\nQuestion: {prompt}")
-                result = input("  > ").strip()
+                try:
+                    result = input("  > ").strip()
+                except (EOFError, KeyboardInterrupt):
+                    return "User cancelled the question."
 
             if not result:
                 return "User cancelled the question."

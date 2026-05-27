@@ -335,16 +335,7 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
             executor.permission_manager.set_mode(PermissionMode.YOLO)
         executor.on_permission_prompt = lambda tool, args: "allow"
 
-        uses_thinking = False
-        try:
-            from cliver.model_capabilities import ModelCapability
-
-            effective_model = model or executor.default_model
-            mc = executor._get_llm_model(effective_model) if effective_model else None
-            if mc and ModelCapability.THINK_MODE in mc.get_capabilities():
-                uses_thinking = True
-        except Exception:
-            pass
+        uses_thinking = True
 
         async def generate():
             if session_id:
@@ -352,7 +343,10 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
 
             logger.info(
                 "Lab chat start — lab=%s session=%s model=%s skills=%d mcp_servers=%s",
-                lab_id, session_id or "new", model, len(tool_names) if tool_names else 0,
+                lab_id,
+                session_id or "new",
+                model,
+                len(tool_names) if tool_names else 0,
                 mcp_server_names or "none",
             )
 
@@ -388,15 +382,21 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
                     except Exception as e:
                         logger.warning("Failed to save media: %s", e)
 
+                # Strip inline tool_calls JSON from the accumulated text
+                # (some models emit tool calls as text rather than structured)
+                from cliver.llm.llm_utils import strip_tool_calls_from_text
+
+                clean_text = strip_tool_calls_from_text(full_text)
+
                 if session_manager and session_id:
                     try:
-                        session_manager.append_turn(session_id, "assistant", full_text)
+                        session_manager.append_turn(session_id, "assistant", clean_text)
                     except Exception as e:
                         logger.warning("Failed to persist assistant turn: %s", e)
 
                 done_data = {
                     "type": "done",
-                    "content": full_text,
+                    "content": clean_text,
                     "media": media_files,
                     "media_files": media_files,
                     "session_id": session_id,

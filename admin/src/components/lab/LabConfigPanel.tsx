@@ -51,7 +51,7 @@ export function LabConfigPanel({
 
   const BUILTIN_SKILLS = ["brainstorm", "write-plan", "execute-plan"];
 
-  const modelList: string[] = modelsData?.models || [];
+  const modelList: string[] = Array.isArray(modelsData) ? modelsData.map((m) => m.name) : [];
   const allSkills: string[] = skills
     ? (skills as Array<Record<string, unknown>>).map((s) => s.name as string).filter(Boolean)
     : [];

@@ -11,7 +11,6 @@ from langchain_core.messages import AIMessage
 from cliver.config import ModelConfig
 from cliver.llm.unified_engine import UnifiedInferenceEngine
 from cliver.media import MediaType
-from cliver.model_capabilities import ModelCapability
 
 
 class TestOpenAISpecificMediaExtraction:
@@ -31,14 +30,6 @@ class TestOpenAISpecificMediaExtraction:
         config.get_resolved_url = Mock(return_value="https://api.openai.com/v1")
         config.get_provider_type = Mock(return_value="openai")
         config.options = None
-
-        config.get_capabilities = Mock(
-            return_value={
-                ModelCapability.TEXT_TO_TEXT,
-                ModelCapability.IMAGE_TO_TEXT,
-                ModelCapability.TOOL_CALLING,
-            }
-        )
 
         return UnifiedInferenceEngine(config)
 

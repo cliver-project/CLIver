@@ -21,8 +21,6 @@ class TestDirectoryStructure:
         assert profile.memory_file == tmp_path / "memory.md"
         assert profile.identity_file == tmp_path / "identity.md"
         assert profile.tasks_dir == tmp_path / "tasks"
-        assert profile.sessions_dir == tmp_path / "sessions"
-        assert profile.gateway_db == tmp_path / "cliver.db"
         assert profile.db_path == tmp_path / "cliver.db"
 
     def test_ensure_dirs_creates_config_dir(self, profile, tmp_path):

@@ -213,7 +213,7 @@ def _statusbar_content(cliver: "Cliver"):
         _dw = len
 
     cwd = str(Path.cwd())
-    model = cliver.session_options.get("model") or cliver.config_manager.config.default_model or "—"
+    model = cliver.session_options.get("model") or cliver.agent_core.default_model or "—"
     mode = cliver.permission_manager._effective_mode().value
     tw = shutil.get_terminal_size().columns
 
@@ -292,7 +292,7 @@ def run_tui(cliver: "Cliver") -> None:
     set_cli_instance(cliver)
 
     # Print banner to real stdout before TUI takes over
-    default_model = cliver.config_manager.config.default_model
+    default_model = cliver.agent_core.default_model
     agent_name = cliver.agent_name
     print_banner(cliver.console, agent_name, default_model)
 
