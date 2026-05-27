@@ -117,7 +117,7 @@ class CliverProfile:
         ├── memory.md                      # persistent knowledge
         ├── tasks/                         # scheduled tasks
         ├── sessions/                      # chat sessions
-        └── gateway.db                     # task registry & run history
+        └── cliver.db                      # unified database (all tables)
     """
 
     def __init__(self, config_dir: Optional[Path] = None):
@@ -127,7 +127,16 @@ class CliverProfile:
         self.identity_file = self.config_dir / "identity.md"
         self.tasks_dir = self.config_dir / "tasks"
         self.sessions_dir = self.config_dir / "sessions"
-        self.gateway_db = self.config_dir / "gateway.db"
+
+    @property
+    def db_path(self) -> Path:
+        """Unified SQLite database path shared by all stores."""
+        return self.config_dir / "cliver.db"
+
+    @property
+    def gateway_db(self) -> Path:
+        """Backward-compatible alias for db_path."""
+        return self.db_path
 
     def ensure_dirs(self) -> None:
         self.config_dir.mkdir(parents=True, exist_ok=True)

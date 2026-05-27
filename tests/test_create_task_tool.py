@@ -26,8 +26,8 @@ def tool(tmp_path):
 
 @pytest.fixture
 def store(tool):
-    """Use the same DB path as the tool (tasks_dir.parent / gateway.db)."""
-    return TaskStore(tool.tasks_dir.parent / "gateway.db")
+    """Use the same DB path as the tool (tasks_dir.parent / cliver.db)."""
+    return TaskStore(tool.tasks_dir.parent / "cliver.db")
 
 
 class TestCreateTaskTool:
@@ -70,7 +70,7 @@ class TestCreateTaskTool:
             result = tool._run(name="slack-task", prompt="research AI")
             assert "reply-back" in result
 
-            db_path = tool.tasks_dir.parent / "gateway.db"
+            db_path = tool.tasks_dir.parent / "cliver.db"
             store = TaskStore(db_path)
 
             # Origin is NOT in YAML (loaded via DB-first TaskManager)

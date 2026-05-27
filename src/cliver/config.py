@@ -386,7 +386,7 @@ class AppConfig(BaseModel):
             from cliver.key_store import KeyStore
             from cliver.util import get_config_dir
 
-            ks_path = Path(get_config_dir()) / "keys.db"
+            ks_path = Path(get_config_dir()) / "cliver.db"
             key_store = KeyStore(ks_path)
 
         from cliver.template_utils import resolve_secret

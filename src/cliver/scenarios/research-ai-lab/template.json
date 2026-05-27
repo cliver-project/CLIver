@@ -14,18 +14,14 @@
             "type": "text",
             "label": "Research Domain",
             "required": true,
-            "default": "${issue.title}",
+            "default": "AI Agent Architectures",
             "placeholder": "e.g., transformer architectures, federated learning"
           },
           "year_range": {
-            "type": "range",
+            "type": "text",
             "label": "Publication Year Range",
-            "min": 2018,
-            "max": 2026,
-            "default": [
-              2024,
-              2026
-            ]
+            "required": true,
+            "default": "2024 - 2026"
           },
           "max_papers": {
             "type": "select",

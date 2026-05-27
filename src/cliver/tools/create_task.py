@@ -105,7 +105,7 @@ class CreateTaskTool(BaseTool):
         from cliver.gateway.task_store import TaskStore
 
         profile = get_current_profile()
-        db_path = profile.gateway_db if profile else tasks_dir.parent / "gateway.db"
+        db_path = profile.gateway_db if profile else tasks_dir.parent / "cliver.db"
         store = TaskStore(db_path)
         manager = TaskManager(tasks_dir, store)
         path = manager.save_task(task)

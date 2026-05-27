@@ -112,9 +112,9 @@ class Gateway:
             from cliver.project.scenario_registry import ScenarioRegistry
 
             profile = CliverProfile(self.config_dir)
-            self._lab_store = LabStore(profile.config_dir)
+            self._lab_store = LabStore(profile.config_dir, db_path=profile.db_path)
             self._runtime_manager = RuntimeManager()
-            self._project_provider = LocalProvider(profile.config_dir / "projects.db")
+            self._project_provider = LocalProvider(profile.db_path)
 
             builtin_scenarios = Path(__file__).parent.parent / "scenarios"
             user_scenarios = profile.config_dir / "scenarios"
@@ -191,11 +191,9 @@ class Gateway:
 
             cli_sm = None
             try:
-                cli_sessions_dir = CliverProfile(self.config_dir).sessions_dir
-                if cli_sessions_dir.exists():
-                    from cliver.session_manager import SessionManager as SM
+                from cliver.session_manager import SessionManager as SM
 
-                    cli_sm = SM(cli_sessions_dir)
+                cli_sm = SM(self.config_dir / "cliver.db")
             except Exception as e:
                 logger.debug("CLI sessions not available: %s", e)
 
@@ -214,7 +212,7 @@ class Gateway:
 
             # Lab and project API routes BEFORE admin SPA catch-all
             try:
-                if self._lab_store and self._agent_factory:
+                if self._lab_store and self._agent_factory and cli_sm:
                     from cliver.gateway.routes_lab import get_lab_routes
                     from cliver.gateway.routes_project import get_project_routes
 
@@ -223,6 +221,7 @@ class Gateway:
                             self._lab_store,
                             self._runtime_manager,
                             self._agent_factory,
+                            cli_sm,
                             shared_auth,
                         )
                     )
@@ -297,9 +296,9 @@ class Gateway:
                 from cliver.project.scenario_registry import ScenarioRegistry
 
                 profile = CliverProfile(self.config_dir)
-                self._lab_store = LabStore(profile.config_dir)
+                self._lab_store = LabStore(profile.config_dir, db_path=profile.db_path)
                 self._runtime_manager = RuntimeManager()
-                self._project_provider = LocalProvider(profile.config_dir / "projects.db")
+                self._project_provider = LocalProvider(profile.db_path)
 
                 builtin_scenarios = Path(__file__).parent.parent / "scenarios"
                 user_scenarios = profile.config_dir / "scenarios"
@@ -315,7 +314,7 @@ class Gateway:
         try:
             agent_profile = CliverProfile(self.config_dir)
             agent_profile.ensure_dirs()
-            self._run_store = TaskStore(agent_profile.gateway_db)
+            self._run_store = TaskStore(agent_profile.db_path)
             self._task_manager = TaskManager(agent_profile.tasks_dir, self._run_store)
 
             self._scheduler = CronScheduler(
@@ -349,8 +348,7 @@ class Gateway:
         # Initialize session manager (single instance for the gateway lifetime)
         try:
             agent_profile = CliverProfile(self.config_dir)
-            gw_sessions_dir = self.config_dir / "gateway-sessions"
-            self._session_manager = SessionManager(gw_sessions_dir)
+            self._session_manager = SessionManager(agent_profile.db_path)
             sc = self._get_config_manager().config.session
             deleted = self._session_manager.delete_stale_sessions(max_age_days=sc.max_age_days)
             if deleted:

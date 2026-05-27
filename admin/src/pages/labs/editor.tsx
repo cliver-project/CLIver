@@ -1,36 +1,37 @@
-import { useState, useCallback } from "react";
-import { useParams } from "react-router";
+import { useState, useCallback, useMemo } from "react";
+import { useParams, useNavigate } from "react-router";
 import { useLab, useUpdateLab, useExecuteCell, useRunAll } from "@/hooks/use-lab";
 import type { Cell } from "@/hooks/use-lab";
-import { LabToolbar } from "@/components/lab/LabToolbar";
-import { CellCard } from "@/components/lab/CellCard";
+import { LabHeader } from "@/components/lab/LabHeader";
+import { LabProgress } from "@/components/lab/LabProgress";
+import { CellSlide } from "@/components/lab/CellSlide";
 import { ConfigCell } from "@/components/lab/ConfigCell";
 import { LlmCell } from "@/components/lab/LlmCell";
 import { CodeCell } from "@/components/lab/CodeCell";
 import { DisplayCell } from "@/components/lab/DisplayCell";
 import { AddCellButton } from "@/components/lab/AddCellButton";
+import { CellErrorBoundary } from "@/components/lab/CellErrorBoundary";
+import { Button } from "@/components/ui/button";
+import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { useTranslation } from "@/i18n";
 
 export default function LabEditor() {
   const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const { data: lab, isLoading, error } = useLab(id || "");
   const updateLab = useUpdateLab(id || "");
   const executeCell = useExecuteCell(id || "");
   const runAll = useRunAll(id || "");
-  const [expandedCells, setExpandedCells] = useState<Set<string>>(new Set());
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [llmRunTrigger, setLlmRunTrigger] = useState(0);
 
-  const toggleCell = useCallback((cellId: string) => {
-    setExpandedCells((prev) => {
-      const next = new Set(prev);
-      if (next.has(cellId)) {
-        next.delete(cellId);
-      } else {
-        next.add(cellId);
-      }
-      return next;
-    });
-  }, []);
+  // Reset index when switching labs or when cells are added/removed
+  const safeIndex = useMemo(() => {
+    if (!lab) return 0;
+    if (currentIndex >= lab.cells.length) return Math.max(0, lab.cells.length - 1);
+    return currentIndex;
+  }, [currentIndex, lab]);
 
   const handleExecuteCell = useCallback(
     (cellId: string) => {
@@ -60,6 +61,7 @@ export default function LabEditor() {
       cells[idx] = cells[targetIdx]!;
       cells[targetIdx] = temp;
       updateLab.mutate({ ...lab, cells });
+      setCurrentIndex(targetIdx);
     },
     [lab, updateLab],
   );
@@ -71,7 +73,10 @@ export default function LabEditor() {
       const defaults: Record<string, Record<string, unknown>> = {
         config: { schema: {} },
         llm: { prompt: "", agent: "", output_format: "text" },
-        code: { source: 'def run(ctx):\n    # Access previous cell outputs: ctx.refs("cell_id.outputs.field")\n    \n    return {"result": "hello"}' },
+        code: {
+          source:
+            'def run(ctx):\n    # Access previous cell outputs: ctx.refs("cell_id.outputs.field")\n    \n    return {"result": "hello"}',
+        },
         display: { content: "", format: "markdown" },
       };
       const newCell: Cell = {
@@ -85,15 +90,13 @@ export default function LabEditor() {
         duration_ms: 0,
       };
       updateLab.mutate({ ...lab, cells: [...lab.cells, newCell] });
-      setExpandedCells((prev) => new Set(prev).add(cellId));
+      setCurrentIndex(lab.cells.length);
     },
     [lab, updateLab],
   );
 
   const handleSave = useCallback(() => {
-    if (lab) {
-      updateLab.mutate(lab);
-    }
+    if (lab) updateLab.mutate(lab);
   }, [lab, updateLab]);
 
   const handleRunAll = useCallback(() => {
@@ -114,9 +117,7 @@ export default function LabEditor() {
   const handleInputsChange = useCallback(
     (cellId: string, inputs: Record<string, unknown>) => {
       if (!lab) return;
-      const cells = lab.cells.map((c) =>
-        c.id === cellId ? { ...c, inputs } : c,
-      );
+      const cells = lab.cells.map((c) => (c.id === cellId ? { ...c, inputs } : c));
       updateLab.mutate({ ...lab, cells });
     },
     [lab, updateLab],
@@ -145,9 +146,17 @@ export default function LabEditor() {
     [lab, updateLab],
   );
 
+  const goNext = useCallback(() => {
+    if (lab && safeIndex < lab.cells.length - 1) setCurrentIndex(safeIndex + 1);
+  }, [lab, safeIndex]);
+
+  const goPrev = useCallback(() => {
+    if (safeIndex > 0) setCurrentIndex(safeIndex - 1);
+  }, [safeIndex]);
+
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-20">
+      <div className="flex items-center justify-center h-full">
         <div className="text-sm text-muted-foreground">{t("labs.loading")}</div>
       </div>
     );
@@ -155,7 +164,7 @@ export default function LabEditor() {
 
   if (error || !lab) {
     return (
-      <div className="flex items-center justify-center py-20">
+      <div className="flex items-center justify-center h-full">
         <div className="text-sm text-red-600">
           {error ? t("labs.loadError", { error: error.message }) : t("labs.notFound")}
         </div>
@@ -163,66 +172,117 @@ export default function LabEditor() {
     );
   }
 
-  const overallStatus = lab.cells.some((c) => c.status === "error")
-    ? "error"
-    : lab.cells.some((c) => c.status === "running")
-      ? "running"
-      : lab.cells.every((c) => c.status === "completed")
-        ? "completed"
-        : "idle";
+  const cell = lab.cells[safeIndex];
 
   return (
-    <div className="max-w-4xl mx-auto">
-      <LabToolbar
+    <div className="flex flex-col -m-6 h-[calc(100vh-3rem)]">
+      {/* Top bar */}
+      <LabHeader
         title={lab.title}
         scenarioId={lab.scenario_id}
-        cellCount={lab.cells.length}
-        overallStatus={overallStatus}
+        onBack={() => navigate("/admin/labs")}
         onRunAll={handleRunAll}
         onSave={handleSave}
         isRunning={runAll.isPending}
         isSaving={updateLab.isPending}
       />
 
-      <div className="space-y-3">
-        {lab.cells.map((cell, idx) => (
-          <CellCard
+      {/* Progress bar */}
+      <LabProgress cells={lab.cells} currentIndex={safeIndex} onSelect={setCurrentIndex} />
+
+      {/* Slide area — fills remaining height */}
+      <div className="flex-1 flex flex-col min-h-0">
+        {cell ? (
+          <CellSlide
             key={cell.id}
             cell={cell}
-            isExpanded={expandedCells.has(cell.id)}
-            onToggle={() => toggleCell(cell.id)}
-            onExecute={() => handleExecuteCell(cell.id)}
+            index={safeIndex}
+            total={lab.cells.length}
+            onExecute={
+              cell.type === "llm" ? () => setLlmRunTrigger((n) => n + 1)
+              : cell.type !== "display" ? () => handleExecuteCell(cell.id)
+              : undefined
+            }
+            onSave={
+              cell.type === "config" ? () => handleConfigSave(cell.id, cell.outputs)
+              : cell.type === "llm" ? () => updateLab.mutate(lab)
+              : undefined
+            }
+            isSaving={updateLab.isPending}
+            isExecuting={executeCell.isPending || runAll.isPending}
+            onStop={cell.type === "llm" && cell.status === "running" ? () => setLlmRunTrigger(-1) : undefined}
             onDelete={() => handleDeleteCell(cell.id)}
             onMoveUp={() => handleMoveCell(cell.id, "up")}
             onMoveDown={() => handleMoveCell(cell.id, "down")}
-            isFirst={idx === 0}
-            isLast={idx === lab.cells.length - 1}
+            isFirst={safeIndex === 0}
+            isLast={safeIndex === lab.cells.length - 1}
           >
-            {cell.type === "config" && (
-              <ConfigCell cell={cell} onSave={(outputs) => handleConfigSave(cell.id, outputs)} />
-            )}
-            {cell.type === "llm" && (
-              <LlmCell
-                cell={cell}
-                labId={lab.id}
-                onInputsChange={(inputs) => handleInputsChange(cell.id, inputs)}
-                onExecutionComplete={(outputs, status, err) =>
-                  handleExecutionComplete(cell.id, outputs, status, err)
-                }
-              />
-            )}
-            {cell.type === "code" && (
-              <CodeCell
-                cell={cell}
-                onSourceChange={(source) => handleSourceChange(cell.id, source)}
-              />
-            )}
-            {cell.type === "display" && <DisplayCell cell={cell} />}
-          </CellCard>
-        ))}
-
-        <AddCellButton onAdd={handleAddCell} />
+            <CellErrorBoundary cellTitle={cell.title}>
+              {cell.type === "config" && (
+                <ConfigCell cell={cell} onSave={(outputs) => handleConfigSave(cell.id, outputs)} />
+              )}
+              {cell.type === "llm" && (
+                <LlmCell
+                  cell={cell}
+                  labId={lab.id}
+                  runTrigger={llmRunTrigger}
+                  onInputsChange={(inputs) => handleInputsChange(cell.id, inputs)}
+                  onExecutionComplete={(outputs, status, err) =>
+                    handleExecutionComplete(cell.id, outputs, status, err)
+                  }
+                />
+              )}
+              {cell.type === "code" && (
+                <CodeCell cell={cell} onSourceChange={(source) => handleSourceChange(cell.id, source)} />
+              )}
+              {cell.type === "display" && <DisplayCell cell={cell} />}
+            </CellErrorBoundary>
+          </CellSlide>
+        ) : (
+          /* Empty state when no cells */
+          <div className="flex-1 flex items-center justify-center">
+            <div className="text-center space-y-3">
+              <p className="text-sm text-muted-foreground">{t("labs.noCells")}</p>
+              <AddCellButton onAdd={handleAddCell} />
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Bottom nav: prev/next + add */}
+      {lab.cells.length > 0 && (
+        <div className="flex items-center justify-between px-4 py-2 border-t bg-card shrink-0">
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={goPrev} disabled={safeIndex === 0} className="h-8 w-8 p-0">
+              <ChevronLeft className="w-4 h-4" />
+            </Button>
+            <span className="text-xs text-muted-foreground tabular-nums min-w-[48px] text-center">
+              {safeIndex + 1} / {lab.cells.length}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={goNext}
+              disabled={safeIndex >= lab.cells.length - 1}
+              className="h-8 w-8 p-0"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </div>
+
+          <AddCellButton onAdd={handleAddCell} trigger={<AddCellTrigger />} />
+        </div>
+      )}
     </div>
+  );
+}
+
+/** Simple plus-button trigger for the AddCellButton when in the bottom bar. */
+function AddCellTrigger() {
+  return (
+    <Button variant="ghost" size="sm" className="h-8 gap-1.5">
+      <Plus className="w-4 h-4" />
+      <span className="text-xs">Add Cell</span>
+    </Button>
   );
 }

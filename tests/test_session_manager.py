@@ -255,3 +255,55 @@ class TestSearch:
         manager.update_title(sid, "New title")
         info = manager.get_session_info(sid)
         assert info["title"] == "New title"
+
+
+# ---------------------------------------------------------------------------
+# Cell-linked sessions
+# ---------------------------------------------------------------------------
+
+
+class TestCellSessions:
+    def test_get_or_create_cell_session(self, tmp_path):
+        """Should create a session linked to a cell, then return the same one on second call."""
+        from cliver.session_manager import SessionManager
+
+        db = tmp_path / "test.db"
+        sm = SessionManager(db)
+
+        sid1 = sm.get_or_create_cell_session("lab_01", "cell_aa")
+        assert sid1 is not None
+        assert len(sid1) > 0
+
+        # Second call returns the same session
+        sid2 = sm.get_or_create_cell_session("lab_01", "cell_aa")
+        assert sid2 == sid1
+
+        # Different cell gets different session
+        sid3 = sm.get_or_create_cell_session("lab_01", "cell_bb")
+        assert sid3 != sid1
+
+        # Verify turns work on cell-linked sessions
+        sm.append_turn(sid1, "user", "hello")
+        turns = sm.load_turns(sid1)
+        assert len(turns) == 1
+        assert turns[0]["role"] == "user"
+        assert turns[0]["content"] == "hello"
+
+    def test_cell_session_preserves_existing_sessions(self, tmp_path):
+        """Existing sessions without lab_id should still work."""
+        from cliver.session_manager import SessionManager
+
+        db = tmp_path / "test.db"
+        sm = SessionManager(db)
+
+        # Old-style session
+        old_id = sm.create_session("old chat")
+        sm.append_turn(old_id, "user", "legacy message")
+
+        # New cell-linked session
+        cell_id = sm.get_or_create_cell_session("lab_02", "cell_cc")
+        sm.append_turn(cell_id, "user", "new message")
+
+        # Both work
+        assert len(sm.load_turns(old_id)) == 1
+        assert len(sm.load_turns(cell_id)) == 1
