@@ -3,7 +3,6 @@ import { useParams, Link, useNavigate } from "react-router";
 import { ArrowLeft, Trash2, Save, Loader2, Star, CheckCircle, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ConfirmDialog } from "@/components/confirm-dialog";
@@ -77,7 +76,7 @@ export default function AgentDetailPage() {
       }
     }
     const updated = { ...currentAgents, [form.name]: agentPayload };
-    const updatedConfig = { ...config, agents: updated };
+    const updatedConfig: Record<string, unknown> = { ...config, agents: updated };
     if (form.isDefault) {
       updatedConfig.default_agent = form.name;
     } else if (defaultAgent === form.name) {
@@ -96,7 +95,7 @@ export default function AgentDetailPage() {
     const currentAgents = (config.agents ?? {}) as Record<string, Record<string, unknown>>;
     const updated = { ...currentAgents };
     delete updated[name];
-    const updatedConfig = { ...config, agents: updated };
+    const updatedConfig: Record<string, unknown> = { ...config, agents: updated };
     if (defaultAgent === name) updatedConfig.default_agent = null;
     saveConfig.mutate(updatedConfig, { onSuccess: () => navigate("/admin/agents") });
   };
