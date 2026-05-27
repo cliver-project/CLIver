@@ -13,7 +13,7 @@ import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import { ArrowUp, Plus, Square, X } from "lucide-react";
 import { streamChat, type ChatArtifact } from "@/lib/chat-stream";
 import { useConversation } from "@/hooks/use-conversations";
-import { useAgents, useSkills } from "@/hooks/use-api";
+import { useAgents, useSkills, useTemplates } from "@/hooks/use-api";
 import { ConversationSidebar } from "@/components/chat/ConversationSidebar";
 import { useTranslation } from "@/i18n";
 
@@ -54,11 +54,69 @@ export default function ChatPage() {
   // Composer state
   const [inputText, setInputText] = useState("");
   const [showConfigMenu, setShowConfigMenu] = useState(false);
+
+  const { data: conversationDetail } = useConversation(activeConversationId);
+  const { data: templates } = useTemplates();
+
+  // Per-chat config — local state synced with session options on load
   const [selectedAgent, setSelectedAgent] = useState("");
   const [systemMessage, setSystemMessage] = useState("");
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const lastLoadedSessionId = useRef<string | null>(null);
 
-  const { data: conversationDetail } = useConversation(activeConversationId);
+  // Load config from session options — runs only once per conversation load.
+  // lastLoadedSessionId tracks which session's data was applied, so re-renders
+  // from conversationDetail reference changes don't overwrite optimistic state.
+  useEffect(() => {
+    if (!activeConversationId) {
+      setSelectedAgent("");
+      setSystemMessage("");
+      setSelectedSkills([]);
+      lastLoadedSessionId.current = null;
+      return;
+    }
+    const dataId = conversationDetail?.session?.id;
+    if (!dataId || dataId !== activeConversationId) return;
+    if (lastLoadedSessionId.current === dataId) return;
+    lastLoadedSessionId.current = dataId;
+
+    const opts = (conversationDetail?.session?.options as Record<string, unknown>) || {};
+    setSelectedAgent(String(opts.agent || ""));
+    setSystemMessage(String(opts.system_prompt || ""));
+    setSelectedSkills(Array.isArray(opts.skills) ? (opts.skills as string[]) : []);
+  }, [activeConversationId, conversationDetail]);
+
+  // Clear load tracker when leaving a conversation so returning reloads
+  useEffect(() => {
+    return () => { lastLoadedSessionId.current = null; };
+  }, [activeConversationId]);
+
+  // Persist config changes — sends only the changed fields as a merge patch
+  const persistPatch = useCallback(
+    (patch: Record<string, unknown>) => {
+      if (!activeConversationId) return;
+      fetch(`/admin/api/conversations/${encodeURIComponent(activeConversationId)}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ options: patch }),
+      }).catch(() => {});
+    },
+    [activeConversationId],
+  );
+
+  const handleSetAgent = useCallback((v: string) => {
+    setSelectedAgent(v);
+    persistPatch({ agent: v || null });
+  }, [persistPatch]);
+  const handleSetSystemMessage = useCallback((v: string) => {
+    setSystemMessage(v);
+    persistPatch({ system_prompt: v || null });
+  }, [persistPatch]);
+  const handleSetSkills = useCallback((v: string[]) => {
+    setSelectedSkills(v);
+    persistPatch({ skills: v.length > 0 ? v : null });
+  }, [persistPatch]);
 
   // Constrain App wrapper height so only the conversation viewport scrolls
   useEffect(() => {
@@ -98,27 +156,32 @@ export default function ChatPage() {
     }
   }, [messages]);
 
-  const TEMPLATES = [
-    { label: "Make slides", systemPrompt: "You are a presentation design expert. Create well-structured slide content.", skills: ["brainstorm"] },
-    { label: "Create a website", systemPrompt: "You are a senior full-stack web developer.", skills: ["write-plan", "execute-plan"] },
-    { label: "Write a novel", systemPrompt: "You are a creative fiction writer.", skills: ["brainstorm"] },
-    { label: "Create a video", systemPrompt: "You are a video production expert.", skills: ["brainstorm"] },
-    { label: "Analyze data", systemPrompt: "You are a data scientist. Analyze data and provide insights.", skills: [] },
-  ];
-
   const handleSend = useCallback(() => {
     const text = inputText.trim();
     if (!text || isRunning) return;
     onNewRef.current?.({
+      role: "user",
       content: [{ type: "text" as const, text }],
-    });
+      parentId: null,
+      sourceId: null,
+      runConfig: undefined,
+    } as AppendMessage);
     setInputText("");
   }, [inputText, isRunning]);
 
-  const handleApplyTemplate = useCallback((tpl: typeof TEMPLATES[number]) => {
-    setSystemMessage(tpl.systemPrompt);
-    setSelectedSkills(tpl.skills);
-  }, []);
+  const handleApplyTemplate = useCallback((tpl: { system_prompt: string; skills: string[]; agent?: string | null }) => {
+    const vAgent = tpl.agent || "";
+    const vSkills = tpl.skills;
+    setSelectedAgent(vAgent);
+    setSystemMessage(tpl.system_prompt);
+    setSelectedSkills(vSkills);
+    // Send all three as a single merge patch
+    persistPatch({
+      agent: vAgent || null,
+      system_prompt: tpl.system_prompt || null,
+      skills: vSkills.length > 0 ? vSkills : null,
+    });
+  }, [persistPatch]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
@@ -192,7 +255,7 @@ export default function ChatPage() {
       await streamChat({
         message: input,
         conversationId: convId ?? undefined,
-        model: selectedAgent || undefined,
+        agent: selectedAgent || undefined,
         systemMessage: systemMessage || undefined,
         filterTools: selectedSkills.length > 0 ? selectedSkills : undefined,
         abortSignal: controller.signal,
@@ -377,20 +440,20 @@ export default function ChatPage() {
                   <div className="flex flex-wrap gap-1.5">
                     {selectedAgent && (
                       <span className="inline-flex items-center gap-1 rounded-md bg-primary/10 text-primary text-[11px] px-2 py-0.5">
-                        Model: {selectedAgent}
-                        <button onClick={() => setSelectedAgent("")}><X className="w-3 h-3" /></button>
+                        {t("agents.title")}: {selectedAgent}
+                        <button onClick={() => handleSetAgent("")}><X className="w-3 h-3" /></button>
                       </span>
                     )}
                     {systemMessage && (
                       <span className="inline-flex items-center gap-1 rounded-md bg-primary/10 text-primary text-[11px] px-2 py-0.5">
-                        System prompt set
-                        <button onClick={() => setSystemMessage("")}><X className="w-3 h-3" /></button>
+                        {t("agents.systemPrompt")}
+                        <button onClick={() => handleSetSystemMessage("")}><X className="w-3 h-3" /></button>
                       </span>
                     )}
                     {selectedSkills.map((s) => (
                       <span key={s} className="inline-flex items-center gap-1 rounded-md bg-primary/10 text-primary text-[11px] px-2 py-0.5">
                         {s}
-                        <button onClick={() => setSelectedSkills((p) => p.filter((x) => x !== s))}><X className="w-3 h-3" /></button>
+                        <button onClick={() => handleSetSkills(selectedSkills.filter((x) => x !== s))}><X className="w-3 h-3" /></button>
                       </span>
                     ))}
                   </div>
@@ -449,26 +512,26 @@ export default function ChatPage() {
                 {showConfigMenu && (
                   <ComposerConfigPanel
                     selectedAgent={selectedAgent}
-                    onAgentChange={setSelectedAgent}
+                    onAgentChange={handleSetAgent}
                     systemMessage={systemMessage}
-                    onSystemMessageChange={setSystemMessage}
+                    onSystemMessageChange={handleSetSystemMessage}
                     selectedSkills={selectedSkills}
-                    onSkillsChange={setSelectedSkills}
+                    onSkillsChange={handleSetSkills}
                     onClose={() => setShowConfigMenu(false)}
                   />
                 )}
 
                 {/* Template suggestions */}
-                {!isRunning && (
+                {!isRunning && templates && templates.length > 0 && (
                   <div className="flex gap-1.5 overflow-x-auto pb-1">
-                    {TEMPLATES.map((tpl) => (
+                    {templates.map((tpl) => (
                       <button
-                        key={tpl.label}
+                        key={tpl.id}
                         type="button"
                         onClick={() => handleApplyTemplate(tpl)}
                         className="shrink-0 rounded-full border border-border px-3 py-1 text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
                       >
-                        {tpl.label}
+                        {t(`templates.${tpl.id}`) === `templates.${tpl.id}` ? tpl.label || tpl.id : t(`templates.${tpl.id}`)}
                       </button>
                     ))}
                   </div>
@@ -503,6 +566,25 @@ function ComposerConfigPanel({
   const { data: agents } = useAgents();
   const { data: skills } = useSkills();
 
+  // Local textarea state + debounced sync to parent
+  const [localSysMsg, setLocalSysMsg] = useState(systemMessage);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Sync from parent prop when it changes externally (e.g. template apply)
+  useEffect(() => {
+    setLocalSysMsg(systemMessage);
+  }, [systemMessage]);
+
+  const handleSysMsgChange = useCallback((v: string) => {
+    setLocalSysMsg(v);
+    if (timerRef.current) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => onSystemMessageChange(v), 400);
+  }, [onSystemMessageChange]);
+
+  useEffect(() => {
+    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
+  }, []);
+
   const agentList: string[] = agents
     ? (agents as Array<Record<string, unknown>>).map((a) => a.name as string).filter(Boolean)
     : [];
@@ -513,15 +595,15 @@ function ComposerConfigPanel({
   return (
     <div className="rounded-lg border bg-card p-4 space-y-4">
       <div className="flex items-center justify-between">
-        <span className="text-sm font-medium">Configure</span>
+        <span className="text-sm font-medium">{t("chat.configure")}</span>
         <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
           <X className="w-4 h-4" />
         </button>
       </div>
 
-      {/* Model */}
+      {/* Agent */}
       <div>
-        <label className="text-[11px] font-medium text-muted-foreground">Model</label>
+        <label className="text-[11px] font-medium text-muted-foreground">{t("agents.title")}</label>
         <select
           value={selectedAgent}
           onChange={(e) => onAgentChange(e.target.value)}
@@ -534,10 +616,10 @@ function ComposerConfigPanel({
 
       {/* System prompt */}
       <div>
-        <label className="text-[11px] font-medium text-muted-foreground">System prompt</label>
+        <label className="text-[11px] font-medium text-muted-foreground">{t("agents.systemPrompt")}</label>
         <textarea
-          value={systemMessage}
-          onChange={(e) => onSystemMessageChange(e.target.value)}
+          value={localSysMsg}
+          onChange={(e) => handleSysMsgChange(e.target.value)}
           rows={3}
           className="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-ring"
           placeholder="Instructions for the AI..."
@@ -546,7 +628,7 @@ function ComposerConfigPanel({
 
       {/* Skills */}
       <div>
-        <label className="text-[11px] font-medium text-muted-foreground">Skills</label>
+        <label className="text-[11px] font-medium text-muted-foreground">{t("sidebar.skills")}</label>
         {skillList.length === 0 ? (
           <p className="text-xs text-muted-foreground mt-1">No skills available</p>
         ) : (

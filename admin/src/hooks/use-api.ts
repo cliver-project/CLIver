@@ -184,6 +184,7 @@ export function useSaveConfig() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["config"] });
       qc.invalidateQueries({ queryKey: ["models"] });
+      qc.invalidateQueries({ queryKey: ["agents"] });
     },
   });
 }
@@ -211,6 +212,24 @@ export function useModels() {
   return useQuery({
     queryKey: ["models"],
     queryFn: () => api<{ models: string[]; default: string }>("/models"),
+  });
+}
+
+// --- Templates ---
+export interface ChatTemplate {
+  id: string;
+  label: string;
+  system_prompt: string;
+  skills: string[];
+  agent?: string | null;
+  knowledge_base?: string | null;
+  description?: string | null;
+}
+
+export function useTemplates() {
+  return useQuery({
+    queryKey: ["templates"],
+    queryFn: () => api<ChatTemplate[]>("/templates"),
   });
 }
 

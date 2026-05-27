@@ -235,12 +235,42 @@ class SessionManager:
     # -- Options ---------------------------------------------------------------
 
     def save_options(self, session_id: str, options: Dict[str, Any]) -> None:
-        """Persist session options as JSON."""
-        clean = {k: v for k, v in options.items() if v is not None and k != "statusbar"}
+        """Persist session options as JSON — full replacement, keeps nulls."""
+        clean = {k: v for k, v in options.items() if k != "statusbar"}
         with self._get_store().write() as db:
             db.execute(
                 "UPDATE sessions SET options = ? WHERE id = ?",
                 (json.dumps(clean, ensure_ascii=False), session_id),
+            )
+
+    def merge_options(self, session_id: str, patch: Dict[str, Any]) -> None:
+        """Merge fields into existing options in one transaction.
+
+        Reads current options, applies patch fields, writes back atomically.
+        Fields set to ``null`` in the patch are removed from options.
+        """
+        with self._get_store().write() as db:
+            row = db.execute(
+                "SELECT options FROM sessions WHERE id = ?", (session_id,)
+            ).fetchone()
+            if row is None:
+                return
+            current: dict = {}
+            if row["options"]:
+                try:
+                    current = json.loads(row["options"])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            for k, v in patch.items():
+                if k == "statusbar":
+                    continue
+                if v is None:
+                    current.pop(k, None)
+                else:
+                    current[k] = v
+            db.execute(
+                "UPDATE sessions SET options = ? WHERE id = ?",
+                (json.dumps(current, ensure_ascii=False) if current else None, session_id),
             )
 
     def load_options(self, session_id: str) -> Dict[str, Any]:

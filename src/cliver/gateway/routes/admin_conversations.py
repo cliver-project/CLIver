@@ -67,8 +67,12 @@ def get_conversations_routes(context: dict, require_auth: Callable) -> list:
             return JSONResponse({"error": "Session manager not available"}, status_code=503)
         session_id = request.path_params["id"]
         body = await request.json()
-        title = body.get("title", "")
-        await _run_in_thread(session_manager.update_title, session_id, title)
+        title = body.get("title")
+        options = body.get("options")
+        if title is not None:
+            await _run_in_thread(session_manager.update_title, session_id, title)
+        if options is not None:
+            await _run_in_thread(session_manager.merge_options, session_id, options)
         return JSONResponse({"status": "updated"})
 
     return [

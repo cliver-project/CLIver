@@ -113,6 +113,9 @@ class Gateway:
 
             profile = CliverProfile(self.config_dir)
             self._lab_store = LabStore(profile.config_dir, db_path=profile.db_path)
+            from cliver.chat_templates import ChatTemplateStore
+
+            self._template_store = ChatTemplateStore(profile.config_dir)
             self._runtime_manager = RuntimeManager()
             self._project_provider = LocalProvider(profile.db_path)
 
@@ -234,6 +237,13 @@ class Gateway:
                         )
                     )
                     logger.info("Lab and project routes registered")
+
+                    # Template routes
+                    if hasattr(self, "_template_store") and self._template_store:
+                        from cliver.gateway.routes.admin_templates import get_template_routes
+
+                        routes.extend(get_template_routes(self._template_store, shared_auth))
+                        logger.info("Template routes registered")
             except Exception as e:
                 logger.error(f"Failed to register lab/project routes: {e}")
 
