@@ -55,7 +55,6 @@ _TOOL_DESCRIPTIONS = {
     "WebSearch": lambda a: f"Searching web for '{_trunc(a.get('query', ''), 40)}'",
     "Browse": lambda a: f"Browsing {_trunc(a.get('url', ''), 50)}",
     "Browser": lambda a: f"Browser {a.get('action', 'action')}",
-    "Ask": lambda a: "Asking user",
     "TodoRead": lambda _: "Reading plan",
     "TodoWrite": lambda _: "Updating plan",
     "MemoryRead": lambda _: "Reading memory",

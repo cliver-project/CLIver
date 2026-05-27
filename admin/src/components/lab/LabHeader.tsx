@@ -1,51 +1,29 @@
-import { ArrowLeft, Save, Play, Loader2 } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { useTranslation } from "@/i18n";
+import type { ReactNode } from "react";
 
 interface LabHeaderProps {
   title: string;
-  scenarioId?: string | null;
-  onBack: () => void;
-  onRunAll: () => void;
-  onSave: () => void;
-  isRunning: boolean;
-  isSaving: boolean;
+  description: string;
+  breadcrumb?: ReactNode;
 }
 
-export function LabHeader({
-  title,
-  scenarioId,
-  onBack,
-  onRunAll,
-  onSave,
-  isRunning,
-  isSaving,
-}: LabHeaderProps) {
-  const { t } = useTranslation();
+export function LabHeader({ title, description, breadcrumb }: LabHeaderProps) {
   return (
-    <div className="flex items-center gap-3 px-4 py-2 border-b bg-card shrink-0">
-      <Button variant="ghost" size="sm" onClick={onBack} className="h-8 w-8 p-0">
-        <ArrowLeft className="w-4 h-4" />
-      </Button>
-
-      <h1 className="text-base font-semibold truncate flex-1">{title}</h1>
-
-      {scenarioId && (
-        <Badge variant="secondary" className="text-xs">
-          {scenarioId}
-        </Badge>
+    <div className="shrink-0 border-b bg-card px-4 py-2">
+      {breadcrumb ? (
+        <div className="flex items-center gap-1 text-xs text-muted-foreground [&_button]:cursor-pointer">
+          {breadcrumb}
+          {description && (
+            <span className="text-muted-foreground/70 truncate hidden sm:inline ml-1">— {description}</span>
+          )}
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <h1 className="text-sm font-semibold truncate">{title}</h1>
+          {description && (
+            <span className="text-xs text-muted-foreground truncate hidden sm:inline">— {description}</span>
+          )}
+        </div>
       )}
-
-      <Button variant="outline" size="sm" onClick={onRunAll} disabled={isRunning} className="gap-1.5 h-8">
-        {isRunning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-        {t("lab.runAll")}
-      </Button>
-
-      <Button variant="default" size="sm" onClick={onSave} disabled={isSaving} className="gap-1.5 h-8">
-        {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
-        {t("lab.save")}
-      </Button>
     </div>
   );
 }

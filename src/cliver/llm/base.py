@@ -250,16 +250,30 @@ class LLMInferenceEngine(ABC):
 
         parts = ["# Interaction Guidelines\n"]
 
-        if _has("Ask"):
-            parts.append(
-                "## Asking the user\n\n"
-                "Use the `Ask` tool when you need to:\n"
-                "- Clarify ambiguous instructions\n"
-                "- Confirm before destructive or irreversible actions\n"
-                "- Choose between multiple valid approaches\n"
-                "- Gather missing information that you cannot determine on your own\n\n"
-                "Do **not** ask for confirmation on routine, safe, or clearly specified tasks."
-            )
+        parts.append(
+            "## Asking the user\n\n"
+            "When you need to clarify, confirm, or gather information from the user, "
+            "ask directly in your response message using the format below. "
+            "The user will see your question displayed in the chat and can reply naturally.\n\n"
+            "**Question format:**\n"
+            "```\n"
+            "## ❓ {question text}\n\n"
+            "- **Option 1**: {label} — {description}\n"
+            "- **Option 2**: {label} — {description}\n\n"
+            "Reply with the option number or your own answer.\n"
+            "```\n\n"
+            "This structured format lets the UI display questions nicely (the `❓` marker "
+            "and numbered bold options are rendered as an interactive panel when the "
+            "frontend supports it). In plain-text terminals it renders as readable markdown.\n\n"
+            "When to ask:\n"
+            "- Clarify ambiguous instructions\n"
+            "- Confirm before destructive or irreversible actions\n"
+            "- Choose between multiple valid approaches\n"
+            "- Gather missing information that you cannot determine on your own\n\n"
+            "Do **not** ask for confirmation on routine, safe, or clearly specified tasks. "
+            "For simple yes/no confirmations, a single-sentence question is fine — "
+            "you don't need the full structured format."
+        )
 
         if _has("Skill"):
             parts.append(

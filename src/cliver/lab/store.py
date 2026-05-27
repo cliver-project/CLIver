@@ -1,186 +1,178 @@
-"""LabStore — CRUD for labs with JSON files + SQLite index."""
+"""LabStore — SQLite persistence for AI Labs and golden tests."""
 
 from __future__ import annotations
 
-import json
-import logging
-import os
-import uuid
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from cliver.db import SQLiteStore
-from cliver.lab.models import Cell, Lab, LabSummary
-
-logger = logging.getLogger(__name__)
+from cliver.lab.models import GoldenTest, Lab
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS labs (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
     description TEXT DEFAULT '',
-    scenario_id TEXT,
-    cell_count INTEGER DEFAULT 0,
-    status TEXT DEFAULT 'idle',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS golden_tests (
+    id TEXT PRIMARY KEY,
+    lab_id TEXT NOT NULL REFERENCES labs(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    input TEXT NOT NULL,
+    expected_output TEXT NOT NULL,
+    expected_files TEXT DEFAULT '[]',
+    sort_order INTEGER DEFAULT 0
 );
 """
 
 
 class LabStore:
-    """CRUD for labs. JSON files are source of truth, SQLite is index."""
+    """CRUD store for AI Labs and their golden tests."""
 
-    def __init__(self, data_dir: Path, db_path: Path = None):
-        self._data_dir = data_dir
-        self._labs_dir = data_dir / "labs"
-        self._db_path = db_path or (data_dir / "cliver.db")
-        self._labs_dir.mkdir(parents=True, exist_ok=True)
-        self._store = SQLiteStore(self._db_path)
-        self._store.execute_schema(_SCHEMA)
+    def __init__(self, db_path: Path):
+        self._db_path = Path(db_path)
+        self._store: Optional[SQLiteStore] = None
 
-    def _now(self) -> str:
-        return datetime.now(timezone.utc).isoformat()
+    def _get_store(self) -> SQLiteStore:
+        if self._store is None:
+            self._store = SQLiteStore(self._db_path)
+            self._store.execute_schema(_SCHEMA)
+        return self._store
 
-    def _gen_id(self) -> str:
-        return f"lab_{uuid.uuid4().hex[:8]}"
+    # -- Labs ---------------------------------------------------------------
 
-    def create(
-        self,
-        title: str,
-        description: str = "",
-        scenario_id: Optional[str] = None,
-        default_agent: Optional[str] = None,
-        context: Optional[Dict[str, Any]] = None,
-        cells: Optional[list] = None,
-    ) -> Lab:
-        now = self._now()
-        lab_id = self._gen_id()
-
-        cell_objects = []
-        if cells:
-            for c in cells:
-                if isinstance(c, dict):
-                    cell_objects.append(Cell(**c))
-                elif isinstance(c, Cell):
-                    cell_objects.append(c)
-
-        lab = Lab(
-            id=lab_id,
-            title=title,
-            description=description,
-            scenario_id=scenario_id,
-            default_agent=default_agent,
-            context=context or {},
-            created_at=now,
-            updated_at=now,
-            cells=cell_objects,
-        )
-
-        self._write_json(lab)
-        self._upsert_index(lab)
+    def create_lab(self, title: str, description: str = "") -> Lab:
+        lab = Lab(title=title, description=description)
+        with self._get_store().write() as db:
+            db.execute(
+                "INSERT INTO labs (id, title, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                (lab.id, lab.title, lab.description, lab.created_at, lab.updated_at),
+            )
         return lab
 
-    def get(self, lab_id: str) -> Optional[Lab]:
-        path = self._labs_dir / f"{lab_id}.json"
-        if not path.exists():
-            return None
-        try:
-            data = json.loads(path.read_text(encoding="utf-8"))
-            return Lab.model_validate(data)
-        except Exception as e:
-            logger.warning("Failed to load lab %s: %s", lab_id, e)
-            return None
-
-    def list_all(self) -> List[LabSummary]:
-        with self._store.read() as conn:
-            rows = conn.execute(
-                "SELECT id, title, description, scenario_id, cell_count, status, "
-                "created_at, updated_at FROM labs ORDER BY updated_at DESC"
+    def list_labs(self) -> List[Lab]:
+        with self._get_store().read() as db:
+            rows = db.execute(
+                "SELECT id, title, description, created_at, updated_at FROM labs ORDER BY updated_at DESC"
             ).fetchall()
-        return [
-            LabSummary(
-                id=r[0],
-                title=r[1],
-                description=r[2] or "",
-                scenario_id=r[3],
-                cell_count=r[4],
-                status=r[5],
-                created_at=r[6],
-                updated_at=r[7],
+        return [Lab(**dict(r)) for r in rows]
+
+    def get_lab(self, lab_id: str) -> Optional[Lab]:
+        with self._get_store().read() as db:
+            row = db.execute(
+                "SELECT id, title, description, created_at, updated_at FROM labs WHERE id = ?",
+                (lab_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return Lab(**dict(row))
+
+    def update_lab(self, lab_id: str, title: str = "", description: str = "") -> Optional[Lab]:
+        existing = self.get_lab(lab_id)
+        if existing is None:
+            return None
+        if title:
+            existing.title = title
+        if description:
+            existing.description = description
+        from cliver.lab.models import _now
+
+        existing.updated_at = _now()
+        with self._get_store().write() as db:
+            db.execute(
+                "UPDATE labs SET title = ?, description = ?, updated_at = ? WHERE id = ?",
+                (existing.title, existing.description, existing.updated_at, lab_id),
             )
-            for r in rows
-        ]
+        return existing
 
-    def update(self, lab: Lab) -> None:
-        lab.updated_at = self._now()
-        self._write_json(lab)
-        self._upsert_index(lab)
+    def delete_lab(self, lab_id: str) -> bool:
+        with self._get_store().write() as db:
+            cursor = db.execute("DELETE FROM labs WHERE id = ?", (lab_id,))
+        return cursor.rowcount > 0
 
-    def delete(self, lab_id: str) -> bool:
-        path = self._labs_dir / f"{lab_id}.json"
-        if not path.exists():
-            return False
-        path.unlink()
-        with self._store.write() as conn:
-            conn.execute("DELETE FROM labs WHERE id=?", (lab_id,))
-        return True
+    # -- Golden Tests -------------------------------------------------------
 
-    def save_cell_output(
+    def list_golden_tests(self, lab_id: str) -> List[GoldenTest]:
+        with self._get_store().read() as db:
+            rows = db.execute(
+                "SELECT id, lab_id, name, input, expected_output, expected_files, sort_order "
+                "FROM golden_tests WHERE lab_id = ? ORDER BY sort_order",
+                (lab_id,),
+            ).fetchall()
+        return [GoldenTest(**dict(r)) for r in rows]
+
+    def create_golden_test(
         self,
         lab_id: str,
-        cell_id: str,
-        outputs: Dict[str, Any],
-        status: str,
-        error: Optional[str] = None,
-        duration_ms: int = 0,
-    ) -> None:
-        lab = self.get(lab_id)
-        if not lab:
-            raise ValueError(f"Lab '{lab_id}' not found")
-        cell = lab.get_cell(cell_id)
-        if not cell:
-            raise ValueError(f"Cell '{cell_id}' not found in lab '{lab_id}'")
+        name: str,
+        input: str,
+        expected_output: str,
+        expected_files: str = "[]",
+    ) -> GoldenTest:
+        with self._get_store().read() as db:
+            row = db.execute(
+                "SELECT COALESCE(MAX(sort_order), -1) + 1 FROM golden_tests WHERE lab_id = ?",
+                (lab_id,),
+            ).fetchone()
+        next_order = row[0] if row else 0
 
-        cell.outputs = outputs
-        cell.status = status
-        cell.error = error
-        cell.duration_ms = duration_ms
-        self.update(lab)
-
-    def _write_json(self, lab: Lab) -> None:
-        path = self._labs_dir / f"{lab.id}.json"
-        tmp_path = path.with_suffix(".tmp")
-        data = lab.model_dump()
-        tmp_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-        os.rename(tmp_path, path)
-
-    def _upsert_index(self, lab: Lab) -> None:
-        status = "idle"
-        for c in lab.cells:
-            if c.status == "error":
-                status = "error"
-                break
-            if c.status == "completed":
-                status = "completed"
-
-        with self._store.write() as conn:
-            conn.execute(
-                "INSERT INTO labs (id, title, description, scenario_id, cell_count, "
-                "status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
-                "ON CONFLICT(id) DO UPDATE SET title=excluded.title, "
-                "description=excluded.description, scenario_id=excluded.scenario_id, "
-                "cell_count=excluded.cell_count, status=excluded.status, "
-                "updated_at=excluded.updated_at",
-                (
-                    lab.id,
-                    lab.title,
-                    lab.description,
-                    lab.scenario_id,
-                    len(lab.cells),
-                    status,
-                    lab.created_at,
-                    lab.updated_at,
-                ),
+        gt = GoldenTest(
+            lab_id=lab_id,
+            name=name,
+            input=input,
+            expected_output=expected_output,
+            expected_files=expected_files,
+            sort_order=next_order,
+        )
+        with self._get_store().write() as db:
+            db.execute(
+                "INSERT INTO golden_tests (id, lab_id, name, input, expected_output, expected_files, sort_order) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (gt.id, gt.lab_id, gt.name, gt.input, gt.expected_output, gt.expected_files, gt.sort_order),
             )
+        return gt
+
+    def update_golden_test(
+        self,
+        test_id: str,
+        name: Optional[str] = None,
+        input: Optional[str] = None,
+        expected_output: Optional[str] = None,
+        expected_files: Optional[str] = None,
+    ) -> Optional[GoldenTest]:
+        with self._get_store().read() as db:
+            row = db.execute(
+                "SELECT id, lab_id, name, input, expected_output, expected_files, sort_order "
+                "FROM golden_tests WHERE id = ?",
+                (test_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        gt = GoldenTest(**dict(row))
+        if name is not None:
+            gt.name = name
+        if input is not None:
+            gt.input = input
+        if expected_output is not None:
+            gt.expected_output = expected_output
+        if expected_files is not None:
+            gt.expected_files = expected_files
+        with self._get_store().write() as db:
+            db.execute(
+                "UPDATE golden_tests SET name = ?, input = ?, expected_output = ?, expected_files = ? WHERE id = ?",
+                (gt.name, gt.input, gt.expected_output, gt.expected_files, test_id),
+            )
+        return gt
+
+    def delete_golden_test(self, test_id: str) -> bool:
+        with self._get_store().write() as db:
+            cursor = db.execute("DELETE FROM golden_tests WHERE id = ?", (test_id,))
+        return cursor.rowcount > 0
+
+    def close(self) -> None:
+        if self._store:
+            self._store.close()
+            self._store = None

@@ -97,7 +97,6 @@ TOOL_META_REGISTRY: Dict[str, ToolMeta] = {
     "MemoryWrite": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
     "SearchSessions": ToolMeta(ActionKind.READ, ResourceType.NONE),
     "Identity": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
-    "Ask": ToolMeta(ActionKind.SAFE, ResourceType.NONE),
     # Read tools
     "Read": ToolMeta(ActionKind.READ, ResourceType.PATH, "file_path"),
     "LS": ToolMeta(ActionKind.READ, ResourceType.PATH, "path"),

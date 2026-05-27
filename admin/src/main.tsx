@@ -9,11 +9,6 @@ import { AuthError } from "@/lib/api";
 import LoginPage from "@/pages/login";
 import ChatPage from "@/pages/chat";
 import DashboardPage from "@/pages/dashboard";
-import LabsList from "@/pages/labs/list";
-import LabEditor from "@/pages/labs/editor";
-import ProjectsList from "@/pages/projects/list";
-import ScenariosList from "@/pages/scenarios/list";
-import ScenarioDetailPage from "@/pages/scenarios/detail";
 import TaskListPage from "@/pages/tasks/list";
 import TaskCreatePage from "@/pages/tasks/create";
 import TaskDetailPage from "@/pages/tasks/detail";
@@ -27,6 +22,9 @@ import SkillDetailPage from "@/pages/skills/detail";
 import SkillCreatePage from "@/pages/skills/create";
 import ConfigPage from "@/pages/config";
 import AdaptersList from "@/pages/adapters/list";
+import LabListPage from "@/pages/labs/list";
+import LabDetailPage from "@/pages/labs/detail";
+import LabChatPage from "@/pages/labs/chat";
 import "./globals.css";
 
 const queryClient = new QueryClient({
@@ -51,11 +49,6 @@ createRoot(document.getElementById("root")!).render(
               <Route index element={<Navigate to="dashboard" replace />} />
               <Route path="chat/:conversationId?" element={<ChatPage />} />
               <Route path="dashboard" element={<DashboardPage />} />
-              <Route path="labs" element={<LabsList />} />
-              <Route path="labs/:id" element={<LabEditor />} />
-              <Route path="projects" element={<ProjectsList />} />
-              <Route path="scenarios" element={<ScenariosList />} />
-              <Route path="scenarios/:id" element={<ScenarioDetailPage />} />
               <Route path="tasks" element={<TaskListPage />} />
               <Route path="tasks/new" element={<TaskCreatePage />} />
               <Route path="tasks/:name" element={<TaskDetailPage />} />
@@ -67,6 +60,10 @@ createRoot(document.getElementById("root")!).render(
               <Route path="skills" element={<SkillsPage />} />
               <Route path="skills/new" element={<SkillCreatePage />} />
               <Route path="skills/:name" element={<SkillDetailPage />} />
+              <Route path="labs" element={<LabListPage />} />
+              <Route path="labs/:labId" element={<LabDetailPage />} />
+              <Route path="labs/:labId/chat" element={<LabChatPage />} />
+              <Route path="labs/:labId/chat/:sessionId" element={<LabChatPage />} />
               <Route path="adapters" element={<AdaptersList />} />
               <Route path="settings" element={<ConfigPage />} />
             </Route>

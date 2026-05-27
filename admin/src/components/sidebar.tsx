@@ -1,18 +1,16 @@
 import { NavLink } from "react-router";
 import {
-  Book,
-  FolderOpen,
   LayoutDashboard,
   ListTodo,
   Key,
   MessageSquare,
   Brain,
   Settings,
-  Layers,
   Users,
   Plug,
   PanelLeftClose,
   PanelLeft,
+  FlaskConical,
 } from "lucide-react";
 import { CliverLogo } from "@/components/cliver-logo";
 import { useTranslation } from "@/i18n";
@@ -34,9 +32,8 @@ const navSections: NavSection[] = [
   {
     titleKey: "sidebar.section.workspace",
     items: [
-      { to: "/admin/labs", icon: Book, labelKey: "sidebar.labs" },
-      { to: "/admin/projects", icon: FolderOpen, labelKey: "sidebar.projects" },
-      { to: "/admin/scenarios", icon: Layers, labelKey: "sidebar.scenarios" },
+      { to: "/admin/chat", icon: MessageSquare, labelKey: "sidebar.chat" },
+      { to: "/admin/labs", icon: FlaskConical, labelKey: "sidebar.labs" },
       { to: "/admin/tasks", icon: ListTodo, labelKey: "sidebar.tasks" },
     ],
   },
@@ -91,12 +88,6 @@ export function Sidebar() {
         <NavLink to="/admin/dashboard" className={linkClasses} title={t("sidebar.dashboard")}>
           <LayoutDashboard className="w-4 h-4 shrink-0" />
           {!collapsed && t("sidebar.dashboard")}
-        </NavLink>
-
-        {/* Chat */}
-        <NavLink to="/admin/chat" className={linkClasses} title={t("sidebar.chat")}>
-          <MessageSquare className="w-4 h-4 shrink-0" />
-          {!collapsed && t("sidebar.chat")}
         </NavLink>
 
         {navSections.map((section) => (

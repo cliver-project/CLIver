@@ -9,7 +9,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from cliver.chat_templates import ChatTemplate
+from cliver.chat_templates import ChatTemplate, ChatTemplateStore
 
 logger = logging.getLogger(__name__)
 
@@ -19,8 +19,6 @@ def get_template_routes(
     require_auth: Callable,
 ) -> list:
     """Return template CRUD routes."""
-
-    from cliver.chat_templates import ChatTemplateStore
 
     @require_auth
     async def handle_list(request: Request):
