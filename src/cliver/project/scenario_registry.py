@@ -13,8 +13,8 @@ import yaml
 from cliver.project.models import Issue, Scenario
 
 if TYPE_CHECKING:
-    from cliver.notebook.models import Notebook
-    from cliver.notebook.store import NotebookStore
+    from cliver.lab.models import Lab
+    from cliver.lab.store import LabStore
 
 logger = logging.getLogger(__name__)
 
@@ -81,12 +81,12 @@ class ScenarioRegistry:
             logger.warning("Failed to load template for %s: %s", scenario_id, e)
             return None
 
-    def generate_notebook(
+    def generate_lab(
         self,
         scenario_id: str,
         issue: Issue,
-        notebook_store: "NotebookStore",
-    ) -> Optional["Notebook"]:
+        lab_store: "LabStore",
+    ) -> Optional["Lab"]:
         template = self.get_template(scenario_id)
         if not template:
             return None
@@ -103,14 +103,14 @@ class ScenarioRegistry:
         default_agent = resolved.get("default_agent")
         cells = resolved.get("cells", [])
 
-        notebook = notebook_store.create(
+        lab = lab_store.create(
             title=title,
             description=description,
             scenario_id=scenario_id,
             default_agent=default_agent,
             cells=cells,
         )
-        return notebook
+        return lab
 
     def refresh(self) -> None:
         self._discover()

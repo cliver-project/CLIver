@@ -26,7 +26,7 @@ def _create_scenario_dir(path: Path, name: str = "test-scenario"):
     d.mkdir(parents=True, exist_ok=True)
     meta = {"name": name, "display_name": f"Test {name}", "tags": ["test"]}
     (d / "scenario.yaml").write_text(yaml.dump(meta))
-    template = {"$schema": "cliver-notebook-v1", "title": "Test", "cells": []}
+    template = {"$schema": "cliver-lab-v1", "title": "Test", "cells": []}
     (d / "template.json").write_text(json.dumps(template))
     return d
 
@@ -43,7 +43,7 @@ def test_validate_missing_yaml(setup):
     installer, _, user_dir = setup
     d = user_dir.parent / "bad"
     d.mkdir()
-    (d / "template.json").write_text('{"$schema": "cliver-notebook-v1"}')
+    (d / "template.json").write_text('{"$schema": "cliver-lab-v1"}')
     valid, error = installer.validate_scenario_dir(d)
     assert valid is False
     assert "scenario.yaml" in error
@@ -64,7 +64,7 @@ def test_validate_missing_required_field(setup):
     d = user_dir.parent / "bad3"
     d.mkdir()
     (d / "scenario.yaml").write_text(yaml.dump({"name": "x"}))
-    (d / "template.json").write_text('{"$schema": "cliver-notebook-v1"}')
+    (d / "template.json").write_text('{"$schema": "cliver-lab-v1"}')
     valid, error = installer.validate_scenario_dir(d)
     assert valid is False
     assert "display_name" in error

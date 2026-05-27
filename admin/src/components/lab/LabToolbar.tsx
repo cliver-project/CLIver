@@ -1,10 +1,10 @@
 import { useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Play, Save, Loader2 } from "lucide-react";
-import { CellStatusBadge } from "@/components/notebook/CellStatusBadge";
+import { CellStatusBadge } from "@/components/lab/CellStatusBadge";
 import { useTranslation } from "@/i18n";
 
-interface NotebookToolbarProps {
+interface LabToolbarProps {
   title: string;
   scenarioId?: string | null;
   cellCount: number;
@@ -15,7 +15,7 @@ interface NotebookToolbarProps {
   isSaving: boolean;
 }
 
-export function NotebookToolbar({
+export function LabToolbar({
   title,
   scenarioId,
   cellCount,
@@ -24,7 +24,7 @@ export function NotebookToolbar({
   onSave,
   isRunning,
   isSaving,
-}: NotebookToolbarProps) {
+}: LabToolbarProps) {
   const navigate = useNavigate();
   const { t } = useTranslation();
 
@@ -34,7 +34,7 @@ export function NotebookToolbar({
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => navigate("/admin/notebooks")}
+          onClick={() => navigate("/admin/labs")}
           className="h-8 w-8 p-0"
         >
           <ArrowLeft className="w-4 h-4" />
@@ -47,7 +47,7 @@ export function NotebookToolbar({
                 {scenarioId}
               </span>
             )}
-            <span className="text-xs text-muted-foreground">{t("notebooks.cells", { count: cellCount })}</span>
+            <span className="text-xs text-muted-foreground">{t("labs.cells", { count: cellCount })}</span>
             <CellStatusBadge status={overallStatus} />
           </div>
         </div>
@@ -64,12 +64,12 @@ export function NotebookToolbar({
           {isRunning ? (
             <>
               <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-              {t("notebook.running")}
+              {t("lab.running")}
             </>
           ) : (
             <>
               <Play className="w-3.5 h-3.5 mr-1.5" />
-              {t("notebook.runAll")}
+              {t("lab.runAll")}
             </>
           )}
         </Button>
@@ -79,7 +79,7 @@ export function NotebookToolbar({
           ) : (
             <Save className="w-3.5 h-3.5 mr-1.5" />
           )}
-          {t("notebook.save")}
+          {t("lab.save")}
         </Button>
       </div>
     </div>

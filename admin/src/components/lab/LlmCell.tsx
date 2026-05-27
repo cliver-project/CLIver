@@ -8,22 +8,22 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ChevronDown, ChevronRight, Loader2 } from "lucide-react";
-import { RefInsertDropdown } from "@/components/notebook/RefInsertDropdown";
-import { CellOutput } from "@/components/notebook/CellOutput";
+import { RefInsertDropdown } from "@/components/lab/RefInsertDropdown";
+import { CellOutput } from "@/components/lab/CellOutput";
 import { useWebSocket } from "@/hooks/use-websocket";
 import { useAgents } from "@/hooks/use-api";
-import type { Cell } from "@/hooks/use-notebook";
+import type { Cell } from "@/hooks/use-lab";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "@/i18n";
 
 interface LlmCellProps {
   cell: Cell;
-  notebookId: string;
+  labId: string;
   onInputsChange: (inputs: Record<string, unknown>) => void;
   onExecutionComplete: (outputs: Record<string, unknown>, status: string, error?: string) => void;
 }
 
-export function LlmCell({ cell, notebookId, onInputsChange, onExecutionComplete }: LlmCellProps) {
+export function LlmCell({ cell, labId, onInputsChange, onExecutionComplete }: LlmCellProps) {
   const { t } = useTranslation();
   const { data: agents } = useAgents();
   const [showSystemPrompt, setShowSystemPrompt] = useState(false);
@@ -46,7 +46,7 @@ export function LlmCell({ cell, notebookId, onInputsChange, onExecutionComplete 
 
   // WebSocket for streaming
   const wsUrl = isExecuting
-    ? `/admin/ws/notebooks/${encodeURIComponent(notebookId)}/cells/${encodeURIComponent(cell.id)}`
+    ? `/admin/ws/labs/${encodeURIComponent(labId)}/cells/${encodeURIComponent(cell.id)}`
     : null;
   const ws = useWebSocket(wsUrl);
 
@@ -130,10 +130,10 @@ export function LlmCell({ cell, notebookId, onInputsChange, onExecutionComplete 
       {/* Agent + Output format row */}
       <div className="flex gap-3">
         <div className="flex-1">
-          <Label className="text-xs font-medium">{t("notebook.agent")}</Label>
+          <Label className="text-xs font-medium">{t("lab.agent")}</Label>
           <Select value={agent} onValueChange={(v) => updateInput("agent", v)}>
             <SelectTrigger className="mt-1 h-8 text-sm">
-              <SelectValue placeholder={t("notebook.selectAgent")} />
+              <SelectValue placeholder={t("lab.selectAgent")} />
             </SelectTrigger>
             <SelectContent>
               {agentList.map((a) => (
@@ -150,7 +150,7 @@ export function LlmCell({ cell, notebookId, onInputsChange, onExecutionComplete 
           </Select>
         </div>
         <div className="w-28">
-          <Label className="text-xs font-medium">{t("notebook.outputFormat")}</Label>
+          <Label className="text-xs font-medium">{t("lab.outputFormat")}</Label>
           <Select value={outputFormat} onValueChange={(v) => updateInput("output_format", v)}>
             <SelectTrigger className="mt-1 h-8 text-sm">
               <SelectValue />
@@ -166,9 +166,9 @@ export function LlmCell({ cell, notebookId, onInputsChange, onExecutionComplete 
       {/* Prompt */}
       <div>
         <div className="flex items-center justify-between mb-1">
-          <Label className="text-xs font-medium">{t("notebook.prompt")}</Label>
+          <Label className="text-xs font-medium">{t("lab.prompt")}</Label>
           <RefInsertDropdown
-            notebookId={notebookId}
+            labId={labId}
             cellId={cell.id}
             onInsert={handleRefInsert}
           />
@@ -177,7 +177,7 @@ export function LlmCell({ cell, notebookId, onInputsChange, onExecutionComplete 
           ref={textareaRef}
           value={prompt}
           onChange={(e) => updateInput("prompt", e.target.value)}
-          placeholder={t("notebook.promptPlaceholder")}
+          placeholder={t("lab.promptPlaceholder")}
           rows={6}
           className={cn(
             "border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring flex min-h-[120px] w-full rounded-md border px-3 py-2 text-base shadow-xs focus-visible:ring-1 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
@@ -198,13 +198,13 @@ export function LlmCell({ cell, notebookId, onInputsChange, onExecutionComplete 
           ) : (
             <ChevronRight className="w-3 h-3" />
           )}
-          {t("notebook.systemPrompt")}
+          {t("lab.systemPrompt")}
         </button>
         {showSystemPrompt && (
           <textarea
             value={systemPrompt}
             onChange={(e) => updateInput("system_prompt", e.target.value)}
-            placeholder={t("notebook.systemPromptPlaceholder")}
+            placeholder={t("lab.systemPromptPlaceholder")}
             rows={2}
             className={cn(
               "border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:ring-ring flex min-h-[60px] w-full rounded-md border px-3 py-2 text-base shadow-xs focus-visible:ring-1 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
@@ -226,16 +226,16 @@ export function LlmCell({ cell, notebookId, onInputsChange, onExecutionComplete 
           ) : (
             <ChevronRight className="w-3 h-3" />
           )}
-          {t("notebook.verification")}
+          {t("lab.verification")}
         </button>
         {showVerification && (
           <div className="mt-2 space-y-2 p-3 rounded-md bg-muted/30 border border-border/50">
             <div>
-              <label className="text-xs font-medium text-muted-foreground">{t("notebook.expectedResult")}</label>
+              <label className="text-xs font-medium text-muted-foreground">{t("lab.expectedResult")}</label>
               <textarea
                 value={expectedResult}
                 onChange={(e) => updateVerification("expected", e.target.value)}
-                placeholder={t("notebook.expectedPlaceholder")}
+                placeholder={t("lab.expectedPlaceholder")}
                 rows={2}
                 className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-y"
                 disabled={isExecuting}
@@ -243,7 +243,7 @@ export function LlmCell({ cell, notebookId, onInputsChange, onExecutionComplete 
             </div>
             <div className="flex gap-3">
               <div className="flex-1">
-                <label className="text-xs font-medium text-muted-foreground">{t("notebook.maxRetries")}</label>
+                <label className="text-xs font-medium text-muted-foreground">{t("lab.maxRetries")}</label>
                 <input
                   type="number"
                   min={1}
@@ -255,7 +255,7 @@ export function LlmCell({ cell, notebookId, onInputsChange, onExecutionComplete 
                 />
               </div>
               <div className="flex-1">
-                <label className="text-xs font-medium text-muted-foreground">{t("notebook.timeoutSeconds")}</label>
+                <label className="text-xs font-medium text-muted-foreground">{t("lab.timeoutSeconds")}</label>
                 <input
                   type="number"
                   min={30}
@@ -267,7 +267,7 @@ export function LlmCell({ cell, notebookId, onInputsChange, onExecutionComplete 
                 />
               </div>
               <div className="flex-1">
-                <label className="text-xs font-medium text-muted-foreground">{t("notebook.verifierAgent")}</label>
+                <label className="text-xs font-medium text-muted-foreground">{t("lab.verifierAgent")}</label>
                 <Select
                   value={verifierAgent}
                   onValueChange={(v) => updateVerification("verifier_agent", v === "__default__" ? "" : v)}
@@ -296,7 +296,7 @@ export function LlmCell({ cell, notebookId, onInputsChange, onExecutionComplete 
         <div className="rounded-lg bg-muted/50 p-3">
           <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
             <Loader2 className="w-3 h-3 animate-spin" />
-            {t("notebook.generating")}
+            {t("lab.generating")}
           </div>
           {streamingText && (
             <div className="text-sm text-foreground whitespace-pre-wrap">
@@ -322,11 +322,11 @@ export function LlmCell({ cell, notebookId, onInputsChange, onExecutionComplete 
               <div className="mt-2 flex items-center gap-1.5 text-xs">
                 {passed ? (
                   <span className="text-emerald-600 font-medium">
-                    ✓ {t("notebook.verified", { attempt, max })}
+                    ✓ {t("lab.verified", { attempt, max })}
                   </span>
                 ) : (
                   <span className="text-red-600 font-medium">
-                    ✗ {t("notebook.verificationFailed")}
+                    ✗ {t("lab.verificationFailed")}
                   </span>
                 )}
                 {reason && (

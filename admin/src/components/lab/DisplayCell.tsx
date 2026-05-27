@@ -1,5 +1,5 @@
 import { MarkdownView } from "@/components/markdown-view";
-import type { Cell } from "@/hooks/use-notebook";
+import type { Cell } from "@/hooks/use-lab";
 import { useTranslation } from "@/i18n";
 
 interface DisplayCellProps {
@@ -14,7 +14,7 @@ export function DisplayCell({ cell }: DisplayCellProps) {
   if (!content) {
     return (
       <div className="text-sm text-muted-foreground italic">
-        {t("notebook.noContent")}
+        {t("lab.noContent")}
       </div>
     );
   }

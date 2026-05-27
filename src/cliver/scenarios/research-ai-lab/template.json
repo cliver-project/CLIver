@@ -1,5 +1,5 @@
 {
-  "$schema": "cliver-notebook-v1",
+  "$schema": "cliver-lab-v1",
   "title": "${issue.title}",
   "description": "${issue.description}",
   "default_agent": "cliver",
@@ -66,7 +66,7 @@
       "type": "display",
       "title": "Welcome",
       "inputs": {
-        "content": "## Research AI Lab\n\nThis notebook guides you through a complete research workflow:\n\n1. **Search** — Find relevant papers on your topic\n2. **Analyze** — Extract key findings from each paper\n3. **Review** — Generate a structured literature review\n\nStart by configuring your research domain above, then run each step in order.",
+        "content": "## Research AI Lab\n\nThis AI Lab guides you through a complete research workflow:\n\n1. **Search** — Find relevant papers on your topic\n2. **Analyze** — Extract key findings from each paper\n3. **Review** — Generate a structured literature review\n\nStart by configuring your research domain above, then run each step in order.",
         "format": "markdown"
       },
       "outputs": {},
@@ -127,7 +127,7 @@
       "type": "display",
       "title": "Export Your Review",
       "inputs": {
-        "content": "## Your Literature Review is Ready\n\nThe review has been generated above. You can:\n\n- **Copy** the text directly from the output\n- **Save** the notebook to preserve your work\n- **Re-run** any step to refine the results\n\nTip: Try changing the writing style in the Configuration step and re-running the Review Generation to get different formats.",
+        "content": "## Your Literature Review is Ready\n\nThe review has been generated above. You can:\n\n- **Copy** the text directly from the output\n- **Save** the AI Lab to preserve your work\n- **Re-run** any step to refine the results\n\nTip: Try changing the writing style in the Configuration step and re-running the Review Generation to get different formats.",
         "format": "markdown"
       },
       "outputs": {},

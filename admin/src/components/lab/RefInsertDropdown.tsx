@@ -1,20 +1,20 @@
 import { useState } from "react";
 import { Link2, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useAvailableRefs, type RefGroup } from "@/hooks/use-notebook";
+import { useAvailableRefs, type RefGroup } from "@/hooks/use-lab";
 import { cn } from "@/lib/utils";
 import { useTranslation } from "@/i18n";
 
 interface RefInsertDropdownProps {
-  notebookId: string;
+  labId: string;
   cellId: string;
   onInsert: (ref: string) => void;
 }
 
-export function RefInsertDropdown({ notebookId, cellId, onInsert }: RefInsertDropdownProps) {
+export function RefInsertDropdown({ labId, cellId, onInsert }: RefInsertDropdownProps) {
   const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
-  const { data: refs, isLoading } = useAvailableRefs(notebookId, cellId);
+  const { data: refs, isLoading } = useAvailableRefs(labId, cellId);
 
   if (!isOpen) {
     return (
@@ -26,7 +26,7 @@ export function RefInsertDropdown({ notebookId, cellId, onInsert }: RefInsertDro
         title="Insert reference to previous cell output"
       >
         <Link2 className="w-3.5 h-3.5 mr-1" />
-        {t("notebook.insertRef")}
+        {t("lab.insertRef")}
       </Button>
     );
   }
@@ -34,12 +34,12 @@ export function RefInsertDropdown({ notebookId, cellId, onInsert }: RefInsertDro
   return (
     <div className="border border-border rounded-lg bg-card shadow-md p-2 min-w-[280px]">
       <div className="flex items-center justify-between mb-1.5 px-1">
-        <span className="text-xs font-medium text-muted-foreground">{t("notebook.availableRefs")}</span>
+        <span className="text-xs font-medium text-muted-foreground">{t("lab.availableRefs")}</span>
         <button
           onClick={() => setIsOpen(false)}
           className="text-xs text-muted-foreground hover:text-foreground"
         >
-          {t("notebook.close")}
+          {t("lab.close")}
         </button>
       </div>
 
@@ -47,7 +47,7 @@ export function RefInsertDropdown({ notebookId, cellId, onInsert }: RefInsertDro
         <div className="text-xs text-muted-foreground p-2">{t("common.loading")}</div>
       ) : !refs || refs.length === 0 ? (
         <div className="text-xs text-muted-foreground p-2">
-          {t("notebook.noRefs")}
+          {t("lab.noRefs")}
         </div>
       ) : (
         <div className="space-y-1 max-h-60 overflow-y-auto">

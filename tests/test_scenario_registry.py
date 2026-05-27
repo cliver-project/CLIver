@@ -26,7 +26,7 @@ def scenario_dir():
         (d / "scenario.yaml").write_text(yaml.dump(meta))
 
         template = {
-            "$schema": "cliver-notebook-v1",
+            "$schema": "cliver-lab-v1",
             "title": "${issue.title}",
             "description": "${issue.description}",
             "default_agent": "cliver",
@@ -87,7 +87,7 @@ def test_get_template(scenario_dir):
     registry = ScenarioRegistry([scenario_dir])
     t = registry.get_template("test-scenario")
     assert t is not None
-    assert t["$schema"] == "cliver-notebook-v1"
+    assert t["$schema"] == "cliver-lab-v1"
     assert len(t["cells"]) == 2
 
 
@@ -108,12 +108,12 @@ def test_resolve_issue_refs():
     assert result["cells"][0]["inputs"]["prompt"] == "Analyze ${setup.outputs.domain}"
 
 
-def test_generate_notebook(scenario_dir):
-    from cliver.notebook.store import NotebookStore
+def test_generate_lab(scenario_dir):
+    from cliver.lab.store import LabStore
     from cliver.project.scenario_registry import ScenarioRegistry
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        store = NotebookStore(Path(tmpdir))
+        store = LabStore(Path(tmpdir))
         registry = ScenarioRegistry([scenario_dir])
         issue = Issue(
             id="iss_test",
@@ -121,25 +121,25 @@ def test_generate_notebook(scenario_dir):
             title="Transformer Survey",
             description="Survey recent papers",
         )
-        nb = registry.generate_notebook("test-scenario", issue, store)
-        assert nb is not None
-        assert nb.title == "Transformer Survey"
-        assert nb.description == "Survey recent papers"
-        assert nb.scenario_id == "test-scenario"
-        assert len(nb.cells) == 2
-        assert nb.cells[0].inputs["schema"]["domain"]["default"] == "Transformer Survey"
-        assert "${setup.outputs.domain}" in nb.cells[1].inputs["prompt"]
+        lab = registry.generate_lab("test-scenario", issue, store)
+        assert lab is not None
+        assert lab.title == "Transformer Survey"
+        assert lab.description == "Survey recent papers"
+        assert lab.scenario_id == "test-scenario"
+        assert len(lab.cells) == 2
+        assert lab.cells[0].inputs["schema"]["domain"]["default"] == "Transformer Survey"
+        assert "${setup.outputs.domain}" in lab.cells[1].inputs["prompt"]
 
 
-def test_generate_notebook_not_found(scenario_dir):
-    from cliver.notebook.store import NotebookStore
+def test_generate_lab_not_found(scenario_dir):
+    from cliver.lab.store import LabStore
     from cliver.project.scenario_registry import ScenarioRegistry
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        store = NotebookStore(Path(tmpdir))
+        store = LabStore(Path(tmpdir))
         registry = ScenarioRegistry([scenario_dir])
         issue = Issue(id="iss_test", project_id="proj_test", title="Test")
-        assert registry.generate_notebook("nonexistent", issue, store) is None
+        assert registry.generate_lab("nonexistent", issue, store) is None
 
 
 def test_empty_dirs():
@@ -179,7 +179,7 @@ def test_builtin_research_ai_lab_content():
 
     template = registry.get_template("research-ai-lab")
     assert template is not None
-    assert template["$schema"] == "cliver-notebook-v1"
+    assert template["$schema"] == "cliver-lab-v1"
 
     cells = template["cells"]
     assert len(cells) == 7
@@ -207,9 +207,9 @@ def test_builtin_research_ai_lab_content():
     assert "${setup.outputs.review_style}" in review["inputs"]["prompt"]
 
 
-def test_builtin_research_ai_lab_generates_notebook():
-    """Test that research-ai-lab scenario generates a valid notebook."""
-    from cliver.notebook.store import NotebookStore
+def test_builtin_research_ai_lab_generates_lab():
+    """Test that research-ai-lab scenario generates a valid lab."""
+    from cliver.lab.store import LabStore
     from cliver.project.scenario_registry import ScenarioRegistry
 
     builtin_dir = Path(__file__).parent.parent / "src" / "cliver" / "scenarios"
@@ -217,7 +217,7 @@ def test_builtin_research_ai_lab_generates_notebook():
         pytest.skip("builtin scenarios dir not found")
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        store = NotebookStore(Path(tmpdir))
+        store = LabStore(Path(tmpdir))
         registry = ScenarioRegistry([builtin_dir])
         issue = Issue(
             id="iss_test",
@@ -225,15 +225,15 @@ def test_builtin_research_ai_lab_generates_notebook():
             title="Transformer Architectures",
             description="Survey recent advances in transformer models",
         )
-        nb = registry.generate_notebook("research-ai-lab", issue, store)
-        assert nb is not None
-        assert nb.title == "Transformer Architectures"
-        assert nb.description == "Survey recent advances in transformer models"
-        assert nb.scenario_id == "research-ai-lab"
-        assert len(nb.cells) == 7
+        lab = registry.generate_lab("research-ai-lab", issue, store)
+        assert lab is not None
+        assert lab.title == "Transformer Architectures"
+        assert lab.description == "Survey recent advances in transformer models"
+        assert lab.scenario_id == "research-ai-lab"
+        assert len(lab.cells) == 7
 
-        setup = nb.get_cell("setup")
+        setup = lab.get_cell("setup")
         assert setup.inputs["schema"]["domain"]["default"] == "Transformer Architectures"
 
-        search = nb.get_cell("search")
+        search = lab.get_cell("search")
         assert "${setup.outputs.domain}" in search.inputs["prompt"]

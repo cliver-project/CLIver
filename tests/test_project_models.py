@@ -36,7 +36,7 @@ def test_issue_defaults():
     assert i.labels == []
     assert i.assigned_agent is None
     assert i.scenario_id is None
-    assert i.notebook_id is None
+    assert i.lab_id is None
 
 
 def test_issue_full():
@@ -52,14 +52,14 @@ def test_issue_full():
         labels=["research", "ai"],
         assigned_agent="researcher",
         scenario_id="research-ai-lab",
-        notebook_id="nb_abc123",
+        lab_id="lab_abc123",
     )
     assert i.status == "in_progress"
     assert i.priority == "high"
     assert i.labels == ["research", "ai"]
     assert i.assigned_agent == "researcher"
     assert i.scenario_id == "research-ai-lab"
-    assert i.notebook_id == "nb_abc123"
+    assert i.lab_id == "lab_abc123"
 
 
 def test_valid_statuses():

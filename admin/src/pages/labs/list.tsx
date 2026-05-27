@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { PageLayout } from "@/components/layout/PageLayout";
-import { useNotebooks, useCreateNotebook, useDeleteNotebook } from "@/hooks/use-notebook";
+import { useLabs, useCreateLab, useDeleteLab } from "@/hooks/use-lab";
 import { useScenarios } from "@/hooks/use-api";
 import { api } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -24,18 +24,18 @@ import {
 } from "@/components/ui/select";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { CellStatusBadge } from "@/components/notebook/CellStatusBadge";
+import { CellStatusBadge } from "@/components/lab/CellStatusBadge";
 import { Plus, Book, Trash2 } from "lucide-react";
-import type { NotebookSummary } from "@/hooks/use-notebook";
+import type { LabSummary } from "@/hooks/use-lab";
 import { useTranslation } from "@/i18n";
 
-export default function NotebooksList() {
+export default function LabsList() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { data: notebooks, isLoading } = useNotebooks();
+  const { data: labs, isLoading } = useLabs();
   const { data: scenarios } = useScenarios();
-  const createNotebook = useCreateNotebook();
-  const deleteNotebook = useDeleteNotebook();
+  const createLab = useCreateLab();
+  const deleteLab = useDeleteLab();
   const [showCreate, setShowCreate] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [form, setForm] = useState({ title: "", description: "" });
@@ -58,7 +58,7 @@ export default function NotebooksList() {
         /* ignore */
       }
     }
-    createNotebook.mutate(
+    createLab.mutate(
       {
         title: form.title,
         description: form.description,
@@ -71,7 +71,7 @@ export default function NotebooksList() {
           setShowCreate(false);
           setForm({ title: "", description: "" });
           setSelectedScenario("");
-          navigate(`/admin/notebooks/${nb.id}`);
+          navigate(`/admin/labs/${nb.id}`);
         },
       },
     );
@@ -79,44 +79,44 @@ export default function NotebooksList() {
 
   const handleDelete = () => {
     if (!deleteTarget) return;
-    deleteNotebook.mutate(deleteTarget, {
+    deleteLab.mutate(deleteTarget, {
       onSuccess: () => setDeleteTarget(null),
     });
   };
 
   return (
     <PageLayout
-      title={t("notebooks.title")}
+      title={t("labs.title")}
       actions={
         <Button size="sm" onClick={() => setShowCreate(true)}>
           <Plus className="w-4 h-4 mr-1.5" />
-          {t("notebooks.newNotebook")}
+          {t("labs.newLab")}
         </Button>
       }
     >
       {isLoading ? (
         <div className="text-sm text-muted-foreground">{t("common.loading")}</div>
-      ) : !notebooks || notebooks.length === 0 ? (
+      ) : !labs || labs.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <div className="w-16 h-16 rounded-2xl bg-accent flex items-center justify-center mb-4">
             <Book className="w-8 h-8 text-primary" />
           </div>
-          <h2 className="text-lg font-semibold text-foreground mb-2">{t("notebooks.noNotebooks")}</h2>
+          <h2 className="text-lg font-semibold text-foreground mb-2">{t("labs.noLabs")}</h2>
           <p className="text-sm text-muted-foreground max-w-md mb-4">
-            {t("notebooks.noNotebooksDesc")}
+            {t("labs.noLabsDesc")}
           </p>
           <Button onClick={() => setShowCreate(true)}>
             <Plus className="w-4 h-4 mr-1.5" />
-            {t("notebooks.createNotebook")}
+            {t("labs.createLab")}
           </Button>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {notebooks.map((nb: NotebookSummary) => (
+          {labs.map((nb: LabSummary) => (
             <Card
               key={nb.id}
               className="cursor-pointer hover:shadow-md transition-shadow group"
-              onClick={() => navigate(`/admin/notebooks/${nb.id}`)}
+              onClick={() => navigate(`/admin/labs/${nb.id}`)}
             >
               <CardHeader className="pb-2">
                 <div className="flex items-start justify-between">
@@ -140,7 +140,7 @@ export default function NotebooksList() {
                   <p className="text-xs text-muted-foreground mb-2 line-clamp-2">{nb.description}</p>
                 )}
                 <div className="text-[11px] text-muted-foreground">
-                  {t("notebooks.cells", { count: nb.cell_count })} · {t("notebooks.updated", { date: new Date(nb.updated_at).toLocaleDateString() })}
+                  {t("labs.cells", { count: nb.cell_count })} · {t("labs.updated", { date: new Date(nb.updated_at).toLocaleDateString() })}
                 </div>
               </CardContent>
             </Card>
@@ -152,15 +152,15 @@ export default function NotebooksList() {
       <Dialog open={showCreate} onOpenChange={setShowCreate}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{t("notebooks.createTitle")}</DialogTitle>
-            <DialogDescription>{t("notebooks.createDesc")}</DialogDescription>
+            <DialogTitle>{t("labs.createTitle")}</DialogTitle>
+            <DialogDescription>{t("labs.createDesc")}</DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
             <div>
-              <Label htmlFor="nb-title">{t("notebooks.titleLabel")}</Label>
+              <Label htmlFor="nb-title">{t("labs.titleLabel")}</Label>
               <Input
                 id="nb-title"
-                placeholder={t("notebooks.titlePlaceholder")}
+                placeholder={t("labs.titlePlaceholder")}
                 value={form.title}
                 onChange={(e) => setForm({ ...form, title: e.target.value })}
               />
@@ -169,10 +169,10 @@ export default function NotebooksList() {
               <Label>Scenario Template (optional)</Label>
               <Select value={selectedScenario} onValueChange={setSelectedScenario}>
                 <SelectTrigger>
-                  <SelectValue placeholder="None — blank notebook" />
+                  <SelectValue placeholder="None — blank lab" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__none__">None — blank notebook</SelectItem>
+                  <SelectItem value="__none__">None — blank lab</SelectItem>
                   {scenarios && (scenarios as Array<Record<string, unknown>>).map((s) => (
                     <SelectItem key={String(s.id)} value={String(s.id)}>
                       {String(s.display_name)}
@@ -182,10 +182,10 @@ export default function NotebooksList() {
               </Select>
             </div>
             <div>
-              <Label htmlFor="nb-desc">{t("notebooks.descLabel")}</Label>
+              <Label htmlFor="nb-desc">{t("labs.descLabel")}</Label>
               <Input
                 id="nb-desc"
-                placeholder={t("notebooks.descPlaceholder")}
+                placeholder={t("labs.descPlaceholder")}
                 value={form.description}
                 onChange={(e) => setForm({ ...form, description: e.target.value })}
               />
@@ -193,7 +193,7 @@ export default function NotebooksList() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCreate(false)}>{t("common.cancel")}</Button>
-            <Button onClick={handleCreate} disabled={!form.title.trim()}>{t("notebooks.createNotebook")}</Button>
+            <Button onClick={handleCreate} disabled={!form.title.trim()}>{t("labs.createLab")}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -201,8 +201,8 @@ export default function NotebooksList() {
       {/* Delete Confirmation */}
       <ConfirmDialog
         open={!!deleteTarget}
-        title={t("notebooks.deleteTitle")}
-        description={t("notebooks.deleteDesc")}
+        title={t("labs.deleteTitle")}
+        description={t("labs.deleteDesc")}
         onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}
         destructive={true}

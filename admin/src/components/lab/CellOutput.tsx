@@ -16,7 +16,7 @@ export function CellOutput({ outputs, error, status }: CellOutputProps) {
   if (status === "error" && error) {
     return (
       <div className="mt-3 rounded-lg bg-red-50 border border-red-200 p-3">
-        <div className="text-sm font-medium text-red-800 mb-1">{t("notebook.executionError")}</div>
+        <div className="text-sm font-medium text-red-800 mb-1">{t("lab.executionError")}</div>
         <div className="text-sm text-red-700">{error}</div>
       </div>
     );
@@ -49,7 +49,7 @@ export function CellOutput({ outputs, error, status }: CellOutputProps) {
             className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
             {showJson ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-            {t("notebook.structuredData")}
+            {t("lab.structuredData")}
           </button>
           {showJson && (
             <pre className="mt-1 rounded-md bg-muted p-3 text-xs overflow-auto max-h-60">
@@ -61,7 +61,7 @@ export function CellOutput({ outputs, error, status }: CellOutputProps) {
 
       {artifacts && artifacts.length > 0 && (
         <div className="space-y-1">
-          <div className="text-xs font-medium text-muted-foreground">{t("notebook.artifacts")}</div>
+          <div className="text-xs font-medium text-muted-foreground">{t("lab.artifacts")}</div>
           {artifacts.map((a, i) => (
             <div
               key={i}

@@ -20,7 +20,6 @@ def main():
     config_dir = get_config_dir()
     config_manager = ConfigManager(config_dir)
     cfg = config_manager.config
-    cfg.resolve_secrets()
 
     configure_gateway_logging(cfg.gateway)
 

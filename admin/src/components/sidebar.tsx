@@ -31,7 +31,7 @@ const navSections: NavSection[] = [
   {
     titleKey: "sidebar.section.workspace",
     items: [
-      { to: "/admin/notebooks", icon: Book, labelKey: "sidebar.notebooks" },
+      { to: "/admin/labs", icon: Book, labelKey: "sidebar.labs" },
       { to: "/admin/projects", icon: FolderOpen, labelKey: "sidebar.projects" },
       { to: "/admin/scenarios", icon: Layers, labelKey: "sidebar.scenarios" },
       { to: "/admin/tasks", icon: ListTodo, labelKey: "sidebar.tasks" },

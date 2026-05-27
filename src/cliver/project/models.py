@@ -32,7 +32,7 @@ class Issue(BaseModel):
     labels: List[str] = Field(default_factory=list)
     assigned_agent: Optional[str] = None
     scenario_id: Optional[str] = None
-    notebook_id: Optional[str] = None
+    lab_id: Optional[str] = None
     created_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -42,7 +42,7 @@ VALID_PRIORITIES = {"low", "medium", "high", "critical"}
 
 
 class Scenario(BaseModel):
-    """A scenario template for generating notebooks."""
+    """A scenario template for generating labs."""
 
     id: str
     name: str

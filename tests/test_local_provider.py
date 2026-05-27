@@ -151,12 +151,12 @@ async def test_update_issue(provider):
     i = await provider.create_issue(p.id, "Original")
     i.title = "Updated"
     i.status = "in_progress"
-    i.notebook_id = "nb_abc123"
+    i.lab_id = "lab_abc123"
     await provider.update_issue(i)
     fetched = await provider.get_issue(i.id)
     assert fetched.title == "Updated"
     assert fetched.status == "in_progress"
-    assert fetched.notebook_id == "nb_abc123"
+    assert fetched.lab_id == "lab_abc123"
 
 
 @pytest.mark.asyncio

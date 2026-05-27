@@ -51,7 +51,7 @@ def _show_config(cliver: Cliver):
         general_table.add_column("Key", style="cyan", min_width=16)
         general_table.add_column("Value", style="white")
 
-        general_table.add_row("Default Agent", cfg.default_agent_name)
+        general_table.add_row("Default Agent", cfg.default_agent or "(none)")
         general_table.add_row("Active Agent", f"{cliver.agent_name}")
         if cfg.default_model:
             general_table.add_row("Default Model", f"{cfg.default_model}")

@@ -65,10 +65,16 @@ def test_claude_extract_artifacts_no_messages():
 
 def test_claude_defaults():
     from cliver.agents.claude_agent import ClaudeAgent
+    from cliver.config import AgentConfig
 
     assert ClaudeAgent.DEFAULT_COMMAND == "claude"
-    assert ClaudeAgent.DEFAULT_ARGS == ["-p"]
-    assert ClaudeAgent.DEFAULT_OUTPUT_FORMAT == ["--output-format", "json"]
+    agent = ClaudeAgent(name="test", config=AgentConfig(type="claude"))
+    cmd = agent._build_command("test")
+    assert cmd[0] == "claude"
+    assert "-p" in cmd
+    assert "--output-format" in cmd
+    assert "--permission-mode" in cmd
+    assert "bypassPermissions" in cmd
 
 
 def test_gemini_parse_response_success():
@@ -120,9 +126,16 @@ def test_gemini_extract_artifacts():
 
 def test_gemini_defaults():
     from cliver.agents.gemini_agent import GeminiAgent
+    from cliver.config import AgentConfig
 
     assert GeminiAgent.DEFAULT_COMMAND == "gemini"
-    assert GeminiAgent.DEFAULT_ARGS == ["-p"]
+    agent = GeminiAgent(name="test", config=AgentConfig(type="gemini"))
+    cmd = agent._build_command("test")
+    assert cmd[0] == "gemini"
+    assert "-p" in cmd
+    assert "--yolo" in cmd
+    assert "-o" in cmd
+    assert "stream-json" in cmd
 
 
 def test_opencode_parse_response_success():
@@ -159,7 +172,14 @@ def test_opencode_parse_response_error():
 
 def test_opencode_defaults():
     from cliver.agents.opencode_agent import OpenCodeAgent
+    from cliver.config import AgentConfig
 
     assert OpenCodeAgent.DEFAULT_COMMAND == "opencode"
-    assert OpenCodeAgent.DEFAULT_ARGS == ["-p"]
-    assert OpenCodeAgent.DEFAULT_OUTPUT_FORMAT == ["-f", "json"]
+    agent = OpenCodeAgent(name="test", config=AgentConfig(type="opencode"))
+    cmd = agent._build_command("test")
+    assert cmd[0] == "opencode"
+    assert "-p" in cmd
+    assert "-f" in cmd
+    assert "json" in cmd
+    env = agent._build_env()
+    assert "OPENCODE_PERMISSION" in env

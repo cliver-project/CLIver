@@ -1,13 +1,24 @@
 """Tests for CliAgent subprocess base."""
 
-import json
 import tempfile
 from pathlib import Path
+from typing import List
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from cliver.agents.cli_agent import CliAgent
 from cliver.config import AgentConfig
+
+
+class _TestAgent(CliAgent):
+    """Minimal test subclass that implements abstract methods."""
+
+    def _build_command(self, prompt: str) -> List[str]:
+        return [self._resolved_command, *self._user_args, prompt]
+
+    def _build_env(self) -> dict:
+        return self._base_env()
 
 
 @pytest.fixture
@@ -15,26 +26,45 @@ def basic_config():
     return AgentConfig(type="test", command="echo", args=[], timeout_s=30)
 
 
-def test_env_var_mapping_exists():
-    from cliver.agents.cli_agent import ENV_VAR_MAPPING
+def test_claude_env_mapping():
+    from cliver.agents.claude_agent import ClaudeAgent
 
-    assert "anthropic" in ENV_VAR_MAPPING
-    assert "openai" in ENV_VAR_MAPPING
-    assert "google" in ENV_VAR_MAPPING
-    assert "deepseek" in ENV_VAR_MAPPING
+    assert ClaudeAgent.ENV_MAPPING["api_key"] == "ANTHROPIC_AUTH_TOKEN"
+    assert ClaudeAgent.ENV_MAPPING["api_url"] == "ANTHROPIC_BASE_URL"
+
+
+def test_gemini_env_mapping():
+    from cliver.agents.gemini_agent import GeminiAgent
+
+    assert GeminiAgent.ENV_MAPPING["api_key"] == "GEMINI_API_KEY"
+
+
+def test_opencode_env_mapping():
+    from cliver.agents.opencode_agent import OpenCodeAgent
+
+    assert OpenCodeAgent.ENV_MAPPING["api_key"] == "OPENAI_API_KEY"
+    assert OpenCodeAgent.ENV_MAPPING["api_url"] == "OPENAI_BASE_URL"
+
+
+def test_claude_build_env_sets_model():
+    from cliver.agents.claude_agent import ClaudeAgent
+    from cliver.config import ModelConfig
+
+    model = ModelConfig(name="anthropic/claude-sonnet-4-20250514", provider="anthropic")
+    agent = ClaudeAgent(name="test", config=AgentConfig(type="claude"), model_config=model)
+    env = agent._build_env()
+    assert env["ANTHROPIC_MODEL"] == "claude-sonnet-4-20250514"
 
 
 def test_build_env_no_provider(basic_config):
-    from cliver.agents.cli_agent import CliAgent
-
-    agent = CliAgent(name="test", config=basic_config)
+    agent = _TestAgent(name="test", config=basic_config)
     env = agent._build_env()
     assert isinstance(env, dict)
     assert "PATH" in env
 
 
 def test_build_env_with_anthropic_provider(basic_config):
-    from cliver.agents.cli_agent import CliAgent
+    from cliver.agents.claude_agent import ClaudeAgent
     from cliver.config import ModelConfig, ProviderConfig
 
     provider = ProviderConfig(
@@ -46,35 +76,32 @@ def test_build_env_with_anthropic_provider(basic_config):
     model = ModelConfig(name="anthropic/claude-sonnet-4-20250514", provider="anthropic")
     model._provider_config = provider
 
-    agent = CliAgent(
+    agent = ClaudeAgent(
         name="test",
         config=basic_config,
         model_config=model,
         provider_config=provider,
     )
     env = agent._build_env()
-    assert env["ANTHROPIC_API_KEY"] == "sk-ant-test123"
-    assert env["ANTHROPIC_API_URL"] == "https://api.anthropic.com"
+    assert env["ANTHROPIC_AUTH_TOKEN"] == "sk-ant-test123"
+    assert env["ANTHROPIC_BASE_URL"] == "https://api.anthropic.com"
+    assert env["ANTHROPIC_MODEL"] == "claude-sonnet-4-20250514"
 
 
 def test_build_env_with_agent_env_override(basic_config):
-    from cliver.agents.cli_agent import CliAgent
-
     basic_config.env = {"MY_VAR": "my_value", "PATH": "/custom/path"}
-    agent = CliAgent(name="test", config=basic_config)
+    agent = _TestAgent(name="test", config=basic_config)
     env = agent._build_env()
     assert env["MY_VAR"] == "my_value"
     assert env["PATH"] == "/custom/path"
 
 
 def test_snapshot_and_diff_artifacts():
-    from cliver.agents.cli_agent import CliAgent
-
     with tempfile.TemporaryDirectory() as tmpdir:
         p = Path(tmpdir)
         (p / "existing.txt").write_text("old")
 
-        agent = CliAgent(name="test", config=AgentConfig(type="test", command="echo"))
+        agent = _TestAgent(name="test", config=AgentConfig(type="test", command="echo"))
         snapshot = agent._snapshot_dir(p)
         assert len(snapshot) == 1
 
@@ -95,34 +122,26 @@ def test_snapshot_and_diff_artifacts():
 
 
 def test_diff_artifacts_no_snapshot():
-    from cliver.agents.cli_agent import CliAgent
-
-    agent = CliAgent(name="test", config=AgentConfig(type="test", command="echo"))
+    agent = _TestAgent(name="test", config=AgentConfig(type="test", command="echo"))
     assert agent._diff_artifacts(Path("/tmp")) == []
 
 
 def test_parse_response_default():
-    from cliver.agents.cli_agent import CliAgent
-
-    agent = CliAgent(name="test", config=AgentConfig(type="test", command="echo"))
+    agent = _TestAgent(name="test", config=AgentConfig(type="test", command="echo"))
     result = agent._parse_response({"result": "Hello world"})
     assert result.text == "Hello world"
     assert result.status == "completed"
 
 
 def test_parse_response_fallback_key():
-    from cliver.agents.cli_agent import CliAgent
-
-    agent = CliAgent(name="test", config=AgentConfig(type="test", command="echo"))
+    agent = _TestAgent(name="test", config=AgentConfig(type="test", command="echo"))
     result = agent._parse_response({"response": "From response key"})
     assert result.text == "From response key"
 
 
 @pytest.mark.asyncio
 async def test_initialize_checks_command():
-    from cliver.agents.cli_agent import CliAgent
-
-    agent = CliAgent(
+    agent = _TestAgent(
         name="test",
         config=AgentConfig(type="test", command="nonexistent_command_xyz_12345"),
     )
@@ -132,9 +151,7 @@ async def test_initialize_checks_command():
 
 @pytest.mark.asyncio
 async def test_initialize_creates_output_dir():
-    from cliver.agents.cli_agent import CliAgent
-
-    agent = CliAgent(
+    agent = _TestAgent(
         name="test",
         config=AgentConfig(type="test", command="echo"),
     )
@@ -145,40 +162,49 @@ async def test_initialize_creates_output_dir():
     assert not agent._output_dir.exists()
 
 
+def _make_stdout_stream(lines: list[str]):
+    """Build an async iterator over stdout lines (each with \\n appended)."""
+
+    async def _iter():
+        for line in lines:
+            yield (line + "\n").encode()
+
+    return _iter()
+
+
 @pytest.mark.asyncio
 async def test_do_run_success():
-    from cliver.agents.cli_agent import CliAgent
-
-    response = {"result": "test output", "model": "test-model"}
-    agent = CliAgent(
+    lines = [
+        '{"text": "test output"}',
+    ]
+    agent = _TestAgent(
         name="test",
         config=AgentConfig(type="test", command="echo", args=[]),
     )
     mock_proc = AsyncMock()
     mock_proc.returncode = 0
-    mock_proc.communicate = AsyncMock(return_value=(json.dumps(response).encode(), b""))
+    mock_proc.stdout = _make_stdout_stream(lines)
+    mock_proc.stderr = _make_stdout_stream([])
 
-    with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+    with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=mock_proc)):
         result = await agent._do_run("test prompt")
 
     assert result.status == "completed"
     assert result.text == "test output"
-    assert result.raw == response
 
 
 @pytest.mark.asyncio
 async def test_do_run_nonzero_exit():
-    from cliver.agents.cli_agent import CliAgent
-
-    agent = CliAgent(
+    agent = _TestAgent(
         name="test",
         config=AgentConfig(type="test", command="false", args=[]),
     )
     mock_proc = AsyncMock()
     mock_proc.returncode = 1
-    mock_proc.communicate = AsyncMock(return_value=(b"", b"command failed"))
+    mock_proc.stdout = _make_stdout_stream([])
+    mock_proc.stderr = _make_stdout_stream(["command failed"])
 
-    with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+    with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=mock_proc)):
         result = await agent._do_run("test prompt")
 
     assert result.status == "error"
@@ -187,18 +213,19 @@ async def test_do_run_nonzero_exit():
 
 @pytest.mark.asyncio
 async def test_do_run_invalid_json():
-    from cliver.agents.cli_agent import CliAgent
-
-    agent = CliAgent(
+    lines = ["not json output"]
+    agent = _TestAgent(
         name="test",
         config=AgentConfig(type="test", command="echo", args=[]),
     )
     mock_proc = AsyncMock()
     mock_proc.returncode = 0
-    mock_proc.communicate = AsyncMock(return_value=(b"not json output", b""))
+    mock_proc.stdout = _make_stdout_stream(lines)
+    mock_proc.stderr = _make_stdout_stream([])
 
-    with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+    with patch("asyncio.create_subprocess_exec", AsyncMock(return_value=mock_proc)):
         result = await agent._do_run("test prompt")
 
+    # Non-JSON lines end up in the buffer and are eventually flushed as text
     assert result.status == "completed"
-    assert result.text == "not json output"
+    assert "not json output" in result.text

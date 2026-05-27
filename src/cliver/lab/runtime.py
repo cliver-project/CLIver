@@ -1,4 +1,4 @@
-"""Notebook runtime — execution context and variable scope."""
+"""Lab runtime — execution context and variable scope."""
 
 from __future__ import annotations
 
@@ -7,11 +7,11 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
-from cliver.notebook.ref_resolver import resolve_value
+from cliver.lab.ref_resolver import resolve_value
 
 if TYPE_CHECKING:
     from cliver.agents.factory import AgentFactory
-    from cliver.notebook.models import Notebook
+    from cliver.lab.models import Lab
 
 logger = logging.getLogger(__name__)
 
@@ -23,11 +23,11 @@ class RuntimeContext:
         self,
         variables: Dict[str, Any],
         agent_factory: Optional["AgentFactory"] = None,
-        notebook_context: Optional[Dict[str, Any]] = None,
+        lab_context: Optional[Dict[str, Any]] = None,
     ):
         self._variables = variables
         self._agent_factory = agent_factory
-        self._notebook_context = notebook_context or {}
+        self._lab_context = lab_context or {}
         self._logs: list[str] = []
 
     def refs(self, path: str) -> Any:
@@ -43,33 +43,33 @@ class RuntimeContext:
         return self._agent_factory
 
     @property
-    def notebook_context(self) -> Dict[str, Any]:
-        return self._notebook_context
+    def lab_context(self) -> Dict[str, Any]:
+        return self._lab_context
 
 
-class NotebookRuntime:
-    """Per-notebook execution context with variable scope."""
+class LabRuntime:
+    """Per-lab execution context with variable scope."""
 
-    def __init__(self, notebook: "Notebook", agent_factory: "AgentFactory"):
-        self.notebook = notebook
-        self.notebook_id = notebook.id
+    def __init__(self, lab: "Lab", agent_factory: "AgentFactory"):
+        self.lab = lab
+        self.lab_id = lab.id
         self.agent_factory = agent_factory
         self.variables: Dict[str, Any] = {}
         self.ctx = RuntimeContext(
             self.variables,
             agent_factory,
-            notebook.context if isinstance(notebook.context, dict) else {},
+            lab.context if isinstance(lab.context, dict) else {},
         )
-        from cliver.notebook.executor import CellExecutor
+        from cliver.lab.executor import CellExecutor
 
         self._executor = CellExecutor()
         self._lock = asyncio.Lock()
         self.last_active = time.monotonic()
 
-    def load_from_notebook(self) -> None:
+    def load_from_lab(self) -> None:
         """Rebuild variables from all completed cells' outputs."""
         self.variables.clear()
-        for cell in self.notebook.cells:
+        for cell in self.lab.cells:
             if cell.status == "completed" and cell.outputs:
                 self.variables[cell.id] = {"outputs": dict(cell.outputs)}
 
@@ -77,9 +77,9 @@ class NotebookRuntime:
         """Execute one cell. Updates variables, cell status, and outputs."""
         async with self._lock:
             self.last_active = time.monotonic()
-            cell = self.notebook.get_cell(cell_id)
+            cell = self.lab.get_cell(cell_id)
             if not cell:
-                raise ValueError(f"Cell '{cell_id}' not found in notebook")
+                raise ValueError(f"Cell '{cell_id}' not found in lab")
 
             cell.status = "running"
             cell.error = None
@@ -106,13 +106,13 @@ class NotebookRuntime:
 
     async def execute_all(self) -> None:
         """Execute all cells sequentially, stopping on error."""
-        for cell in self.notebook.cells:
+        for cell in self.lab.cells:
             await self.execute_cell(cell.id)
 
     def get_available_refs(self, before_cell_id: str) -> list:
         """Return available references for cells before the given cell."""
         result = []
-        for cell in self.notebook.cells_before(before_cell_id):
+        for cell in self.lab.cells_before(before_cell_id):
             if cell.status != "completed" or not cell.outputs:
                 continue
             fields = []
@@ -142,31 +142,31 @@ class NotebookRuntime:
 
 
 class RuntimeManager:
-    """Manages NotebookRuntime instances with idle timeout."""
+    """Manages LabRuntime instances with idle timeout."""
 
     def __init__(self, timeout_s: int = 1800):
-        self._runtimes: Dict[str, NotebookRuntime] = {}
+        self._runtimes: Dict[str, LabRuntime] = {}
         self._timeout_s = timeout_s
 
-    def get_or_create(self, notebook_id: str, notebook: "Notebook", agent_factory: "AgentFactory") -> NotebookRuntime:
-        if notebook_id in self._runtimes:
-            rt = self._runtimes[notebook_id]
+    def get_or_create(self, lab_id: str, lab: "Lab", agent_factory: "AgentFactory") -> LabRuntime:
+        if lab_id in self._runtimes:
+            rt = self._runtimes[lab_id]
             rt.last_active = time.monotonic()
             return rt
 
-        rt = NotebookRuntime(notebook, agent_factory)
-        rt.load_from_notebook()
-        self._runtimes[notebook_id] = rt
+        rt = LabRuntime(lab, agent_factory)
+        rt.load_from_lab()
+        self._runtimes[lab_id] = rt
         return rt
 
-    def remove(self, notebook_id: str) -> None:
-        self._runtimes.pop(notebook_id, None)
+    def remove(self, lab_id: str) -> None:
+        self._runtimes.pop(lab_id, None)
 
     async def cleanup_idle(self) -> None:
         now = time.monotonic()
         expired = [nid for nid, rt in self._runtimes.items() if now - rt.last_active > self._timeout_s]
         for nid in expired:
-            logger.info("Removing idle runtime for notebook %s", nid)
+            logger.info("Removing idle runtime for lab %s", nid)
             self._runtimes.pop(nid, None)
 
     async def shutdown_all(self) -> None:
