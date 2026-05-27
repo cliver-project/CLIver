@@ -127,6 +127,13 @@ class Cliver:
 
         configure_timezone(self.config_manager.config.timezone)
 
+        # Initialize MCP store for database-backed MCP servers
+        try:
+            from cliver.mcp.store import MCPServerStore
+            _mcp_store = MCPServerStore.from_config_dir(self.config_dir)
+        except Exception:
+            _mcp_store = None
+
         self.agent_core = AgentCore(
             llm_models=self.config_manager.list_llm_models(),
             mcp_servers=self.config_manager.list_mcp_servers_for_mcp_caller(),
@@ -141,6 +148,7 @@ class Cliver:
             enabled_toolsets=self.config_manager.config.enabled_toolsets,
             skill_auto_learn=self.config_manager.config.skill_auto_learn,
             model_auto_fallback=self.config_manager.config.model_auto_fallback,
+            mcp_store=_mcp_store,
         )
         self.agent_core.configure_rate_limits(self.config_manager.config.providers)
 

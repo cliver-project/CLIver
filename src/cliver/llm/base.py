@@ -118,13 +118,21 @@ class LLMInferenceEngine(ABC):
             return None
         return parse_tool_calls_from_content(response)
 
-    def system_message(self, available_tools: Optional[Set[str]] = None) -> str:
+    def system_message(
+        self,
+        available_tools: Optional[Set[str]] = None,
+        enabled_skills: Optional[Set[str]] = None,
+    ) -> str:
         """
         Build the builtin system prompt for CLIver.
 
         Args:
             available_tools: Set of tool names available in this session.
                 If None, all tool guidance is included (backwards compatible).
+            enabled_skills: Set of skill names to show in the prompt.
+                If None (default), only builtin skills (brainstorm, write-plan,
+                execute-plan) are shown. Pass an empty set to show none.
+                Pass a set of names to show only those skills.
 
         This method can be overridden by engine subclasses.
         User-provided system messages are appended separately by AgentCore.
@@ -132,7 +140,7 @@ class LLMInferenceEngine(ABC):
         sections = [self._section_identity(self.agent_name)]
         sections.append(self._section_self_awareness(available_tools))
         sections.append(self._section_tool_usage())
-        sections.append(self._section_interaction_guidelines(available_tools))
+        sections.append(self._section_interaction_guidelines(available_tools, enabled_skills))
         sections.append(self._section_response_format())
 
         return "\n\n".join(sections)
@@ -244,7 +252,10 @@ class LLMInferenceEngine(ABC):
         )
 
     @staticmethod
-    def _section_interaction_guidelines(available_tools: Optional[Set[str]] = None) -> str:
+    def _section_interaction_guidelines(
+        available_tools: Optional[Set[str]] = None,
+        enabled_skills: Optional[Set[str]] = None,
+    ) -> str:
         def _has(*names: str) -> bool:
             return available_tools is None or bool(available_tools & set(names))
 
@@ -276,11 +287,40 @@ class LLMInferenceEngine(ABC):
         )
 
         if _has("Skill"):
+            parts.append("## Skills\n")
+            try:
+                from cliver.tools.skill import get_skill_manager
+
+                all_skills = get_skill_manager().list_skills()
+                # Default builtin skills shown when no explicit filter is set.
+                # Pass enabled_skills=set() to show none; None means "use defaults".
+                _DEFAULT_SKILLS = {"brainstorm", "write-plan", "execute-plan"}
+                if enabled_skills is not None:
+                    skills = [s for s in all_skills if s.name in enabled_skills]
+                    label = "Enabled skills"
+                else:
+                    skills = [s for s in all_skills if s.name in _DEFAULT_SKILLS]
+                    label = "Available skills"
+
+                if skills:
+                    parts.append(f"{label} — call `Skill(skill_name='<name>')` to activate:\n")
+                    for skill in skills:
+                        desc = skill.description
+                        if len(desc) > 120:
+                            dot = desc.find(". ")
+                            desc = desc[: dot + 1] if 0 < dot <= 120 else desc[:117] + "..."
+                        parts.append(f"- **{skill.name}**: {desc}")
+                else:
+                    parts.append("No skills enabled for this session.")
+            except Exception:
+                parts.append(
+                    "Use the `Skill` tool to discover and activate specialized skills. "
+                    "Call `Skill(skill_name='list')` to see available skills."
+                )
             parts.append(
-                "## Skills\n\n"
-                "Use the `Skill` tool to discover and activate specialized skills. "
-                "Call `Skill(skill_name='list')` to see available skills. "
-                "When a task matches a skill's domain, activate it to get expert instructions."
+                "\nActivate ONE skill at a time. When you activate a skill, its full "
+                "instructions are loaded into context. If you need a different skill, "
+                "activate the new one and the previous skill's content will be replaced."
             )
 
         has_todo = _has("TodoWrite", "TodoRead")

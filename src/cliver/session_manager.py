@@ -228,7 +228,7 @@ class SessionManager:
         """Get metadata for a session."""
         with self._get_store().read() as db:
             row = db.execute(
-                "SELECT id, title, created_at, updated_at, turn_count, options FROM sessions WHERE id = ?",
+                "SELECT id, title, lab_id, created_at, updated_at, turn_count, options FROM sessions WHERE id = ?",
                 (session_id,),
             ).fetchone()
         if row is None:

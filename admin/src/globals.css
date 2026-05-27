@@ -77,6 +77,26 @@
     @apply rounded-lg px-4 py-3 max-w-[80%] break-words;
   }
 
+  /* Markdown content styling for tables, code blocks, etc. */
+  .message-bubble table {
+    @apply w-full border-collapse my-2 text-xs;
+  }
+  .message-bubble th {
+    @apply border px-2 py-1 text-left font-medium bg-muted/50;
+  }
+  .message-bubble td {
+    @apply border px-2 py-1;
+  }
+  .message-bubble pre {
+    @apply bg-muted/50 rounded p-2 my-1 overflow-x-auto text-xs;
+  }
+  .message-bubble code {
+    @apply bg-muted/50 rounded px-1 py-0.5 text-xs;
+  }
+  .message-bubble pre code {
+    @apply bg-transparent p-0;
+  }
+
   .message-bubble-user {
     @apply bg-primary text-primary-foreground ml-auto;
   }

@@ -14,6 +14,7 @@ from typing import (
     Generator,
     List,
     Optional,
+    Set,
     Tuple,
 )
 
@@ -185,6 +186,7 @@ class AgentCore:
         enabled_toolsets: Optional[List[str]] = None,
         skill_auto_learn: bool = False,
         model_auto_fallback: bool = True,
+        mcp_store=None,
     ):
         self.llm_models = llm_models
         self.default_model = default_model
@@ -197,7 +199,18 @@ class AgentCore:
         self.on_permission_prompt = on_permission_prompt
         self.skill_auto_learn = skill_auto_learn
         self.model_auto_fallback = model_auto_fallback
-        self.mcp_caller = MCPServersCaller(mcp_servers=mcp_servers)
+        self.mcp_store = mcp_store
+
+        # Merge database MCP servers with config-based ones; DB takes precedence
+        merged_servers = dict(mcp_servers)
+        if mcp_store is not None:
+            try:
+                db_servers = mcp_store.get_connection_dicts()
+                merged_servers.update(db_servers)
+            except Exception:
+                pass
+
+        self.mcp_caller = MCPServersCaller(mcp_servers=merged_servers)
         self.llm_engines: Dict[str, LLMInferenceEngine] = {}
 
         # Configure tool registry with toolsets from config
@@ -703,6 +716,7 @@ class AgentCore:
         auto_fallback: Optional[bool] = None,
         on_pending_input: Optional[Callable[[], Optional[str]]] = None,
         outputs_dir: Optional[str] = None,
+        enabled_skills: Optional[Set[str]] = None,
     ) -> AsyncIterator[BaseMessageChunk]:
         """Async implementation — see stream_user_input for public API."""
         if auto_fallback is None:
@@ -725,6 +739,7 @@ class AgentCore:
             template,
             params,
             conversation_history,
+            enabled_skills=enabled_skills,
         )
 
         ctx = CallContext()
@@ -782,6 +797,7 @@ class AgentCore:
         template=None,
         params=None,
         conversation_history=None,
+        enabled_skills=None,
     ):
         llm_engine = self._select_llm_engine(model)
         logger.debug(f"Selected LLM engine: {type(llm_engine)}")
@@ -801,7 +817,7 @@ class AgentCore:
         available_tool_names = {t.name for t in llm_tools}
 
         # Build a single system prompt with all sections
-        system_parts = [llm_engine.system_message(available_tools=available_tool_names)]
+        system_parts = [llm_engine.system_message(available_tools=available_tool_names, enabled_skills=enabled_skills)]
         if system_message_appender:
             system_message_extra = system_message_appender()
             if system_message_extra and len(system_message_extra) > 0:
@@ -1056,6 +1072,7 @@ class AgentCore:
         auto_fallback: Optional[bool] = None,
         on_pending_input: Optional[Callable[[], Optional[str]]] = None,
         outputs_dir: Optional[str] = None,
+        enabled_skills: Optional[Set[str]] = None,
     ) -> BaseMessage:
         """Async implementation — see process_user_input for public API."""
         if auto_fallback is None:
@@ -1078,6 +1095,7 @@ class AgentCore:
             template,
             params,
             conversation_history,
+            enabled_skills=enabled_skills,
         )
 
         ctx = CallContext()

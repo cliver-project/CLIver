@@ -1,7 +1,7 @@
 ---
 name: write-plan
 description: Create detailed, step-by-step implementation plans from design specs. Use after brainstorming or when you have a spec/requirements for a multi-step task.
-allowed-tools: Read LS Grep Bash TodoWrite TodoRead Ask Write Skill
+allowed-tools: Read LS Grep Bash TodoWrite TodoRead Write Skill
 ---
 
 # Write Plan
@@ -12,7 +12,7 @@ Create comprehensive implementation plans assuming the engineer has zero context
 
 ### Step 1: Read the Design Spec
 
-If coming from the brainstorm skill, read the design doc from `temp/design/`. Otherwise, ask the user for the spec or requirements.
+If coming from the brainstorm skill, read the design doc from `~/.cliver/temp/design/`. Otherwise, ask the user for the spec or requirements.
 
 Use `Read` to load the spec. Understand the goal, architecture, and all changes before writing the plan.
 
@@ -39,7 +39,7 @@ For each task, list concrete steps:
 ### Step 4: Write the Plan Document
 
 Save the plan using `Write`:
-- Path: `temp/design/YYYY-MM-DD-<topic>-plan.md`
+- Path: `~/.cliver/temp/design/YYYY-MM-DD-<topic>-plan.md`
 
 Use this structure:
 
