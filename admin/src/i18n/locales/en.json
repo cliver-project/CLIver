@@ -16,6 +16,7 @@
     "running": "Running..."
   },
   "sidebar": {
+    "chat": "Chat",
     "dashboard": "Dashboard",
     "section": {
       "workspace": "Workspace",
@@ -31,6 +32,22 @@
     "skills": "Skills",
     "adapters": "Adapters",
     "settings": "Settings"
+  },
+  "chat": {
+    "newChat": "New Chat",
+    "conversations": "Conversations",
+    "deleteConversation": "Delete conversation",
+    "deleteConfirm": "Delete this conversation and all its messages?",
+    "noConversations": "No conversations yet",
+    "typeMessage": "Type your message...",
+    "thinking": "Thinking...",
+    "emptyStateTitle": "New Conversation",
+    "emptyStateDesc": "Start a new conversation with the AI agent. Your chats are automatically saved and can be resumed later.",
+    "untitled": "Untitled",
+    "justNow": "Just now",
+    "minutesAgo": "{count}m ago",
+    "hoursAgo": "{count}h ago",
+    "daysAgo": "{count}d ago"
   },
   "theme": {
     "switchToLight": "Switch to light mode",

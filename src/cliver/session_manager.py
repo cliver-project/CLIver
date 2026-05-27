@@ -124,6 +124,16 @@ class SessionManager:
             ).fetchall()
         return [_row_to_dict(r) for r in rows]
 
+    def list_general_sessions(self) -> List[Dict[str, Any]]:
+        """List sessions without lab_id/cell_id (general chat conversations)."""
+        with self._get_store().read() as db:
+            rows = db.execute(
+                "SELECT id, title, created_at, updated_at, turn_count, options "
+                "FROM sessions WHERE lab_id IS NULL AND cell_id IS NULL "
+                "ORDER BY updated_at DESC"
+            ).fetchall()
+        return [_row_to_dict(r) for r in rows]
+
     def delete_session(self, session_id: str) -> bool:
         """Delete a session and its turns (CASCADE)."""
         with self._get_store().write() as db:

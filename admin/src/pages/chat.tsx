@@ -5,15 +5,15 @@ import {
   AssistantRuntimeProvider,
   useExternalStoreRuntime,
   ThreadPrimitive,
-  ComposerPrimitive,
   MessagePrimitive,
   type ThreadMessageLike,
   type AppendMessage,
 } from "@assistant-ui/react";
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
-import { ArrowUp, Square } from "lucide-react";
+import { ArrowUp, Plus, Square, X } from "lucide-react";
 import { streamChat, type ChatArtifact } from "@/lib/chat-stream";
 import { useConversation } from "@/hooks/use-conversations";
+import { useAgents, useSkills } from "@/hooks/use-api";
 import { ConversationSidebar } from "@/components/chat/ConversationSidebar";
 import { useTranslation } from "@/i18n";
 
@@ -36,14 +36,27 @@ export default function ChatPage() {
   const queryClient = useQueryClient();
   const activeConversationId = conversationId || null;
 
-  const [messages, setMessages] = useState<ThreadMessageLike[]>([]);
-  const [isRunning, setIsRunning] = useState(false);
+  // Messages stored per conversation — allows background streaming after switch
+  const [messagesByConv, setMessagesByConv] = useState<Record<string, ThreadMessageLike[]>>({});
+  const [runningConvId, setRunningConvId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastArtifacts, setLastArtifacts] = useState<ChatArtifact[]>([]);
   const [artifactMessageId, setArtifactMessageId] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const loadedConversationIdRef = useRef<string | null>(null);
+  const loadedConversationIds = useRef<Set<string>>(new Set());
   const scrollAnchorRef = useRef<HTMLDivElement>(null);
+
+  const messages = activeConversationId
+    ? (messagesByConv[activeConversationId] || [])
+    : [];
+  const isRunning = !!(runningConvId && runningConvId === activeConversationId);
+
+  // Composer state
+  const [inputText, setInputText] = useState("");
+  const [showConfigMenu, setShowConfigMenu] = useState(false);
+  const [selectedAgent, setSelectedAgent] = useState("");
+  const [systemMessage, setSystemMessage] = useState("");
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
 
   const { data: conversationDetail } = useConversation(activeConversationId);
 
@@ -63,20 +76,20 @@ export default function ChatPage() {
 
   // Load turns when active conversation changes
   useEffect(() => {
-    if (isRunning) return;
+    if (activeConversationId && runningConvId === activeConversationId) return;
     if (activeConversationId && conversationDetail?.turns) {
-      // Guard: only apply data that matches the current URL
       const dataId = conversationDetail.session?.id;
       if (dataId && dataId !== activeConversationId) return;
-      if (loadedConversationIdRef.current === activeConversationId) return;
-      loadedConversationIdRef.current = activeConversationId;
-      setMessages(conversationDetail.turns.map(convertTurnToMessage));
+      if (loadedConversationIds.current.has(activeConversationId)) return;
+      loadedConversationIds.current.add(activeConversationId);
+      setMessagesByConv((prev) => ({
+        ...prev,
+        [activeConversationId]: conversationDetail.turns.map(convertTurnToMessage),
+      }));
     } else if (!activeConversationId) {
-      loadedConversationIdRef.current = null;
-      setMessages([]);
       setError(null);
     }
-  }, [activeConversationId, conversationDetail, isRunning]);
+  }, [activeConversationId, conversationDetail, runningConvId]);
 
   // Scroll to bottom when messages change (history load or new messages)
   useEffect(() => {
@@ -84,6 +97,35 @@ export default function ChatPage() {
       scrollAnchorRef.current.scrollIntoView({ behavior: "instant" as ScrollBehavior });
     }
   }, [messages]);
+
+  const TEMPLATES = [
+    { label: "Make slides", systemPrompt: "You are a presentation design expert. Create well-structured slide content.", skills: ["brainstorm"] },
+    { label: "Create a website", systemPrompt: "You are a senior full-stack web developer.", skills: ["write-plan", "execute-plan"] },
+    { label: "Write a novel", systemPrompt: "You are a creative fiction writer.", skills: ["brainstorm"] },
+    { label: "Create a video", systemPrompt: "You are a video production expert.", skills: ["brainstorm"] },
+    { label: "Analyze data", systemPrompt: "You are a data scientist. Analyze data and provide insights.", skills: [] },
+  ];
+
+  const handleSend = useCallback(() => {
+    const text = inputText.trim();
+    if (!text || isRunning) return;
+    onNewRef.current?.({
+      content: [{ type: "text" as const, text }],
+    });
+    setInputText("");
+  }, [inputText, isRunning]);
+
+  const handleApplyTemplate = useCallback((tpl: typeof TEMPLATES[number]) => {
+    setSystemMessage(tpl.systemPrompt);
+    setSelectedSkills(tpl.skills);
+  }, []);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  }, [handleSend]);
 
   const handleNewChat = useCallback(() => {
     navigate("/admin/chat");
@@ -94,6 +136,11 @@ export default function ChatPage() {
       if (activeConversationId === id) {
         navigate("/admin/chat", { replace: true });
       }
+      setMessagesByConv((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
     },
     [activeConversationId, navigate, queryClient],
@@ -105,6 +152,17 @@ export default function ChatPage() {
       const input =
         first && typeof first !== "string" && first.type === "text" ? first.text : "";
       if (!input) return;
+
+      // Capture the conversation ID at send time — updates target this conversation
+      // even if the user navigates away mid-stream
+      const convId = activeConversationId;
+
+      const updateConvMessages = (updater: (prev: ThreadMessageLike[]) => ThreadMessageLike[]) => {
+        setMessagesByConv((prev) => ({
+          ...prev,
+          [convId!]: updater(prev[convId!] || []),
+        }));
+      };
 
       setError(null);
       setLastArtifacts([]);
@@ -123,8 +181,8 @@ export default function ChatPage() {
         content: [{ type: "text", text: "" }],
       };
 
-      setMessages((prev) => [...prev, userMsg, assistantMsg]);
-      setIsRunning(true);
+      updateConvMessages((prev) => [...prev, userMsg, assistantMsg]);
+      setRunningConvId(convId);
 
       const controller = new AbortController();
       abortRef.current = controller;
@@ -133,7 +191,10 @@ export default function ChatPage() {
 
       await streamChat({
         message: input,
-        conversationId: activeConversationId ?? undefined,
+        conversationId: convId ?? undefined,
+        model: selectedAgent || undefined,
+        systemMessage: systemMessage || undefined,
+        filterTools: selectedSkills.length > 0 ? selectedSkills : undefined,
         abortSignal: controller.signal,
         onEvent: (event) => {
           let chunk = "";
@@ -159,7 +220,7 @@ export default function ChatPage() {
 
           if (chunk) {
             fullText += chunk;
-            setMessages((prev) =>
+            updateConvMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantId
                   ? { ...m, content: [{ type: "text" as const, text: fullText }] }
@@ -169,44 +230,51 @@ export default function ChatPage() {
           }
         },
         onError: (err) => {
-          setError(err.message);
-          setIsRunning(false);
+          if (convId === activeConversationId) setError(err.message);
+          setRunningConvId((prev) => (prev === convId ? null : prev));
           abortRef.current = null;
         },
         onDone: (_fullText, artifacts, sessionId) => {
-          setIsRunning(false);
+          setRunningConvId((prev) => (prev === convId ? null : prev));
           abortRef.current = null;
-          if (artifacts.length > 0) {
+          if (artifacts.length > 0 && convId === activeConversationId) {
             setLastArtifacts(artifacts);
             setArtifactMessageId(assistantId);
           }
-          if (sessionId && !activeConversationId) {
-            loadedConversationIdRef.current = sessionId;
+          if (sessionId && !convId) {
+            loadedConversationIds.current.add(sessionId);
             navigate(`/admin/chat/${encodeURIComponent(sessionId)}`, { replace: true });
           }
           queryClient.invalidateQueries({ queryKey: ["conversations"] });
         },
       });
     },
-    [activeConversationId, navigate, queryClient],
+    [activeConversationId, navigate, queryClient, selectedAgent, systemMessage, selectedSkills],
   );
+
+  const onNewRef = useRef(onNew);
+  onNewRef.current = onNew;
 
   const handleCancel = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
-    setIsRunning(false);
-    setMessages((prev) => {
-      const last = prev[prev.length - 1];
-      if (
-        last?.role === "assistant" &&
-        last.content?.[0]?.type === "text" &&
-        !last.content[0].text
-      ) {
-        return prev.slice(0, -1);
-      }
-      return prev;
-    });
-  }, []);
+    if (runningConvId) {
+      setMessagesByConv((prev) => {
+        const msgs = prev[runningConvId];
+        if (!msgs) return prev;
+        const last = msgs[msgs.length - 1];
+        if (
+          last?.role === "assistant" &&
+          last.content?.[0]?.type === "text" &&
+          !last.content[0].text
+        ) {
+          return { ...prev, [runningConvId]: msgs.slice(0, -1) };
+        }
+        return prev;
+      });
+    }
+    setRunningConvId(null);
+  }, [runningConvId]);
 
   const runtime = useExternalStoreRuntime({
     isRunning,
@@ -223,6 +291,7 @@ export default function ChatPage() {
     <div className="flex-1 -m-6 flex overflow-hidden">
       <ConversationSidebar
         activeId={activeConversationId}
+        runningId={runningConvId}
         onNew={handleNewChat}
         onDelete={handleDelete}
       />
@@ -300,40 +369,206 @@ export default function ChatPage() {
               </div>
             </ThreadPrimitive.Viewport>
 
-            {/* Composer */}
-            <div className="border-t border-border bg-background shrink-0 p-4 lg:p-6">
-              <div className="max-w-4xl mx-auto w-full">
-                <ComposerPrimitive.Root>
-                  <div className="flex gap-3 items-end">
-                    <ComposerPrimitive.Input
-                      className="flex-1 min-w-0 rounded-lg border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground disabled:opacity-50"
-                      placeholder={t("chat.typeMessage")}
-                    />
-                    {isRunning ? (
-                      <button
-                        type="button"
-                        className="inline-flex items-center justify-center rounded-lg p-2.5 text-sm font-medium border border-input hover:bg-muted transition-colors shrink-0"
-                        onClick={handleCancel}
-                      >
-                        <Square className="w-4 h-4" />
-                      </button>
-                    ) : (
-                      <ComposerPrimitive.Send asChild>
-                        <button
-                          type="button"
-                          className="inline-flex items-center justify-center rounded-lg p-2.5 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shrink-0 disabled:opacity-50"
-                        >
-                          <ArrowUp className="w-4 h-4" />
-                        </button>
-                      </ComposerPrimitive.Send>
+            {/* Composer — multi-line input, config menu, templates */}
+            <div className="border-t border-border bg-background shrink-0">
+              <div className="max-w-4xl mx-auto w-full px-4 lg:px-6 py-3 lg:py-4 space-y-3">
+                {/* Selected config tags */}
+                {(selectedAgent || systemMessage || selectedSkills.length > 0) && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedAgent && (
+                      <span className="inline-flex items-center gap-1 rounded-md bg-primary/10 text-primary text-[11px] px-2 py-0.5">
+                        Model: {selectedAgent}
+                        <button onClick={() => setSelectedAgent("")}><X className="w-3 h-3" /></button>
+                      </span>
                     )}
+                    {systemMessage && (
+                      <span className="inline-flex items-center gap-1 rounded-md bg-primary/10 text-primary text-[11px] px-2 py-0.5">
+                        System prompt set
+                        <button onClick={() => setSystemMessage("")}><X className="w-3 h-3" /></button>
+                      </span>
+                    )}
+                    {selectedSkills.map((s) => (
+                      <span key={s} className="inline-flex items-center gap-1 rounded-md bg-primary/10 text-primary text-[11px] px-2 py-0.5">
+                        {s}
+                        <button onClick={() => setSelectedSkills((p) => p.filter((x) => x !== s))}><X className="w-3 h-3" /></button>
+                      </span>
+                    ))}
                   </div>
-                </ComposerPrimitive.Root>
+                )}
+
+                {/* Input area with + config button */}
+                <div className="flex gap-3 items-start">
+                  {/* + Config button */}
+                  <button
+                    type="button"
+                    onClick={() => setShowConfigMenu(!showConfigMenu)}
+                    className="inline-flex items-center justify-center rounded-lg p-2 text-sm font-medium border border-input hover:bg-muted transition-colors shrink-0 mt-0.5"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+
+                  {/* Textarea */}
+                  <textarea
+                    value={inputText}
+                    onChange={(e) => setInputText(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    placeholder={t("chat.typeMessage")}
+                    disabled={isRunning}
+                    rows={1}
+                    className="flex-1 min-w-0 rounded-lg border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground disabled:opacity-50 resize-none field-sizing-content"
+                    style={{ minHeight: "44px", maxHeight: "200px" }}
+                    onInput={(e) => {
+                      const el = e.currentTarget;
+                      el.style.height = "auto";
+                      el.style.height = Math.min(el.scrollHeight, 200) + "px";
+                    }}
+                  />
+
+                  {/* Send / Cancel */}
+                  {isRunning ? (
+                    <button
+                      type="button"
+                      className="inline-flex items-center justify-center rounded-lg p-2.5 text-sm font-medium border border-input hover:bg-muted transition-colors shrink-0 mt-0.5"
+                      onClick={handleCancel}
+                    >
+                      <Square className="w-4 h-4" />
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleSend}
+                      disabled={!inputText.trim()}
+                      className="inline-flex items-center justify-center rounded-lg p-2.5 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shrink-0 disabled:opacity-50 mt-0.5"
+                    >
+                      <ArrowUp className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+
+                {/* Config panel — shown when + is clicked */}
+                {showConfigMenu && (
+                  <ComposerConfigPanel
+                    selectedAgent={selectedAgent}
+                    onAgentChange={setSelectedAgent}
+                    systemMessage={systemMessage}
+                    onSystemMessageChange={setSystemMessage}
+                    selectedSkills={selectedSkills}
+                    onSkillsChange={setSelectedSkills}
+                    onClose={() => setShowConfigMenu(false)}
+                  />
+                )}
+
+                {/* Template suggestions */}
+                {!isRunning && (
+                  <div className="flex gap-1.5 overflow-x-auto pb-1">
+                    {TEMPLATES.map((tpl) => (
+                      <button
+                        key={tpl.label}
+                        type="button"
+                        onClick={() => handleApplyTemplate(tpl)}
+                        className="shrink-0 rounded-full border border-border px-3 py-1 text-[12px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                      >
+                        {tpl.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </ThreadPrimitive.Root>
         </AssistantRuntimeProvider>
       </main>
+    </div>
+  );
+}
+
+function ComposerConfigPanel({
+  selectedAgent,
+  onAgentChange,
+  systemMessage,
+  onSystemMessageChange,
+  selectedSkills,
+  onSkillsChange,
+  onClose,
+}: {
+  selectedAgent: string;
+  onAgentChange: (v: string) => void;
+  systemMessage: string;
+  onSystemMessageChange: (v: string) => void;
+  selectedSkills: string[];
+  onSkillsChange: (v: string[]) => void;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const { data: agents } = useAgents();
+  const { data: skills } = useSkills();
+
+  const agentList: string[] = agents
+    ? (agents as Array<Record<string, unknown>>).map((a) => a.name as string).filter(Boolean)
+    : [];
+  const skillList: string[] = skills
+    ? (skills as Array<Record<string, unknown>>).map((s) => s.name as string).filter(Boolean)
+    : [];
+
+  return (
+    <div className="rounded-lg border bg-card p-4 space-y-4">
+      <div className="flex items-center justify-between">
+        <span className="text-sm font-medium">Configure</span>
+        <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      {/* Model */}
+      <div>
+        <label className="text-[11px] font-medium text-muted-foreground">Model</label>
+        <select
+          value={selectedAgent}
+          onChange={(e) => onAgentChange(e.target.value)}
+          className="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+        >
+          <option value="">Default</option>
+          {agentList.map((a) => <option key={a} value={a}>{a}</option>)}
+        </select>
+      </div>
+
+      {/* System prompt */}
+      <div>
+        <label className="text-[11px] font-medium text-muted-foreground">System prompt</label>
+        <textarea
+          value={systemMessage}
+          onChange={(e) => onSystemMessageChange(e.target.value)}
+          rows={3}
+          className="mt-1 w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-ring"
+          placeholder="Instructions for the AI..."
+        />
+      </div>
+
+      {/* Skills */}
+      <div>
+        <label className="text-[11px] font-medium text-muted-foreground">Skills</label>
+        {skillList.length === 0 ? (
+          <p className="text-xs text-muted-foreground mt-1">No skills available</p>
+        ) : (
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {skillList.map((s) => {
+              const active = selectedSkills.includes(s);
+              return (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => onSkillsChange(active ? selectedSkills.filter((x) => x !== s) : [...selectedSkills, s])}
+                  className={`rounded-md px-2 py-0.5 text-[11px] transition-colors ${
+                    active ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-secondary"
+                  }`}
+                >
+                  {s}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

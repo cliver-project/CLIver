@@ -184,6 +184,7 @@ def get_admin_routes(
     from cliver.gateway.routes.admin_auth import get_auth_routes
     from cliver.gateway.routes.admin_browse import get_browse_routes
     from cliver.gateway.routes.admin_chat import get_chat_routes
+    from cliver.gateway.routes.admin_conversations import get_conversations_routes
     from cliver.gateway.routes.admin_info import get_info_routes
     from cliver.gateway.routes.admin_sessions import get_session_routes
     from cliver.gateway.routes.admin_spa import get_spa_routes
@@ -203,6 +204,7 @@ def get_admin_routes(
         *get_browse_routes(require_auth),
         *get_info_routes(context, require_auth),
         *get_chat_routes(context, require_auth),
+        *get_conversations_routes(context, require_auth),
     ]
 
     spa_routes = get_spa_routes(spa_dist_dir)

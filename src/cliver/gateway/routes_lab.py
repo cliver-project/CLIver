@@ -239,7 +239,8 @@ def get_lab_routes(
             resolved_message = resolve_refs(message, runtime.variables)
         except (ValueError, KeyError) as e:
             return JSONResponse(
-                {"error": f"Reference not found in message: {e}"}, status_code=400,
+                {"error": f"Reference not found in message: {e}"},
+                status_code=400,
             )
 
         # Build prompt with optional system prompt
