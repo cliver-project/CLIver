@@ -1,86 +1,116 @@
 import { NavLink } from "react-router";
 import {
-  LayoutDashboard,
-  Users,
-  Workflow,
+  Book,
+  FolderOpen,
   ListTodo,
+  Key,
   MessageSquare,
-  Sparkles,
+  Brain,
   Settings,
   Languages,
 } from "lucide-react";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { CliverLogo } from "@/components/cliver-logo";
 import { useTranslation } from "@/i18n";
 import { cn } from "@/lib/utils";
 
-const navItems = [
-  { to: "/admin/dashboard", icon: LayoutDashboard, labelKey: "sidebar.dashboard" },
-  { to: "/admin/agents", icon: Users, labelKey: "sidebar.agents" },
-  { to: "/admin/workflows", icon: Workflow, labelKey: "sidebar.workflows" },
-  { to: "/admin/tasks", icon: ListTodo, labelKey: "sidebar.tasks" },
-  { to: "/admin/sessions", icon: MessageSquare, labelKey: "sidebar.sessions" },
-  { to: "/admin/skills", icon: Sparkles, labelKey: "sidebar.skills" },
-  { to: "/admin/config", icon: Settings, labelKey: "sidebar.config" },
+interface NavItem {
+  to: string;
+  icon: React.ComponentType<{ className?: string }>;
+  labelKey: string;
+}
+
+interface NavSection {
+  titleKey: string;
+  items: NavItem[];
+}
+
+const navSections: NavSection[] = [
+  {
+    titleKey: "sidebar.section.workspace",
+    items: [
+      { to: "/admin/notebooks", icon: Book, labelKey: "sidebar.notebooks" },
+      { to: "/admin/projects", icon: FolderOpen, labelKey: "sidebar.projects" },
+      { to: "/admin/tasks", icon: ListTodo, labelKey: "sidebar.tasks" },
+    ],
+  },
+  {
+    titleKey: "sidebar.section.system",
+    items: [
+      { to: "/admin/keys", icon: Key, labelKey: "sidebar.keys" },
+      { to: "/admin/sessions", icon: MessageSquare, labelKey: "sidebar.sessions" },
+      { to: "/admin/skills", icon: Brain, labelKey: "sidebar.skills" },
+    ],
+  },
 ];
 
 export function Sidebar() {
   const { t, locale, setLocale } = useTranslation();
 
   return (
-    <TooltipProvider delayDuration={0}>
-      <aside className="fixed inset-y-0 left-0 z-50 flex flex-col items-center w-14 bg-sidebar-background border-r border-sidebar-border py-4 gap-2">
-        <NavLink
-          to="/admin/dashboard"
-          className="flex items-center justify-center w-9 h-9 rounded-lg mb-4"
-        >
-          <CliverLogo size={28} />
-        </NavLink>
+    <aside className="fixed inset-y-0 left-0 z-50 flex flex-col w-[200px] bg-sidebar-background border-r border-sidebar-border">
+      {/* Logo */}
+      <div className="flex items-center gap-2.5 px-4 py-5">
+        <CliverLogo size={26} />
+        <span className="font-semibold text-sm text-foreground">CLIver Lab</span>
+      </div>
 
-        <nav className="flex flex-col items-center gap-1 flex-1">
-          {navItems.map((item) => (
-            <Tooltip key={item.to}>
-              <TooltipTrigger asChild>
+      {/* Navigation sections */}
+      <nav className="flex-1 px-3 space-y-4 overflow-y-auto">
+        {navSections.map((section) => (
+          <div key={section.titleKey}>
+            <div className="px-2 mb-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+              {t(section.titleKey)}
+            </div>
+            <div className="space-y-0.5">
+              {section.items.map((item) => (
                 <NavLink
+                  key={item.to}
                   to={item.to}
                   className={({ isActive }) =>
                     cn(
-                      "flex items-center justify-center w-9 h-9 rounded-md transition-colors",
+                      "flex items-center gap-2.5 px-2.5 py-[7px] rounded-md text-[13px] transition-colors",
                       isActive
-                        ? "bg-sidebar-primary text-primary-foreground"
-                        : "text-muted-foreground hover:bg-sidebar-accent hover:text-foreground",
+                        ? "bg-accent text-accent-foreground font-medium border-l-2 border-sidebar-primary"
+                        : "text-muted-foreground hover:bg-secondary hover:text-foreground",
                     )
                   }
                 >
-                  <item.icon className="w-5 h-5" />
+                  <item.icon className="w-4 h-4 shrink-0" />
+                  {t(item.labelKey)}
                 </NavLink>
-              </TooltipTrigger>
-              <TooltipContent side="right">{t(item.labelKey)}</TooltipContent>
-            </Tooltip>
-          ))}
-        </nav>
+              ))}
+            </div>
+          </div>
+        ))}
+      </nav>
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              onClick={() => setLocale(locale === "en" ? "zh" : "en")}
-              className="flex items-center justify-center w-8 h-8 rounded-md hover:bg-sidebar-accent text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <Languages className="w-4 h-4" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right">
-            {locale === "en" ? "中文" : "English"}
-          </TooltipContent>
-        </Tooltip>
-        <ThemeToggle />
-      </aside>
-    </TooltipProvider>
+      {/* Bottom section */}
+      <div className="px-3 pb-3 space-y-0.5">
+        <NavLink
+          to="/admin/settings"
+          className={({ isActive }) =>
+            cn(
+              "flex items-center gap-2.5 px-2.5 py-[7px] rounded-md text-[13px] transition-colors",
+              isActive
+                ? "bg-accent text-accent-foreground font-medium border-l-2 border-sidebar-primary"
+                : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+            )
+          }
+        >
+          <Settings className="w-4 h-4 shrink-0" />
+          {t("sidebar.settings")}
+        </NavLink>
+        <div className="flex items-center gap-1 px-2 pt-2">
+          <button
+            onClick={() => setLocale(locale === "en" ? "zh" : "en")}
+            className="flex items-center justify-center w-7 h-7 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <Languages className="w-3.5 h-3.5" />
+          </button>
+          <ThemeToggle />
+        </div>
+      </div>
+    </aside>
   );
 }

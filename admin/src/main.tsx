@@ -7,20 +7,18 @@ import { App } from "@/App";
 import { AuthError } from "@/lib/api";
 import LoginPage from "@/pages/login";
 import DashboardPage from "@/pages/dashboard";
-import SkillsPage from "@/pages/skills";
-import SkillDetailPage from "@/pages/skills/detail";
-import SkillCreatePage from "@/pages/skills/create";
-import ConfigPage from "@/pages/config";
-import SessionsPage from "@/pages/sessions";
-import SessionDetailPage from "@/pages/session-detail";
+import NotebooksList from "@/pages/notebooks/list";
+import ProjectsList from "@/pages/projects/list";
 import TaskListPage from "@/pages/tasks/list";
 import TaskCreatePage from "@/pages/tasks/create";
 import TaskDetailPage from "@/pages/tasks/detail";
-import AgentListPage from "@/pages/agents/list";
-import AgentDetailPage from "@/pages/agents/detail";
-import WorkflowListPage from "@/pages/workflows/list";
-import WorkflowCreatePage from "@/pages/workflows/create";
-import WorkflowDetailPage from "@/pages/workflows/detail";
+import KeysList from "@/pages/keys/list";
+import SessionsPage from "@/pages/sessions";
+import SessionDetailPage from "@/pages/session-detail";
+import SkillsPage from "@/pages/skills";
+import SkillDetailPage from "@/pages/skills/detail";
+import SkillCreatePage from "@/pages/skills/create";
+import SettingsPage from "@/pages/settings";
 import "./globals.css";
 
 const queryClient = new QueryClient({
@@ -44,21 +42,18 @@ createRoot(document.getElementById("root")!).render(
             <Route path="/admin" element={<App />}>
               <Route index element={<Navigate to="dashboard" replace />} />
               <Route path="dashboard" element={<DashboardPage />} />
-              <Route path="agents" element={<AgentListPage />} />
-              <Route path="agents/new" element={<AgentDetailPage />} />
-              <Route path="agents/:name" element={<AgentDetailPage />} />
-              <Route path="workflows" element={<WorkflowListPage />} />
-              <Route path="workflows/new" element={<WorkflowCreatePage />} />
-              <Route path="workflows/:name" element={<WorkflowDetailPage />} />
+              <Route path="notebooks" element={<NotebooksList />} />
+              <Route path="projects" element={<ProjectsList />} />
               <Route path="tasks" element={<TaskListPage />} />
               <Route path="tasks/new" element={<TaskCreatePage />} />
               <Route path="tasks/:name" element={<TaskDetailPage />} />
+              <Route path="keys" element={<KeysList />} />
               <Route path="sessions" element={<SessionsPage />} />
               <Route path="sessions/:source/:id" element={<SessionDetailPage />} />
               <Route path="skills" element={<SkillsPage />} />
               <Route path="skills/new" element={<SkillCreatePage />} />
               <Route path="skills/:name" element={<SkillDetailPage />} />
-              <Route path="config" element={<ConfigPage />} />
+              <Route path="settings" element={<SettingsPage />} />
             </Route>
           </Routes>
         </BrowserRouter>

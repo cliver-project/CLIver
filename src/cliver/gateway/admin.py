@@ -745,6 +745,60 @@ def get_admin_routes(
         config = _get_config(context)
         return JSONResponse(config)
 
+    @require_auth
+    async def handle_keys_list(request: Request):
+        """GET /admin/api/keys — list all key names + descriptions."""
+        from cliver.key_store import KeyStore
+
+        config_dir = context.get("config_dir")
+        if not config_dir:
+            return JSONResponse([])
+        ks = KeyStore(config_dir / "keys.db")
+        keys = ks.list_keys()
+        return JSONResponse(
+            [
+                {
+                    "name": k.name,
+                    "description": k.description,
+                    "created_at": k.created_at,
+                    "updated_at": k.updated_at,
+                }
+                for k in keys
+            ]
+        )
+
+    @require_auth
+    async def handle_keys_create(request: Request):
+        """POST /admin/api/keys — create a key."""
+        from cliver.key_store import KeyStore
+
+        config_dir = context.get("config_dir")
+        if not config_dir:
+            return JSONResponse({"error": "No config dir"}, status_code=500)
+        ks = KeyStore(config_dir / "keys.db")
+        data = await request.json()
+        name = data.get("name", "").strip()
+        value = data.get("value", "")
+        description = data.get("description", "")
+        if not name or not value:
+            return JSONResponse({"error": "name and value are required"}, status_code=400)
+        ks.set(name, value, description=description)
+        return JSONResponse({"status": "ok", "name": name})
+
+    @require_auth
+    async def handle_keys_delete(request: Request):
+        """DELETE /admin/api/keys/{name} — delete a key."""
+        from cliver.key_store import KeyStore
+
+        config_dir = context.get("config_dir")
+        if not config_dir:
+            return JSONResponse({"error": "No config dir"}, status_code=500)
+        ks = KeyStore(config_dir / "keys.db")
+        name = request.path_params["name"]
+        if ks.delete(name):
+            return JSONResponse({"status": "ok"})
+        return JSONResponse({"error": "not found"}, status_code=404)
+
     # --- Chat API (streaming LLM inference for admin portal) ---
 
     @require_auth
@@ -932,4 +986,7 @@ def get_admin_routes(
         Route("/admin/api/config", handle_config),
         Route("/admin/api/models", handle_models),
         Route("/admin/api/chat", handle_chat, methods=["POST"]),
+        Route("/admin/api/keys", handle_keys_list),
+        Route("/admin/api/keys", handle_keys_create, methods=["POST"]),
+        Route("/admin/api/keys/{name}", handle_keys_delete, methods=["DELETE"]),
     ]

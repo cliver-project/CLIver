@@ -10,114 +10,32 @@ export function useStatus() {
   });
 }
 
-// --- Workflows ---
-export function useWorkflows() {
+// --- Keys ---
+export function useKeys() {
   return useQuery({
-    queryKey: ["workflows"],
-    queryFn: () =>
-      api<
-        Array<{
-          name: string;
-          description?: string;
-          steps: number;
-          source?: string;
-        }>
-      >("/workflows"),
+    queryKey: ["keys"],
+    queryFn: () => api<Array<{name: string; description: string; created_at: string; updated_at: string}>>("/keys"),
   });
 }
 
-export function useWorkflow(name: string) {
-  return useQuery({
-    queryKey: ["workflow", name],
-    queryFn: () =>
-      api<Record<string, unknown>>(
-        `/workflows/${encodeURIComponent(name)}`,
-      ),
-    enabled: !!name,
-  });
-}
-
-export function useSaveWorkflow(name: string) {
+export function useCreateKey() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: Record<string, unknown>) =>
-      apiPut(`/workflows/${encodeURIComponent(name)}`, data),
+    mutationFn: (data: {name: string; value: string; description?: string}) =>
+      apiPost("/keys", data),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["workflow", name] });
-      qc.invalidateQueries({ queryKey: ["workflows"] });
+      qc.invalidateQueries({ queryKey: ["keys"] });
     },
   });
 }
 
-export function useCreateWorkflow() {
+export function useDeleteKey() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (data: Record<string, unknown>) => apiPost("/workflows", data),
+    mutationFn: (name: string) => apiDelete(`/keys/${encodeURIComponent(name)}`),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["workflows"] });
+      qc.invalidateQueries({ queryKey: ["keys"] });
     },
-  });
-}
-
-export function useDeleteWorkflow(name: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: () => apiDelete(`/workflows/${encodeURIComponent(name)}`),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["workflows"] });
-    },
-  });
-}
-
-export function useRunWorkflow(name: string) {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (inputs?: Record<string, string>) =>
-      apiPost(
-        `/workflows/${encodeURIComponent(name)}/run`,
-        inputs ? { inputs } : undefined,
-      ),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["executions", name] });
-    },
-  });
-}
-
-export function useExecutions(name?: string) {
-  return useQuery({
-    queryKey: ["executions", name],
-    queryFn: () =>
-      name
-        ? api<Array<Record<string, unknown>>>(
-            `/workflows/${encodeURIComponent(name)}/executions`,
-          )
-        : api<Array<Record<string, unknown>>>("/workflow-executions"),
-    refetchInterval: 5_000,
-  });
-}
-
-export function useExecutionStatus(name: string, executionId: string) {
-  return useQuery({
-    queryKey: ["execution-status", name, executionId],
-    queryFn: () =>
-      api<Record<string, unknown>>(
-        `/workflows/${encodeURIComponent(name)}/executions/${encodeURIComponent(executionId)}`,
-      ),
-    enabled: !!executionId,
-    refetchInterval: 3_000,
-  });
-}
-
-export function useRunStep(workflowName: string) {
-  return useMutation({
-    mutationFn: (stepId: string) => apiPost(`/workflows/${encodeURIComponent(workflowName)}/steps/${encodeURIComponent(stepId)}/run`),
-  });
-}
-
-export function useResumeFromStep(workflowName: string) {
-  return useMutation({
-    mutationFn: (params: { stepId: string; executionId: string }) =>
-      apiPost(`/workflows/${encodeURIComponent(workflowName)}/steps/${encodeURIComponent(params.stepId)}/resume`, { thread_id: params.executionId }),
   });
 }
 
