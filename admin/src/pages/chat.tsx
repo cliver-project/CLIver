@@ -13,7 +13,7 @@ import {
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import { ArrowUp, Square } from "lucide-react";
 import { streamChat, type ChatArtifact } from "@/lib/chat-stream";
-import { useConversations, useConversation } from "@/hooks/use-conversations";
+import { useConversation } from "@/hooks/use-conversations";
 import { ConversationSidebar } from "@/components/chat/ConversationSidebar";
 import { useTranslation } from "@/i18n";
 
@@ -45,13 +45,29 @@ export default function ChatPage() {
   const loadedConversationIdRef = useRef<string | null>(null);
   const scrollAnchorRef = useRef<HTMLDivElement>(null);
 
-  const { data: conversations, isLoading: convsLoading } = useConversations();
   const { data: conversationDetail } = useConversation(activeConversationId);
+
+  // Constrain App wrapper height so only the conversation viewport scrolls
+  useEffect(() => {
+    const el = document.getElementById("app-content");
+    if (!el) return;
+    const prevHeight = el.style.height;
+    const prevOverflow = el.style.overflow;
+    el.style.height = "100vh";
+    el.style.overflow = "hidden";
+    return () => {
+      el.style.height = prevHeight;
+      el.style.overflow = prevOverflow;
+    };
+  }, []);
 
   // Load turns when active conversation changes
   useEffect(() => {
     if (isRunning) return;
     if (activeConversationId && conversationDetail?.turns) {
+      // Guard: only apply data that matches the current URL
+      const dataId = conversationDetail.session?.id;
+      if (dataId && dataId !== activeConversationId) return;
       if (loadedConversationIdRef.current === activeConversationId) return;
       loadedConversationIdRef.current = activeConversationId;
       setMessages(conversationDetail.turns.map(convertTurnToMessage));
@@ -68,16 +84,6 @@ export default function ChatPage() {
       scrollAnchorRef.current.scrollIntoView({ behavior: "instant" as ScrollBehavior });
     }
   }, [messages]);
-
-  // Redirect to most recent conversation if at /chat with no id
-  const didInitialRedirect = useRef(false);
-  useEffect(() => {
-    if (!didInitialRedirect.current && !activeConversationId && conversations && conversations.length > 0) {
-      didInitialRedirect.current = true;
-      const first = conversations[0];
-      if (first) navigate(`/admin/chat/${encodeURIComponent(first.id)}`, { replace: true });
-    }
-  }, [activeConversationId, conversations, navigate]);
 
   const handleNewChat = useCallback(() => {
     navigate("/admin/chat");
@@ -214,13 +220,11 @@ export default function ChatPage() {
   const showEmptyState = !activeConversationId && messages.length === 0;
 
   return (
-    <div className="h-full -m-6 flex overflow-hidden">
+    <div className="flex-1 -m-6 flex overflow-hidden">
       <ConversationSidebar
-        conversations={conversations || []}
         activeId={activeConversationId}
         onNew={handleNewChat}
         onDelete={handleDelete}
-        isLoading={convsLoading}
       />
 
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden bg-background">
@@ -231,9 +235,9 @@ export default function ChatPage() {
         )}
 
         <AssistantRuntimeProvider runtime={runtime}>
-          <ThreadPrimitive.Root className="flex flex-col h-full">
+          <ThreadPrimitive.Root className="grid grid-rows-[1fr_auto] flex-1 min-h-0">
             <ThreadPrimitive.Viewport
-              className="flex-1 min-h-0 overflow-y-auto"
+              className="overflow-y-auto min-h-0"
               autoScroll
             >
               <div className="max-w-4xl mx-auto w-full px-4 lg:px-6 py-4 lg:py-6">
@@ -291,27 +295,6 @@ export default function ChatPage() {
                     )}
                   </ThreadPrimitive.Messages>
 
-                  {/* Loading indicator */}
-                  {isRunning && messages[messages.length - 1]?.role === "assistant" && (
-                    (() => {
-                      const last = messages[messages.length - 1];
-                      const text = last.content?.[0]?.type === "text"
-                        ? (last.content[0] as { text: string }).text
-                        : "";
-                      if (text) return null;
-                      return (
-                        <div className="flex justify-start message-enter">
-                          <div className="message-bubble message-bubble-assistant">
-                            <div className="loading-dots flex gap-1">
-                              <span className="w-2 h-2 bg-foreground/40 rounded-full" />
-                              <span className="w-2 h-2 bg-foreground/40 rounded-full" />
-                              <span className="w-2 h-2 bg-foreground/40 rounded-full" />
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })()
-                  )}
                   <div ref={scrollAnchorRef} />
                 </div>
               </div>
