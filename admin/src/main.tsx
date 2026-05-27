@@ -8,6 +8,7 @@ import { AuthError } from "@/lib/api";
 import LoginPage from "@/pages/login";
 import DashboardPage from "@/pages/dashboard";
 import NotebooksList from "@/pages/notebooks/list";
+import NotebookEditor from "@/pages/notebooks/editor";
 import ProjectsList from "@/pages/projects/list";
 import TaskListPage from "@/pages/tasks/list";
 import TaskCreatePage from "@/pages/tasks/create";
@@ -43,6 +44,7 @@ createRoot(document.getElementById("root")!).render(
               <Route index element={<Navigate to="dashboard" replace />} />
               <Route path="dashboard" element={<DashboardPage />} />
               <Route path="notebooks" element={<NotebooksList />} />
+              <Route path="notebooks/:id" element={<NotebookEditor />} />
               <Route path="projects" element={<ProjectsList />} />
               <Route path="tasks" element={<TaskListPage />} />
               <Route path="tasks/new" element={<TaskCreatePage />} />
