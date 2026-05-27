@@ -9,7 +9,6 @@ def test_agent_config_defaults():
     assert cfg.description is None
     assert cfg.role is None
     assert cfg.model is None
-    assert cfg.skills == []
     assert cfg.command is None
     assert cfg.args is None
     assert cfg.env is None

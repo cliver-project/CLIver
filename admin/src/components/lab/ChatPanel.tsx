@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import {
   AssistantRuntimeProvider,
   useExternalStoreRuntime,
@@ -11,7 +11,7 @@ import {
 import { MarkdownTextPrimitive } from "@assistant-ui/react-markdown";
 import { Button } from "@/components/ui/button";
 import { Save } from "lucide-react";
-import { streamChat } from "@/lib/chat-stream";
+import { streamChat, type ChatArtifact } from "@/lib/chat-stream";
 import { useTranslation } from "@/i18n";
 
 interface ChatTurn {
@@ -28,7 +28,7 @@ interface ChatPanelProps {
   outputFormat: string;
   initialPrompt?: string;
   runTrigger?: number;
-  onSaveResult: (text: string) => void;
+  onSaveResult: (text: string, artifacts: ChatArtifact[]) => void;
 }
 
 function generateId(): string {
@@ -56,10 +56,22 @@ export function ChatPanel({
   const { t } = useTranslation();
   const [messages, setMessages] = useState<ThreadMessageLike[]>([]);
   const [isRunning, setIsRunning] = useState(false);
-  const [lastAssistantText, setLastAssistantText] = useState("");
+  const [lastArtifacts, setLastArtifacts] = useState<ChatArtifact[]>([]);
+  const [artifactMessageId, setArtifactMessageId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+
+  // Derive last assistant text from messages (single source of truth)
+  const lastAssistantText = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role === "assistant" && m.content?.[0]?.type === "text") {
+        return (m.content[0] as { text: string }).text;
+      }
+    }
+    return "";
+  }, [messages]);
 
   // Load chat history on mount
   useEffect(() => {
@@ -94,7 +106,8 @@ export function ChatPanel({
       if (!input) return;
 
       setError(null);
-      setLastAssistantText("");
+      setLastArtifacts([]);
+      setArtifactMessageId(null);
 
       // Create user message and empty assistant message for streaming
       const userMsg: ThreadMessageLike = {
@@ -127,9 +140,27 @@ export function ChatPanel({
         outputFormat,
         abortSignal: controller.signal,
         onEvent: (event) => {
+          let chunk = "";
           if (event.type === "text" && event.content) {
-            fullText += event.content;
-            // Update the assistant message progressively for streaming
+            chunk = event.content;
+          } else if (event.type === "thinking" && event.content) {
+            chunk = `\n> ${event.content}\n`;
+          } else if (event.type === "tool_use" && event.content) {
+            const label = event.content.length > 60
+              ? event.content.slice(0, 60) + "..."
+              : event.content;
+            chunk = `\n\`\`\`\n${label}\n\`\`\`\n`;
+          } else if (event.type === "tool_result" && event.content) {
+            const truncated = event.content.length > 600
+              ? event.content.slice(0, 600) + "..."
+              : event.content;
+            chunk = `\n\`\`\`\n${truncated}\n\`\`\`\n`;
+          } else if (event.type === "status" && event.content) {
+            chunk = `\n_${event.content}_\n`;
+          }
+
+          if (chunk) {
+            fullText += chunk;
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantId
@@ -144,12 +175,14 @@ export function ChatPanel({
         },
         onError: (err) => {
           setError(err.message);
-          setLastAssistantText("");
           setIsRunning(false);
           abortRef.current = null;
         },
-        onDone: (finalText: string) => {
-          setLastAssistantText(finalText);
+        onDone: (_finalText: string, artifacts: ChatArtifact[]) => {
+          if (artifacts.length > 0) {
+            setLastArtifacts(artifacts);
+            setArtifactMessageId(assistantId);
+          }
           setIsRunning(false);
           abortRef.current = null;
         },
@@ -191,6 +224,11 @@ export function ChatPanel({
     const text = lastAssistantText;
     if (!text) return;
 
+    const outputs: Record<string, unknown> = { text };
+    if (lastArtifacts.length > 0) {
+      outputs.artifacts = lastArtifacts;
+    }
+
     try {
       const res = await fetch(
         `/admin/api/labs/${encodeURIComponent(labId)}/cells/${encodeURIComponent(cellId)}/save-output`,
@@ -198,18 +236,18 @@ export function ChatPanel({
           method: "POST",
           credentials: "include",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ outputs: { text } }),
+          body: JSON.stringify({ outputs }),
         },
       );
       if (!res.ok) {
         setError(`Failed to save: ${res.status}`);
         return;
       }
-      onSaveResult(text);
+      onSaveResult(text, lastArtifacts);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save result");
     }
-  }, [labId, cellId, lastAssistantText, onSaveResult]);
+  }, [labId, cellId, lastAssistantText, lastArtifacts, onSaveResult]);
 
   const runtime = useExternalStoreRuntime({
     isRunning,
@@ -270,6 +308,13 @@ export function ChatPanel({
                         },
                       }}
                     />
+                    {message.id === artifactMessageId && lastArtifacts.length > 0 && (
+                      <div className="mt-2 pt-2 border-t space-y-2">
+                        {lastArtifacts.map((a, i) => (
+                          <ArtifactPreview key={i} artifact={a} />
+                        ))}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -305,7 +350,7 @@ export function ChatPanel({
               <Button
                 variant="outline"
                 size="sm"
-                className="w-full gap-1.5"
+                className="gap-1.5"
                 onClick={handleSave}
               >
                 <Save className="w-3.5 h-3.5" />
@@ -316,5 +361,63 @@ export function ChatPanel({
         </ThreadPrimitive.Root>
       </AssistantRuntimeProvider>
     </div>
+  );
+}
+
+function ArtifactPreview({ artifact }: { artifact: ChatArtifact }) {
+  const mediaType = artifact.media_type;
+  const name = artifact.path.split("/").pop() || artifact.path;
+
+  if (mediaType.startsWith("image/")) {
+    return (
+      <div className="rounded-md overflow-hidden border">
+        <img
+          src={`/admin/api/files?path=${encodeURIComponent(artifact.path)}`}
+          alt={name}
+          className="max-w-full h-auto max-h-64 object-contain"
+        />
+        <div className="px-2 py-1 text-[10px] text-muted-foreground bg-muted/50">
+          {name} {artifact.size ? `(${(artifact.size / 1024).toFixed(1)} KB)` : ""}
+        </div>
+      </div>
+    );
+  }
+
+  if (mediaType.startsWith("audio/")) {
+    return (
+      <div className="rounded-md border p-2">
+        <audio controls className="w-full h-8">
+          <source src={`/admin/api/files?path=${encodeURIComponent(artifact.path)}`} type={mediaType} />
+        </audio>
+        <div className="text-[10px] text-muted-foreground mt-1">{name}</div>
+      </div>
+    );
+  }
+
+  if (mediaType.startsWith("video/")) {
+    return (
+      <div className="rounded-md overflow-hidden border">
+        <video controls className="max-w-full max-h-48">
+          <source src={`/admin/api/files?path=${encodeURIComponent(artifact.path)}`} type={mediaType} />
+        </video>
+        <div className="px-2 py-1 text-[10px] text-muted-foreground bg-muted/50">{name}</div>
+      </div>
+    );
+  }
+
+  return (
+    <a
+      href={`/admin/api/files?path=${encodeURIComponent(artifact.path)}`}
+      className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted/50 transition-colors"
+      download={name}
+    >
+      <span className="text-muted-foreground">📄</span>
+      <span className="flex-1 truncate">{name}</span>
+      {artifact.size && (
+        <span className="text-[10px] text-muted-foreground">
+          {(artifact.size / 1024).toFixed(1)} KB
+        </span>
+      )}
+    </a>
   );
 }

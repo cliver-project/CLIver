@@ -9,12 +9,15 @@ export interface WsMessage {
   duration_ms?: number;
 }
 
-export function useWebSocket(url: string | null) {
+export function useWebSocket(
+  url: string | null,
+  onMessage?: (data: WsMessage) => void,
+) {
   const [isConnected, setIsConnected] = useState(false);
   const [lastMessage, setLastMessage] = useState<WsMessage | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
-  const urlRef = useRef(url);
-  urlRef.current = url;
+  const onMessageRef = useRef(onMessage);
+  onMessageRef.current = onMessage;
 
   useEffect(() => {
     if (!url) {
@@ -43,6 +46,9 @@ export function useWebSocket(url: string | null) {
       try {
         const data = JSON.parse(event.data) as WsMessage;
         setLastMessage(data);
+        // Call onMessage synchronously from the event handler to avoid
+        // React batching dropping intermediate messages.
+        onMessageRef.current?.(data);
       } catch {
         // ignore non-JSON messages
       }

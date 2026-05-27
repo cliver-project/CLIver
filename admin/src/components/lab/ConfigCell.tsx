@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -38,6 +38,15 @@ export function ConfigCell({ cell, onSave }: ConfigCellProps) {
     }
     return defaults;
   });
+
+  // Auto-save defaults on first mount if outputs is empty
+  const didAutoSave = useRef(false);
+  useEffect(() => {
+    if (!didAutoSave.current && (!cell.outputs || Object.keys(cell.outputs).length === 0)) {
+      didAutoSave.current = true;
+      onSave(values);
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="space-y-3">

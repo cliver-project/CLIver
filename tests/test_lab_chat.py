@@ -1,8 +1,8 @@
 """Tests for lab cell chat functionality — stream_chat_response and SSE events."""
-import json
-import pytest
-from unittest.mock import AsyncMock, MagicMock
 
+from unittest.mock import MagicMock
+
+import pytest
 
 # -- Helpers -------------------------------------------------------------------
 
@@ -50,19 +50,24 @@ async def test_stream_chat_response_events():
     from cliver.lab.chat import stream_chat_response
 
     mock_agent = MagicMock()
-    mock_agent.stream = MagicMock(return_value=_async_iter(
-        _make_chunk("thinking", "Let me think..."),
-        _make_chunk("text", "Hello "),
-        _make_chunk("text", "from agent"),
-        _make_done_chunk("Hello from agent"),
-    ))
+    mock_agent.stream = MagicMock(
+        return_value=_async_iter(
+            _make_chunk("thinking", "Let me think..."),
+            _make_chunk("text", "Hello "),
+            _make_chunk("text", "from agent"),
+            _make_done_chunk("Hello from agent"),
+        )
+    )
 
     mock_sm = MagicMock()
     mock_sm.append_turn = MagicMock()
 
     events = []
     async for event in stream_chat_response(
-        mock_agent, "test prompt", mock_sm, "sess_01",
+        mock_agent,
+        "test prompt",
+        mock_sm,
+        "sess_01",
     ):
         events.append(event)
 
@@ -89,7 +94,10 @@ async def test_stream_chat_response_error():
 
     events = []
     async for event in stream_chat_response(
-        mock_agent, "prompt", mock_sm, "sess_02",
+        mock_agent,
+        "prompt",
+        mock_sm,
+        "sess_02",
     ):
         events.append(event)
 
@@ -103,19 +111,24 @@ async def test_stream_chat_response_with_tools():
     from cliver.lab.chat import stream_chat_response
 
     mock_agent = MagicMock()
-    mock_agent.stream = MagicMock(return_value=_async_iter(
-        _make_chunk("tool_use", '{"tool": "read_file", "args": {"path": "/x"}}'),
-        _make_chunk("tool_result", '{"result": "content"}'),
-        _make_chunk("text", "Result is ready"),
-        _make_done_chunk("Done"),
-    ))
+    mock_agent.stream = MagicMock(
+        return_value=_async_iter(
+            _make_chunk("tool_use", '{"tool": "read_file", "args": {"path": "/x"}}'),
+            _make_chunk("tool_result", '{"result": "content"}'),
+            _make_chunk("text", "Result is ready"),
+            _make_done_chunk("Done"),
+        )
+    )
 
     mock_sm = MagicMock()
     mock_sm.append_turn = MagicMock()
 
     events = []
     async for event in stream_chat_response(
-        mock_agent, "test", mock_sm, "sess_03",
+        mock_agent,
+        "test",
+        mock_sm,
+        "sess_03",
     ):
         events.append(event)
 
@@ -131,18 +144,24 @@ async def test_stream_chat_response_json_output():
     from cliver.lab.chat import stream_chat_response
 
     mock_agent = MagicMock()
-    mock_agent.stream = MagicMock(return_value=_async_iter(
-        # result_text is built from text chunks, not final_result.text
-        _make_chunk("text", '{"key": "value"}'),
-        _make_done_chunk('{"key": "value"}'),
-    ))
+    mock_agent.stream = MagicMock(
+        return_value=_async_iter(
+            # result_text is built from text chunks, not final_result.text
+            _make_chunk("text", '{"key": "value"}'),
+            _make_done_chunk('{"key": "value"}'),
+        )
+    )
 
     mock_sm = MagicMock()
     mock_sm.append_turn = MagicMock()
 
     events = []
     async for event in stream_chat_response(
-        mock_agent, "prompt", mock_sm, "sess_04", output_format="json",
+        mock_agent,
+        "prompt",
+        mock_sm,
+        "sess_04",
+        output_format="json",
     ):
         events.append(event)
 
@@ -161,16 +180,21 @@ async def test_stream_chat_response_with_artifacts():
     mock_artifact = MagicMock(path="/tmp/out.csv", media_type="text/csv", size=1024)
 
     mock_agent = MagicMock()
-    mock_agent.stream = MagicMock(return_value=_async_iter(
-        _make_done_chunk("Output with file", artifacts=[mock_artifact]),
-    ))
+    mock_agent.stream = MagicMock(
+        return_value=_async_iter(
+            _make_done_chunk("Output with file", artifacts=[mock_artifact]),
+        )
+    )
 
     mock_sm = MagicMock()
     mock_sm.append_turn = MagicMock()
 
     events = []
     async for event in stream_chat_response(
-        mock_agent, "prompt", mock_sm, "sess_05",
+        mock_agent,
+        "prompt",
+        mock_sm,
+        "sess_05",
     ):
         events.append(event)
 

@@ -1,4 +1,4 @@
-"""Tests for AgentFactory and type registry."""
+"""Tests for AgentFactory and agent creation."""
 
 from unittest.mock import MagicMock
 
@@ -11,8 +11,7 @@ def _make_config(**kwargs):
     return AppConfig(
         agents={
             "researcher": AgentConfig(type="cliver", model="test/model", role="Research assistant"),
-            "coder": AgentConfig(type="claude", timeout_s=600),
-            "custom": AgentConfig(type="aider", command="aider", args=["--message"]),
+            "coder": AgentConfig(model="test/model-2", description="Code-focused agent"),
         },
         default_agent="researcher",
         **kwargs,
@@ -27,15 +26,6 @@ def _make_factory(config=None):
     return AgentFactory(config=config, agent_core=mock_core)
 
 
-def test_registry_contains_builtin_types():
-    from cliver.agents.factory import AGENT_REGISTRY
-
-    assert "cliver" in AGENT_REGISTRY
-    assert "claude" in AGENT_REGISTRY
-    assert "gemini" in AGENT_REGISTRY
-    assert "opencode" in AGENT_REGISTRY
-
-
 def test_create_cliver_agent():
     factory = _make_factory()
     agent = factory.create("researcher")
@@ -47,21 +37,16 @@ def test_create_cliver_agent():
     assert agent.config.role == "Research assistant"
 
 
-def test_create_claude_agent():
+def test_create_agent_with_role_and_model():
+    """Agent is a CliverAgent configured with model, role, and description."""
     factory = _make_factory()
     agent = factory.create("coder")
 
-    from cliver.agents.claude_agent import ClaudeAgent
+    from cliver.agents.cliver_agent import CliverAgent
 
-    assert isinstance(agent, ClaudeAgent)
-    assert agent.config.timeout_s == 600
-
-
-def test_create_custom_type_raises_for_unknown():
-    factory = _make_factory()
-
-    with pytest.raises(ValueError, match="Unknown agent type"):
-        factory.create("custom")
+    assert isinstance(agent, CliverAgent)
+    assert agent.name == "coder"
+    assert agent.config.description == "Code-focused agent"
 
 
 def test_create_default_agent():

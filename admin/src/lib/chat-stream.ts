@@ -1,8 +1,16 @@
+export interface ChatArtifact {
+  path: string;
+  media_type: string;
+  size?: number;
+}
+
 export interface ChatStreamEvent {
   type: "thinking" | "text" | "tool" | "tool_use" | "tool_result" | "status" | "done" | "error";
   content?: string;
   text?: string;
   message?: string;
+  data?: unknown;
+  artifacts?: ChatArtifact[];
 }
 
 export interface ChatStreamConfig {
@@ -15,7 +23,7 @@ export interface ChatStreamConfig {
   abortSignal?: AbortSignal;
   onEvent: (event: ChatStreamEvent) => void;
   onError: (error: Error) => void;
-  onDone: (fullText: string) => void;
+  onDone: (fullText: string, artifacts: ChatArtifact[]) => void;
 }
 
 export async function streamChat(config: ChatStreamConfig): Promise<void> {
@@ -53,6 +61,7 @@ export async function streamChat(config: ChatStreamConfig): Promise<void> {
     const decoder = new TextDecoder();
     let buffer = "";
     let fullText = "";
+    let artifacts: ChatArtifact[] = [];
 
     while (true) {
       const { done, value } = await reader.read();
@@ -74,9 +83,12 @@ export async function streamChat(config: ChatStreamConfig): Promise<void> {
               fullText += event.content;
             }
             if (event.type === "done") {
+              if (event.artifacts) {
+                artifacts = event.artifacts;
+              }
               // Use event.text from done payload as fallback if no text events
               // were emitted (some agents send result only in the done chunk)
-              onDone(fullText || event.text || "");
+              onDone(fullText || event.text || "", artifacts);
               return;
             }
             if (event.type === "error") {
@@ -90,7 +102,7 @@ export async function streamChat(config: ChatStreamConfig): Promise<void> {
       }
     }
 
-    onDone(fullText);
+    onDone(fullText, artifacts);
   } catch (err: unknown) {
     if (err instanceof DOMException && err.name === "AbortError") {
       return;

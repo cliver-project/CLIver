@@ -120,7 +120,7 @@ def _get_config(ctx: dict) -> dict:
 
         config_dir = ctx.get("config_dir")
         if not config_dir:
-            return {"models": {}, "providers": {}, "mcp_servers": {}}
+            return {"models": {}, "providers": {}, "mcp_servers": {}, "agents": {}, "default_agent": None}
 
         cm = ConfigManager(config_dir)
 
@@ -147,10 +147,19 @@ def _get_config(ctx: dict) -> dict:
                 entry["url"] = sc.url
             mcp_servers[name] = entry
 
-        return {"providers": providers, "mcp_servers": mcp_servers}
+        agents = {
+            name: {"type": ac.type, "model": ac.model, "description": ac.description, "role": ac.role}
+            for name, ac in cm.config.agents.items()
+        }
+        return {
+            "providers": providers,
+            "mcp_servers": mcp_servers,
+            "agents": agents,
+            "default_agent": cm.config.default_agent,
+        }
     except Exception as e:
         logger.warning("Failed to get config: %s", e)
-        return {"providers": {}, "mcp_servers": {}}
+        return {"providers": {}, "mcp_servers": {}, "agents": {}}
 
 
 def get_info_routes(context: dict, require_auth: Callable) -> list:
@@ -326,7 +335,28 @@ def get_info_routes(context: dict, require_auth: Callable) -> list:
         models = list(gateway._agent_core.llm_models.keys())
         return JSONResponse({"models": models, "default": gateway._agent_core.default_model})
 
+    @require_auth
+    async def handle_restart(request: Request):
+        """Trigger gateway restart by stopping the uvicorn server.
+
+        The process manager (systemd / launchd / CLI wrapper) restarts
+        the process after clean exit.
+        """
+        import asyncio
+        import os
+        import signal
+
+        logger.info("Gateway restart requested via admin API")
+
+        # Schedule shutdown after response is sent
+        def _do_restart():
+            os.kill(os.getpid(), signal.SIGTERM)
+
+        asyncio.get_event_loop().call_later(0.5, _do_restart)
+        return JSONResponse({"status": "restarting"})
+
     return [
+        Route("/admin/api/restart", handle_restart, methods=["POST"]),
         Route("/admin/api/agents", handle_agents),
         Route("/admin/api/status", handle_status),
         Route("/admin/api/skills", handle_skills),
