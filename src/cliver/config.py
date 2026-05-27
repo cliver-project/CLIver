@@ -364,15 +364,44 @@ class AppConfig(BaseModel):
     agents: Dict[str, AgentConfig] = Field(default_factory=dict, description="Named agent configurations")
     default_agent: Optional[str] = Field(default=None, description="Default agent name")
 
-    def resolve_secrets(self) -> None:
-        """Resolve all Jinja2 template strings in the config tree.
+    def resolve_secrets(self, key_store=None) -> None:
+        """Resolve all secret references in the config tree.
 
-        Walks every string field on this model and nested models/dicts,
-        replacing any value containing {{ }} with its rendered result.
-        Call this once before forking a daemon — macOS Keychain segfaults
-        in forked processes, so secrets must be resolved in the parent.
+        Secret fields (api_key, token, app_token, admin_password) are resolved
+        via the three-layer chain: KeyStore -> env var -> literal.
+        Non-secret template fields ({{ }}) use Jinja2 rendering.
         """
-        _resolve_obj(self)
+        if key_store is None:
+            from cliver.key_store import KeyStore
+            from cliver.util import get_config_dir
+
+            ks_path = Path(get_config_dir()) / "keys.db"
+            key_store = KeyStore(ks_path)
+
+        from cliver.template_utils import resolve_secret
+
+        for provider in self.providers.values():
+            if provider.api_key:
+                provider.api_key = resolve_secret(provider.api_key, key_store)
+
+        if self.gateway:
+            if self.gateway.admin_password:
+                self.gateway.admin_password = resolve_secret(
+                    self.gateway.admin_password, key_store
+                )
+            if self.gateway.api_key:
+                self.gateway.api_key = resolve_secret(
+                    self.gateway.api_key, key_store
+                )
+
+        if self.gateway and self.gateway.platforms:
+            for plat in self.gateway.platforms.values():
+                if plat.token:
+                    plat.token = resolve_secret(plat.token, key_store)
+                if plat.app_token:
+                    plat.app_token = resolve_secret(plat.app_token, key_store)
+
+        _resolve_non_secret_templates(self)
 
     def model_dump(self, **kwargs):
         """Override to exclude null values."""
@@ -381,48 +410,54 @@ class AppConfig(BaseModel):
         return {k: v for k, v in data.items() if v is not None}
 
 
-def _resolve_obj(obj) -> None:
-    """Recursively resolve template strings on a Pydantic model or dict."""
+_SECRET_FIELDS = frozenset({"api_key", "token", "app_token", "admin_password"})
+
+
+def _resolve_non_secret_templates(obj) -> None:
+    """Resolve {{ }} Jinja2 templates in non-secret fields only."""
     if isinstance(obj, BaseModel):
         for field_name in obj.model_fields:
+            if field_name in _SECRET_FIELDS:
+                continue
             val = getattr(obj, field_name, None)
             if val is None:
                 continue
             if isinstance(val, str) and "{{" in val:
                 setattr(obj, field_name, render_template_if_needed(val))
             elif isinstance(val, BaseModel):
-                _resolve_obj(val)
+                _resolve_non_secret_templates(val)
             elif isinstance(val, dict):
-                _resolve_dict(val)
+                _resolve_non_secret_template_dict(val)
             elif isinstance(val, list):
-                _resolve_list(val)
-        # Also resolve extra fields (model_config = {"extra": "allow"})
+                _resolve_non_secret_template_list(val)
         if hasattr(obj, "__pydantic_extra__") and obj.__pydantic_extra__:
-            _resolve_dict(obj.__pydantic_extra__)
+            _resolve_non_secret_template_dict(obj.__pydantic_extra__)
     elif isinstance(obj, dict):
-        _resolve_dict(obj)
+        _resolve_non_secret_template_dict(obj)
 
 
-def _resolve_dict(d: dict) -> None:
+def _resolve_non_secret_template_dict(d: dict) -> None:
     for key, val in list(d.items()):
+        if key in _SECRET_FIELDS:
+            continue
         if isinstance(val, str) and "{{" in val:
             d[key] = render_template_if_needed(val)
         elif isinstance(val, BaseModel):
-            _resolve_obj(val)
+            _resolve_non_secret_templates(val)
         elif isinstance(val, dict):
-            _resolve_dict(val)
+            _resolve_non_secret_template_dict(val)
         elif isinstance(val, list):
-            _resolve_list(val)
+            _resolve_non_secret_template_list(val)
 
 
-def _resolve_list(lst: list) -> None:
+def _resolve_non_secret_template_list(lst: list) -> None:
     for i, val in enumerate(lst):
         if isinstance(val, str) and "{{" in val:
             lst[i] = render_template_if_needed(val)
         elif isinstance(val, BaseModel):
-            _resolve_obj(val)
+            _resolve_non_secret_templates(val)
         elif isinstance(val, dict):
-            _resolve_dict(val)
+            _resolve_non_secret_template_dict(val)
 
 
 # TODO: support the configuration from others like from a k8s ConfigMap

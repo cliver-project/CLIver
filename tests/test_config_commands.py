@@ -409,10 +409,12 @@ def test_mask_secrets_template_expression():
     """Jinja2 template expressions should NOT be masked."""
     from cliver.commands.config import _mask_secrets
 
-    data = {"models": {"qwen": {"api_key": "{{ keyring('myservice', 'mykey') }}"}}}
+    # Key names (without {{ }}) should be masked like plain text
+    data = {"models": {"qwen": {"api_key": "my_api_key_name"}}}
     _mask_secrets(data)
-    assert data["models"]["qwen"]["api_key"] == "{{ keyring('myservice', 'mykey') }}"
+    assert data["models"]["qwen"]["api_key"] == "my_***ame"
 
+    # Template expressions should NOT be masked
     data2 = {"models": {"qwen": {"api_key": "{{ env.OPENAI_API_KEY }}"}}}
     _mask_secrets(data2)
     assert data2["models"]["qwen"]["api_key"] == "{{ env.OPENAI_API_KEY }}"

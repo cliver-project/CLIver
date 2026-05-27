@@ -353,8 +353,6 @@ def show_config(cliver: Cliver):
 
 def _mask_value(value: str) -> str:
     """Mask a single secret value for display."""
-    if value.startswith("keyring:"):
-        return f"{value}"
     if len(value) > 8:
         return f"{value[:3]}***{value[-3:]}"
     return "***"

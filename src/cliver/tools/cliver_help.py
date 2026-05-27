@@ -19,7 +19,7 @@ def _config_file_help() -> str:
         f"CLIver config file: {config_dir}/config.yaml\n\n"
         "Key sections:\n"
         "  models: — LLM model definitions (name, provider, options)\n"
-        "  providers: — API endpoints and keys (supports {{ keyring() }} templates)\n"
+        "  providers: — API endpoints and keys (use key names from /keys)\n"
         "  gateway: — daemon settings (host, port, platforms, session limits)\n"
         "  session: — max_sessions, max_turns_per_session, max_age_days\n"
         "  default_model: — which model to use by default\n"
