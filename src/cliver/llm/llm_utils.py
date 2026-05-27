@@ -214,7 +214,7 @@ def _strip_tool_calls_json(
         if idx_in_original == -1:
             return
         before = content_str[:idx_in_original]
-        after = content_str[idx_in_original + len(json_block):]
+        after = content_str[idx_in_original + len(json_block) :]
         # Clean up leading/trailing whitespace and newlines around the block
         new_content = (before.rstrip() + "\n" + after.lstrip()).strip()
         if hasattr(response, "content") and isinstance(response.content, str):
