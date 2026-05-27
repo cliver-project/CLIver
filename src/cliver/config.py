@@ -314,18 +314,20 @@ class SessionConfig(BaseModel):
 
 
 class AgentConfig(BaseModel):
-    """Configuration for a named agent persona."""
+    """Configuration for a named agent instance."""
 
-    type: str = Field(default="cliver", description="Agent type: cliver (default)")
+    type: str = Field(default="cliver", description="Agent type: cliver, claude, gemini, opencode, or custom")
     description: Optional[str] = Field(default=None, description="Human-readable purpose")
-    role: Optional[str] = Field(default=None, description="Short role definition for system prompt")
-    system_prompt: Optional[str] = Field(default=None, description="Additional system prompt instructions")
-    model: Optional[str] = Field(default=None, description="Model override (null = use default_model)")
-    auto_fallback: Optional[bool] = Field(
-        default=None,
-        description="Auto-fallback to another model on failure (null = use global model_auto_fallback)",
-    )
-    skills: List[str] = Field(default_factory=list, description="Skills to always activate")
+    role: Optional[str] = Field(default=None, description="System prompt / persona (cliver only)")
+    model: Optional[str] = Field(default=None, description="Model name from models config")
+    skills: List[str] = Field(default_factory=list, description="Pre-activated skills (cliver only)")
+    command: Optional[str] = Field(default=None, description="CLI command override")
+    args: Optional[List[str]] = Field(default=None, description="CLI args override")
+    env: Optional[Dict[str, str]] = Field(default=None, description="Extra env vars for subprocess")
+    working_dir: Optional[str] = Field(default=None, description="Working directory")
+    timeout_s: int = Field(default=300, description="Execution timeout in seconds")
+    max_retries: int = Field(default=0, description="Retry count on failure")
+    auto_fallback: Optional[bool] = Field(default=None, description="Model auto-fallback (cliver only)")
 
 
 class AppConfig(BaseModel):
@@ -333,8 +335,6 @@ class AppConfig(BaseModel):
     mcpServers: Dict[str, MCPServerConfig] = {}
     models: Dict[str, ModelConfig] = {}
     default_model: Optional[str] = Field(default=None, description="The default LLM model")
-    default_agent: Optional[str] = Field(default=None, description="Default agent name")
-    agents: Dict[str, AgentConfig] = Field(default_factory=dict, description="Named agent personas")
     user_agent: Optional[str] = Field(default="CLIver", description="User-Agent header for LLM provider HTTP requests")
     enabled_toolsets: Optional[List[str]] = Field(
         default=None,
@@ -361,26 +361,8 @@ class AppConfig(BaseModel):
         default=True,
         description="Automatically fall back to another model when the current one fails (default: on).",
     )
-
-    def ensure_default_agent(self) -> None:
-        """Create a default CLIver agent if none are configured."""
-        if not self.agents:
-            self.agents["CLIver"] = AgentConfig(
-                description="General-purpose AI assistant",
-                role="You are CLIver, a general-purpose AI assistant.",
-                system_prompt=(
-                    "You help users with coding, research, automation, and general questions. Be concise and helpful."
-                ),
-            )
-        if not self.default_agent or self.default_agent not in self.agents:
-            self.default_agent = next(iter(self.agents))
-
-    def get_agent(self, name: Optional[str] = None) -> Optional["AgentConfig"]:
-        """Get agent config by name, falling back to default_agent."""
-        agent_name = name or self.default_agent
-        if agent_name:
-            return self.agents.get(agent_name)
-        return None
+    agents: Dict[str, AgentConfig] = Field(default_factory=dict, description="Named agent configurations")
+    default_agent: Optional[str] = Field(default=None, description="Default agent name")
 
     def resolve_secrets(self) -> None:
         """Resolve all Jinja2 template strings in the config tree.
@@ -533,9 +515,7 @@ class ConfigManager:
                             raise ValueError(f"Unknown transport {transport}")
                 config_data["mcpServers"] = converted_servers
 
-            app_config = AppConfig(**config_data)
-            app_config.ensure_default_agent()
-            return app_config
+            return AppConfig(**config_data)
         except Exception as e:
             logger.error("Error loading configuration: %s", e, stack_info=True, exc_info=True)
             raise e

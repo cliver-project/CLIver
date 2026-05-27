@@ -27,6 +27,8 @@ _current_profile: Optional["CliverProfile"] = None
 
 _agent_factory = None
 
+_agent_factory = None
+
 _input_fn = input
 _output_fn = print
 _cli_instance = None
@@ -55,6 +57,15 @@ def get_agent_core():
     if _agent_factory is not None:
         return _agent_factory.agent_core
     return None
+
+
+def set_agent_factory(factory) -> None:
+    global _agent_factory
+    _agent_factory = factory
+
+
+def get_agent_factory():
+    return _agent_factory
 
 
 def set_input_fn(fn) -> None:

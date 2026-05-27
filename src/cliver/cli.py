@@ -144,13 +144,10 @@ class Cliver:
         )
         self.agent_core.configure_rate_limits(self.config_manager.config.providers)
 
-        from cliver.agent import AgentFactory
         from cliver.agent_profile import set_agent_factory
+        from cliver.agents import AgentFactory
 
-        self.agent_factory = AgentFactory(
-            config=self.config_manager.config,
-            agent_core=self.agent_core,
-        )
+        self.agent_factory = AgentFactory(self.config_manager.config, self.agent_core)
         set_agent_factory(self.agent_factory)
 
         from cliver.cost_tracker import CostTracker
@@ -192,8 +189,7 @@ class Cliver:
             self.current_session_id = sm.create_session()
 
         sm = self.get_session_manager()
-        msg_type = "human" if role == "user" else "ai" if role == "assistant" else role
-        sm.append_turn(self.current_session_id, role, content, msg_type=msg_type)
+        sm.append_turn(self.current_session_id, role, content)
         self.session_history.append({"role": role, "content": content})
 
     def _get_commands(self) -> set[str]:

@@ -119,4 +119,3 @@ class TestAdminApiEndpoints:
         client = TestClient(_make_admin_app())
         resp = client.get("/admin/api/tasks/nonexistent", headers=_auth_header())
         assert resp.status_code == 200
-
