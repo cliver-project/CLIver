@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from "react";
+import { useParams, useNavigate } from "react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   AssistantRuntimeProvider,
@@ -30,28 +31,22 @@ function convertTurnToMessage(turn: { role: string; content: string }): ThreadMe
 
 export default function ChatPage() {
   const { t } = useTranslation();
+  const { conversationId } = useParams<{ conversationId?: string }>();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const activeConversationId = conversationId || null;
+
   const [messages, setMessages] = useState<ThreadMessageLike[]>([]);
   const [isRunning, setIsRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastArtifacts, setLastArtifacts] = useState<ChatArtifact[]>([]);
   const [artifactMessageId, setArtifactMessageId] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const initialSelectDone = useRef(false);
   const loadedConversationIdRef = useRef<string | null>(null);
+  const scrollAnchorRef = useRef<HTMLDivElement>(null);
 
   const { data: conversations, isLoading: convsLoading } = useConversations();
   const { data: conversationDetail } = useConversation(activeConversationId);
-
-  // Auto-select most recent conversation on initial load
-  useEffect(() => {
-    if (!initialSelectDone.current && conversations && conversations.length > 0) {
-      initialSelectDone.current = true;
-      const first = conversations[0];
-      if (first) setActiveConversationId(first.id);
-    }
-  }, [conversations]);
 
   // Load turns when active conversation changes
   useEffect(() => {
@@ -60,30 +55,42 @@ export default function ChatPage() {
       if (loadedConversationIdRef.current === activeConversationId) return;
       loadedConversationIdRef.current = activeConversationId;
       setMessages(conversationDetail.turns.map(convertTurnToMessage));
-    } else if (!activeConversationId && !initialSelectDone.current) {
-      // Still loading initial selection — don't clear yet
     } else if (!activeConversationId) {
       loadedConversationIdRef.current = null;
       setMessages([]);
+      setError(null);
     }
   }, [activeConversationId, conversationDetail, isRunning]);
 
+  // Scroll to bottom when messages change (history load or new messages)
+  useEffect(() => {
+    if (scrollAnchorRef.current) {
+      scrollAnchorRef.current.scrollIntoView({ behavior: "instant" as ScrollBehavior });
+    }
+  }, [messages]);
+
+  // Redirect to most recent conversation if at /chat with no id
+  const didInitialRedirect = useRef(false);
+  useEffect(() => {
+    if (!didInitialRedirect.current && !activeConversationId && conversations && conversations.length > 0) {
+      didInitialRedirect.current = true;
+      const first = conversations[0];
+      if (first) navigate(`/admin/chat/${encodeURIComponent(first.id)}`, { replace: true });
+    }
+  }, [activeConversationId, conversations, navigate]);
+
   const handleNewChat = useCallback(() => {
-    setActiveConversationId(null);
-    setMessages([]);
-    setError(null);
-    loadedConversationIdRef.current = null;
-  }, []);
+    navigate("/admin/chat");
+  }, [navigate]);
 
   const handleDelete = useCallback(
     (id: string) => {
       if (activeConversationId === id) {
-        setActiveConversationId(null);
-        setMessages([]);
+        navigate("/admin/chat", { replace: true });
       }
       queryClient.invalidateQueries({ queryKey: ["conversations"] });
     },
-    [activeConversationId, queryClient],
+    [activeConversationId, navigate, queryClient],
   );
 
   const onNew = useCallback(
@@ -169,14 +176,13 @@ export default function ChatPage() {
           }
           if (sessionId && !activeConversationId) {
             loadedConversationIdRef.current = sessionId;
-            setActiveConversationId(sessionId);
-            initialSelectDone.current = true;
+            navigate(`/admin/chat/${encodeURIComponent(sessionId)}`, { replace: true });
           }
           queryClient.invalidateQueries({ queryKey: ["conversations"] });
         },
       });
     },
-    [activeConversationId, queryClient],
+    [activeConversationId, navigate, queryClient],
   );
 
   const handleCancel = useCallback(() => {
@@ -212,10 +218,6 @@ export default function ChatPage() {
       <ConversationSidebar
         conversations={conversations || []}
         activeId={activeConversationId}
-        onSelect={(id) => {
-          setActiveConversationId(id);
-          setError(null);
-        }}
         onNew={handleNewChat}
         onDelete={handleDelete}
         isLoading={convsLoading}
@@ -310,15 +312,16 @@ export default function ChatPage() {
                       );
                     })()
                   )}
+                  <div ref={scrollAnchorRef} />
                 </div>
               </div>
             </ThreadPrimitive.Viewport>
 
-            {/* Input area — manus style */}
+            {/* Composer */}
             <div className="border-t border-border bg-background shrink-0 p-4 lg:p-6">
-              <div className="max-w-4xl mx-auto flex gap-3">
+              <div className="max-w-4xl mx-auto w-full">
                 <ComposerPrimitive.Root>
-                  <div className="flex gap-3 w-full">
+                  <div className="flex gap-3 items-end">
                     <ComposerPrimitive.Input
                       className="flex-1 min-w-0 rounded-lg border border-input bg-background px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring placeholder:text-muted-foreground disabled:opacity-50"
                       placeholder={t("chat.typeMessage")}
