@@ -14,10 +14,7 @@ import time
 import uuid
 from contextvars import ContextVar
 from pathlib import Path
-from typing import TYPE_CHECKING, List, Optional
-
-if TYPE_CHECKING:
-    from cliver.agent import AgentFactory
+from typing import List, Optional
 
 from cliver.agent_profile import CliverProfile
 from cliver.config import ConfigManager
@@ -33,7 +30,7 @@ from cliver.gateway.scheduler import CronScheduler
 from cliver.gateway.task_store import TaskStore
 from cliver.llm import AgentCore
 from cliver.session_manager import SessionManager
-from cliver.task_manager import TaskDefinition, TaskManager, TaskRun, resolve_task_prompt
+from cliver.task_manager import TaskDefinition, TaskManager, TaskRun
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +77,6 @@ class Gateway:
         self._pid_path = self.config_dir / "cliver-gateway.pid"
         self._pid_file = None
         self._agent_core: Optional[AgentCore] = None
-        self._agent_factory: Optional["AgentFactory"] = None
         self._scheduler: Optional[CronScheduler] = None
         self._run_store: Optional[TaskStore] = None
         self._task_manager: Optional[TaskManager] = None
@@ -117,15 +113,6 @@ class Gateway:
             except Exception as e:
                 logger.error(f"Failed to create AgentCore in create_app: {e}")
 
-        if not self._agent_factory and self._agent_core:
-            from cliver.agent import AgentFactory
-
-            config_manager = self._get_config_manager()
-            self._agent_factory = AgentFactory(
-                config=config_manager.config,
-                agent_core=self._agent_core,
-            )
-
         routes = self._build_routes()
 
         gateway_ref = self
@@ -154,7 +141,7 @@ class Gateway:
         if self._agent_core:
             from cliver.gateway.api_server import get_api_routes
 
-            routes.extend(get_api_routes(self._agent_factory, self._get_status, api_key=api_key))
+            routes.extend(get_api_routes(self._agent_core, self._get_status, api_key=api_key))
         else:
             # Fallback health endpoint when AgentCore is not ready
             from starlette.responses import JSONResponse
@@ -252,12 +239,6 @@ class Gateway:
             )
             if self._scheduler:
                 self._scheduler.validate_tasks()
-
-            # Clean up stale "running" states from previous crash/restart
-            for entry in self._run_store.get_tasks_by_status("running"):
-                name = entry["task_name"]
-                logger.info("Clearing stale 'running' state for task '%s'", name)
-                self._run_store.delete_task_state(name)
         except Exception as e:
             logger.error(f"Failed to initialize scheduler: {e}")
 
@@ -390,75 +371,56 @@ class Gateway:
                     )
                 return
 
-        # Fresh session per run — avoids stale context and reasoning_content issues
-        run_session_id = None
-        if self._session_manager:
-            run_session_id = self._session_manager.create_session(title=f"task:{task.name} [{execution_id}]")
-
         run_record = TaskRun(
             task_name=task.name,
             execution_id=execution_id,
             status="running",
             started_at=TaskManager.timestamp_now(),
-            session_id=run_session_id,
         )
 
+        # Load session_id from DB if not already on the task
+        if not task.session_id and self._run_store:
+            task.session_id = self._run_store.get_session_id(task.name)
+
         try:
+            # Load conversation history from linked session
             conversation_history = None
+            if task.session_id and self._session_manager:
+                conversation_history = self._load_session_history(task.session_id)
 
-            if task.workflow:
-                inputs = dict(task.workflow_inputs or {})
-                inputs["prompt"] = resolve_task_prompt(task)
-                if task.agent:
-                    inputs["agent"] = task.agent
-                await self.run_workflow(task.workflow, inputs=inputs)
-                response_text = "Workflow completed."
-            else:
-                from cliver.skill_manager import SkillManager, build_skill_appender, build_skill_tool_filter
+            from cliver.skill_manager import SkillManager, build_skill_appender, build_skill_tool_filter
 
-                async def _task_filter_tools(_input, tools):
-                    return [t for t in tools if t.name != "Ask"]
+            async def _task_filter_tools(_input, tools):
+                return [t for t in tools if t.name != "Ask"]
 
-                system_appender = None
-                tool_filter = _task_filter_tools
-                if task.skills:
-                    manager = SkillManager()
-                    skill_objs = [s for name in task.skills if (s := manager.get_skill(name))]
-                    for name in task.skills:
-                        if not manager.get_skill(name):
-                            logger.warning("Skill '%s' not found for pre-activation", name)
-                    if skill_objs:
-                        system_appender = build_skill_appender(skill_objs)
-                        tool_filter = build_skill_tool_filter(skill_objs, _task_filter_tools)
+            system_appender = None
+            tool_filter = _task_filter_tools
+            if task.skills:
+                manager = SkillManager()
+                skill_objs = [s for name in task.skills if (s := manager.get_skill(name))]
+                for name in task.skills:
+                    if not manager.get_skill(name):
+                        logger.warning("Skill '%s' not found for pre-activation", name)
+                if skill_objs:
+                    system_appender = build_skill_appender(skill_objs)
+                    tool_filter = build_skill_tool_filter(skill_objs, _task_filter_tools)
 
-                # Session recorder — captures all Re-Act loop messages
-                def _record_msg(msg):
-                    if self._session_manager and run_session_id:
-                        self._session_manager.append_turn_from_message(run_session_id, msg)
+            response = await self._agent_core.process_user_input(
+                user_input=task.prompt,
+                model=task.model,
+                system_message_appender=system_appender,
+                conversation_history=conversation_history,
+                filter_tools=tool_filter,
+            )
+            from cliver.media_handler import extract_response_text
 
-                agent = self._agent_factory.create(task.agent)
-                effective_prompt = resolve_task_prompt(task)
-
-                # Record the user prompt as the first turn
-                if self._session_manager and run_session_id:
-                    self._session_manager.append_turn(run_session_id, "user", effective_prompt, msg_type="human")
-                response = await agent.run(
-                    effective_prompt,
-                    system_message_appender=system_appender,
-                    conversation_history=conversation_history,
-                    filter_tools=tool_filter,
-                    on_message=_record_msg,
-                )
-                from cliver.media_handler import extract_response_text
-
-                response_text = extract_response_text(response, fallback="No response.")
+            response_text = extract_response_text(response, fallback="No response.")
 
             run_record.status = "completed"
             run_record.result = response_text
 
             # Deliver result to IM origin, or save JSON for non-IM tasks
-            is_im_task = task.origin and task.origin.platform and task.origin.channel_id
-            if is_im_task:
+            if task.origin and task.origin.platform and task.origin.channel_id:
                 await self._deliver_to_origin(task, response_text)
             else:
                 self._save_result_json(task.name, run_record)
@@ -477,7 +439,6 @@ class Gateway:
 
         finally:
             run_record.finished_at = TaskManager.timestamp_now()
-            self._tasks_run += 1
             if self._run_store:
                 self._run_store.record_run(run_record)
                 self._run_store.set_task_state(task.name, run_record.status)
@@ -490,7 +451,7 @@ class Gateway:
 
     def _load_session_history(self, session_id: str):
         """Load conversation history from a linked session for task context."""
-        from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+        from langchain_core.messages import AIMessage, HumanMessage
 
         turns = self._session_manager.load_turns(session_id)
         if not turns:
@@ -498,28 +459,10 @@ class Gateway:
 
         history = []
         for turn in turns:
-            role = turn.get("role", "")
-            content = turn.get("content", "")
-            kwargs = turn.get("additional_kwargs") or {}
-            tool_calls = turn.get("tool_calls") or None
-
-            if role == "user":
-                history.append(HumanMessage(content=content))
-            elif role == "assistant":
-                msg_kwargs: dict = {}
-                if kwargs:
-                    msg_kwargs["additional_kwargs"] = kwargs
-                if tool_calls:
-                    msg_kwargs["tool_calls"] = tool_calls
-                history.append(AIMessage(content=content, **msg_kwargs))
-            elif role == "tool":
-                history.append(
-                    ToolMessage(
-                        content=content,
-                        tool_call_id=turn.get("tool_call_id", ""),
-                        name=turn.get("tool_name"),
-                    )
-                )
+            if turn["role"] == "user":
+                history.append(HumanMessage(content=turn["content"]))
+            elif turn["role"] == "assistant":
+                history.append(AIMessage(content=turn["content"]))
         return history or None
 
     async def _deliver_to_origin(self, task: TaskDefinition, response_text: str) -> None:
@@ -552,13 +495,11 @@ class Gateway:
                 task.session_id,
                 "user",
                 f"[Task '{task.name}' executed]",
-                msg_type="human",
             )
             self._session_manager.append_turn(
                 task.session_id,
                 "assistant",
                 response_text,
-                msg_type="ai",
             )
             self._session_manager.save_options(
                 task.session_id,
@@ -595,29 +536,6 @@ class Gateway:
         )
         logger.info("Task result saved to %s", result_path)
 
-    async def run_workflow(self, workflow_name: str, inputs: dict = None, execution_id: str = None) -> Optional[dict]:
-        """Execute a workflow headlessly via the gateway."""
-        from cliver.workflow.executor import WorkflowExecutor
-        from cliver.workflow.persistence import WorkflowStore
-
-        try:
-            workflows_dir = self.config_dir / "workflows"
-            executor = WorkflowExecutor(
-                app_config=self._get_config_manager().config,
-                workflows_dir=workflows_dir,
-            )
-            store = WorkflowStore(workflows_dir)
-            wf = store.load_workflow(workflow_name)
-            if not wf:
-                logger.error("Workflow '%s' not found", workflow_name)
-                return None
-            if not execution_id:
-                execution_id = WorkflowExecutor.generate_execution_id()
-            return await executor.execute(wf, inputs=inputs or {}, execution_id=execution_id)
-        except Exception as e:
-            logger.error("Workflow '%s' failed: %s", workflow_name, e)
-            return None
-
     def _create_agent_core(self) -> AgentCore:
         """Create a AgentCore from config (same config the CLI uses)."""
         config_manager = self._get_config_manager()
@@ -644,16 +562,6 @@ class Gateway:
             model_auto_fallback=config_manager.config.model_auto_fallback,
         )
         executor.configure_rate_limits(config_manager.config.providers)
-
-        from cliver.agent import AgentFactory
-        from cliver.agent_profile import set_agent_factory
-
-        self._agent_factory = AgentFactory(
-            config=config_manager.config,
-            agent_core=executor,
-        )
-        set_agent_factory(self._agent_factory)
-
         return executor
 
     # -- Session & adapter resolution -----------------------------------------
@@ -844,7 +752,7 @@ class Gateway:
             linked_origin = session_opts.get("task_origin")
 
             # Record user turn
-            sm.append_turn(session_id, "user", event.text, msg_type="human")
+            sm.append_turn(session_id, "user", event.text)
 
             # Run AgentCore
             logger.info(
@@ -907,20 +815,14 @@ class Gateway:
             async def _im_filter_tools(user_input, tools):
                 return [t for t in tools if t.name != "Ask"]
 
-            def _im_record_msg(msg):
-                if sm and session_id:
-                    sm.append_turn_from_message(session_id, msg)
-
             try:
-                agent = self._agent_factory.create()
-                response = await agent.run(
-                    event.text,
+                response = await self._agent_core.process_user_input(
+                    user_input=event.text,
                     images=images or None,
                     audio_files=audio_files or None,
                     conversation_history=conversation_history or None,
                     system_message_appender=_im_system_appender,
                     filter_tools=_im_filter_tools,
-                    on_message=_im_record_msg,
                 )
 
                 from cliver.media_handler import MultimediaResponseHandler, extract_response_text
@@ -935,6 +837,8 @@ class Gateway:
             finally:
                 im_context.set(None)
 
+            # Record assistant turn and trim if session is getting large
+            sm.append_turn(session_id, "assistant", response_text)
             sc = self._get_config_manager().config.session
             trimmed = sm.trim_turns(session_id, keep_last=sc.max_turns_per_session)
             if trimmed:

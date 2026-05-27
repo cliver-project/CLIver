@@ -171,13 +171,11 @@ cliver model default my-model
 │   ├── sessions/                # Conversation sessions (JSONL)
 │   └── tasks/                   # Task definitions
 ├── skills/                      # Global skills (SKILL.md)
-├── workflows/                   # Global workflows (YAML)
 └── commands/                    # External commands (Python)
 
 .cliver/                         # Project-local (current directory)
 ├── cliver-settings.yaml         # Local permission rules
-├── skills/                      # Project skills
-└── workflows/                   # Project workflows
+└── skills/                      # Project skills
 ```
 
 ## Next Steps

@@ -65,7 +65,6 @@ _TOOL_DESCRIPTIONS = {
     "Docker": lambda a: f"Running container {_trunc(a.get('image', ''), 40)}",
     "Transcribe": lambda a: f"Transcribing {_short_path(a.get('file_path', ''))}",
     "SearchSessions": lambda a: f"Searching sessions for '{_trunc(a.get('query', ''), 40)}'",
-    "WorkflowValidate": lambda a: "Validating workflow" if a.get("action") == "validate" else "Loading workflow schema",
 }
 
 

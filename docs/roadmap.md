@@ -12,7 +12,6 @@ description: Development status and future plans for CLIver
 - Multi-provider LLM support (OpenAI-compatible, Ollama, vLLM)
 - MCP server integration
 - Skills system with LLM-driven activation
-- LangGraph-powered workflow engine
 - Layered permission system (default, auto-edit, yolo)
 - Memory and identity profiles with multi-agent isolation
 - Session management with LLM-based compression
@@ -26,9 +25,8 @@ description: Development status and future plans for CLIver
 - Media generation support (image, audio)
 
 ### Planned
-- **Deep Search** — `cliver deep-search "question"` multi-step research workflow
+- **Deep Search** — `cliver deep-search "question"` multi-step research
 - **Multi-Model Orchestration** — route different capabilities to different models
-- **Remote Workflow Definitions** — fetch workflows from remote sources
 - **Plugin System** — installable capability packages
 
 ## Contributing

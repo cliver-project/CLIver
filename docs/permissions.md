@@ -155,9 +155,9 @@ When a tool requires permission, CLIver prompts:
 - `a` — allow this tool for the rest of the session
 - `d` — deny this tool for the rest of the session
 
-## Workflow Permissions
+## Task Permissions
 
-Workflows, LLM steps, and tasks can declare permissions in their YAML definition. This is important for automated or scheduled tasks where no user is present to approve tools:
+Tasks can declare permissions in their YAML definition. This is important for automated or scheduled tasks where no user is present to approve tools:
 
 ```yaml
 name: daily-report
@@ -170,15 +170,11 @@ permissions:
     - tool: "web_fetch"
       resource: "https://api.internal.com/**"
       action: allow
-steps:
-  - id: analyze
-    name: Analyze data
-    type: llm
-    prompt: "Summarize the latest report"
-    model: qwen
+prompt: "Summarize the latest report"
+model: qwen
 ```
 
-Workflow permissions are scoped — they are active only during execution and automatically cleaned up when the workflow completes.
+Task permissions are scoped — they are active only during execution and automatically cleaned up when the task completes.
 
 ## API-Level Usage
 

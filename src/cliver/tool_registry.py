@@ -47,7 +47,6 @@ TOOLSETS: Dict[str, Set[str]] = {
         "TodoRead",
         "TodoWrite",
         "Ask",
-        "WorkflowValidate",
         "CliverHelp",
     },
     "web": {

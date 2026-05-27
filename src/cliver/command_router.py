@@ -39,7 +39,6 @@ HANDLERS: dict[str, str] = {
     "cost": "cliver.commands.cost",
     "provider": "cliver.commands.provider",
     "task": "cliver.commands.task",
-    "workflow": "cliver.commands.workflow_cmd",
 }
 
 _task_context = threading.local()

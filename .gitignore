@@ -15,7 +15,6 @@ downloads/
 eggs/
 .eggs/
 lib/
-!admin/src/lib/
 lib64/
 parts/
 sdist/
@@ -186,10 +185,4 @@ claude.prompt.txt
 .DS_Store
 assets
 generated_images
-
-# Node.js / Admin portal
-admin/node_modules/
-admin/dist/
-admin/.vite/
-src/cliver/gateway/admin_dist/
-.superpowers/
+docs/wbs/

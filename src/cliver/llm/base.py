@@ -129,7 +129,7 @@ class LLMInferenceEngine(ABC):
         This method can be overridden by engine subclasses.
         User-provided system messages are appended separately by AgentCore.
         """
-        sections = [self._section_identity(self.agent_name, getattr(self, "_agent_role", None))]
+        sections = [self._section_identity(self.agent_name)]
         sections.append(self._section_self_awareness(available_tools))
         sections.append(self._section_tool_usage())
         sections.append(self._section_interaction_guidelines(available_tools))
@@ -140,7 +140,7 @@ class LLMInferenceEngine(ABC):
     # -- System prompt sections ------------------------------------------------
 
     @staticmethod
-    def _section_identity(agent_name: str, agent_role: str = None) -> str:
+    def _section_identity(agent_name: str) -> str:
         import os
         from datetime import datetime, timezone
 
@@ -157,22 +157,16 @@ class LLMInferenceEngine(ABC):
             tz_name = "unknown"
             utc_offset = ""
             now_local = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-
-        if agent_role:
-            identity_text = f"You are **{agent_name}**. {agent_role}\n\n"
-        else:
-            identity_text = (
-                f"You are **{agent_name}**, a general-purpose AI agent. "
-                "You help users accomplish a wide variety of tasks — answering questions, "
-                "searching the web, reading and writing files, running commands, managing containers, "
-                "and anything else the user asks for.\n\n"
-                "You can operate in different environments: command-line interfaces, "
-                "embedded applications, or as a backend service. "
-                "Adapt your tone, depth, and approach to whatever the user needs.\n\n"
-            )
-
         return (
-            "# Identity\n\n" + identity_text + "## Environment\n\n"
+            "# Identity\n\n"
+            f"You are **{agent_name}**, a general-purpose AI agent. "
+            "You help users accomplish a wide variety of tasks — answering questions, "
+            "searching the web, reading and writing files, running commands, managing containers, "
+            "and anything else the user asks for.\n\n"
+            "You can operate in different environments: command-line interfaces, "
+            "embedded applications, or as a backend service. "
+            "Adapt your tone, depth, and approach to whatever the user needs.\n\n"
+            "## Environment\n\n"
             f"- Working directory: `{cwd}`\n"
             f"- Local time: {now_local}\n"
             f"- Timezone: {tz_name} (UTC{utc_offset})\n\n"
@@ -199,6 +193,8 @@ class LLMInferenceEngine(ABC):
             "## Key files you can read and edit\n",
             f"- Config: `{config_dir}/config.yaml` — models, providers, gateway, session settings",
         ]
+        if _has("Identity"):
+            lines.append(f"- Identity: `{config_dir}/identity.md` — your persona and behavior (YAML frontmatter)")
         if _has("MemoryRead", "MemoryWrite"):
             lines.append(f"- Memory: `{config_dir}/memory.md` — persistent knowledge")
         if _has("Skill"):
@@ -208,7 +204,7 @@ class LLMInferenceEngine(ABC):
         lines.append(
             "## Commands\n\n"
             "Slash commands: model, config, gateway, session, permissions, "
-            "mcp, skills, agent, memory, cost, provider, task, workflow. "
+            "mcp, skills, identity, profile, cost, provider, task. "
             "Use the CliverHelp tool for syntax."
         )
         return "\n".join(lines)
@@ -304,18 +300,28 @@ class LLMInferenceEngine(ABC):
                 )
             parts.append("\n".join(planning))
 
-        if _has("MemoryRead", "MemoryWrite"):
-            memory_parts = ["## Memory\n"]
-            memory_parts.append(
-                "You have persistent memory that survives across conversations.\n\n"
-                "**Memory** (`MemoryRead` / `MemoryWrite`): a curated knowledge base organized by topic.\n"
-                "- Organize by topic headings (`## Project Setup`, `## User Preferences`), not chronologically\n"
-                "- Before appending, read existing memory to avoid duplicates\n"
-                "- Periodically consolidate: use `rewrite` mode to merge related entries, remove outdated ones, "
-                "and keep the document concise\n"
-                "- Keep entries factual and concise — no narratives or session-specific details\n"
-                "- Do **not** save trivial, temporary, or obvious information"
-            )
+        if _has("MemoryRead", "MemoryWrite", "Identity"):
+            memory_parts = ["## Memory & Identity\n"]
+            if _has("MemoryRead", "MemoryWrite"):
+                memory_parts.append(
+                    "You have persistent memory that survives across conversations.\n\n"
+                    "**Memory** (`MemoryRead` / `MemoryWrite`): a curated knowledge base organized by topic.\n"
+                    "- Organize by topic headings (`## Project Setup`, `## User Preferences`), not chronologically\n"
+                    "- Before appending, read existing memory to avoid duplicates\n"
+                    "- Periodically consolidate: use `rewrite` mode to merge related entries, remove outdated ones, "
+                    "and keep the document concise\n"
+                    "- Keep entries factual and concise — no narratives or session-specific details\n"
+                    "- Do **not** save trivial, temporary, or obvious information"
+                )
+            if _has("Identity"):
+                memory_parts.append(
+                    "**Identity** (`Identity`): a living markdown document describing who "
+                    "the user is (name, location, role, preferences) and how you should behave. "
+                    "Unlike memory, identity is **rewritten as a whole** — always include all existing "
+                    "information plus updates. Read the current identity first to avoid losing data.\n\n"
+                    "Update identity when the user shares personal info or states behavior preferences. "
+                    "Use memory for everything else — facts, events, decisions."
+                )
             parts.append("\n".join(memory_parts))
 
         parts.append(

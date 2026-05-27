@@ -91,12 +91,6 @@ class TestAdminApiEndpoints:
         resp = client.get("/admin/api/sessions/invalid", headers=_auth_header())
         assert resp.status_code == 400
 
-    def test_workflows_endpoint(self):
-        client = TestClient(_make_admin_app())
-        resp = client.get("/admin/api/workflows", headers=_auth_header())
-        assert resp.status_code == 200
-        assert isinstance(resp.json(), list)
-
     def test_skills_endpoint(self):
         client = TestClient(_make_admin_app())
         resp = client.get("/admin/api/skills", headers=_auth_header())
@@ -126,7 +120,3 @@ class TestAdminApiEndpoints:
         resp = client.get("/admin/api/tasks/nonexistent", headers=_auth_header())
         assert resp.status_code == 200
 
-    def test_workflow_detail_endpoint(self):
-        client = TestClient(_make_admin_app())
-        resp = client.get("/admin/api/workflows/nonexistent", headers=_auth_header())
-        assert resp.status_code == 200

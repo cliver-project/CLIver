@@ -142,4 +142,4 @@ cliver \
 
 ## Next Steps
 
-After mastering the chat command, learn about [Skills](skills.md) for specialized task activation, [Memory & Identity](memory-identity.md) for agent personalization, or check out [Workflows](workflow.md) to automate complex multi-step operations.
+After mastering the chat command, learn about [Skills](skills.md) for specialized task activation or [Memory & Identity](memory-identity.md) for agent personalization.

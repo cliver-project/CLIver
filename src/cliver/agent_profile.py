@@ -6,7 +6,6 @@ Single instance per host. Resources stored directly under {config_dir}/:
 - memory.md   — persistent knowledge, append-only
 - tasks/      — scheduled task definitions
 - sessions/   — chat session tracking
-- workflows/  — workflow definitions and runs
 """
 
 import logging
@@ -107,8 +106,6 @@ class CliverProfile:
         ├── memory.md                      # persistent knowledge
         ├── tasks/                         # scheduled tasks
         ├── sessions/                      # chat sessions
-        ├── workflows/                     # workflow definitions
-        ├── workflow-checkpoints.db        # LangGraph checkpoints
         └── gateway.db                     # task registry & run history
     """
 
@@ -119,13 +116,10 @@ class CliverProfile:
         self.identity_file = self.config_dir / "identity.md"
         self.tasks_dir = self.config_dir / "tasks"
         self.sessions_dir = self.config_dir / "sessions"
-        self.workflows_dir = self.config_dir / "workflows"
-        self.workflow_checkpoints_db = self.config_dir / "workflow-checkpoints.db"
         self.gateway_db = self.config_dir / "gateway.db"
 
     def ensure_dirs(self) -> None:
         self.config_dir.mkdir(parents=True, exist_ok=True)
-        self.workflows_dir.mkdir(parents=True, exist_ok=True)
 
     # -- Profile (YAML frontmatter in identity.md) ----------------------------
 

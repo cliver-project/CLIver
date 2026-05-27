@@ -219,10 +219,10 @@ class TestOutputLabeling:
     def test_output_prefixed_for_command(self):
         from cliver.command_router import _task_context
 
-        _task_context.label = "workflow:run"
+        _task_context.label = "task:run"
         try:
             label = get_current_task_label()
-            assert label == "workflow:run"
+            assert label == "task:run"
         finally:
             _task_context.label = None
 

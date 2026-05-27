@@ -2,10 +2,10 @@
 Admin portal for CLIver gateway.
 
 Provides a web-based admin interface with cookie-based session auth
-for monitoring and managing the gateway: tasks, sessions, workflows,
+for monitoring and managing the gateway: tasks, sessions,
 skills, adapters, agent info, and configuration.
 
-React SPA served from admin_dist/ with JSON API endpoints.
+Multi-page routing: base.html + pages/{page_name}.html assembly pattern.
 
 Usage:
     from cliver.gateway.admin import get_admin_routes
@@ -25,20 +25,13 @@ from pathlib import Path
 from typing import Optional
 
 from starlette.requests import Request
-from starlette.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
+from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from starlette.routing import Route
 
 logger = logging.getLogger(__name__)
 
-
-def _find_admin_dist() -> Path:
-    pkg_dist = Path(__file__).resolve().parent / "admin_dist"
-    if pkg_dist.is_dir():
-        return pkg_dist
-    return Path(__file__).resolve().parent.parent.parent.parent / "admin" / "dist"
-
-
-_ADMIN_DIST = _find_admin_dist()
+_TEMPLATE_DIR = Path(__file__).parent / "templates"
+_PAGES_DIR = _TEMPLATE_DIR / "pages"
 
 
 # ---------------------------------------------------------------------------
@@ -93,6 +86,41 @@ def _mask_secret(value: Optional[str]) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Page rendering
+# ---------------------------------------------------------------------------
+
+
+def _render_page(page_name, context, extra_replacements=None):
+    """Assemble base.html + pages/{page_name}.html with substitutions."""
+    base_path = _TEMPLATE_DIR / "base.html"
+    page_path = _PAGES_DIR / f"{page_name}.html"
+    if not page_path.exists():
+        return None
+    base_html = base_path.read_text(encoding="utf-8")
+    page_html = page_path.read_text(encoding="utf-8")
+    html = base_html.replace("{{CONTENT}}", page_html)
+    html = html.replace("{{AGENT_NAME}}", context.get("profile_name", "CLIver"))
+    html = html.replace("{{BASE_URL}}", "/admin")
+    html = html.replace("{{CURRENT_PAGE}}", page_name.split("_")[0])
+    if extra_replacements:
+        for key, value in extra_replacements.items():
+            html = html.replace(key, value)
+    return html
+
+
+def _render_login_page(context, error=None):
+    """Render the standalone login page."""
+    page_path = _PAGES_DIR / "login.html"
+    if not page_path.exists():
+        return "<html><body><h1>Login page not found</h1></body></html>"
+    html = page_path.read_text(encoding="utf-8")
+    html = html.replace("{{AGENT_NAME}}", context.get("profile_name", "CLIver"))
+    html = html.replace("{{ERROR}}", error or "")
+    html = html.replace("{{ERROR_DISPLAY}}", "block" if error else "none")
+    return html
+
+
+# ---------------------------------------------------------------------------
 # Data-access helpers (module-level, take ctx dict)
 # ---------------------------------------------------------------------------
 
@@ -134,9 +162,6 @@ def _get_tasks(ctx: dict) -> list:
             origin = store.get_origin(entry.name)
             if origin:
                 data["origin"] = origin.model_dump(exclude_none=True)
-            if entry.definition:
-                last_run_ts = store.get_last_run_time(entry.name)
-                data["schedule_info"] = _compute_schedule_info(entry.definition, last_run_ts)
             result.append(data)
 
         store.close()
@@ -175,22 +200,6 @@ async def _run_task(ctx: dict, task_name: str) -> dict:
 # ---------------------------------------------------------------------------
 # Source-aware session helpers
 # ---------------------------------------------------------------------------
-
-
-def _record_inference(ctx: dict, title: str, user_text: str, assistant_text: str) -> Optional[str]:
-    """Record an LLM inference as a session turn pair. Returns the session_id."""
-    try:
-        gw = ctx.get("gateway")
-        sm = gw._session_manager if gw else None
-        if not sm:
-            return None
-        session_id = sm.create_session(title=title)
-        sm.append_turn(session_id, "user", user_text, msg_type="human")
-        sm.append_turn(session_id, "assistant", assistant_text, msg_type="ai")
-        return session_id
-    except Exception as e:
-        logger.warning("Failed to record inference session: %s", e)
-        return None
 
 
 async def _run_in_thread(fn, *args):
@@ -265,138 +274,6 @@ def _delete_session(ctx, source, session_id):
 # ---------------------------------------------------------------------------
 
 
-def _compute_schedule_info(task_def, last_run_ts: float | None) -> dict:
-    """Compute scheduling metadata for a task definition."""
-    from datetime import datetime, timezone
-
-    from cliver.util import get_effective_timezone
-
-    eff_tz = get_effective_timezone()
-    info: dict = {}
-    tz_name = str(eff_tz)
-    if tz_name:
-        info["timezone"] = tz_name
-
-    if task_def.run_at:
-        info["type"] = "one-shot"
-        info["run_at"] = task_def.run_at
-        try:
-            scheduled = datetime.fromisoformat(task_def.run_at)
-            if scheduled.tzinfo is None:
-                scheduled = scheduled.replace(tzinfo=eff_tz)
-            now = datetime.now(timezone.utc)
-            scheduled_utc = scheduled.astimezone(timezone.utc)
-            if scheduled_utc > now:
-                info["next_run"] = scheduled.astimezone(eff_tz).isoformat()
-                delta = scheduled_utc - now
-                info["time_until"] = _fmt_timedelta(delta)
-            else:
-                info["status"] = "completed" if last_run_ts else "overdue"
-        except ValueError:
-            info["status"] = "invalid"
-        return info
-
-    if task_def.schedule:
-        info["type"] = "cron"
-        info["expression"] = task_def.schedule
-        try:
-            from croniter import croniter
-
-            now_local = datetime.now(eff_tz)
-            base_dt = datetime.fromtimestamp(last_run_ts, tz=eff_tz) if last_run_ts else now_local
-            cron = croniter(task_def.schedule, base_dt)
-            next_dt = cron.get_next(datetime)
-            if next_dt.tzinfo is None:
-                next_dt = next_dt.replace(tzinfo=eff_tz)
-            info["next_run"] = next_dt.astimezone(eff_tz).isoformat()
-            delta = next_dt.astimezone(timezone.utc) - datetime.now(timezone.utc)
-            if delta.total_seconds() > 0:
-                info["time_until"] = _fmt_timedelta(delta)
-
-            upcoming = [next_dt.astimezone(eff_tz).isoformat()]
-            for _ in range(2):
-                nxt = cron.get_next(datetime)
-                if nxt.tzinfo is None:
-                    nxt = nxt.replace(tzinfo=eff_tz)
-                upcoming.append(nxt.astimezone(eff_tz).isoformat())
-            info["upcoming"] = upcoming
-
-            info["summary"] = _describe_cron(task_def.schedule)
-        except (ValueError, KeyError):
-            info["status"] = "invalid"
-        return info
-
-    info["type"] = "manual"
-    return info
-
-
-def _fmt_timedelta(delta) -> str:
-    """Format a timedelta as a human-readable string."""
-    total = int(delta.total_seconds())
-    if total < 0:
-        return "overdue"
-    if total < 60:
-        return f"{total}s"
-    if total < 3600:
-        return f"{total // 60}m"
-    if total < 86400:
-        h = total // 3600
-        m = (total % 3600) // 60
-        return f"{h}h {m}m" if m else f"{h}h"
-    d = total // 86400
-    h = (total % 86400) // 3600
-    return f"{d}d {h}h" if h else f"{d}d"
-
-
-def _describe_cron(expr: str) -> str:
-    """Generate a simple human-readable summary of a cron expression."""
-    parts = expr.strip().split()
-    if len(parts) != 5:
-        return expr
-
-    minute, hour, dom, month, dow = parts
-
-    dow_names = {
-        "0": "Sun",
-        "1": "Mon",
-        "2": "Tue",
-        "3": "Wed",
-        "4": "Thu",
-        "5": "Fri",
-        "6": "Sat",
-        "7": "Sun",
-    }
-
-    if minute == "*" and hour == "*":
-        return "Every minute"
-    if minute.startswith("*/"):
-        n = minute[2:]
-        return f"Every {n} minutes"
-    if hour.startswith("*/"):
-        n = hour[2:]
-        return f"Every {n} hours at :{minute.zfill(2)}"
-
-    time_str = ""
-    if hour != "*" and minute != "*":
-        time_str = f"{hour.zfill(2)}:{minute.zfill(2)}"
-
-    if dom == "*" and month == "*" and dow == "*":
-        return f"Daily at {time_str}" if time_str else expr
-
-    if dow != "*" and dom == "*" and month == "*":
-        day_tokens = dow.replace(",", ", ")
-        for k, v in dow_names.items():
-            day_tokens = day_tokens.replace(k, v)
-        prefix = f"At {time_str} on " if time_str else "On "
-        return f"{prefix}{day_tokens}"
-
-    if dom != "*" and month == "*" and dow == "*":
-        prefix = f"At {time_str} on day " if time_str else "On day "
-        return f"{prefix}{dom} of every month"
-
-    return f"At {time_str}" if time_str else expr
-
-
 def _get_task_detail(ctx, task_name):
     """Get detailed info for a single task including run history."""
     try:
@@ -427,238 +304,16 @@ def _get_task_detail(ctx, task_name):
         state = store.get_task_state(task_name)
         if state:
             result["live_status"] = state
-        session_id = store.get_session_id(task_name)
-        if session_id:
-            result["session_id"] = session_id
         runs = store.get_runs(task_name, limit=10)
         result["runs"] = [r.model_dump(exclude_none=True) for r in runs]
         origin = store.get_origin(task_name)
         if origin:
             result["origin"] = origin.model_dump(exclude_none=True)
-
-        # Schedule metadata
-        if task_entry.definition:
-            last_run_ts = store.get_last_run_time(task_name)
-            result["schedule_info"] = _compute_schedule_info(task_entry.definition, last_run_ts)
-
         store.close()
         return result
     except Exception as e:
         logger.warning("Failed to get task detail: %s", e)
         return None
-
-
-def _get_workflow_detail(ctx, workflow_id):
-    """Get detailed info for a single workflow by file stem or internal name."""
-    try:
-        from cliver.agent_profile import CliverProfile
-        from cliver.workflow.persistence import WorkflowStore
-
-        config_dir = ctx.get("config_dir")
-        if not config_dir:
-            return None
-        profile = CliverProfile(config_dir)
-        store = WorkflowStore(profile.workflows_dir)
-        # Get default model and model list from gateway config
-        default_model = None
-        model_names = []
-        gateway = ctx.get("gateway")
-        agent_core = getattr(gateway, "_agent_core", None) if gateway else None
-        if agent_core:
-            default_model = agent_core.default_model
-            model_names = sorted(agent_core.llm_models.keys())
-
-        for stem, _source, path in store.list_all_workflows():
-            if stem == workflow_id:
-                wf = WorkflowStore.load_workflow_from_file(path)
-                if wf:
-                    data = wf.model_dump(exclude_none=True, mode="json")
-                    data["id"] = stem
-                    data["_path"] = str(path)
-                    if default_model:
-                        data["_default_model"] = default_model
-                    data["_models"] = model_names
-                    # Resolve default outputs directory
-                    config_runs_dir = None
-                    if gateway and gateway._agent_core:
-                        app_cfg = getattr(gateway._agent_core, "_app_config", None)
-                        if app_cfg:
-                            config_runs_dir = app_cfg.workflow_runs_dir
-                    if config_runs_dir:
-                        default_runs = Path(config_runs_dir) / stem
-                    else:
-                        default_runs = profile.config_dir / "workflow-runs" / stem
-                    data["_default_outputs_dir"] = str(default_runs)
-                    return data
-        return None
-    except Exception as e:
-        logger.warning("Failed to get workflow detail: %s", e)
-        return None
-
-
-def _get_workflows(ctx: dict) -> list:
-    """List workflows with descriptions (global + project-local)."""
-    try:
-        from cliver.agent_profile import CliverProfile
-        from cliver.workflow.persistence import WorkflowStore
-
-        config_dir = ctx.get("config_dir")
-        if not config_dir:
-            return []
-        profile = CliverProfile(config_dir)
-        store = WorkflowStore(profile.workflows_dir)
-        entries = store.list_all_workflows()
-        result = []
-        for stem, source, path in entries:
-            wf = WorkflowStore.load_workflow_from_file(path)
-            if wf:
-                entry = {
-                    "id": stem,
-                    "name": wf.name,
-                    "description": wf.description or "",
-                    "source": source,
-                }
-                if hasattr(wf, "steps") and wf.steps:
-                    entry["steps"] = len(wf.steps)
-                result.append(entry)
-        return result
-    except Exception as e:
-        logger.warning("Failed to get workflows: %s", e)
-        return []
-
-
-async def _get_workflow_executions_async(ctx: dict, workflow_id: str = None) -> list:
-    try:
-        from cliver.workflow.executor import WorkflowExecutor
-
-        gateway = ctx.get("gateway")
-        if not gateway:
-            return []
-        config_manager = gateway._get_config_manager()
-        executor = WorkflowExecutor(app_config=config_manager.config)
-        return await executor.get_history(workflow_id)
-    except Exception as e:
-        logger.warning("Failed to get workflow executions: %s", e)
-        return []
-
-
-async def _get_execution_status(ctx: dict, workflow_id: str, thread_id: str) -> Optional[dict]:
-    """Get step-by-step status of a specific workflow execution."""
-    try:
-        from cliver.agent_profile import CliverProfile
-        from cliver.workflow.executor import WorkflowExecutor
-        from cliver.workflow.persistence import WorkflowStore
-
-        config_dir = ctx.get("config_dir")
-        if not config_dir:
-            return None
-        profile = CliverProfile(config_dir)
-        gateway = ctx.get("gateway")
-        if not gateway:
-            return None
-
-        store = WorkflowStore(profile.workflows_dir)
-
-        # Resolve file stem to internal workflow name
-        internal_name = workflow_id
-        for stem, _source, path in store.list_all_workflows():
-            if stem == workflow_id:
-                wf = WorkflowStore.load_workflow_from_file(path)
-                if wf:
-                    internal_name = wf.name
-                break
-
-        config_manager = gateway._get_config_manager()
-        executor = WorkflowExecutor(
-            app_config=config_manager.config,
-            workflows_dir=profile.workflows_dir,
-        )
-        return await executor.get_status(thread_id, internal_name)
-    except Exception as e:
-        logger.warning("Failed to get execution status: %s", e)
-        return None
-
-
-def _save_workflow(ctx: dict, workflow_id: str, data: dict) -> Optional[str]:
-    """Save workflow changes back to the YAML file.
-
-    Returns None on success, or an error message string.
-    """
-    try:
-        import yaml as _yaml
-
-        from cliver.agent_profile import CliverProfile
-        from cliver.workflow.persistence import WorkflowStore
-        from cliver.workflow.workflow_models import Workflow
-
-        config_dir = ctx.get("config_dir")
-        if not config_dir:
-            return "No config dir"
-        profile = CliverProfile(config_dir)
-        store = WorkflowStore(profile.workflows_dir)
-
-        # Find the file path
-        file_path = None
-        for stem, _source, path in store.list_all_workflows():
-            if stem == workflow_id:
-                file_path = path
-                break
-        if not file_path:
-            return f"Workflow '{workflow_id}' not found"
-
-        # Strip internal metadata fields before saving
-        clean = {k: v for k, v in data.items() if not k.startswith("_") and k != "id"}
-
-        # Validate through the Pydantic model
-        try:
-            wf = Workflow(**clean)
-        except Exception as e:
-            return f"Validation error: {e}"
-
-        # Validate semantics + compilation
-        from cliver.tools.workflow_validate import _compile_check, _semantic_checks
-
-        errors = _semantic_checks(wf)
-        if errors:
-            return "Validation errors:\n" + "\n".join(f"- {e}" for e in errors)
-        compile_errors = _compile_check(wf)
-        if compile_errors:
-            return "Compilation errors:\n" + "\n".join(f"- {e}" for e in compile_errors)
-
-        # Write back to YAML
-        dump_data = wf.model_dump(exclude_none=True, mode="json")
-        with open(file_path, "w", encoding="utf-8") as f:
-            _yaml.dump(dump_data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-
-        return None
-    except Exception as e:
-        logger.warning("Failed to save workflow: %s", e)
-        return str(e)
-
-
-def _validate_skill_content(content: str) -> Optional[str]:
-    """Validate SKILL.md content has proper frontmatter. Returns error or None."""
-    if not content or not content.strip():
-        return "Skill content cannot be empty"
-    text = content.strip()
-    if not text.startswith("---"):
-        return "SKILL.md must start with YAML frontmatter (---)"
-    parts = text.split("---", 2)
-    if len(parts) < 3:
-        return "SKILL.md must have closing frontmatter (---)"
-    try:
-        import yaml as _yaml
-
-        fm = _yaml.safe_load(parts[1])
-    except Exception as e:
-        return f"Invalid YAML frontmatter: {e}"
-    if not isinstance(fm, dict):
-        return "Frontmatter must be a YAML mapping"
-    if not fm.get("name"):
-        return "Frontmatter must include 'name'"
-    if not fm.get("description"):
-        return "Frontmatter must include 'description'"
-    return None
 
 
 def _get_skills() -> list:
@@ -674,6 +329,8 @@ def _get_skills() -> list:
                 "description": s.description,
                 "source": s.source,
                 "path": str(s.base_dir),
+                "license": s.license,
+                "compatibility": s.compatibility,
                 "allowed_tools": s.allowed_tools,
                 "body": s.body or "",
             }
@@ -754,383 +411,48 @@ def _get_agent_info(ctx: dict) -> dict:
 
 
 def _get_config(ctx: dict) -> dict:
-    """Get full config with secrets masked."""
+    """Get config overview with secrets masked."""
     try:
         from cliver.config import ConfigManager
 
         config_dir = ctx.get("config_dir")
         if not config_dir:
-            return {}
+            return {"models": {}, "providers": {}, "mcp_servers": {}}
 
         cm = ConfigManager(config_dir)
-        cfg = cm.config
 
         # Providers with nested models
         providers = {}
-        for name, pc in cfg.providers.items():
-            prov: dict = {
+        for name, pc in cm.config.providers.items():
+            provider_models = [mc.api_model_name for mc in cm.config.models.values() if mc.provider == name]
+            providers[name] = {
                 "type": pc.type,
                 "api_url": pc.api_url,
                 "api_key": _mask_secret(pc.api_key),
+                "models": provider_models,
             }
-            if pc.rate_limit:
-                prov["rate_limit"] = {
-                    "requests": pc.rate_limit.requests,
-                    "period": pc.rate_limit.period,
-                    "margin": pc.rate_limit.margin,
-                }
-            if pc.pricing:
-                prov["pricing"] = {
-                    k: v
-                    for k, v in {
-                        "currency": pc.pricing.currency,
-                        "input": pc.pricing.input,
-                        "output": pc.pricing.output,
-                        "cached_input": pc.pricing.cached_input,
-                    }.items()
-                    if v is not None
-                }
-            for f in ("image_url", "image_model", "audio_url", "audio_model"):
-                val = getattr(pc, f, None)
-                if val:
-                    prov[f] = val
-
-            models = []
-            for mc in cfg.models.values():
-                if mc.provider != name:
-                    continue
-                m: dict = {"name": mc.api_model_name}
-                if mc.options:
-                    opts = {k: v for k, v in mc.options.model_dump().items() if v is not None}
-                    if opts:
-                        m["options"] = opts
-                if mc.think_mode is not None:
-                    m["think_mode"] = mc.think_mode
-                if mc.context_window is not None:
-                    m["context_window"] = mc.context_window
-                if mc.pricing:
-                    m["pricing"] = {
-                        k: v
-                        for k, v in {
-                            "currency": mc.pricing.currency,
-                            "input": mc.pricing.input,
-                            "output": mc.pricing.output,
-                            "cached_input": mc.pricing.cached_input,
-                        }.items()
-                        if v is not None
-                    }
-                if mc.capabilities:
-                    m["capabilities"] = sorted(c.value if hasattr(c, "value") else str(c) for c in mc.capabilities)
-                models.append(m)
-            prov["models"] = models
-            providers[name] = prov
+            if pc.image_url:
+                providers[name]["image_url"] = pc.image_url
+            if pc.image_model:
+                providers[name]["image_model"] = pc.image_model
 
         # MCP servers
         mcp_servers = {}
-        for name, sc in cfg.mcpServers.items():
-            entry: dict = {"transport": sc.transport}
+        for name, sc in cm.config.mcpServers.items():
+            entry = {"transport": sc.transport}
             if hasattr(sc, "command"):
                 entry["command"] = sc.command
-            if hasattr(sc, "args") and sc.args:
-                entry["args"] = sc.args
-            if hasattr(sc, "env") and sc.env:
-                entry["env"] = sc.env
             if hasattr(sc, "url"):
                 entry["url"] = sc.url
-            if hasattr(sc, "headers") and sc.headers:
-                entry["headers"] = sc.headers
             mcp_servers[name] = entry
 
-        # Gateway
-        gateway = None
-        if cfg.gateway:
-            gw = cfg.gateway
-            gateway = {
-                "host": gw.host,
-                "port": gw.port,
-                "admin_username": gw.admin_username or "",
-                "admin_password": _mask_secret(gw.admin_password),
-                "log_file": gw.log_file or "",
-                "log_max_bytes": gw.log_max_bytes,
-                "log_backup_count": gw.log_backup_count,
-            }
-            if gw.api_key:
-                gateway["api_key"] = _mask_secret(gw.api_key)
-            platforms = {}
-            for pname, pc in gw.platforms.items():
-                plat: dict = {"type": pc.type}
-                plat["token"] = _mask_secret(pc.token)
-                plat["app_token"] = _mask_secret(pc.app_token)
-                if pc.home_channel:
-                    plat["home_channel"] = pc.home_channel
-                if pc.allowed_users:
-                    plat["allowed_users"] = pc.allowed_users
-                platforms[pname] = plat
-            gateway["platforms"] = platforms
-
-        # Session
-        session = {
-            "max_sessions": cfg.session.max_sessions,
-            "max_turns_per_session": cfg.session.max_turns_per_session,
-            "max_age_days": cfg.session.max_age_days,
-        }
-
-        from cliver.gateway.adapters import BUILTIN_ADAPTERS
-
-        agents = {}
-        for aname, ac in cfg.agents.items():
-            agents[aname] = ac.model_dump(exclude_none=True)
-
         return {
-            "default_model": cfg.default_model or "",
-            "default_agent": cfg.default_agent or "",
-            "user_agent": cfg.user_agent or "",
-            "timezone": cfg.timezone or "",
-            "search_engines": cfg.search_engines or [],
-            "skill_auto_learn": cfg.skill_auto_learn,
-            "model_auto_fallback": cfg.model_auto_fallback,
-            "workflow_runs_dir": cfg.workflow_runs_dir or "",
-            "default_workflow_runs_dir": str(config_dir / "workflow-runs"),
-            "adapter_types": sorted(BUILTIN_ADAPTERS.keys()),
-            "agents": agents,
             "providers": providers,
-            "mcpServers": mcp_servers,
-            "gateway": gateway,
-            "session": session,
+            "mcp_servers": mcp_servers,
         }
     except Exception as e:
         logger.warning("Failed to get config: %s", e)
-        return {}
-
-
-def _is_masked(value: str) -> bool:
-    """Return True if value looks like a masked secret (contains ****)."""
-    return "****" in value
-
-
-def _save_config_data(ctx: dict, data: dict) -> Optional[str]:
-    """Apply config changes from the admin UI and save to config.yaml.
-
-    Returns an error message string, or None on success.
-    Masked secret fields (containing ****) are skipped to preserve existing values.
-    """
-    try:
-        from cliver.config import (
-            ConfigManager,
-            GatewayConfig,
-            ModelConfig,
-            ModelOptions,
-            PlatformConfig,
-            PricingConfig,
-            RateLimitConfig,
-            SessionConfig,
-        )
-
-        config_dir = ctx.get("config_dir")
-        if not config_dir:
-            return "No config directory"
-
-        cm = ConfigManager(config_dir)
-        cfg = cm.config
-
-        # General settings
-        if "default_model" in data:
-            cfg.default_model = data["default_model"] or None
-        if "user_agent" in data:
-            cfg.user_agent = data["user_agent"] or None
-        if "timezone" in data:
-            cfg.timezone = data["timezone"] or None
-        if "search_engines" in data:
-            val = data["search_engines"]
-            cfg.search_engines = val if val else None
-        if "skill_auto_learn" in data:
-            cfg.skill_auto_learn = bool(data["skill_auto_learn"])
-        if "model_auto_fallback" in data:
-            cfg.model_auto_fallback = bool(data["model_auto_fallback"])
-        if "workflow_runs_dir" in data:
-            cfg.workflow_runs_dir = data["workflow_runs_dir"] or None
-        if "default_agent" in data:
-            cfg.default_agent = data["default_agent"] or None
-
-        # Agents
-        if "agents" in data:
-            from cliver.config import AgentConfig
-
-            incoming = data["agents"]
-            removed = set(cfg.agents.keys()) - set(incoming.keys())
-            for name in removed:
-                cfg.agents.pop(name, None)
-            for aname, adata in incoming.items():
-                cfg.agents[aname] = AgentConfig(
-                    description=adata.get("description") or None,
-                    role=adata.get("role") or None,
-                    system_prompt=adata.get("system_prompt") or None,
-                    model=adata.get("model") or None,
-                    skills=adata.get("skills") or [],
-                )
-
-        # Providers & models
-        if "providers" in data:
-            incoming_providers = data["providers"]
-            removed = set(cfg.providers.keys()) - set(incoming_providers.keys())
-            for name in removed:
-                refs = [m.name for m in cfg.models.values() if m.provider == name]
-                for ref in refs:
-                    cfg.models.pop(ref, None)
-                cfg.providers.pop(name, None)
-
-            for pname, pdata in incoming_providers.items():
-                api_key_val = pdata.get("api_key")
-                if api_key_val and _is_masked(api_key_val):
-                    api_key_val = None  # skip, keep existing
-
-                rl = None
-                if pdata.get("rate_limit"):
-                    rld = pdata["rate_limit"]
-                    rl = RateLimitConfig(
-                        requests=rld.get("requests", 100),
-                        period=rld.get("period", "1h"),
-                        margin=rld.get("margin", 0.1),
-                    )
-
-                pricing = None
-                if pdata.get("pricing"):
-                    pricing = PricingConfig(**pdata["pricing"])
-
-                cm.add_or_update_provider(
-                    name=pname,
-                    type=pdata.get("type", "openai"),
-                    api_url=pdata.get("api_url", ""),
-                    api_key=api_key_val,
-                    rate_limit=rl,
-                    image_url=pdata.get("image_url"),
-                    image_model=pdata.get("image_model"),
-                    audio_url=pdata.get("audio_url"),
-                    audio_model=pdata.get("audio_model"),
-                )
-                if pricing and pname in cfg.providers:
-                    cfg.providers[pname].pricing = pricing
-
-                # Models under this provider
-                incoming_models = pdata.get("models", [])
-                existing_model_names = {m.name for m in cfg.models.values() if m.provider == pname}
-                incoming_model_names = {f"{pname}/{md['name']}" for md in incoming_models if md.get("name")}
-                for gone in existing_model_names - incoming_model_names:
-                    cfg.models.pop(gone, None)
-
-                for md in incoming_models:
-                    mname = md.get("name", "")
-                    if not mname:
-                        continue
-                    canonical = f"{pname}/{mname}"
-                    opts = None
-                    if md.get("options"):
-                        opts = ModelOptions(**md["options"])
-                    m_pricing = None
-                    if md.get("pricing"):
-                        m_pricing = PricingConfig(**md["pricing"])
-                    caps = None
-                    if md.get("capabilities"):
-                        caps = set(md["capabilities"])
-
-                    mc = cfg.models.get(canonical)
-                    if mc:
-                        mc.options = opts
-                        mc.pricing = m_pricing
-                        mc.think_mode = md.get("think_mode")
-                        mc.context_window = md.get("context_window")
-                        if caps is not None:
-                            mc.capabilities = caps
-                    else:
-                        cfg.models[canonical] = ModelConfig(
-                            name=canonical,
-                            provider=pname,
-                            options=opts,
-                            pricing=m_pricing,
-                            think_mode=md.get("think_mode"),
-                            context_window=md.get("context_window"),
-                            capabilities=caps,
-                        )
-                    if pname in cfg.providers:
-                        cfg.models[canonical]._provider_config = cfg.providers[pname]
-
-        # MCP servers
-        if "mcpServers" in data:
-            incoming = data["mcpServers"]
-            removed = set(cfg.mcpServers.keys()) - set(incoming.keys())
-            for name in removed:
-                cfg.mcpServers.pop(name, None)
-            for sname, sdata in incoming.items():
-                cm.add_or_update_server(sname, sdata)
-
-        # Gateway
-        if "gateway" in data and data["gateway"] is not None:
-            gd = data["gateway"]
-            if cfg.gateway is None:
-                cfg.gateway = GatewayConfig()
-            gw = cfg.gateway
-            if "host" in gd:
-                gw.host = gd["host"]
-            if "port" in gd:
-                gw.port = int(gd["port"])
-            if "admin_username" in gd:
-                gw.admin_username = gd["admin_username"] or None
-            if "admin_password" in gd:
-                pw = gd["admin_password"]
-                if not _is_masked(pw):
-                    gw.admin_password = pw or None
-            if "log_file" in gd:
-                gw.log_file = gd["log_file"] or None
-            if "log_max_bytes" in gd:
-                gw.log_max_bytes = int(gd["log_max_bytes"])
-            if "log_backup_count" in gd:
-                gw.log_backup_count = int(gd["log_backup_count"])
-            if "api_key" in gd:
-                ak = gd["api_key"]
-                if not _is_masked(ak):
-                    gw.api_key = ak or None
-
-            if "platforms" in gd:
-                incoming_plats = gd["platforms"]
-                removed_plats = set(gw.platforms.keys()) - set(incoming_plats.keys())
-                for pn in removed_plats:
-                    gw.platforms.pop(pn, None)
-                for pn, pd in incoming_plats.items():
-                    existing = gw.platforms.get(pn)
-                    token = pd.get("token", "")
-                    app_token = pd.get("app_token", "")
-                    if existing:
-                        existing.type = pd.get("type", existing.type)
-                        if not _is_masked(token):
-                            existing.token = token or None
-                        if not _is_masked(app_token):
-                            existing.app_token = app_token or None
-                        existing.home_channel = pd.get("home_channel") or None
-                        existing.allowed_users = pd.get("allowed_users") or None
-                    else:
-                        gw.platforms[pn] = PlatformConfig(
-                            name=pn,
-                            type=pd.get("type", ""),
-                            token=None if _is_masked(token) else (token or None),
-                            app_token=None if _is_masked(app_token) else (app_token or None),
-                            home_channel=pd.get("home_channel") or None,
-                            allowed_users=pd.get("allowed_users") or None,
-                        )
-
-        # Session
-        if "session" in data:
-            sd = data["session"]
-            cfg.session = SessionConfig(
-                max_sessions=int(sd.get("max_sessions", 300)),
-                max_turns_per_session=int(sd.get("max_turns_per_session", 100)),
-                max_age_days=int(sd.get("max_age_days", 365)),
-            )
-
-        cm._save_config()
-        return None
-    except Exception as e:
-        logger.warning("Failed to save config: %s", e)
-        return str(e)
+        return {"providers": {}, "mcp_servers": {}}
 
 
 # ---------------------------------------------------------------------------
@@ -1183,31 +505,11 @@ def get_admin_routes(
 
     # --- Route handlers (closures capturing context) ---
 
-    async def handle_spa(request: Request):
-        """Serve the SPA index.html for all non-API routes."""
-        index_path = _ADMIN_DIST / "index.html"
-        if not index_path.exists():
-            return HTMLResponse(
-                "<h1>Admin UI not built. Run: make admin-build</h1>",
-                status_code=503,
-            )
-        return FileResponse(str(index_path))
-
-    async def handle_spa_assets(request: Request):
-        """Serve static assets (JS, CSS, etc.) from the SPA dist directory."""
-        import mimetypes as _mt
-
-        file_path = request.path_params["path"]
-        full_path = _ADMIN_DIST / "assets" / file_path
-        # Prevent path traversal
-        try:
-            full_path.resolve().relative_to(_ADMIN_DIST.resolve())
-        except ValueError:
-            return Response("Forbidden", status_code=403)
-        if not full_path.exists() or not full_path.is_file():
-            return Response("Not found", status_code=404)
-        content_type = _mt.guess_type(str(full_path))[0] or "application/octet-stream"
-        return Response(full_path.read_bytes(), media_type=content_type)
+    async def handle_login_page(request: Request):
+        if _check_session_cookie(request, username, session_secret):
+            return RedirectResponse("/admin/gateway", status_code=302)
+        html = _render_login_page(context)
+        return HTMLResponse(html)
 
     async def handle_login_submit(request: Request):
         try:
@@ -1227,6 +529,32 @@ def get_admin_routes(
         resp = RedirectResponse("/admin/login", status_code=302)
         resp.delete_cookie("cliver_session", path="/admin")
         return resp
+
+    @require_auth
+    async def handle_admin_root(request: Request):
+        return RedirectResponse("/admin/gateway", status_code=302)
+
+    @require_auth
+    async def handle_admin_page(request: Request):
+        page = request.path_params["page"]
+        if page == "login":
+            return await handle_login_page(request)
+        html = _render_page(page, context)
+        if html is None:
+            return Response("Page not found", status_code=404)
+        return HTMLResponse(html)
+
+    @require_auth
+    async def handle_task_detail_page(request: Request):
+        name = request.path_params["name"]
+        html = _render_page(
+            "task_detail",
+            context,
+            extra_replacements={"{{ITEM_NAME}}": name},
+        )
+        if html is None:
+            return Response("Page not found", status_code=404)
+        return HTMLResponse(html)
 
     @require_auth
     async def handle_status(request: Request):
@@ -1260,128 +588,6 @@ def get_admin_routes(
         return JSONResponse(result, status_code=status_code)
 
     @require_auth
-    async def handle_create_task(request: Request):
-        """POST /admin/api/tasks — create a new task."""
-        from cliver.agent_profile import CliverProfile
-        from cliver.gateway.task_store import TaskStore
-        from cliver.task_manager import TaskDefinition, TaskManager
-
-        try:
-            data = await request.json()
-        except Exception:
-            return JSONResponse({"error": "Invalid JSON"}, status_code=400)
-
-        name = (data.get("name") or "").strip()
-        prompt = (data.get("prompt") or "").strip()
-        if not name:
-            return JSONResponse({"error": "Task name is required"}, status_code=400)
-        if not prompt:
-            return JSONResponse({"error": "Prompt is required"}, status_code=400)
-
-        config_dir = context.get("config_dir")
-        if not config_dir:
-            return JSONResponse({"error": "No config dir"}, status_code=500)
-
-        try:
-            profile = CliverProfile(config_dir)
-            store = TaskStore(profile.gateway_db)
-            tm = TaskManager(profile.tasks_dir, store)
-
-            if tm.get_task(name):
-                store.close()
-                return JSONResponse({"error": f"Task '{name}' already exists"}, status_code=409)
-
-            task = TaskDefinition(
-                name=name,
-                prompt=prompt,
-                description=data.get("description") or None,
-                agent=data.get("agent") or None,
-                context=data.get("context") or None,
-                schedule=data.get("schedule") or None,
-                run_at=data.get("run_at") or None,
-                skills=data.get("skills") or None,
-                workflow=data.get("workflow") or None,
-            )
-            tm.save_task(task)
-            store.close()
-
-            logger.info("[admin] Task '%s' created via admin portal", name)
-            detail = _get_task_detail(context, name)
-            return JSONResponse(detail, status_code=201)
-        except Exception as e:
-            logger.error("Failed to create task: %s", e)
-            return JSONResponse({"error": str(e)}, status_code=500)
-
-    @require_auth
-    async def handle_update_task(request: Request):
-        """PUT /admin/api/tasks/{name} — update an existing task."""
-        from cliver.agent_profile import CliverProfile
-        from cliver.gateway.task_store import TaskStore
-        from cliver.task_manager import TaskManager
-
-        task_name = request.path_params["name"]
-        try:
-            data = await request.json()
-        except Exception:
-            return JSONResponse({"error": "Invalid JSON"}, status_code=400)
-
-        config_dir = context.get("config_dir")
-        if not config_dir:
-            return JSONResponse({"error": "No config dir"}, status_code=500)
-
-        try:
-            profile = CliverProfile(config_dir)
-            store = TaskStore(profile.gateway_db)
-            tm = TaskManager(profile.tasks_dir, store)
-
-            task = tm.get_task(task_name)
-            if not task:
-                store.close()
-                return JSONResponse({"error": "Task not found"}, status_code=404)
-
-            if "prompt" in data:
-                if not data["prompt"]:
-                    store.close()
-                    return JSONResponse({"error": "prompt cannot be empty"}, status_code=400)
-                task.prompt = data["prompt"]
-            if "description" in data:
-                task.description = data["description"] or None
-            if "agent" in data:
-                task.agent = data["agent"] or None
-            if "context" in data:
-                task.context = data["context"] or None
-            if "schedule" in data:
-                task.schedule = data["schedule"] or None
-            if "run_at" in data:
-                run_at = data["run_at"] or None
-                if run_at:
-                    from datetime import datetime
-
-                    try:
-                        datetime.fromisoformat(run_at)
-                    except ValueError:
-                        store.close()
-                        return JSONResponse(
-                            {"error": f"Invalid run_at format: {run_at}. Use ISO 8601."},
-                            status_code=400,
-                        )
-                task.run_at = run_at
-            if "skills" in data:
-                task.skills = data["skills"] or None
-            if "workflow" in data:
-                task.workflow = data["workflow"] or None
-
-            tm.save_task(task)
-            store.close()
-
-            logger.info("[admin] Task '%s' updated via admin portal", task_name)
-            detail = _get_task_detail(context, task_name)
-            return JSONResponse(detail)
-        except Exception as e:
-            logger.error("Failed to update task '%s': %s", task_name, e)
-            return JSONResponse({"error": str(e)}, status_code=500)
-
-    @require_auth
     async def handle_delete_task(request: Request):
         task_name = request.path_params["name"]
         logger.info("[admin] Task '%s' deleted via admin portal", task_name)
@@ -1397,23 +603,11 @@ def get_admin_routes(
             profile = CliverProfile(config_dir)
             store = TaskStore(profile.gateway_db)
             tm = TaskManager(profile.tasks_dir, store)
-
-            session_id = store.get_session_id(task_name)
             removed = tm.remove_task(task_name)
 
             deleted_runs = 0
             if removed:
                 deleted_runs = store.delete_runs(task_name)
-                store.delete_task_state(task_name)
-                store.delete_origin(task_name)
-                if session_id:
-                    try:
-                        from cliver.session_manager import SessionManager
-
-                        sm = SessionManager(config_dir / "gateway-sessions")
-                        sm.delete_session(session_id)
-                    except Exception as e:
-                        logger.warning("Failed to delete session for task '%s': %s", task_name, e)
             store.close()
 
             if not removed:
@@ -1472,214 +666,6 @@ def get_admin_routes(
         return JSONResponse({"error": "session not found"}, status_code=404)
 
     @require_auth
-    async def handle_workflows(request: Request):
-        workflows = _get_workflows(context)
-        return JSONResponse(workflows)
-
-    @require_auth
-    async def handle_workflow_detail_api(request: Request):
-        name = request.path_params["name"]
-        detail = _get_workflow_detail(context, name)
-        return JSONResponse(detail)
-
-    @require_auth
-    async def handle_update_workflow(request: Request):
-        name = request.path_params["name"]
-        try:
-            data = await request.json()
-        except Exception:
-            return JSONResponse({"error": "Invalid JSON"}, status_code=400)
-        error = _save_workflow(context, name, data)
-        if error:
-            return JSONResponse({"error": error}, status_code=400)
-        return JSONResponse({"status": "saved"})
-
-    @require_auth
-    async def handle_create_workflow(request: Request):
-        try:
-            data = await request.json()
-        except Exception:
-            return JSONResponse({"error": "Invalid JSON"}, status_code=400)
-
-        name = data.get("name", "").strip()
-        if not name:
-            return JSONResponse({"error": "name is required"}, status_code=400)
-
-        try:
-            from cliver.agent_profile import CliverProfile
-            from cliver.workflow.persistence import WorkflowStore
-            from cliver.workflow.workflow_models import Workflow
-
-            config_dir = context.get("config_dir")
-            if not config_dir:
-                return JSONResponse({"error": "No config dir"}, status_code=500)
-            profile = CliverProfile(config_dir)
-            store = WorkflowStore(profile.workflows_dir)
-
-            if store.load_workflow(name):
-                return JSONResponse({"error": f"Workflow '{name}' already exists"}, status_code=409)
-
-            steps = data.get("steps")
-            if not steps:
-                steps = [{"id": "step_1", "type": "llm", "prompt": "TODO: add your prompt here"}]
-
-            wf_data = {
-                "name": name,
-                "description": data.get("description") or None,
-                "steps": steps,
-            }
-            wf = Workflow(**wf_data)
-
-            from cliver.tools.workflow_validate import _compile_check, _semantic_checks
-
-            errors = _semantic_checks(wf)
-            if errors:
-                return JSONResponse(
-                    {"error": "Validation errors:\n" + "\n".join(f"- {e}" for e in errors)},
-                    status_code=400,
-                )
-            compile_errors = _compile_check(wf)
-            if compile_errors:
-                return JSONResponse(
-                    {"error": "Compilation errors:\n" + "\n".join(f"- {e}" for e in compile_errors)},
-                    status_code=400,
-                )
-
-            store.save_workflow(wf)
-            detail = _get_workflow_detail(context, name)
-            return JSONResponse(detail, status_code=201)
-        except Exception as e:
-            logger.error("Failed to create workflow: %s", e)
-            return JSONResponse({"error": str(e)}, status_code=500)
-
-    @require_auth
-    async def handle_delete_workflow(request: Request):
-        name = request.path_params["name"]
-        try:
-            from cliver.agent_profile import CliverProfile
-            from cliver.workflow.persistence import WorkflowStore
-
-            config_dir = context.get("config_dir")
-            if not config_dir:
-                return JSONResponse({"error": "No config dir"}, status_code=500)
-            profile = CliverProfile(config_dir)
-            store = WorkflowStore(profile.workflows_dir)
-
-            if not store.delete_workflow(name):
-                return JSONResponse({"error": f"Workflow '{name}' not found"}, status_code=404)
-
-            return JSONResponse({"status": "deleted"})
-        except Exception as e:
-            logger.error("Failed to delete workflow: %s", e)
-            return JSONResponse({"error": str(e)}, status_code=500)
-
-    @require_auth
-    async def handle_workflow_executions(request: Request):
-        name = request.path_params.get("name")
-        execs = await _get_workflow_executions_async(context, name)
-        return JSONResponse(execs)
-
-    @require_auth
-    async def handle_all_workflow_executions(request: Request):
-        execs = await _get_workflow_executions_async(context)
-        return JSONResponse(execs)
-
-    @require_auth
-    async def handle_execution_status(request: Request):
-        name = request.path_params["name"]
-        tid = request.path_params["tid"]
-        status = await _get_execution_status(context, name, tid)
-        if status is None:
-            return JSONResponse({"error": "Execution not found"}, status_code=404)
-        return JSONResponse(status)
-
-    _running_workflow_tasks = {}
-
-    @require_auth
-    async def handle_run_workflow(request: Request):
-        name = request.path_params["name"]
-        gateway = context.get("gateway")
-        if not gateway or not hasattr(gateway, "run_workflow"):
-            return JSONResponse({"error": "Gateway not available"}, status_code=500)
-        try:
-            body = await request.json()
-        except Exception:
-            body = {}
-        inputs = body.get("inputs")
-        from cliver.workflow.executor import WorkflowExecutor
-
-        execution_id = WorkflowExecutor.generate_execution_id()
-        task = asyncio.create_task(gateway.run_workflow(name, inputs=inputs, execution_id=execution_id))
-        _running_workflow_tasks[name] = task
-        task.add_done_callback(lambda _: _running_workflow_tasks.pop(name, None))
-        return JSONResponse({"status": "started", "workflow": name, "execution_id": execution_id})
-
-    @require_auth
-    async def handle_stop_workflow(request: Request):
-        name = request.path_params["name"]
-        task = _running_workflow_tasks.get(name)
-        if not task:
-            return JSONResponse({"error": "No running execution found"}, status_code=404)
-        task.cancel()
-        return JSONResponse({"status": "stopped", "workflow": name})
-
-    @require_auth
-    async def handle_resume_from_step(request: Request):
-        """Resume a workflow execution from a specific step.
-
-        Uses LangGraph checkpoint history to find the state right before
-        the target step, then re-runs from that point forward.
-
-        Path params: name (workflow), step_id
-        Query/body: thread_id (required — the execution to resume)
-        """
-        wf_name = request.path_params["name"]
-        step_id = request.path_params["step_id"]
-
-        try:
-            body = await request.json()
-        except Exception:
-            body = {}
-        thread_id = body.get("thread_id", "")
-        if not thread_id:
-            return JSONResponse({"error": "'thread_id' is required"}, status_code=400)
-
-        gateway = context.get("gateway")
-        if not gateway or not getattr(gateway, "_agent_core", None):
-            return JSONResponse({"error": "Gateway not available"}, status_code=503)
-
-        async def _do_resume():
-            from cliver.agent_profile import CliverProfile
-            from cliver.workflow.executor import WorkflowExecutor
-
-            config_dir = context.get("config_dir")
-            profile = CliverProfile(config_dir)
-            config_manager = gateway._get_config_manager()
-
-            executor = WorkflowExecutor(
-                app_config=config_manager.config,
-                workflows_dir=profile.workflows_dir,
-            )
-            try:
-                result = await executor.resume(wf_name, thread_id)
-                if result and isinstance(result, dict) and "error" in result:
-                    logger.warning("Resume from step failed: %s", result["error"])
-                else:
-                    logger.info("Resumed workflow '%s' from step '%s'", wf_name, step_id)
-            except Exception as e:
-                logger.error("Resume failed: %s", e)
-
-        asyncio.create_task(_do_resume())
-        return JSONResponse(
-            {
-                "status": "started",
-                "workflow": wf_name,
-                "step_id": step_id,
-                "thread_id": thread_id,
-            }
-        )
-
-    @require_auth
     async def handle_browse_files(request: Request):
         """Browse server filesystem for file selection (restricted to home directory)."""
         home = Path.home().resolve()
@@ -1730,41 +716,13 @@ def get_admin_routes(
 
         return JSONResponse({"path": str(target), "items": items})
 
-    @require_auth
-    async def handle_delete_execution(request: Request):
-        wf_name = request.path_params["name"]
-        tid = request.path_params["tid"]
-        try:
-            from cliver.workflow.executor import WorkflowExecutor
-
-            gateway = context.get("gateway")
-            if not gateway:
-                return JSONResponse({"error": "No gateway"}, status_code=500)
-            config_manager = gateway._get_config_manager()
-            executor = WorkflowExecutor(app_config=config_manager.config)
-            deleted = await executor.delete_run(tid, wf_name)
-            if deleted:
-                return JSONResponse({"status": "deleted"})
-            return JSONResponse({"error": "Execution not found"}, status_code=404)
-        except Exception as e:
-            logger.warning("Failed to delete execution: %s", e)
-            return JSONResponse({"error": str(e)}, status_code=500)
-
-    @require_auth
-    async def handle_workflow_media(request: Request):
-        """Serve media files from workflow output directories."""
-        import mimetypes as _mt
-
+    async def handle_static(request: Request):
         file_path = request.path_params["path"]
-        full_path = Path(file_path)
-        if not full_path.is_absolute():
-            return Response("Invalid path", status_code=400)
+        static_dir = Path(__file__).parent / "static"
+        full_path = static_dir / file_path
         if not full_path.exists() or not full_path.is_file():
             return Response("Not found", status_code=404)
-        # Only serve files from workflow-runs directories
-        if "workflow-runs" not in str(full_path):
-            return Response("Forbidden", status_code=403)
-        content_type = _mt.guess_type(str(full_path))[0] or "application/octet-stream"
+        content_type = "application/javascript" if file_path.endswith(".js") else "text/plain"
         return Response(full_path.read_bytes(), media_type=content_type)
 
     @require_auth
@@ -1773,98 +731,9 @@ def get_admin_routes(
         return JSONResponse(skills)
 
     @require_auth
-    async def handle_skill_detail_api(request: Request):
-        name = request.path_params["name"]
-        skills = _get_skills()
-        skill = next((s for s in skills if s["name"] == name), None)
-        if not skill:
-            return Response("Skill not found", status_code=404)
-        editable = skill.get("source", "") != "builtin"
-        raw_content = ""
-        skill_file = Path(skill["path"]) / "SKILL.md"
-        if skill_file.is_file():
-            try:
-                raw_content = skill_file.read_text(encoding="utf-8")
-            except Exception:
-                pass
-        return JSONResponse({**skill, "editable": editable, "raw_content": raw_content})
-
-    @require_auth
-    async def handle_update_skill(request: Request):
-        body = await request.json()
-        content = body.get("content", "")
-        skill_path = body.get("path", "")
-        if not skill_path:
-            return Response("Missing path", status_code=400)
-        skill_dir = Path(skill_path).resolve()
-        skill_file = skill_dir / "SKILL.md"
-        if not skill_file.is_file():
-            return Response("Skill file not found", status_code=404)
-        from cliver.skill_manager import _BUILTIN_SKILLS_DIR
-
-        if str(skill_dir).startswith(str(_BUILTIN_SKILLS_DIR)):
-            return Response("Cannot edit builtin skills", status_code=403)
-        error = _validate_skill_content(content)
-        if error:
-            return JSONResponse({"error": error}, status_code=400)
-        try:
-            skill_file.write_text(content, encoding="utf-8")
-        except Exception as e:
-            return Response(f"Failed to save: {e}", status_code=500)
-        return JSONResponse({"ok": True})
-
-    @require_auth
-    async def handle_create_skill(request: Request):
-        try:
-            body = await request.json()
-        except Exception:
-            return JSONResponse({"error": "Invalid JSON"}, status_code=400)
-        content = body.get("content", "")
-        skill_name = body.get("name", "").strip()
-        if not skill_name:
-            return JSONResponse({"error": "Skill name is required"}, status_code=400)
-        from cliver.skill_manager import validate_skill_name
-
-        errors = validate_skill_name(skill_name)
-        if errors:
-            return JSONResponse({"error": "; ".join(errors)}, status_code=400)
-        work_dir = context.get("work_dir") or Path.cwd()
-        skills_dir = Path(work_dir) / ".cliver" / "skills" / skill_name
-        if skills_dir.exists():
-            return JSONResponse({"error": f"Skill '{skill_name}' already exists"}, status_code=409)
-        error = _validate_skill_content(content)
-        if error:
-            return JSONResponse({"error": error}, status_code=400)
-        try:
-            skills_dir.mkdir(parents=True, exist_ok=True)
-            skill_file = skills_dir / "SKILL.md"
-            skill_file.write_text(content, encoding="utf-8")
-        except Exception as e:
-            return JSONResponse({"error": f"Failed to create: {e}"}, status_code=500)
-        return JSONResponse({"ok": True, "name": skill_name}, status_code=201)
-
-    @require_auth
     async def handle_adapters(request: Request):
         adapters = _get_adapters(context)
         return JSONResponse(adapters)
-
-    @require_auth
-    async def handle_adapter_check(request: Request):
-        """POST /admin/api/adapters/{name}/check — check a single adapter's health."""
-        adapter_name = request.path_params["name"]
-        adapters = _get_adapters(context)
-        for a in adapters:
-            if a.get("name") == adapter_name:
-                is_active = a.get("state") in ("connected", "running")
-                return JSONResponse(
-                    {
-                        "name": adapter_name,
-                        "status": "active" if is_active else "inactive",
-                        "state": a.get("state", "unknown"),
-                        "error": a.get("error", ""),
-                    }
-                )
-        return JSONResponse({"error": f"Adapter '{adapter_name}' not found"}, status_code=404)
 
     @require_auth
     async def handle_agent(request: Request):
@@ -1872,136 +741,9 @@ def get_admin_routes(
         return JSONResponse(info)
 
     @require_auth
-    async def handle_agents_list(request: Request):
-        """GET /admin/api/agents — list configured agents."""
-        from cliver.config import ConfigManager
-
-        config_dir = context.get("config_dir")
-        if not config_dir:
-            return JSONResponse([])
-        cm = ConfigManager(config_dir)
-        cfg = cm.config
-        cfg.ensure_default_agent()
-        result = []
-        for name, ac in cfg.agents.items():
-            entry = ac.model_dump(exclude_none=True)
-            entry["name"] = name
-            entry["is_default"] = name == cfg.default_agent
-            result.append(entry)
-        return JSONResponse(result)
-
-    @require_auth
     async def handle_config(request: Request):
         config = _get_config(context)
         return JSONResponse(config)
-
-    @require_auth
-    async def handle_update_config(request: Request):
-        """Save config changes to config.yaml."""
-        try:
-            data = await request.json()
-        except Exception:
-            return JSONResponse({"error": "Invalid JSON"}, status_code=400)
-        try:
-            err = _save_config_data(context, data)
-            if err:
-                return JSONResponse({"error": err}, status_code=400)
-            return JSONResponse({"status": "saved"})
-        except Exception as e:
-            logger.warning("Failed to save config: %s", e)
-            return JSONResponse({"error": str(e)}, status_code=500)
-
-    # --- Provider connectivity test ---
-
-    @require_auth
-    async def handle_test_provider(request: Request):
-        """POST /admin/api/providers/{provider_name}/test — send a hello to verify connectivity."""
-        import asyncio
-
-        from langchain_core.messages import HumanMessage
-
-        from cliver.config import ConfigManager
-        from cliver.llm.unified_engine import UnifiedInferenceEngine
-
-        provider_name = request.path_params["provider_name"]
-        try:
-            body = await request.json()
-        except Exception:
-            body = {}
-
-        config_dir = context.get("config_dir")
-        if not config_dir:
-            return JSONResponse({"status": "error", "error": "No config directory"}, status_code=500)
-
-        cm = ConfigManager(config_dir)
-        cfg = cm.config
-
-        prov = cfg.providers.get(provider_name)
-        if not prov:
-            return JSONResponse({"status": "error", "error": f"Provider '{provider_name}' not found"}, status_code=404)
-
-        requested_model = body.get("model")
-        model_config = None
-        for mc in cfg.models.values():
-            if mc.provider != provider_name:
-                continue
-            if requested_model and mc.api_model_name != requested_model:
-                continue
-            model_config = mc
-            break
-
-        if not model_config:
-            return JSONResponse(
-                {"status": "error", "error": f"No models configured for provider '{provider_name}'"},
-                status_code=404,
-            )
-
-        try:
-            engine = UnifiedInferenceEngine(model_config)
-            response = await asyncio.wait_for(
-                engine.infer([HumanMessage(content="hello")], tools=None),
-                timeout=15,
-            )
-            text = response.content if hasattr(response, "content") else str(response)
-            if isinstance(text, list):
-                text = " ".join(part.get("text", "") if isinstance(part, dict) else str(part) for part in text)
-            return JSONResponse({"status": "ok", "message": text[:200]})
-        except asyncio.TimeoutError:
-            return JSONResponse({"status": "error", "error": "Connection timed out after 15 seconds"})
-        except Exception as e:
-            return JSONResponse({"status": "error", "error": str(e)})
-
-    # --- Gateway restart ---
-
-    @require_auth
-    async def handle_restart(request: Request):
-        """POST /admin/api/restart — restart the gateway process.
-
-        Spawns a shell background job that waits for the current process to
-        exit, then starts a fresh gateway.  This avoids the flock race where
-        the new process starts before the old one has released the PID file.
-        """
-        import os
-        import signal
-        import subprocess
-        import sys
-
-        pid = os.getpid()
-        py = sys.executable
-        # Shell one-liner: wait for old PID to exit, then start a new gateway.
-        subprocess.Popen(
-            ["sh", "-c", f"while kill -0 {pid} 2>/dev/null; do sleep 0.2; done; exec {py} -m cliver.gateway.main"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-
-        async def _delayed_kill():
-            await asyncio.sleep(0.5)
-            os.kill(pid, signal.SIGTERM)
-
-        asyncio.create_task(_delayed_kill())
-        return JSONResponse({"status": "restarting"})
 
     # --- Chat API (streaming LLM inference for admin portal) ---
 
@@ -2079,9 +821,9 @@ def get_admin_routes(
             )
             return "\n".join(parts)
 
-        # Tool filter — if tool_names is provided (even empty list), filter tools
+        # Tool filter
         _tool_filter = None
-        if tool_names is not None:
+        if tool_names:
             allowed = set(tool_names)
 
             async def _tool_filter(user_input, tools):
@@ -2139,15 +881,6 @@ def get_admin_routes(
                     except Exception as e:
                         logger.warning("Failed to save media: %s", e)
 
-                # Record inference as a session
-                if full_text:
-                    _record_inference(
-                        context,
-                        "admin:chat",
-                        prompt,
-                        full_text,
-                    )
-
                 done_data = {
                     "type": "done",
                     "content": full_text,
@@ -2169,419 +902,34 @@ def get_admin_routes(
             headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
         )
 
-    @require_auth
-    async def handle_save_step_output(request: Request):
-        """Save chat output as a workflow step's output file.
-
-        Accepts JSON body:
-            result: str (required) — text result
-            media_files: list of str (optional) — file paths of generated media
-            output_format: str (optional, default 'md')
-        """
-        wf_name = request.path_params["name"]
-        step_id = request.path_params["step_id"]
-
-        try:
-            body = await request.json()
-        except Exception:
-            return JSONResponse({"error": "Invalid JSON"}, status_code=400)
-
-        result_text = body.get("result", "")
-        media_files = body.get("media_files", [])
-        output_format = body.get("output_format", "md")
-
-        if not result_text and not media_files:
-            return JSONResponse({"error": "No content to save"}, status_code=400)
-
-        try:
-            detail = await _run_in_thread(_get_workflow_detail, context, wf_name)
-            if not detail or "error" in detail:
-                return JSONResponse({"error": "Workflow not found"}, status_code=404)
-
-            outputs_dir = detail.get("outputs_dir") or detail.get("_default_outputs_dir")
-            if not outputs_dir:
-                return JSONResponse({"error": "No outputs directory configured"}, status_code=400)
-
-            from cliver.workflow.compiler import _save_step_output
-
-            _save_step_output(outputs_dir, step_id, result_text, output_format)
-
-            return JSONResponse(
-                {
-                    "status": "saved",
-                    "outputs_dir": outputs_dir,
-                    "step_id": step_id,
-                    "media_files": media_files,
-                }
-            )
-        except Exception as e:
-            logger.error("Failed to save step output: %s", e)
-            return JSONResponse({"error": str(e)}, status_code=500)
-
-    @require_auth
-    async def handle_step_log(request: Request):
-        """Read a step's log file. Returns JSON lines from {outputs_dir}/{step_id}.log.
-
-        Query params:
-            after: int — line offset to read from (for incremental polling)
-        """
-        wf_name = request.path_params["name"]
-        step_id = request.path_params["step_id"]
-        after = int(request.query_params.get("after", "0"))
-
-        detail = await _run_in_thread(_get_workflow_detail, context, wf_name)
-        if not detail or "error" in detail:
-            return JSONResponse({"error": "Workflow not found"}, status_code=404)
-
-        outputs_dir = detail.get("outputs_dir") or detail.get("_default_outputs_dir")
-        if not outputs_dir:
-            return JSONResponse({"lines": [], "total": 0})
-
-        log_path = Path(outputs_dir) / f"{step_id}.log"
-        if not log_path.exists():
-            return JSONResponse({"lines": [], "total": 0})
-
-        try:
-            all_lines = log_path.read_text(encoding="utf-8").splitlines()
-            new_lines = []
-            for line in all_lines[after:]:
-                try:
-                    new_lines.append(json.loads(line))
-                except Exception:
-                    new_lines.append({"type": "raw", "result": line})
-            return JSONResponse({"lines": new_lines, "total": len(all_lines)})
-        except Exception as e:
-            return JSONResponse({"error": str(e)}, status_code=500)
-
-    @require_auth
-    async def handle_run_step(request: Request):
-        """Run a single workflow step with context from existing outputs.
-
-        Reads prior step outputs from the outputs directory, renders the
-        step prompt with Jinja2, streams LLM inference via SSE, and saves
-        the result to the outputs directory.
-        """
-        wf_name = request.path_params["name"]
-        step_id = request.path_params["step_id"]
-
-        gateway = context.get("gateway")
-        if not gateway or not getattr(gateway, "_agent_core", None):
-            return JSONResponse({"error": "Agent not available"}, status_code=503)
-
-        executor = gateway._agent_core
-
-        # Load workflow definition
-        detail = await _run_in_thread(_get_workflow_detail, context, wf_name)
-        if not detail or "error" in detail:
-            return JSONResponse({"error": "Workflow not found"}, status_code=404)
-
-        steps = detail.get("steps", [])
-        step = None
-        for s in steps:
-            if s.get("id") == step_id:
-                step = s
-                break
-        if not step:
-            return JSONResponse({"error": f"Step '{step_id}' not found"}, status_code=404)
-
-        outputs_dir = detail.get("outputs_dir") or detail.get("_default_outputs_dir", "")
-        inputs = detail.get("inputs") or {}
-
-        # Build execution context from existing output files on disk
-        step_outputs = {}
-        if outputs_dir:
-            from pathlib import Path as _P
-
-            _text_exts = {".md", ".json", ".txt", ".yaml"}
-            _media_exts = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".mp3", ".wav", ".mp4"}
-            out_path = _P(outputs_dir)
-            if out_path.exists():
-                # Collect all media files in the directory
-                all_media = [f for f in out_path.iterdir() if f.is_file() and f.suffix in _media_exts]
-
-                # Read text output files (one per step)
-                for f in out_path.iterdir():
-                    if not f.is_file() or f.suffix not in _text_exts:
-                        continue
-                    sid = f.stem
-                    if sid == step_id:
-                        continue
-                    try:
-                        result_text = f.read_text(encoding="utf-8")
-                    except Exception:
-                        continue
-                    # Match media files: prefix matches step ID (e.g., step_id_timestamp_0.png)
-                    media = [str(m) for m in all_media if m.stem.startswith(sid)]
-                    step_outputs[sid] = {
-                        "outputs": {"result": result_text, "media_files": media},
-                        "status": "completed",
-                    }
-
-        # Render prompt with ref substitution
-        from cliver.workflow.ref_resolver import resolve_refs
-
-        raw_prompt = step.get("prompt", "")
-        ref_state = {"inputs": inputs, "steps": step_outputs}
-        rendered_prompt = resolve_refs(raw_prompt, ref_state)
-
-        model = step.get("model") or detail.get("_default_model") or executor.default_model
-
-        # Build system message from agent config
-        system_message = None
-        agent_name = step.get("agent")
-        agents = detail.get("agents") or {}
-        if agent_name and agent_name in agents:
-            agent_cfg = agents[agent_name]
-            parts = []
-            if agent_cfg.get("role"):
-                parts.append("You are: " + agent_cfg["role"])
-            if agent_cfg.get("instructions"):
-                parts.append(agent_cfg["instructions"])
-            if agent_cfg.get("system_message"):
-                parts.append(agent_cfg["system_message"])
-            if parts:
-                system_message = "\n\n".join(parts)
-
-        def _sys_appender():
-            p = [
-                "You are executing a workflow step autonomously. "
-                "Do NOT ask for user confirmation or clarification. "
-                "Make the best decision based on the information available and proceed. "
-                "Do NOT use the Ask tool. Complete the task directly. "
-                "After a tool call, summarize the result briefly — do NOT repeat the tool input.\n\n"
-                "ALL output files (text, images, audio, video, code, data) MUST be saved "
-                "to the designated outputs directory provided below. Do NOT use any other directory. "
-                "Reference files from prior steps using the paths listed under Available Files."
-            ]
-
-            overview = detail.get("overview")
-            if overview:
-                p.append(f"# Workflow Overview\n\n{overview}")
-
-            if system_message:
-                p.append(system_message)
-
-            # Outputs directory and prior step files
-            file_section = []
-            if outputs_dir:
-                file_section.append(f"**Outputs directory:** `{outputs_dir}`")
-                file_section.append("Save ALL generated files to this directory.")
-            prior_files = []
-            for sid, sdata in step_outputs.items():
-                s_out = sdata.get("outputs", {})
-                if s_out.get("media_files"):
-                    for f in s_out["media_files"]:
-                        prior_files.append(f"- `{f}` (from step '{sid}')")
-            if prior_files:
-                file_section.append("\n**Files from prior steps:**")
-                file_section.extend(prior_files)
-            if file_section:
-                p.append("# Output Directory & Available Files\n\n" + "\n".join(file_section))
-
-            # Workflow inputs
-            if inputs:
-                p.append("# Workflow Inputs\n\n" + "\n".join(f"- **{k}**: {v}" for k, v in inputs.items()))
-
-            return "\n\n".join(p)
-
-        # Tool filter from agent config
-        _tf = None
-        if agent_name and agent_name in agents:
-            tools = agents[agent_name].get("tools")
-            if tools:
-                allowed = set(tools)
-
-                async def _tf(_ui, t):
-                    return [x for x in t if x.name in allowed]
-
-        # Server mode
-        from cliver.permissions import PermissionMode
-
-        if executor.permission_manager:
-            executor.permission_manager.set_mode(PermissionMode.YOLO)
-        executor.on_permission_prompt = lambda tool, args: "allow"
-
-        output_format = step.get("output_format", "md")
-
-        # Log events to file + forward to SSE queue
-        event_queue = asyncio.Queue()
-        step_logger = None
-        if outputs_dir:
-            from cliver.workflow.compiler import create_step_logger
-
-            step_logger, _ = create_step_logger(outputs_dir, step_id)
-
-        def _event_handler(event):
-            from cliver.tool_events import ToolEventType
-
-            if step_logger:
-                step_logger(event)
-
-            evt = {"tool": event.tool_name}
-            if event.event_type == ToolEventType.TOOL_START:
-                evt["type"] = "tool_start"
-                if event.args:
-                    summary = {}
-                    for k, v in event.args.items():
-                        val = str(v)
-                        summary[k] = val[:200] + "..." if len(val) > 200 else val
-                    evt["args"] = summary
-            elif event.event_type == ToolEventType.TOOL_END:
-                evt["type"] = "tool_end"
-                if event.duration_ms:
-                    evt["duration_ms"] = round(event.duration_ms)
-                if event.result:
-                    evt["result"] = event.result[:500]
-            elif event.event_type == ToolEventType.TOOL_ERROR:
-                evt["type"] = "tool_error"
-                evt["error"] = event.error
-            else:
-                return
-            try:
-                event_queue.put_nowait(evt)
-            except Exception:
-                pass
-
-        executor.on_tool_event = _event_handler
-
-        async def generate():
-            full_text = ""
-            stream_media = []
-            try:
-                async for chunk in executor.stream_user_input(
-                    user_input=rendered_prompt,
-                    model=model,
-                    system_message_appender=_sys_appender,
-                    filter_tools=_tf,
-                    outputs_dir=outputs_dir,
-                ):
-                    # Drain any queued tool events
-                    while not event_queue.empty():
-                        try:
-                            evt = event_queue.get_nowait()
-                            yield f"data: {json.dumps(evt)}\n\n".encode()
-                        except asyncio.QueueEmpty:
-                            break
-
-                    if hasattr(chunk, "content") and chunk.content:
-                        text = str(chunk.content)
-                        full_text += text
-                        data = json.dumps({"type": "chunk", "content": text})
-                        yield f"data: {data}\n\n".encode()
-                    chunk_kwargs = getattr(chunk, "additional_kwargs", None) or {}
-                    if "media_content" in chunk_kwargs:
-                        stream_media.extend(chunk_kwargs["media_content"])
-
-                # Drain remaining tool events
-                while not event_queue.empty():
-                    try:
-                        evt = event_queue.get_nowait()
-                        yield f"data: {json.dumps(evt)}\n\n".encode()
-                    except asyncio.QueueEmpty:
-                        break
-
-                # Record inference as a session
-                if full_text:
-                    _record_inference(
-                        context,
-                        f"admin:workflow:{wf_name}:{step_id}",
-                        rendered_prompt,
-                        full_text,
-                    )
-
-                # Save output to disk
-                media_files = []
-                if outputs_dir and full_text:
-                    from cliver.workflow.compiler import _save_step_output
-
-                    _save_step_output(outputs_dir, step_id, full_text, output_format)
-
-                # Save media from ctx.generated_media (via stream chunks)
-                if outputs_dir and stream_media:
-                    try:
-                        from cliver.media_handler import MultimediaResponse, MultimediaResponseHandler
-
-                        handler = MultimediaResponseHandler(save_directory=outputs_dir)
-                        multimedia = MultimediaResponse(media_content=stream_media)
-                        media_files = handler.save_media_content(multimedia, prefix=step_id)
-                    except Exception as e:
-                        logger.warning("Failed to save step media: %s", e)
-
-                done = json.dumps(
-                    {
-                        "type": "done",
-                        "content": full_text,
-                        "media_files": media_files,
-                        "outputs_dir": outputs_dir,
-                    }
-                )
-                yield f"data: {done}\n\n".encode()
-
-            except Exception as e:
-                logger.error("Step execution error: %s", e)
-                error = json.dumps({"type": "error", "message": str(e)})
-                yield f"data: {error}\n\n".encode()
-
-        return StreamingResponse(
-            generate(),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
-        )
-
     # --- Return routes ---
 
     return [
-        # Auth
+        # Root redirect
+        Route("/admin", handle_admin_root),
+        Route("/admin/", handle_admin_root),
+        Route("/admin/login", handle_login_page),
         Route("/admin/api/login", handle_login_submit, methods=["POST"]),
         Route("/admin/logout", handle_logout),
+        # Detail page routes (before catch-all)
+        Route("/admin/tasks/{name}", handle_task_detail_page),
+        # Catch-all section route
+        Route("/admin/{page}", handle_admin_page),
         # API routes
         Route("/admin/api/status", handle_status),
         Route("/admin/api/tasks", handle_tasks),
-        Route("/admin/api/tasks", handle_create_task, methods=["POST"]),
         Route("/admin/api/tasks/{name}", handle_task_detail_api),
-        Route("/admin/api/tasks/{name}", handle_update_task, methods=["PUT"]),
         Route("/admin/api/tasks/{name}/run", handle_run_task, methods=["POST"]),
         Route("/admin/api/tasks/{name}", handle_delete_task, methods=["DELETE"]),
         Route("/admin/api/sessions/{source}", handle_sessions_by_source),
         Route("/admin/api/sessions/{source}/{id}", handle_session_turns),
         Route("/admin/api/sessions/{source}/{id}", handle_delete_session, methods=["DELETE"]),
         Route("/admin/api/browse", handle_browse_files),
-        Route("/admin/api/workflow-executions", handle_all_workflow_executions),
-        Route("/admin/api/workflows", handle_create_workflow, methods=["POST"]),
-        Route("/admin/api/workflows", handle_workflows),
-        # Step-level routes (before catch-all {name} routes)
-        Route("/admin/api/workflows/{name}/steps/{step_id}/output", handle_save_step_output, methods=["POST"]),
-        Route("/admin/api/workflows/{name}/steps/{step_id}/log", handle_step_log),
-        Route("/admin/api/workflows/{name}/steps/{step_id}/run", handle_run_step, methods=["POST"]),
-        Route("/admin/api/workflows/{name}/steps/{step_id}/resume", handle_resume_from_step, methods=["POST"]),
-        Route("/admin/api/workflows/{name}/executions/{tid}", handle_execution_status),
-        Route("/admin/api/workflows/{name}/executions/{tid}", handle_delete_execution, methods=["DELETE"]),
-        Route("/admin/api/workflows/{name}/executions", handle_workflow_executions),
-        Route("/admin/api/workflows/{name}/run", handle_run_workflow, methods=["POST"]),
-        Route("/admin/api/workflows/{name}/stop", handle_stop_workflow, methods=["POST"]),
-        Route("/admin/api/workflows/{name}", handle_workflow_detail_api),
-        Route("/admin/api/workflows/{name}", handle_update_workflow, methods=["PUT"]),
-        Route("/admin/api/workflows/{name}", handle_delete_workflow, methods=["DELETE"]),
-        Route("/admin/api/media/{path:path}", handle_workflow_media),
-        Route("/admin/api/skills/{name}", handle_skill_detail_api),
-        Route("/admin/api/skills/{name}", handle_update_skill, methods=["PUT"]),
-        Route("/admin/api/skills", handle_create_skill, methods=["POST"]),
+        Route("/admin/static/{path:path}", handle_static),
         Route("/admin/api/skills", handle_skills),
-        Route("/admin/api/adapters/{name}/check", handle_adapter_check, methods=["POST"]),
         Route("/admin/api/adapters", handle_adapters),
         Route("/admin/api/agent", handle_agent),
-        Route("/admin/api/agents", handle_agents_list),
         Route("/admin/api/config", handle_config),
-        Route("/admin/api/config", handle_update_config, methods=["PUT"]),
-        Route("/admin/api/restart", handle_restart, methods=["POST"]),
-        Route("/admin/api/providers/{provider_name}/test", handle_test_provider, methods=["POST"]),
         Route("/admin/api/models", handle_models),
         Route("/admin/api/chat", handle_chat, methods=["POST"]),
-        # SPA static assets
-        Route("/admin/assets/{path:path}", handle_spa_assets),
-        # SPA catch-all (MUST be after all API routes)
-        Route("/admin/login", handle_spa),
-        Route("/admin/{path:path}", handle_spa),
-        Route("/admin", handle_spa),
-        Route("/admin/", handle_spa),
     ]

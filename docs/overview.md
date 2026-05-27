@@ -5,13 +5,13 @@ description: Introduction to CLIver - your powerful command-line and library too
 
 # CLIver Overview
 
-CLIver is a **general-purpose AI agent** — it is not bound to coding or any specific domain. Through customizable system prompts, skills, workflows, and MCP integrations, CLIver adapts to whatever task you throw at it.
+CLIver is a **general-purpose AI agent** — it is not bound to coding or any specific domain. Through customizable system prompts, skills, and MCP integrations, CLIver adapts to whatever task you throw at it.
 
 ## Philosophy
 
-**General-purpose by design.** Most AI agents are built for a specific field (coding, customer support, data analysis). CLIver takes a different approach — it provides a flexible foundation that you specialize through configuration: skills teach it new domains, workflows orchestrate multi-step processes, and MCP servers connect it to external systems.
+**General-purpose by design.** Most AI agents are built for a specific field (coding, customer support, data analysis). CLIver takes a different approach — it provides a flexible foundation that you specialize through configuration: skills teach it new domains and MCP servers connect it to external systems.
 
-**Safe and controlled by default.** Autonomous agents are powerful but can behave unpredictably. CLIver addresses this with a layered permission system that governs every tool execution and a structured workflow engine that keeps complex tasks focused and auditable. You decide what the agent can do, and it stays within those boundaries.
+**Safe and controlled by default.** Autonomous agents are powerful but can behave unpredictably. CLIver addresses this with a layered permission system that governs every tool execution. You decide what the agent can do, and it stays within those boundaries.
 
 ## Why CLIver Over Alternatives?
 
@@ -21,20 +21,20 @@ CLIver is a **general-purpose AI agent** — it is not bound to coding or any sp
 | Domain | General-purpose | Coding | Coding | Coding |
 | Embeddable API | Yes (`AgentCore`) | No | No | No |
 | Permission system | 3-tier with resource scoping | Basic | N/A | N/A |
-| Workflow engine | LangGraph-powered | No | No | No |
+| Task scheduling | Cron-based gateway | No | No | No |
 | Gateway / Chat integrations | Telegram, Discord, Slack, Feishu | No | No | No |
 | Open source | Apache 2.0 | Proprietary | Proprietary | Apache 2.0 |
 
-CLIver is not a coding assistant — it is a **general-purpose agent framework** that happens to also be good at coding. If you need an AI that can manage infrastructure, automate workflows, conduct research, AND write code — all through the same interface — CLIver is built for that.
+CLIver is not a coding assistant — it is a **general-purpose agent framework** that happens to also be good at coding. If you need an AI that can manage infrastructure, conduct research, AND write code — all through the same interface — CLIver is built for that.
 
 ## Design Goals
 
 CLIver is built as a **dual-layer system**:
 
-- **API Layer** (`AgentCore`): The core engine — embeddable in any Python application. It handles LLM inference, tool calling, Re-Act loops, permissions, and workflow execution with no dependency on CLI concerns (no terminal, no stdin, no prompt_toolkit). This is the layer you use when integrating CLIver as a library.
+- **API Layer** (`AgentCore`): The core engine — embeddable in any Python application. It handles LLM inference, tool calling, Re-Act loops, and permissions with no dependency on CLI concerns (no terminal, no stdin, no prompt_toolkit). This is the layer you use when integrating CLIver as a library.
 - **CLI Layer** (`Cliver` class + Click commands): A thin interactive shell on top of `AgentCore` for terminal users. Provides Rich-formatted output, prompt_toolkit input, and slash commands.
 
-Any feature built at the API layer (permissions, workflows, skills, memory) works identically whether invoked from the CLI or from your own Python code.
+Any feature built at the API layer (permissions, skills, memory) works identically whether invoked from the CLI or from your own Python code.
 
 ## Key Features
 
@@ -46,8 +46,7 @@ Any feature built at the API layer (permissions, workflows, skills, memory) work
 - **Skills**: LLM-driven [skill activation](skills.md) from SKILL.md files for specialized tasks
 - **Memory & Identity**: [Agent memory and identity profiles](memory-identity.md) with multi-agent isolation
 - **Session Management**: [Conversation history](session-management.md) with LLM-based compression and session persistence
-- **Configurable Workflows**: Define and execute complex workflows using YAML configuration files
-- **Task Scheduling**: Schedule workflows with cron expressions
+- **Task Scheduling**: Schedule tasks with cron expressions
 - **Token Usage**: Track and view token usage statistics per model and session
 - **Extensible Architecture**: Easy to extend with custom commands and backends
 
@@ -74,7 +73,6 @@ graph TD
 
     C --> G[LLM Inference Engines]
     C --> H[MCP & Builtin Tools Integration]
-    C --> I[Workflow Engine]
     C --> N[Permission Manager]
     C --> O[Agent Profile]
 
@@ -95,7 +93,6 @@ graph TD
     style D fill:#f3e5f5
     style G fill:#e8f5e8
     style H fill:#e8f5e8
-    style I fill:#e8f5e8
     style O fill:#fff3e0
 ```
 

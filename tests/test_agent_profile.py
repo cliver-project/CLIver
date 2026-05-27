@@ -22,13 +22,11 @@ class TestDirectoryStructure:
         assert profile.identity_file == tmp_path / "identity.md"
         assert profile.tasks_dir == tmp_path / "tasks"
         assert profile.sessions_dir == tmp_path / "sessions"
-        assert profile.workflows_dir == tmp_path / "workflows"
         assert profile.gateway_db == tmp_path / "gateway.db"
 
     def test_ensure_dirs_creates_config_dir(self, profile, tmp_path):
         profile.ensure_dirs()
         assert tmp_path.exists()
-        assert profile.workflows_dir.exists()
 
 
 # ---------------------------------------------------------------------------
