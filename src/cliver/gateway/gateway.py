@@ -27,7 +27,7 @@ from cliver.gateway.platform_adapter import (
     PlatformAdapter,
     split_message,
 )
-from cliver.gateway.scheduler import CronScheduler
+from cliver.gateway.scheduler import Scheduler
 from cliver.gateway.task_store import TaskStore
 from cliver.llm.new_agent import AgentCore as NewAgentCore
 from cliver.mcp import MCPClient
@@ -84,12 +84,11 @@ class Gateway:
         self._mcp_client: Optional[MCPClient] = None
         self._builtin_tools: list = []
         self._agents: dict[str, Agent] = {}
-        self._scheduler: Optional[CronScheduler] = None
+        self._scheduler: Optional[Scheduler] = None
         self._run_store: Optional[TaskStore] = None
         self._task_manager: Optional[TaskManager] = None
         self._adapter_manager: Optional[AdapterManager] = None
         self._session_manager: Optional[SessionManager] = None
-        self._cron_task: Optional[asyncio.Task] = None
         self._tasks_run = 0
         self._start_time = 0.0
         self._thread_queue = ThreadQueue()
@@ -273,20 +272,23 @@ class Gateway:
 
         # Shared resources are initialized in init() before fork
 
-        # Cron scheduler
+        # Scheduler (APScheduler)
         try:
             agent_profile = CliverProfile(self.config_dir)
             agent_profile.ensure_dirs()
             self._run_store = TaskStore(agent_profile.db_path)
             self._task_manager = TaskManager(agent_profile.tasks_dir, self._run_store)
 
-            self._scheduler = CronScheduler(
+            self._scheduler = Scheduler(
                 task_manager=self._task_manager,
                 run_store=self._run_store,
                 run_task_fn=self._run_task,
+                db_path=agent_profile.db_path,
             )
             if self._scheduler:
                 self._scheduler.validate_tasks()
+                self._scheduler.sync_tasks()
+                self._scheduler.start()
         except Exception as e:
             logger.error(f"Failed to initialize scheduler: {e}")
 
@@ -294,7 +296,8 @@ class Gateway:
         loop = asyncio.get_running_loop()
         loop.set_exception_handler(self._asyncio_exception_handler)
 
-        self._cron_task = asyncio.create_task(self._cron_loop())
+        # Background cleanup loop
+        asyncio.create_task(self._cleanup_loop(), name="cleanup-loop")
 
         # Adapters
         try:
@@ -328,8 +331,8 @@ class Gateway:
         """Lifecycle hook: stop adapters, close DB, release flock."""
         logger.info("Gateway stopping")
 
-        if self._cron_task and not self._cron_task.done():
-            self._cron_task.cancel()
+        if self._scheduler:
+            self._scheduler.shutdown(wait=False)
 
         if self._adapter_manager:
             try:
@@ -369,21 +372,12 @@ class Gateway:
         """Async wrapper for _get_status (used by admin API)."""
         return self._get_status()
 
-    async def _cron_loop(self) -> None:
-        """Background task: tick the scheduler every 60 seconds."""
+    async def _cleanup_loop(self) -> None:
+        """Background task: periodic cleanup of stale session locks."""
         while True:
             try:
-                if self._scheduler:
-                    executed = await self._scheduler.tick()
-                    if executed > 0:
-                        self._tasks_run += executed
-                        logger.info(f"Scheduler: executed {executed} task(s)")
-            except asyncio.CancelledError:
-                return
-            except Exception as e:
-                logger.error(f"Scheduler tick error: {e}")
-            try:
-                await asyncio.sleep(60)
+                await asyncio.sleep(3600)
+                self._thread_queue.cleanup(max_idle_seconds=3600)
             except asyncio.CancelledError:
                 return
 

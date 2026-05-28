@@ -1,16 +1,21 @@
-"""Cron scheduler for the gateway daemon.
+"""Task scheduler backed by APScheduler + SQLAlchemy.
 
-Ticks every 60 seconds, checks all tasks with a schedule field,
-and runs any that are due. "Last run" is derived from the task_runs
-table in cliver.db — no separate state file needed.
+Jobs are persisted in cliver.db via SQLAlchemyJobStore.
+Supports one-shot (run_at) and recurring (cron) tasks.
 """
 
-import asyncio
-import logging
-from datetime import datetime, timezone
-from typing import Any, Callable, Coroutine, List
+from __future__ import annotations
 
-from croniter import croniter
+import logging
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Callable, Coroutine
+
+from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
+from sqlalchemy import create_engine
 
 from cliver.gateway.task_store import TaskStore
 from cliver.task_manager import TaskDefinition, TaskManager
@@ -20,11 +25,11 @@ logger = logging.getLogger(__name__)
 RunTaskFn = Callable[[TaskDefinition], Coroutine[Any, Any, None]]
 
 
-class CronScheduler:
-    """Evaluates cron schedules and dispatches due tasks.
+class Scheduler:
+    """Wraps APScheduler with job persistence in cliver.db.
 
-    Uses TaskStore to determine when each task last ran —
-    no separate state file is needed.
+    Tasks are synced on startup via sync_tasks(). Every registered task
+    gets a scheduled job — one-shot (run_at) or recurring (cron).
     """
 
     def __init__(
@@ -32,147 +37,129 @@ class CronScheduler:
         task_manager: TaskManager,
         run_store: TaskStore,
         run_task_fn: RunTaskFn,
+        db_path: Path,
     ):
-        self.task_manager = task_manager
-        self.run_store = run_store
-        self.run_task_fn = run_task_fn
+        self._task_manager = task_manager
+        self._run_store = run_store
+        self._run_task_fn = run_task_fn
 
-    def find_due_tasks(self) -> List[TaskDefinition]:
-        """Return tasks whose cron schedule or run_at datetime is due."""
-        now = datetime.now(timezone.utc)
-        due = []
+        engine = create_engine(f"sqlite:///{db_path}")
+        jobstores = {"default": SQLAlchemyJobStore(engine=engine)}
+        self._scheduler = AsyncIOScheduler(jobstores=jobstores)
 
-        for task in self.task_manager.list_tasks():
-            # One-shot: run_at datetime
-            if task.run_at:
-                try:
-                    scheduled = datetime.fromisoformat(task.run_at)
-                    if scheduled.tzinfo is None:
-                        from cliver.util import get_effective_timezone
+    def start(self) -> None:
+        self._scheduler.start()
+        logger.info("Scheduler started")
 
-                        scheduled = scheduled.replace(tzinfo=get_effective_timezone())
-                    scheduled = scheduled.astimezone(timezone.utc)
-                    if scheduled <= now:
-                        last_run = self.run_store.get_last_run_time(task.name) or 0.0
-                        if last_run < scheduled.timestamp():
-                            due.append(task)
-                except ValueError as e:
-                    logger.warning(f"Invalid run_at for task '{task.name}': {e}")
-                continue
+    def shutdown(self, wait: bool = True) -> None:
+        self._scheduler.shutdown(wait=wait)
+        logger.info("Scheduler stopped")
 
-            # Recurring: cron schedule
-            if not task.schedule:
-                continue
+    # ── Task sync ───────────────────────────────────────────
 
-            # Auto-correct: if schedule is a datetime, treat as run_at
+    def sync_tasks(self) -> None:
+        """Sync all configured tasks to APScheduler jobs.
+
+        Adds jobs for new tasks, removes jobs for deleted tasks,
+        and updates jobs for modified tasks.
+        """
+        existing_jobs = {j.id for j in self._scheduler.get_jobs()}
+        configured_tasks = {t.name for t in self._task_manager.list_tasks()}
+
+        # Remove jobs for deleted tasks
+        for job_id in existing_jobs - configured_tasks:
+            self._scheduler.remove_job(job_id)
+            logger.info("Removed job for deleted task '%s'", job_id)
+
+        # Add or update jobs for existing tasks
+        for task in self._task_manager.list_tasks():
+            self._add_or_update_job(task)
+
+        # Validate task configs
+        for task in self._task_manager.list_tasks():
+            if not task.prompt or not task.prompt.strip():
+                logger.warning("Task '%s' has an empty prompt", task.name)
+
+    def _add_or_update_job(self, task: TaskDefinition) -> None:
+        """Add or replace an APScheduler job for a single task."""
+        trigger = self._build_trigger(task)
+        if trigger is None:
+            self._scheduler.remove_job(task.name)
+            return
+
+        task_name = task.name
+
+        async def run():
+            t = self._task_manager.get_task(task_name)
+            if not t:
+                logger.warning("Task '%s' not found — removing stale job", task_name)
+                self._scheduler.remove_job(task_name)
+                return
             try:
-                scheduled = datetime.fromisoformat(task.schedule)
-                if scheduled.tzinfo is None:
+                await self._run_task_fn(t)
+            except Exception as e:
+                logger.error("Task '%s' failed: %s", task_name, e)
+
+        self._scheduler.add_job(
+            func=run,
+            trigger=trigger,
+            id=task_name,
+            name=task_name,
+            replace_existing=True,
+        )
+
+    def _build_trigger(self, task: TaskDefinition):
+        """Build an APScheduler trigger for a task.  Returns None if not schedulable."""
+        # One-shot
+        if task.run_at:
+            try:
+                run_time = datetime.fromisoformat(task.run_at)
+                if run_time.tzinfo is None:
                     from cliver.util import get_effective_timezone
 
-                    scheduled = scheduled.replace(tzinfo=get_effective_timezone())
-                scheduled = scheduled.astimezone(timezone.utc)
-                if scheduled <= now:
-                    last_run = self.run_store.get_last_run_time(task.name) or 0.0
-                    if last_run < scheduled.timestamp():
-                        due.append(task)
-                continue
-            except ValueError:
-                pass
+                    run_time = run_time.replace(tzinfo=get_effective_timezone())
+                return DateTrigger(run_date=run_time)
+            except ValueError as e:
+                logger.warning("Invalid run_at for task '%s': %s", task.name, e)
+                return None
 
-            last_run = self.run_store.get_last_run_time(task.name) or 0.0
+        # Cron
+        if task.schedule:
             try:
-                cron = croniter(task.schedule, datetime.fromtimestamp(last_run, tz=timezone.utc))
-                next_run = cron.get_next(datetime)
-                if next_run <= now:
-                    due.append(task)
+                return CronTrigger.from_crontab(task.schedule)
             except (ValueError, KeyError) as e:
-                logger.warning(f"Invalid cron expression for task '{task.name}': {e}")
+                logger.warning("Invalid cron for task '%s': %s", task.name, e)
+                return None
 
-        return due
+        return None
 
-    async def tick(self) -> int:
-        """Run one scheduler tick: find due tasks and execute them.
-
-        Returns the number of tasks executed.
-        """
-        due_tasks = self.find_due_tasks()
-        if not due_tasks:
-            return 0
-
-        tasks = []
-        for task in due_tasks:
-            logger.info(f"Cron: dispatching task '{task.name}'")
-            coro = self._run_one(task)
-            tasks.append(asyncio.create_task(coro, name=f"cron:{task.name}"))
-
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        for task_def, result in zip(due_tasks, results, strict=False):
-            if isinstance(result, Exception):
-                logger.error(f"Cron: task '{task_def.name}' failed: {result}")
-
-        return len(due_tasks)
-
-    async def _run_one(self, task: TaskDefinition) -> None:
-        """Run a single task in its own asyncio.Task for ContextVar isolation."""
-        try:
-            await self.run_task_fn(task)
-        except Exception as e:
-            logger.error(f"Cron: task '{task.name}' failed: {e}")
-            raise
+    # ── Validation ──────────────────────────────────────────
 
     def validate_tasks(self) -> None:
-        """Log warnings for tasks with invalid configurations.
-
-        Checks:
-        - Invalid cron expressions
-        - Empty prompts
-        - Tasks with schedule but no prompt
-        """
-        for task in self.task_manager.list_tasks():
+        """Validate cron expressions, run_at datetimes, and empty prompts."""
+        for task in self._task_manager.list_tasks():
             if not task.prompt or not task.prompt.strip():
-                logger.warning(
-                    "Task '%s' has an empty prompt — it will not produce useful results",
-                    task.name,
-                )
-
+                logger.warning("Task '%s' has an empty prompt", task.name)
             if task.schedule:
                 try:
-                    croniter(task.schedule)
+                    CronTrigger.from_crontab(task.schedule)
                 except (ValueError, KeyError):
-                    logger.warning(
-                        "Task '%s' has invalid cron expression '%s' — it will never be scheduled",
-                        task.name,
-                        task.schedule,
-                    )
-
+                    logger.warning("Task '%s' has invalid cron '%s'", task.name, task.schedule)
             if task.run_at:
                 try:
                     datetime.fromisoformat(task.run_at)
                 except ValueError:
-                    logger.warning(
-                        "Task '%s' has invalid run_at '%s' — it will never be scheduled",
-                        task.name,
-                        task.run_at,
-                    )
+                    logger.warning("Task '%s' has invalid run_at '%s'", task.name, task.run_at)
 
     def cleanup_orphan_runs(self) -> int:
-        """Delete run records for tasks not registered in the database.
+        """Delete run records for tasks not in the database."""
+        registered = {r["name"] for r in self._run_store.list_registered_tasks()}
+        recorded = set(self._run_store.get_all_task_names())
+        orphans = recorded - registered
 
-        Returns the number of orphan records deleted.
-        """
-        registered_names = {r["name"] for r in self.run_store.list_registered_tasks()}
-        recorded_names = set(self.run_store.get_all_task_names())
-        orphans = recorded_names - registered_names
-
-        total_deleted = 0
+        total = 0
         for name in orphans:
-            deleted = self.run_store.delete_runs(name)
-            total_deleted += deleted
-            logger.info(
-                "Cleaned up %d orphan run record(s) for unregistered task '%s'",
-                deleted,
-                name,
-            )
-
-        return total_deleted
+            deleted = self._run_store.delete_runs(name)
+            total += deleted
+            logger.info("Cleaned up %d orphan run record(s) for unregistered task '%s'", deleted, name)
+        return total
