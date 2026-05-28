@@ -1,126 +1,131 @@
-"""Agent abstraction layer for CLIver.
+"""Agent — a configured AgentCore with retry/timeout logic.
 
-Defines the Agent ABC and unified result types used by all agent backends.
+An Agent wraps an AgentCore instance with a persona (system prompt)
+and operational concerns (retries, timeouts) from AgentConfig.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, AsyncIterator, List, Optional
+from typing import TYPE_CHECKING, AsyncIterator
+
+from cliver.media import MediaContent
+from cliver.messages import CLIverMessageChunk
+from cliver.provider import CLIverResponse
 
 if TYPE_CHECKING:
     from cliver.config import AgentConfig
-    from cliver.llm.rate_limiter import RateLimiter
+    from cliver.llm.new_agent import AgentCore
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class Artifact:
-    """A file produced by an agent execution."""
+class Agent:
+    """A configured AgentCore with retry/timeout logic.
 
-    path: str
-    media_type: str
-    size: Optional[int] = None
-    description: str = ""
+    One Agent per persona — wraps an AgentCore and adds:
+    - System prompt from config (role, system_prompt, skills)
+    - Retry on failure (config.max_retries)
+    - Timeout (config.timeout_s)
 
-
-@dataclass
-class AgentResult:
-    """Unified result returned by all agent types."""
-
-    text: str
-    status: str  # "completed" | "error" | "timeout"
-    artifacts: List[Artifact] = field(default_factory=list)
-    duration_ms: int = 0
-    model: Optional[str] = None
-    token_usage: Optional[dict] = None
-    error: Optional[str] = None
-    raw: Optional[dict] = None
-
-
-@dataclass
-class AgentChunk:
-    """Incremental chunk for streaming agent output."""
-
-    text: str = ""
-    chunk_type: str = "text"  # "text" | "status" | "artifact" | "done"
-    artifact: Optional[Artifact] = None
-    final_result: Optional[AgentResult] = None
-
-
-class Agent(ABC):
-    """Abstract base for all agent types."""
+    Return types are the same as AgentCore — no custom result wrappers.
+    """
 
     def __init__(
         self,
         name: str,
         config: "AgentConfig",
-        rate_limiter: Optional["RateLimiter"] = None,
-        rate_limit_key: Optional[str] = None,
-        **kwargs,
+        agent_core: "AgentCore",
     ):
         self.name = name
         self.config = config
-        self._rate_limiter = rate_limiter
-        self._rate_limit_key = rate_limit_key
+        self._core = agent_core
 
-    async def initialize(self, context: dict = None) -> None:  # noqa: B027
-        pass
+    # ── Public API ────────────────────────────────────────────
 
-    async def run(
+    async def chat(
         self,
         prompt: str,
         *,
-        images: List[str] = None,
-        files: List[str] = None,
-        timeout_s: int = None,
+        media: list[MediaContent] | None = None,
         **kwargs,
-    ) -> AgentResult:
-        if self._rate_limiter and self._rate_limit_key:
-            await self._rate_limiter.wait(self._rate_limit_key)
-
-        effective_timeout = timeout_s or self.config.timeout_s
+    ) -> CLIverResponse:
+        """Run with retry/timeout.  Returns CLIverResponse (same as AgentCore)."""
+        system_prompt = self._build_system_prompt()
+        timeout = self.config.timeout_s or 300
         last_error = None
 
         for attempt in range(1 + self.config.max_retries):
             try:
                 return await asyncio.wait_for(
-                    self._do_run(prompt, images=images, files=files, **kwargs),
-                    timeout=effective_timeout,
+                    self._core.chat(
+                        user_input=prompt,
+                        system_prompt=system_prompt,
+                        media=media,
+                        **kwargs,
+                    ),
+                    timeout=timeout,
                 )
             except asyncio.TimeoutError:
-                last_error = f"Timeout after {effective_timeout}s (attempt {attempt + 1})"
+                last_error = f"Timeout after {timeout}s (attempt {attempt + 1})"
+                logger.warning("%s: %s", self.name, last_error)
             except Exception as e:
                 last_error = str(e)
                 if attempt < self.config.max_retries:
+                    logger.warning("%s: retry %d/%d: %s", self.name, attempt + 1, self.config.max_retries, e)
                     continue
                 break
 
-        is_timeout = last_error and "Timeout" in last_error
-        return AgentResult(
-            text="",
-            status="timeout" if is_timeout else "error",
-            error=last_error,
-            duration_ms=int(effective_timeout * 1000) if is_timeout else 0,
+        return CLIverResponse(
+            message=__import__("cliver.messages").messages.CLIverMessage(
+                role="assistant",
+                content=f"Error: {last_error}",
+            ),
         )
 
-    @abstractmethod
-    async def _do_run(self, prompt: str, **kwargs) -> AgentResult: ...
-
-    @abstractmethod
     async def stream(
         self,
         prompt: str,
         *,
-        images: List[str] = None,
-        files: List[str] = None,
-        timeout_s: int = None,
+        media: list[MediaContent] | None = None,
         **kwargs,
-    ) -> AsyncIterator[AgentChunk]: ...
+    ) -> AsyncIterator[CLIverMessageChunk]:
+        """Streaming — no retry for streams.  Yields CLIverMessageChunk."""
+        system_prompt = self._build_system_prompt()
+        async for chunk in self._core.stream(
+            user_input=prompt,
+            system_prompt=system_prompt,
+            media=media,
+            **kwargs,
+        ):
+            yield chunk
 
-    async def cleanup(self) -> None:  # noqa: B027
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        media_type: str = "image",
+        media: list[MediaContent] | None = None,
+        output_dir: str | None = None,
+        **options,
+    ) -> CLIverResponse:
+        """Generate media.  Returns CLIverResponse with media field."""
+        return await self._core.generate(
+            prompt=prompt,
+            media_type=media_type,
+            media=media,
+            output_dir=output_dir,
+            **options,
+        )
+
+    # ── Helpers ────────────────────────────────────────────────
+
+    def _build_system_prompt(self) -> str | None:
+        role = self.config.system_prompt
+        if not role:
+            return None
+        return f"Your role: {role}"
+
+    async def cleanup(self) -> None:
         pass

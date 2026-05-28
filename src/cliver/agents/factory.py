@@ -1,7 +1,6 @@
 """AgentFactory — creates and caches Agent instances by name from config.
 
-Each agent is a CliverAgent configured with a model, role, system prompt,
-and skills — composition over inheritance.
+Each Agent wraps a configured AgentCore with persona + retry/timeout.
 """
 
 from __future__ import annotations
@@ -10,7 +9,6 @@ import logging
 from typing import TYPE_CHECKING, Callable, Dict
 
 from cliver.agent import Agent
-from cliver.agents.cliver_agent import CliverAgent
 
 if TYPE_CHECKING:
     from cliver.config import AgentConfig, AppConfig
@@ -41,7 +39,7 @@ class AgentFactory:
         model_name = agent_config.model or self._config.default_model
         agent_core = self._agent_core_factory(model_name)
 
-        agent = CliverAgent(
+        agent = Agent(
             name=name,
             config=agent_config,
             agent_core=agent_core,
