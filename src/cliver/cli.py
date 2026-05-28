@@ -148,12 +148,6 @@ class Cliver:
         )
         self.agent_core.configure_rate_limits(self.config_manager.config.providers)
 
-        from cliver.agent_profile import set_agent_factory
-        from cliver.agents import AgentFactory
-
-        self.agent_factory = AgentFactory(self.config_manager.config, self.get_new_agent_core)
-        set_agent_factory(self.agent_factory)
-
         from cliver.cost_tracker import CostTracker
 
         pricing = {}

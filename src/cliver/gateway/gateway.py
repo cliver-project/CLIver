@@ -105,10 +105,6 @@ class Gateway:
         """
         self._init_shared_resources()
 
-        from cliver.agents import AgentFactory
-
-        self._agent_factory = AgentFactory(self._resolved_config or self._get_config_manager().config, self._get_agent)
-
         # Initialize template store early so routes can be built in create_app()
         try:
             profile = CliverProfile(self.config_dir)
