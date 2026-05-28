@@ -153,9 +153,6 @@ def _set_default_model(cliver: Cliver, name: str = None):
         return
 
     if config_manager.set_default_model(name):
-        # Sync agent_core so toolbar updates immediately
-        if hasattr(cliver, "agent_core") and cliver.agent_core:
-            cliver.agent_core.default_model = config_manager.config.default_model
         cliver.output(f"Default model set to: {name}")
     else:
         cliver.output(f"Model '{name}' not found.")

@@ -210,9 +210,9 @@ def _compress_session(cliver: Cliver):
         cliver.output("Not enough conversation history to compress.")
         return
 
-    # Get model config for context window
     _session_options = cliver.session_options or {}
     model_name = _session_options.get("model", None)
+    # TODO: port to new AgentCore when ConversationCompressor is migrated
     agent_core = cliver.agent_core
     model_config = agent_core._get_llm_model(model_name)
 

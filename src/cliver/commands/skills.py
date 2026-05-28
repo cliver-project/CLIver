@@ -9,7 +9,7 @@ import logging
 from pathlib import Path
 
 import click
-from langchain_core.messages import AIMessage, HumanMessage
+from cliver.messages import CLIverMessage
 from rich import box
 from rich.table import Table
 
@@ -209,6 +209,7 @@ def _run_skill(cliver: Cliver, name: str, message: str = ""):
     session_options = cliver.session_options or {}
     use_model = session_options.get("model", None)
     use_stream = session_options.get("stream", True)
+    # TODO: port skill execution to new AgentCore
     agent_core = cliver.agent_core
 
     cliver.record_turn("user", user_message)
@@ -218,11 +219,11 @@ def _run_skill(cliver: Cliver, name: str, message: str = ""):
         _compress_if_needed(cliver, agent_core, model_config, use_model, user_message)
 
     conv_history = list(cliver.conversation_messages) if cliver.conversation_messages else None
-    cliver.conversation_messages.append(HumanMessage(content=user_message))
+    cliver.conversation_messages.append(CLIverMessage(role="user", content=user_message))
 
     def on_response(text: str):
         cliver.record_turn("assistant", text)
-        cliver.conversation_messages.append(AIMessage(content=text))
+        cliver.conversation_messages.append(CLIverMessage(role="assistant", content=text))
 
     router = getattr(cliver, "_command_router", None)
     on_pending_input = None

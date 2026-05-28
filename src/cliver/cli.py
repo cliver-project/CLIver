@@ -151,7 +151,9 @@ class Cliver:
         from cliver.agent_profile import set_agent_factory
         from cliver.agents import AgentFactory
 
-        self.agent_factory = AgentFactory(self.config_manager.config, self.agent_core)
+        self.agent_factory = AgentFactory(
+            self.config_manager.config, self.get_new_agent_core
+        )
         set_agent_factory(self.agent_factory)
 
         from cliver.cost_tracker import CostTracker
@@ -275,6 +277,39 @@ class Cliver:
         )
         self._new_agent_cores[model_name] = agent
         return agent
+
+    def build_system_prompt(self, agent) -> str:
+        """Assemble the system prompt from all sources.
+
+        Combines: builtin system message, identity, memory, context files.
+        Called by cli_llm_call before each chat/stream invocation.
+        """
+        from cliver.llm.base import LLMInferenceEngine
+
+        available_tools = {t.name for t in agent.tool_registry.all_tools}
+
+        # Use the existing system_message builder (stateless section helpers)
+        engine = LLMInferenceEngine.__new__(LLMInferenceEngine)
+        engine.config = None
+        engine.agent_name = self.agent_profile.profile_name
+
+        parts = [
+            engine.system_message(
+                available_tools=available_tools,
+                models=self.config_manager.list_llm_models(),
+                agents=self.config_manager.config.agents if hasattr(self.config_manager.config, "agents") else None,
+            )
+        ]
+
+        identity = self.agent_profile.load_identity()
+        if identity:
+            parts.append(f"# Identity Profile\n\n{identity}")
+
+        memory = self.agent_profile.load_memory()
+        if memory:
+            parts.append(f"# Agent Memory\n\n{memory}")
+
+        return "\n\n".join(parts)
 
     def _resolve_model_config(self, name: str):
         models = self.config_manager.list_llm_models()

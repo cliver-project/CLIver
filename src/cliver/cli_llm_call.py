@@ -93,7 +93,7 @@ def llm_call(cliver: "Cliver", opts: LLMCallOptions) -> LLMCallResult:
 def _stream_call(cliver, opts, thinking, console) -> LLMCallResult:
     """Execute a streaming LLM call using the new AgentCore."""
     agent = cliver.get_new_agent_core(opts.model)
-    system_prompt = _build_system_prompt(cliver, agent)
+    system_prompt = cliver.build_system_prompt(agent)
     model = opts.model or cliver.config_manager.get_llm_model().name
 
     first_token_emitted = False
@@ -144,7 +144,7 @@ def _stream_call(cliver, opts, thinking, console) -> LLMCallResult:
 def _sync_call(cliver, opts, thinking, console) -> LLMCallResult:
     """Execute a synchronous (non-streaming) LLM call using the new AgentCore."""
     agent = cliver.get_new_agent_core(opts.model)
-    system_prompt = _build_system_prompt(cliver, agent)
+    system_prompt = cliver.build_system_prompt(agent)
     model = opts.model or cliver.config_manager.get_llm_model().name
 
     import asyncio
@@ -169,39 +169,6 @@ def _sync_call(cliver, opts, thinking, console) -> LLMCallResult:
         console.print(f"{_response_color_start()}{text}{_response_color_reset()}")
 
     return LLMCallResult(success=True, text=text)
-
-
-def _build_system_prompt(cliver, agent) -> str:
-    """Assemble the system prompt from identity, memory, and context files."""
-    from cliver.llm.base import LLMInferenceEngine
-
-    available_tools = {t.name for t in agent.tool_registry.all_tools}
-
-    # Use the old engine's system_message builder (stateless, still works)
-    # Create a dummy engine just to access the static system_message method
-    engine = LLMInferenceEngine.__new__(LLMInferenceEngine)
-    engine.config = None
-    engine.agent_name = cliver.agent_profile.profile_name
-
-    parts = [
-        engine.system_message(
-            available_tools=available_tools,
-            models=cliver.config_manager.list_llm_models(),
-            agents=cliver.config_manager.config.agents if hasattr(cliver.config_manager.config, "agents") else None,
-        )
-    ]
-
-    # Identity
-    identity = cliver.agent_profile.load_identity()
-    if identity:
-        parts.append(f"# Identity Profile\n\n{identity}")
-
-    # Memory
-    memory = cliver.agent_profile.load_memory()
-    if memory:
-        parts.append(f"# Agent Memory\n\n{memory}")
-
-    return "\n\n".join(parts)
 
 
 def _show_token_usage(cliver) -> None:

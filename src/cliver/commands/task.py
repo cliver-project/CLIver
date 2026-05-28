@@ -163,14 +163,19 @@ def _run_task(cliver: Cliver, name: str, model: Optional[str] = None) -> int:
         task_perms_pushed = True
 
     try:
-        result = cliver.agent_core.process_user_input(
-            user_input=task_def.prompt,
-            model=use_model,
+        import asyncio
+
+        agent = cliver.get_new_agent_core(use_model)
+        system_prompt = cliver.build_system_prompt(agent)
+        response = asyncio.run(
+            agent.chat(
+                user_input=task_def.prompt,
+                model=use_model or cliver.config_manager.get_llm_model().name,
+                system_prompt=system_prompt,
+            )
         )
-
-        from cliver.media_handler import extract_response_text
-
-        response_text = extract_response_text(result, fallback=None) if result else None
+        response_text = response.message.text
+        result = response  # for compatibility below
         status = "completed" if response_text else "failed"
         error = None if response_text else "No result returned"
 
