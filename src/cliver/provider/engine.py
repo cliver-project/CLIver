@@ -1,0 +1,86 @@
+"""Protocol engine base and factory.
+
+Each engine handles ONE API protocol
+(OpenAI-compatible or Anthropic-native).
+Engines are stateless beyond the SDK client — Providers delegate to them.
+"""
+
+from __future__ import annotations
+
+from abc import abstractmethod
+from typing import Any, AsyncIterator
+
+from cliver.events import EventHandler
+from cliver.messages import CLIverMessageChunk
+from cliver.provider import CLIverResponse, MessageConverter
+
+
+class ProtocolEngine(MessageConverter):
+    """Owns an SDK client, handles message/tool conversion and API calls.
+
+    Stateless beyond the client — safe to share across provider instances
+    using the same protocol.
+
+    Inherits ``msg_to_native`` and ``tool_to_native`` from MessageConverter.
+    Subclasses implement those for their specific protocol, plus ``chat()``
+    and ``stream()`` for the API calls.
+    """
+
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str,
+        on_event: EventHandler | None = None,
+    ):
+        self.api_key = api_key
+        self.base_url = base_url
+        self.on_event = on_event
+
+    @abstractmethod
+    async def chat(
+        self,
+        messages: list[Any],
+        tools: list[Any],
+        model: str,
+        options: dict[str, Any],
+    ) -> CLIverResponse:
+        """Non-streaming chat completion."""
+        ...
+
+    @abstractmethod
+    async def stream(
+        self,
+        messages: list[Any],
+        tools: list[Any],
+        model: str,
+        options: dict[str, Any],
+    ) -> AsyncIterator[CLIverMessageChunk]:
+        """Streaming chat completion."""
+        ...
+
+
+# ── Engine factory ─────────────────────────────────────────────
+
+
+def create_engine(
+    protocol: str,
+    api_key: str,
+    base_url: str,
+    on_event: EventHandler | None = None,
+) -> ProtocolEngine:
+    """Create a ProtocolEngine for the given protocol.
+
+    Uses lazy imports to avoid circular dependencies.
+    """
+    if protocol == "openai":
+        from cliver.provider.openai_engine import OpenAIEngine
+
+        return OpenAIEngine(api_key=api_key, base_url=base_url, on_event=on_event)
+    elif protocol == "anthropic":
+        from cliver.provider.anthropic_engine import AnthropicEngine
+
+        return AnthropicEngine(api_key=api_key, base_url=base_url, on_event=on_event)
+    else:
+        raise ValueError(
+            f"Unknown protocol '{protocol}'. Supported: ['openai', 'anthropic']"
+        )

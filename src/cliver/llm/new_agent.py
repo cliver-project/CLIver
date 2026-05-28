@@ -1,0 +1,397 @@
+"""AgentCore — Re-Act loop with CLIverMessage, Provider, and MCPClient.
+
+No langchain dependency. No model fallback. No compression (v1).
+"""
+
+import asyncio
+import logging
+import time
+from typing import AsyncIterator, Any
+
+from cliver.events import (
+    EventHandler,
+    ToolEvent,
+    ToolEventType,
+)
+from cliver.messages import (
+    CLIverMessage,
+    CLIverMessageChunk,
+    ToolCall,
+    ToolCallAccumulator,
+)
+from cliver.mcp import MCPClient
+from cliver.provider import CLIverRequest, CLIverResponse, Provider
+from cliver.tool import CLIverTool, ToolRegistry
+
+logger = logging.getLogger(__name__)
+
+MAX_CONSECUTIVE_ERRORS = 3
+
+
+class AgentCore:
+    """Re-Act loop: send messages to LLM, execute tools, repeat.
+
+    One AgentCore instance per model/provider combination.
+    For multiple models, create multiple AgentCore instances
+    (they can share the same ``mcp_client`` and ``builtin_tools``).
+
+    **Instance state** (bound at construction, reused across calls):
+        provider, builtin_tools, mcp_client, on_event
+
+    **Call state** (passed per chat/stream, varies each turn):
+        user_input, system_prompt, conversation, extra_tools, mcp_servers, options
+
+    AgentCore does NOT know about protocols, SDKs, or API formats —
+    those are handled by Provider and ProtocolEngine.
+    It does NOT know about MCP transports — those are handled by MCPClient.
+    It only sees CLIverMessage and CLIverTool.
+    """
+
+    def __init__(
+        self,
+        provider: Provider,
+        builtin_tools: list[CLIverTool] | None = None,
+        mcp_client: MCPClient | None = None,
+        *,
+        on_event: EventHandler | None = None,
+    ):
+        self.provider = provider
+        self.tool_registry = ToolRegistry(builtin_tools or [])
+        self.mcp_client = mcp_client
+        self.on_event = on_event
+
+    # ── Public API ────────────────────────────────────────────
+
+    async def chat(
+        self,
+        user_input: str,
+        *,
+        model: str,
+        system_prompt: str | None = None,
+        conversation: list[CLIverMessage] | None = None,
+        extra_tools: list[CLIverTool] | None = None,
+        mcp_servers: list[str] | None = None,
+        options: dict[str, Any] | None = None,
+        max_iterations: int = 50,
+    ) -> CLIverResponse:
+        """Non-streaming chat.  Returns the final response.
+
+        Args:
+            user_input: The user's message text.
+            model: API-facing model name (e.g. ``"deepseek-chat"``).
+            system_prompt: System prompt for this call (memory, identity,
+                skill instructions, etc. are assembled by the caller).
+            conversation: Prior conversation turns (CLIverMessages).
+            extra_tools: Additional tools for this request.
+            mcp_servers: Which MCP servers to use (None = all).
+            options: Provider-specific options (temperature, etc.).
+            max_iterations: Max Re-Act loop iterations.
+
+        Returns:
+            CLIverResponse with the final assistant message and usage info.
+        """
+        messages = self._build_messages(user_input, system_prompt, conversation)
+        all_tools = await self._gather_tools(extra_tools, mcp_servers)
+        opts = options or {}
+
+        if self.mcp_client:
+            await self.mcp_client.start()
+
+        return await self._run_loop(messages, all_tools, model, opts, max_iterations)
+
+    async def stream(
+        self,
+        user_input: str,
+        *,
+        model: str,
+        system_prompt: str | None = None,
+        conversation: list[CLIverMessage] | None = None,
+        extra_tools: list[CLIverTool] | None = None,
+        mcp_servers: list[str] | None = None,
+        options: dict[str, Any] | None = None,
+        max_iterations: int = 50,
+    ) -> AsyncIterator[CLIverMessageChunk]:
+        """Streaming chat.  Yields chunks, executes tools between iterations.
+
+        Same arguments as chat(), but yields CLIverMessageChunk objects
+        as they arrive from the provider.
+        """
+        messages = self._build_messages(user_input, system_prompt, conversation)
+        all_tools = await self._gather_tools(extra_tools, mcp_servers)
+        opts = options or {}
+
+        if self.mcp_client:
+            await self.mcp_client.start()
+
+        async for chunk in self._run_stream_loop(
+            messages, all_tools, model, opts, max_iterations
+        ):
+            yield chunk
+
+    # ── Re-Act Loop (non-streaming) ───────────────────────────
+
+    async def _run_loop(
+        self,
+        messages: list[CLIverMessage],
+        tools: list[CLIverTool],
+        model: str,
+        options: dict[str, Any],
+        max_iterations: int,
+    ) -> CLIverResponse:
+        consecutive_errors = 0
+
+        for _iteration in range(max_iterations):
+            request = CLIverRequest(
+                messages=messages,
+                tools=tools or None,
+                model=model,
+                options=options,
+            )
+
+            response = await self.provider.chat(request)
+            msg = response.message
+
+            if not msg.tool_calls:
+                return response
+
+            messages.append(msg)
+            consecutive_errors, stop = await self._execute_tool_calls(
+                messages, msg.tool_calls, consecutive_errors
+            )
+            if stop:
+                return CLIverResponse(
+                    message=CLIverMessage(
+                        role="assistant",
+                        content=(
+                            "Tool calls failed repeatedly. "
+                            "Please check the tool arguments or try a different approach."
+                        ),
+                    ),
+                    usage=response.usage,
+                )
+
+        return CLIverResponse(
+            message=CLIverMessage(
+                role="assistant",
+                content="Reached maximum iterations without a final answer.",
+            ),
+        )
+
+    # ── Re-Act Loop (streaming) ───────────────────────────────
+
+    async def _run_stream_loop(
+        self,
+        messages: list[CLIverMessage],
+        tools: list[CLIverTool],
+        model: str,
+        options: dict[str, Any],
+        max_iterations: int,
+    ) -> AsyncIterator[CLIverMessageChunk]:
+        consecutive_errors = 0
+
+        for _iteration in range(max_iterations):
+            request = CLIverRequest(
+                messages=messages,
+                tools=tools or None,
+                model=model,
+                options=options,
+            )
+
+            content_parts: list[str] = []
+            vendor_buffers: dict[str, str] = {}
+            tool_acc = ToolCallAccumulator()
+
+            async for raw in self.provider.stream(request):
+                if raw.content:
+                    content_parts.append(raw.content)
+                for key, delta in raw.vendor_ext.items():
+                    vendor_buffers[key] = vendor_buffers.get(key, "") + delta
+                for tc_chunk in (raw.tool_call_chunks or []):
+                    tool_acc.feed(tc_chunk)
+
+                if raw.content or raw.vendor_ext:
+                    yield CLIverMessageChunk(
+                        content=raw.content,
+                        vendor_ext=raw.vendor_ext,
+                    )
+
+            tool_calls = tool_acc.finalize()
+            if not tool_calls:
+                return
+
+            vendor = {k: v for k, v in vendor_buffers.items() if v}
+            messages.append(CLIverMessage(
+                role="assistant",
+                content="".join(content_parts) if content_parts else None,
+                tool_calls=tool_calls,
+                vendor_ext=vendor,
+            ))
+
+            consecutive_errors, stop = await self._execute_tool_calls(
+                messages, tool_calls, consecutive_errors
+            )
+            if stop:
+                yield CLIverMessageChunk(
+                    content=(
+                        "Tool calls failed repeatedly. "
+                        "Please check the tool arguments or try a different approach."
+                    ),
+                )
+                return
+
+        yield CLIverMessageChunk(
+            content="Reached maximum iterations without a final answer.",
+        )
+
+    # ── Tool execution (shared by both loops) ─────────────────
+
+    async def _execute_tool_calls(
+        self,
+        messages: list[CLIverMessage],
+        tool_calls: list[ToolCall],
+        consecutive_errors: int,
+    ) -> tuple[int, bool]:
+        """Execute a batch of tool calls and append results to messages.
+
+        Returns (consecutive_errors, should_stop).
+        """
+        for tc in tool_calls:
+            result = await self._execute_tool(tc)
+            messages.append(CLIverMessage(
+                role="tool",
+                content=self._format_tool_result(result),
+                tool_call_id=tc.id,
+            ))
+
+            if self._is_error(result):
+                consecutive_errors += 1
+                if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                    return consecutive_errors, True
+            else:
+                consecutive_errors = 0
+
+        return consecutive_errors, False
+
+    # ── Helpers ────────────────────────────────────────────────
+
+    def _build_messages(
+        self,
+        user_input: str,
+        system_prompt: str | None,
+        conversation: list[CLIverMessage] | None,
+    ) -> list[CLIverMessage]:
+        messages: list[CLIverMessage] = []
+        if system_prompt:
+            messages.append(CLIverMessage(role="system", content=system_prompt))
+        if conversation:
+            messages.extend(conversation)
+        messages.append(CLIverMessage(role="user", content=user_input))
+        return messages
+
+    async def _gather_tools(
+        self,
+        extra: list[CLIverTool] | None,
+        mcp_servers: list[str] | None,
+    ) -> list[CLIverTool]:
+        tools = list(self.tool_registry.all_tools)
+        if self.mcp_client:
+            tools.extend(await self.mcp_client.get_tools(servers=mcp_servers or None))
+        if extra:
+            tools.extend(extra)
+        return tools
+
+    async def _execute_tool(self, tc: ToolCall) -> list[dict]:
+        """Execute a single tool call. Emits TOOL_START/TOOL_END/TOOL_ERROR events."""
+        await self._emit(
+            ToolEvent(
+                event=ToolEventType.START,
+                tool_name=tc.name,
+                tool_call_id=tc.id,
+                args=tc.args,
+            )
+        )
+        start = time.monotonic()
+        try:
+            if "#" in tc.name:
+                # MCP tool
+                if not self.mcp_client:
+                    result = [{"error": "No MCP client configured"}]
+                else:
+                    result = await self.mcp_client.call_tool(tc.name, tc.args)
+            else:
+                # Builtin tool — always offloaded to thread
+                tool = self.tool_registry.get(tc.name)
+                if tool is None:
+                    result = [{"error": f"Tool '{tc.name}' not found"}]
+                else:
+                    result = await asyncio.to_thread(tool.execute, **tc.args)
+
+            duration = (time.monotonic() - start) * 1000
+            await self._emit(
+                ToolEvent(
+                    event=ToolEventType.END,
+                    tool_name=tc.name,
+                    tool_call_id=tc.id,
+                    result=_truncate(str(result), 500),
+                    duration_ms=duration,
+                )
+            )
+            return result
+        except Exception as e:
+            duration = (time.monotonic() - start) * 1000
+            logger.warning("Tool '%s' failed: %s", tc.name, e)
+            await self._emit(
+                ToolEvent(
+                    event=ToolEventType.ERROR,
+                    tool_name=tc.name,
+                    tool_call_id=tc.id,
+                    error=str(e),
+                    duration_ms=duration,
+                )
+            )
+            return [{"error": str(e)}]
+
+    async def _emit(self, event: ToolEvent) -> None:
+        if self.on_event:
+            await self.on_event(event)
+
+    @staticmethod
+    def _is_error(result: list[dict]) -> bool:
+        """Check if any result dict contains an 'error' key."""
+        if not result:
+            return False
+        return any(
+            isinstance(r, dict) and "error" in r
+            for r in result
+        )
+
+    @staticmethod
+    def _format_tool_result(result: list[dict]) -> str:
+        """Format tool result for a ToolMessage.
+
+        Extracts the most meaningful content from the result list.
+        """
+        if not result:
+            return "(no output)"
+
+        # If the result is a single error dict, format it
+        if len(result) == 1 and isinstance(result[0], dict):
+            r = result[0]
+            if "error" in r:
+                return f"Error: {r['error']}"
+            if "text" in r:
+                return str(r["text"])
+            if "tool_result" in r:
+                return str(r["tool_result"])
+
+        # Multiple results or unknown format — serialize
+        import json
+
+        return json.dumps(result, ensure_ascii=False, default=str)
+
+
+def _truncate(text: str, max_len: int) -> str:
+    """Truncate a string for event display."""
+    if len(text) <= max_len:
+        return text
+    return text[: max_len - 3] + "..."
