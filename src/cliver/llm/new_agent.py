@@ -58,6 +58,10 @@ class AgentCore:
         self.mcp_client = mcp_client
         self.on_event = on_event
 
+        from cliver.agent_profile import set_agent_core
+
+        set_agent_core(self)
+
     # ── Public API ────────────────────────────────────────────
 
     async def chat(

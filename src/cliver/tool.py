@@ -295,8 +295,8 @@ class ToolRegistry:
 def discover_builtin_tools() -> list[CLIverTool]:
     """Scan ``cliver.tools`` for existing BaseTool instances and wrap as CLIverTool.
 
-    This is a temporary bridge until all builtin tools are rewritten
-    with the ``@tool`` decorator.
+    This discovers both legacy BaseTool instances and new CLIverTool
+    instances created with the ``@tool`` decorator.
     """
     import inspect
 
@@ -306,9 +306,10 @@ def discover_builtin_tools() -> list[CLIverTool]:
 
     wrapped: list[CLIverTool] = []
     for _name, obj in inspect.getmembers(tools_module):
-        if not isinstance(obj, BaseTool):
-            continue
-        wrapped.append(_wrap_base_tool(obj))
+        if isinstance(obj, CLIverTool):
+            wrapped.append(obj)
+        elif isinstance(obj, BaseTool):
+            wrapped.append(_wrap_base_tool(obj))
     return wrapped
 
 
