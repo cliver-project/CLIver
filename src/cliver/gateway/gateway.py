@@ -16,6 +16,7 @@ from contextvars import ContextVar
 from pathlib import Path
 from typing import List, Optional
 
+from cliver.agent import Agent
 from cliver.agent_profile import CliverProfile
 from cliver.config import ConfigManager
 from cliver.gateway.adapter_manager import AdapterManager
@@ -28,9 +29,13 @@ from cliver.gateway.platform_adapter import (
 )
 from cliver.gateway.scheduler import CronScheduler
 from cliver.gateway.task_store import TaskStore
-from cliver.llm import AgentCore
+from cliver.llm.new_agent import AgentCore as NewAgentCore
+from cliver.mcp import MCPClient
+from cliver.messages import CLIverMessage
+from cliver.provider.providers import create_provider
 from cliver.session_manager import SessionManager
 from cliver.task_manager import TaskDefinition, TaskManager, TaskRun
+from cliver.tool import ToolRegistry, discover_builtin_tools
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +81,9 @@ class Gateway:
         self._resolved_config = resolved_config
         self._pid_path = self.config_dir / "cliver-gateway.pid"
         self._pid_file = None
-        self._agent_core: Optional[AgentCore] = None
+        self._mcp_client: Optional[MCPClient] = None
+        self._builtin_tools: list = []
+        self._agents: dict[str, Agent] = {}
         self._scheduler: Optional[CronScheduler] = None
         self._run_store: Optional[TaskStore] = None
         self._task_manager: Optional[TaskManager] = None
@@ -90,17 +97,17 @@ class Gateway:
         self._lab_store = None
 
     def init(self) -> None:
-        """Initialize components that need to run before fork.
+        """Initialize shared resources that need to run before fork.
 
-        Creates AgentCore and resolves all secrets. Call this in the
-        parent process before fork — the child inherits the initialized
-        state and never touches the keychain.
+        Creates MCPClient, discovers builtin tools, resolves secrets.
+        Call this in the parent process before fork — the child inherits
+        the initialized state and never touches the keychain.
         """
-        self._agent_core = self._create_agent_core()
+        self._init_shared_resources()
 
         from cliver.agents import AgentFactory
 
-        self._agent_factory = AgentFactory(self._resolved_config or self._get_config_manager().config, self._agent_core)
+        self._agent_factory = AgentFactory(self._resolved_config or self._get_config_manager().config, self._get_agent)
 
         # Initialize template store early so routes can be built in create_app()
         try:
@@ -132,13 +139,6 @@ class Gateway:
 
         from starlette.applications import Starlette
 
-        # AgentCore may already be set if pre-initialized before fork
-        if not self._agent_core:
-            try:
-                self._agent_core = self._create_agent_core()
-            except Exception as e:
-                logger.error(f"Failed to create AgentCore in create_app: {e}")
-
         routes = self._build_routes()
 
         gateway_ref = self
@@ -159,24 +159,13 @@ class Gateway:
         """Build the full list of Starlette routes."""
         routes = []
 
-        # API routes (executor may not be ready yet — handlers check)
         config = self._get_config_manager().config
         gw_config = config.gateway
         api_key = gw_config.api_key if gw_config else None
 
-        if self._agent_core:
-            from cliver.gateway.api_server import get_api_routes
+        from cliver.gateway.api_server import get_api_routes
 
-            routes.extend(get_api_routes(self._agent_core, self._get_status, api_key=api_key))
-        else:
-            # Fallback health endpoint when AgentCore is not ready
-            from starlette.responses import JSONResponse
-            from starlette.routing import Route
-
-            async def health_fallback(request):
-                return JSONResponse({"status": "degraded", **self._get_status()})
-
-            routes.append(Route("/health", health_fallback))
+        routes.extend(get_api_routes(self, self._get_status, api_key=api_key))
 
         # Admin portal routes
         try:
@@ -285,14 +274,7 @@ class Gateway:
         self._pid_file.write(str(os.getpid()))
         self._pid_file.flush()
 
-        # AgentCore (may already be set if pre-initialized)
-        if self._agent_core:
-            logger.info("Using pre-initialized AgentCore")
-        else:
-            try:
-                self._agent_core = self._create_agent_core()
-            except Exception as e:
-                logger.error(f"Failed to create AgentCore: {e}")
+        # Shared resources are initialized in init() before fork
 
         # Cron scheduler
         try:
@@ -451,39 +433,25 @@ class Gateway:
             task.session_id = self._run_store.get_session_id(task.name)
 
         try:
-            # Load conversation history from linked session
             conversation_history = None
             if task.session_id and self._session_manager:
                 conversation_history = self._load_session_history(task.session_id)
 
-            from cliver.skill_manager import SkillManager, build_skill_appender, build_skill_tool_filter
+            from cliver.skill_manager import SkillManager
 
-            async def _task_filter_tools(_input, tools):
-                return tools  # No default filtering; skills may add their own
-
-            system_appender = None
-            tool_filter = _task_filter_tools
             if task.skills:
                 manager = SkillManager()
-                skill_objs = [s for name in task.skills if (s := manager.get_skill(name))]
                 for name in task.skills:
                     if not manager.get_skill(name):
                         logger.warning("Skill '%s' not found for pre-activation", name)
-                if skill_objs:
-                    system_appender = build_skill_appender(skill_objs)
-                    tool_filter = build_skill_tool_filter(skill_objs, _task_filter_tools)
 
-            response = await asyncio.to_thread(
-                self._agent_core.process_user_input,
-                user_input=task.prompt,
-                model=task.model,
-                system_message_appender=system_appender,
-                conversation_history=conversation_history,
-                filter_tools=tool_filter,
+            agent = self._get_agent(task.model)
+            response = await agent.chat(
+                prompt=task.prompt,
+                conversation=conversation_history,
             )
-            from cliver.media_handler import extract_response_text
 
-            response_text = extract_response_text(response, fallback="No response.")
+            response_text = response.message.text or "No response."
 
             run_record.status = "completed"
             run_record.result = response_text
@@ -520,19 +488,11 @@ class Gateway:
 
     def _load_session_history(self, session_id: str):
         """Load conversation history from a linked session for task context."""
-        from langchain_core.messages import AIMessage, HumanMessage
-
         turns = self._session_manager.load_turns(session_id)
         if not turns:
             return None
 
-        history = []
-        for turn in turns:
-            if turn["role"] == "user":
-                history.append(HumanMessage(content=turn["content"]))
-            elif turn["role"] == "assistant":
-                history.append(AIMessage(content=turn["content"]))
-        return history or None
+        return [CLIverMessage(role=turn["role"], content=turn["content"]) for turn in turns] or None
 
     async def _deliver_to_origin(self, task: TaskDefinition, response_text: str) -> None:
         """Deliver task result to the originating IM thread and append synthetic turns."""
@@ -605,33 +565,71 @@ class Gateway:
         )
         logger.info("Task result saved to %s", result_path)
 
-    def _create_agent_core(self) -> AgentCore:
-        """Create a AgentCore from config (same config the CLI uses)."""
+    def _init_shared_resources(self):
+        """Initialize shared MCP client, builtin tools, agent profile."""
         config_manager = self._get_config_manager()
 
         from cliver.util import configure_timezone
 
         configure_timezone(config_manager.config.timezone)
 
-        agent_profile = CliverProfile(self.config_dir)
-        agent_profile.ensure_dirs()
+        self._agent_profile = CliverProfile(self.config_dir)
+        self._agent_profile.ensure_dirs()
 
-        tool_handler = _create_gateway_tool_handler()
+        self._builtin_tools = discover_builtin_tools()
+        reg = ToolRegistry(self._builtin_tools)
+        reg.configure(config_manager.config.enabled_toolsets)
+        self._builtin_tools = reg.all_tools
 
-        executor = AgentCore(
-            llm_models=config_manager.list_llm_models(),
-            mcp_servers=config_manager.list_mcp_servers_for_mcp_caller(),
-            default_model=(config_manager.get_llm_model().name if config_manager.get_llm_model() else None),
-            user_agent=config_manager.config.user_agent,
-            agent_name=agent_profile.profile_name,
-            agent_profile=agent_profile,
-            enabled_toolsets=config_manager.config.enabled_toolsets,
-            on_tool_event=tool_handler,
-            skill_auto_learn=config_manager.config.skill_auto_learn,
-            model_auto_fallback=config_manager.config.model_auto_fallback,
+        self._mcp_client = MCPClient(config_manager.list_mcp_servers_for_mcp_caller())
+
+    def _get_agent(self, model_name: str | None = None) -> Agent:
+        """Get or create an Agent for the given model."""
+        config_manager = self._get_config_manager()
+        model_name = model_name or config_manager.get_llm_model().name
+        if model_name in self._agents:
+            return self._agents[model_name]
+
+        mc = self._resolve_model(model_name)
+        if not mc:
+            raise ValueError(f"Model '{model_name}' not found in config.")
+
+        provider = create_provider(
+            api_key=mc.get_api_key() or "",
+            base_url=mc.get_resolved_url() or "",
+            protocol=mc.get_provider_type(),
         )
-        executor.configure_rate_limits(config_manager.config.providers)
-        return executor
+
+        agent_core = NewAgentCore(
+            provider=provider,
+            model=model_name,
+            builtin_tools=self._builtin_tools,
+            mcp_client=self._mcp_client,
+            on_event=_create_gateway_tool_handler(),
+        )
+
+        agent = Agent(name="gateway", config=self._get_default_agent_config(), agent_core=agent_core)
+        self._agents[model_name] = agent
+        return agent
+
+    def _resolve_model(self, name: str):
+        config_manager = self._get_config_manager()
+        models = config_manager.list_llm_models()
+        if name in models:
+            return models[name]
+        suffix = f"/{name}"
+        matches = [mc for key, mc in models.items() if key.endswith(suffix)]
+        return matches[0] if len(matches) == 1 else None
+
+    def _get_default_model_name(self) -> str | None:
+        config_manager = self._get_config_manager()
+        mc = config_manager.get_llm_model()
+        return mc.name if mc else None
+
+    def _get_default_agent_config(self):
+        from cliver.config import AgentConfig
+
+        return AgentConfig(name="gateway-agent")
 
     # -- Session & adapter resolution -----------------------------------------
 
@@ -695,18 +693,7 @@ class Gateway:
     # -- Message handling -----------------------------------------------------
 
     async def _compress_history(self, history, new_input: str):
-        """Compress conversation history if it exceeds the model's context window."""
-        from cliver.conversation_compressor import ConversationCompressor
-
-        llm_engine = self._agent_core.get_llm_engine()
-        model_config = self._agent_core._get_llm_model()
-        context_window = getattr(model_config, "context_window", None) or 32768
-
-        compressor = ConversationCompressor(context_window=context_window)
-        if compressor.needs_compression([], history, new_input):
-            logger.info("Compressing conversation history (%d turns)", len(history))
-            history = await compressor.compress(history, llm_engine)
-            logger.info("Compressed to %d turns", len(history))
+        """Compress conversation history — skipped in v1 (needs porting)."""
         return history
 
     def _asyncio_exception_handler(self, loop, context):
@@ -739,9 +726,6 @@ class Gateway:
         logger.info(
             "_handle_message called: platform=%s, user=%s, text=%.100s", event.platform, event.user_id, event.text
         )
-        if not self._agent_core:
-            logger.error("AgentCore not initialized — cannot process message")
-            return
 
         # Find the adapter for this platform
         adapter = self._get_adapter(event.platform)
@@ -799,17 +783,10 @@ class Gateway:
 
             # Load conversation history
             turns = sm.load_turns(session_id)
-            from langchain_core.messages import AIMessage, HumanMessage
-
-            conversation_history = []
-            for turn in turns:
-                if turn["role"] == "user":
-                    conversation_history.append(HumanMessage(content=turn["content"]))
-                elif turn["role"] == "assistant":
-                    conversation_history.append(AIMessage(content=turn["content"]))
+            conversation_history = [CLIverMessage(role=turn["role"], content=turn["content"]) for turn in turns]
 
             # Compress history if it exceeds the model's context window
-            if conversation_history and self._agent_core:
+            if conversation_history:
                 try:
                     conversation_history = await self._compress_history(conversation_history, event.text)
                 except Exception as e:
@@ -823,16 +800,15 @@ class Gateway:
             # Record user turn
             sm.append_turn(session_id, "user", event.text)
 
-            # Run AgentCore
+            # Run Agent
+            default_model = self._get_default_model_name()
             logger.info(
-                "Calling AgentCore.process_user_input (model=%s, history=%d turns, task=%s)",
-                self._agent_core.default_model,
+                "Calling Agent.chat (model=%s, history=%d turns, task=%s)",
+                default_model,
                 len(conversation_history),
                 linked_task_name or "none",
             )
             # Set IM context for tools (e.g., create_task) to read.
-            # Use linked task origin if available (ensures consistency
-            # for follow-up messages in task threads).
             im_ctx = {
                 "platform": linked_origin["platform"] if linked_origin else event.platform,
                 "channel_id": linked_origin.get("channel_id") if linked_origin else event.channel_id,
@@ -844,57 +820,35 @@ class Gateway:
                 im_ctx["task_name"] = linked_task_name
             im_context.set(im_ctx)
 
-            # Build reply-to token for task creation
             _reply_to_parts = [im_ctx["platform"], im_ctx.get("channel_id", "")]
             if im_ctx.get("thread_id"):
                 _reply_to_parts.append(im_ctx["thread_id"])
             _reply_to_token = ":".join(_reply_to_parts)
 
-            def _im_system_appender() -> str:
-                task_context = ""
-                if linked_task_name:
-                    task_context = (
-                        f"\n\nYou are continuing a conversation from task '{linked_task_name}'. "
-                        "Reply in this same thread. Do not start a new thread."
-                    )
-                return (
-                    "# IM Context\n\n"
-                    "You are responding in an IM conversation (e.g. Slack, Telegram).\n\n"
-                    "When you need to ask the user a question, use the structured format "
-                    "described in the Interaction Guidelines — the user can reply in the "
-                    "same thread. If you need to choose between options, pick the most "
-                    "reasonable default and proceed. State what you chose so the user "
-                    "can redirect if needed.\n\n"
-                    "## Task Creation Rules\n\n"
-                    "Prefer the CreateTask tool — it auto-attaches IM origin.\n"
-                    "If you must use the shell command instead, you MUST include "
-                    f"`--reply-to '{_reply_to_token}'` so results are delivered "
-                    "back to this conversation. Example:\n"
-                    f"  cliver task create my_task --prompt '...' "
-                    f"--reply-to '{_reply_to_token}'\n\n"
-                    "- One-time task: use the `run_at` parameter (ISO datetime)\n"
-                    "- Recurring task: use the `schedule` parameter (cron expression)\n"
-                ) + task_context
+            im_system_prompt = (
+                "# IM Context\n\n"
+                "You are responding in an IM conversation (e.g. Slack, Telegram).\n\n"
+                "When you need to ask the user a question, use the structured format "
+                "described in the Interaction Guidelines.\n\n"
+                "## Task Creation Rules\n\n"
+                "Prefer the CreateTask tool.\n"
+                f"If you must use the shell command instead, include `--reply-to '{_reply_to_token}'` "
+                "so results are delivered back to this conversation.\n"
+            )
+            if linked_task_name:
+                im_system_prompt += f"\nYou are continuing from task '{linked_task_name}'. Reply in this same thread."
 
             try:
-                response = await asyncio.to_thread(
-                    self._agent_core.process_user_input,
-                    user_input=event.text,
-                    images=images or None,
-                    audio_files=audio_files or None,
-                    conversation_history=conversation_history or None,
-                    system_message_appender=_im_system_appender,
+                agent = self._get_agent(default_model)
+                response = await agent.chat(
+                    prompt=event.text,
+                    conversation=conversation_history or None,
                 )
-
-                from cliver.media_handler import MultimediaResponseHandler, extract_response_text
-
-                response_text = extract_response_text(response, fallback="No response.")
-                multimedia = MultimediaResponseHandler().process_response(response)
-                logger.info("AgentCore response: %.200s", response_text)
+                response_text = response.message.text or "No response."
+                logger.info("Agent response: %.200s", response_text)
             except Exception as e:
-                logger.exception("AgentCore error: %s", e)
+                logger.exception("Agent error: %s", e)
                 response_text = f"Error: {e}"
-                multimedia = None
             finally:
                 im_context.set(None)
 
@@ -908,8 +862,8 @@ class Gateway:
             # Reply in-thread: use existing thread_id, or message_id to create a new thread
             reply_to = event.thread_id or event.message_id
 
-            # Strip image URLs from text when media attachments are being sent
-            if multimedia and multimedia.has_media():
+            # Strip image URLs from text when media attachments are present
+            if response.media:
                 import re
 
                 response_text = re.sub(r"https?://\S+\.(png|jpg|jpeg|gif|webp|svg)\S*", "", response_text)
@@ -933,9 +887,9 @@ class Gateway:
                 except Exception as e:
                     logger.error(f"Failed to send message: {e}")
 
-            # Send media (images, files, audio) — resolve URLs/base64 to bytes first
-            if multimedia and multimedia.has_media():
-                for media in multimedia.media_content:
+            # Send media (images, files, audio)
+            if response.media:
+                for media in response.media:
                     try:
                         data = media.to_bytes() if media.data else None
                         if not data:
