@@ -155,18 +155,19 @@ class Gateway:
         """Build the full list of Starlette routes."""
         routes = []
 
-        config = self._get_config_manager().config
-        gw_config = config.gateway
-        api_key = gw_config.api_key if gw_config else None
+        from starlette.responses import JSONResponse
+        from starlette.routing import Route
 
-        from cliver.gateway.api_server import get_api_routes
+        async def health_endpoint(request):
+            return JSONResponse({"status": "ok", **self._get_status()})
 
-        routes.extend(get_api_routes(self, self._get_status, api_key=api_key))
+        routes.append(Route("/health", health_endpoint))
 
         # Admin portal routes
         try:
             from cliver.gateway.admin import get_admin_routes
 
+            gw_config = self._get_config_manager().config.gateway
             admin_user = gw_config.admin_username if gw_config else None
             admin_pass = gw_config.admin_password if gw_config else None
 
