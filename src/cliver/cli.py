@@ -10,14 +10,14 @@ from pathlib import Path
 from typing import Any, Dict
 
 import click
-from langchain_core.messages.base import BaseMessage
 from rich.console import Console
 
 from cliver import __version__, commands
 from cliver.agent_profile import CliverProfile
 from cliver.cli_tool_progress import ThinkingIndicator, create_tool_progress_handler
 from cliver.config import ConfigManager
-from cliver.llm import AgentCore
+from cliver.llm import AgentCore  # old — still used for reference
+from cliver.messages import CLIverMessage
 from cliver.permissions import PermissionManager
 from cliver.ui_bridge import CLIBridge, UIBridge
 from cliver.util import get_config_dir, read_piped_input, stdin_is_piped
@@ -72,8 +72,12 @@ class Cliver:
         # Conversation session tracking (interactive mode only)
         self.current_session_id = None
         self.session_history: list[dict] = []  # loaded turns for context
-        # LLM-ready conversation history for multi-turn context (BaseMessage objects)
-        self.conversation_messages: list[BaseMessage] = []
+        # LLM-ready conversation history for multi-turn context
+        self.conversation_messages: list[CLIverMessage] = []
+        # New AgentCore factory — shared MCPClient + builtin tools, lazy per-model cores
+        self._new_agent_cores: dict[str, "AgentCore"] = {}
+        self._new_mcp_client = None
+        self._new_builtin_tools: list = []
         # RSS feed state for scrolling headlines
         self._rss_headlines: list[str] = []
         self._rss_index = 0
@@ -215,6 +219,70 @@ class Cliver:
         self.session = None
         self._app = None
         self.conversation_messages = []
+
+    # ─── New AgentCore (per-model factory) ────────────────────────────────────
+
+    def get_new_agent_core(self, model_name: str | None = None):
+        """Get or create a new-style AgentCore for the given model.
+
+        Lazy-creates a Provider + AgentCore per model.  Shared resources
+        (MCPClient, builtin tools) are initialized once.
+        """
+        model_name = model_name or self.config_manager.get_llm_model().name
+        if model_name in self._new_agent_cores:
+            return self._new_agent_cores[model_name]
+
+        from cliver.llm.new_agent import AgentCore as NewAgentCore
+        from cliver.mcp import MCPClient
+        from cliver.provider.providers import create_provider
+        from cliver.tool import ToolRegistry, discover_builtin_tools
+
+        if self._new_mcp_client is None:
+            self._new_mcp_client = MCPClient(
+                self.config_manager.list_mcp_servers_for_mcp_caller()
+            )
+
+        if not self._new_builtin_tools:
+            all_tools = discover_builtin_tools()
+            reg = ToolRegistry(all_tools)
+            reg.configure(self.config_manager.config.enabled_toolsets)
+            self._new_builtin_tools = reg.all_tools
+
+        mc = self._resolve_model_config(model_name)
+        if not mc:
+            raise ValueError(f"Model '{model_name}' not found in config.")
+
+        provider = create_provider(
+            api_key=mc.get_api_key() or "",
+            base_url=mc.get_resolved_url() or "",
+            protocol=mc.get_provider_type(),
+        )
+
+        def _tool_event_handler(event):
+            import asyncio
+
+            handler = create_tool_progress_handler(
+                self.console, thinking=self.thinking
+            )
+            if handler:
+                asyncio.ensure_future(handler(event))
+
+        agent = NewAgentCore(
+            provider=provider,
+            builtin_tools=self._new_builtin_tools,
+            mcp_client=self._new_mcp_client,
+            on_event=_tool_event_handler,
+        )
+        self._new_agent_cores[model_name] = agent
+        return agent
+
+    def _resolve_model_config(self, name: str):
+        models = self.config_manager.list_llm_models()
+        if name in models:
+            return models[name]
+        suffix = f"/{name}"
+        matches = [mc for key, mc in models.items() if key.endswith(suffix)]
+        return matches[0] if len(matches) == 1 else None
 
     # ─── Run Methods ─────────────────────────────────────────────────────────
 

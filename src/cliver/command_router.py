@@ -218,10 +218,8 @@ class CommandRouter:
         try:
             import time as _time
 
-            from langchain_core.messages import AIMessage, HumanMessage
-
             from cliver.cli_llm_call import LLMCallOptions, llm_call
-            from cliver.llm.errors import TaskTimeoutError
+            from cliver.messages import CLIverMessage
 
             cliver = self._cliver
             model = cliver.session_options.get("model")
@@ -241,50 +239,29 @@ class CommandRouter:
                 if hasattr(cliver, "thinking") and cliver.thinking:
                     cliver.thinking = None
 
-            cliver.conversation_messages.append(HumanMessage(content=text))
+            cliver.conversation_messages.append(CLIverMessage(role="user", content=text))
             cliver.record_turn("user", text)
 
             def on_response(response_text: str) -> None:
-                cliver.conversation_messages.append(AIMessage(content=response_text))
+                cliver.conversation_messages.append(
+                    CLIverMessage(role="assistant", content=response_text)
+                )
                 cliver.record_turn("assistant", response_text)
+
+            # conversation_history excludes the current user message
+            history = cliver.conversation_messages[:-1] if cliver.conversation_messages else None
 
             opts = LLMCallOptions(
                 user_input=text,
                 model=model,
                 stream=stream,
-                images=images or [],
-                audio_files=audio_files or [],
-                video_files=video_files or [],
-                files=files or [],
-                conversation_history=cliver.conversation_messages[:-1] or None,
+                conversation_history=history,
                 on_response=on_response,
-                on_pending_input=self.drain_pending,
-                auto_fallback=True,
                 timeout_s=timeout_s,
             )
 
             try:
                 result = llm_call(cliver, opts)
-            except TaskTimeoutError as e:
-                if output_format == "json":
-                    import sys as _sys
-
-                    duration = _time.monotonic() - start_time
-                    self._emit_json(
-                        _real_stdout or _sys.stdout,
-                        False,
-                        e.partial_result or "",
-                        model,
-                        cliver.token_tracker,
-                        duration,
-                        error=str(e),
-                        timeout=True,
-                    )
-                    return
-                cliver.output(f"[yellow]Timeout: {e}[/yellow]")
-                if e.partial_result:
-                    cliver.output(f"\nPartial result:\n{e.partial_result}")
-                return
             except Exception as e:
                 if output_format == "json":
                     import sys as _sys
