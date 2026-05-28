@@ -33,13 +33,11 @@ def get_chat_routes(context: dict, require_auth: Callable) -> list:
         if not prompt:
             return JSONResponse({"error": "'message' (or 'prompt') is required"}, status_code=400)
 
-        executor = gateway._agent_core
-        model = body.get("model") or executor.default_model
+        model = body.get("model") or gateway._get_default_model_name()
         system_message = body.get("system_message")
         agent_name = body.get("agent", "").strip()
         raw_history = body.get("conversation_history") or []
         tool_names = body.get("filter_tools")
-        save_media_dir = body.get("save_media_dir")
         conversation_id = body.get("session_id") or body.get("conversation_id")
 
         # Resolve agent config if specified
@@ -95,19 +93,17 @@ def get_chat_routes(context: dict, require_auth: Callable) -> list:
 
         conversation_history = None
         if raw_history:
-            from langchain_core.messages import AIMessage, HumanMessage
+            from cliver.messages import CLIverMessage
 
             conversation_history = []
             for msg in raw_history:
                 role = msg.get("role", "")
                 content = msg.get("content", "")
-                if role == "user":
-                    conversation_history.append(HumanMessage(content=content))
-                elif role == "assistant":
-                    extra = {}
-                    if "reasoning_content" in msg:
-                        extra["reasoning_content"] = msg["reasoning_content"]
-                    conversation_history.append(AIMessage(content=content, additional_kwargs=extra))
+                vendor = {}
+                if "reasoning_content" in msg:
+                    vendor["reasoning_content"] = msg["reasoning_content"]
+                if role in ("user", "assistant"):
+                    conversation_history.append(CLIverMessage(role=role, content=content, vendor_ext=vendor))
 
         def _system_appender():
             parts = []
@@ -131,17 +127,9 @@ def get_chat_routes(context: dict, require_auth: Callable) -> list:
             async def _tool_filter(user_input, tools):
                 return [t for t in tools if t.name in allowed]
 
-        from cliver.permissions import PermissionMode
-
-        if executor.permission_manager:
-            executor.permission_manager.set_mode(PermissionMode.YOLO)
-        executor.on_permission_prompt = lambda tool, args: "allow"
-
         uses_thinking = True
 
         async def generate():
-            # Emit session_id immediately so the UI can navigate to the
-            # conversation URL and show "active conversation" state right away.
             if session_id:
                 yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n".encode()
 
@@ -149,36 +137,14 @@ def get_chat_routes(context: dict, require_auth: Callable) -> list:
 
             full_text = ""
             media_files = []
-            stream_media = []
             try:
-                async for chunk in executor._stream_user_input_async(
-                    user_input=prompt,
-                    model=model,
-                    system_message_appender=_system_appender,
-                    filter_tools=_tool_filter,
-                    conversation_history=conversation_history,
-                    outputs_dir=save_media_dir,
-                ):
-                    if hasattr(chunk, "content") and chunk.content:
-                        text = str(chunk.content)
-                        full_text += text
-                        data = json.dumps({"type": "content", "content": text})
+                agent = gateway._get_agent(model)
+                async for chunk in agent.stream(prompt=prompt):
+                    if chunk.content:
+                        full_text += chunk.content
+                        data = json.dumps({"type": "content", "content": chunk.content})
                         yield f"data: {data}\n\n".encode()
-                    chunk_kwargs = getattr(chunk, "additional_kwargs", None) or {}
-                    if "media_content" in chunk_kwargs:
-                        stream_media.extend(chunk_kwargs["media_content"])
 
-                if save_media_dir and stream_media:
-                    try:
-                        from cliver.media_handler import MultimediaResponse, MultimediaResponseHandler
-
-                        handler = MultimediaResponseHandler(save_directory=save_media_dir)
-                        multimedia = MultimediaResponse(media_content=stream_media)
-                        media_files = handler.save_media_content(multimedia, prefix="chat")
-                    except Exception as e:
-                        logger.warning("Failed to save media: %s", e)
-
-                # Strip inline tool_calls JSON from the accumulated text
                 from cliver.llm.llm_utils import strip_tool_calls_from_text
 
                 clean_text = strip_tool_calls_from_text(full_text)

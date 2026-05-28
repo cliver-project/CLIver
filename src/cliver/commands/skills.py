@@ -4,7 +4,6 @@ Skills management commands.
 List, show, create, update, and run agent skills (SKILL.md files).
 """
 
-import asyncio
 import logging
 from pathlib import Path
 
@@ -142,28 +141,8 @@ def _update_skill(cliver: Cliver, name: str, instructions: str):
 
 
 def _compress_if_needed(cliver, agent_core, model_config, model_name, new_input):
-    """Check and compress conversation history if it exceeds context window budget."""
-    from cliver.conversation_compressor import ConversationCompressor, estimate_tokens, get_context_window
-
-    context_window = get_context_window(model_config)
-    compressor = ConversationCompressor(context_window)
-
-    if not compressor.needs_compression([], cliver.conversation_messages, new_input):
-        return
-
-    before_tokens = estimate_tokens(cliver.conversation_messages)
-    llm_engine = agent_core.get_llm_engine(model_name)
-
-    try:
-        compressed = asyncio.get_event_loop().run_until_complete(
-            compressor.compress(cliver.conversation_messages, llm_engine)
-        )
-    except RuntimeError:
-        compressed = asyncio.run(compressor.compress(cliver.conversation_messages, llm_engine))
-
-    cliver.conversation_messages = compressed
-    after_tokens = estimate_tokens(cliver.conversation_messages)
-    cliver.output(f"\\[Compressed conversation: ~{before_tokens} → ~{after_tokens} tokens]")
+    """Check and compress conversation history — skipped in v1 (needs porting)."""
+    return
 
 
 def _resolve_prompt(cliver: Cliver, inline_prompt: str, prompt_file: str | None) -> str | None:
@@ -209,14 +188,7 @@ def _run_skill(cliver: Cliver, name: str, message: str = ""):
     session_options = cliver.session_options or {}
     use_model = session_options.get("model", None)
     use_stream = session_options.get("stream", True)
-    # TODO: port skill execution to new AgentCore
-    agent_core = cliver.agent_core
-
     cliver.record_turn("user", user_message)
-
-    model_config = agent_core._get_llm_model(use_model)
-    if model_config and cliver.conversation_messages:
-        _compress_if_needed(cliver, agent_core, model_config, use_model, user_message)
 
     conv_history = list(cliver.conversation_messages) if cliver.conversation_messages else None
     cliver.conversation_messages.append(CLIverMessage(role="user", content=user_message))
@@ -226,21 +198,17 @@ def _run_skill(cliver: Cliver, name: str, message: str = ""):
         cliver.conversation_messages.append(CLIverMessage(role="assistant", content=text))
 
     router = getattr(cliver, "_command_router", None)
-    on_pending_input = None
     if router is not None:
         router.promote_to_query()
-        on_pending_input = router.drain_pending
 
     llm_call(
         cliver,
         LLMCallOptions(
-            skill_name=name,
             user_input=user_message,
             model=use_model,
             stream=use_stream,
             conversation_history=conv_history,
             on_response=on_response,
-            on_pending_input=on_pending_input,
         ),
     )
 
@@ -491,7 +459,6 @@ def _llm_generate(cliver: Cliver, prompt: str, model: str, status_msg: str) -> s
             user_input=prompt,
             model=model,
             stream=False,
-            tools_filter=_no_tools,
         ),
     )
 

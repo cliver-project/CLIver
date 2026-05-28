@@ -6,84 +6,43 @@ and stored as markdown files on disk.
 """
 
 import logging
-from typing import Literal, Optional, Type
-
-from langchain_core.tools import BaseTool
-from pydantic import BaseModel, Field
+from typing import Optional
 
 from cliver.agent_profile import get_current_profile
+from cliver.tool import tool
 
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# memory_read
-# ---------------------------------------------------------------------------
-
-
-class MemoryReadInput(BaseModel):
-    """Input schema for memory_read."""
-
-    pass
-
-
-class MemoryReadTool(BaseTool):
-    """Read persistent memory to recall knowledge from previous sessions."""
-
-    name: str = "MemoryRead"
-    description: str = (
+@tool(
+    name="MemoryRead",
+    description=(
         "Read your persistent memory to recall knowledge from previous conversations. "
         "Returns both global memory (shared across all agents) and your agent-specific memory. "
         "Use this when you need to check what you already know about the user's preferences, "
         "past decisions, or previously learned information."
-    )
-    args_schema: Type[BaseModel] = MemoryReadInput
-    tags: list = ["memory", "context"]
+    ),
+)
+def memory_read() -> list[dict]:
+    """Read persistent memory to recall knowledge from previous sessions.
 
-    def _run(self) -> str:
-        profile = get_current_profile()
-        if profile is None:
-            return "Memory is not available in this session."
+    Returns both global memory (shared across all agents) and agent-specific memory.
+    Use when you need to check what you already know about the user's preferences,
+    past decisions, or previously learned information.
+    """
+    profile = get_current_profile()
+    if profile is None:
+        return [{"text": "Memory is not available in this session."}]
 
-        content = profile.load_memory()
-        if not content:
-            return "No memories stored yet."
-        return content
-
-
-# ---------------------------------------------------------------------------
-# memory_write
-# ---------------------------------------------------------------------------
-
-
-class MemoryWriteInput(BaseModel):
-    """Input schema for memory_write."""
-
-    content: str = Field(
-        description=(
-            "In 'append' mode: the knowledge to remember (concise and factual). "
-            "In 'rewrite' mode: the complete memory document in markdown."
-        )
-    )
-    comment: Optional[str] = Field(
-        default=None,
-        description="Brief context about why this is being saved (only for append mode).",
-    )
-    mode: Optional[Literal["append", "rewrite"]] = Field(
-        default="append",
-        description=(
-            "'append' (default): add a new timestamped entry. "
-            "'rewrite': replace the entire memory document — use when correcting, "
-            "consolidating, or reorganizing existing memories."
-        ),
-    )
+    content = profile.load_memory()
+    if not content:
+        return [{"text": "No memories stored yet."}]
+    return [{"text": content}]
 
 
-class MemoryWriteTool(BaseTool):
-    """Save knowledge to persistent memory for future sessions."""
-
-    name: str = "MemoryWrite"
-    description: str = (
+@tool(
+    name="MemoryWrite",
+    description=(
         "Save important knowledge to your persistent memory so you can recall it "
         "in future conversations.\n\n"
         "Two modes:\n"
@@ -105,45 +64,41 @@ class MemoryWriteTool(BaseTool):
         "- Temporary or session-specific information\n"
         "- Information already in memory (check with MemoryRead first)\n"
         "- Trivial or obvious facts"
-    )
-    args_schema: Type[BaseModel] = MemoryWriteInput
-    tags: list = ["memory", "context"]
+    ),
+)
+def memory_write(
+    content: str,
+    comment: Optional[str] = None,
+    mode: Optional[str] = "append",
+) -> list[dict]:
+    """Save knowledge to persistent memory for future sessions.
 
-    def _run(self, content: str, comment: str = None, mode: str = "append") -> str:
-        profile = get_current_profile()
-        if profile is None:
-            return "Memory is not available in this session."
+    Two modes:
+    - append (default): add a new timestamped entry.
+    - rewrite: replace the entire memory document — use when correcting,
+      consolidating, or reorganizing existing memories.
 
-        if mode == "rewrite":
-            profile.save_memory(content)
-            return "Rewrote memory."
-        else:
-            profile.append_memory(content, comment=comment or "")
-            return f"Saved to memory: {content}"
+    Args:
+        content: In 'append' mode: the knowledge to remember (concise and factual).
+            In 'rewrite' mode: the complete memory document in markdown.
+        comment: Brief context about why this is being saved (only for append mode).
+        mode: 'append' (default) or 'rewrite'.
+    """
+    profile = get_current_profile()
+    if profile is None:
+        return [{"text": "Memory is not available in this session."}]
 
-
-# ---------------------------------------------------------------------------
-# identity_update
-# ---------------------------------------------------------------------------
-
-
-class IdentityUpdateInput(BaseModel):
-    """Input schema for identity_update."""
-
-    content: str = Field(
-        description=(
-            "The complete identity document in markdown format. "
-            "This replaces the entire identity — include ALL information, "
-            "not just the new parts."
-        )
-    )
+    if mode == "rewrite":
+        profile.save_memory(content)
+        return [{"text": "Rewrote memory."}]
+    else:
+        profile.append_memory(content, comment=comment or "")
+        return [{"text": f"Saved to memory: {content}"}]
 
 
-class IdentityUpdateTool(BaseTool):
-    """Update the identity profile — a living document about the agent and user."""
-
-    name: str = "Identity"
-    description: str = (
+@tool(
+    name="Identity",
+    description=(
         "Update the identity profile — a living markdown document that describes "
         "who you are (agent persona) and who the user is (their profile).\n\n"
         "Unlike memory (append-only), identity is **rewritten as a whole** each time. "
@@ -157,19 +112,22 @@ class IdentityUpdateTool(BaseTool):
         "- User states a preference about how you should behave\n"
         "- You learn about the user's environment or workflow\n\n"
         "Read the current identity first to avoid losing existing information."
-    )
-    args_schema: Type[BaseModel] = IdentityUpdateInput
-    tags: list = ["memory", "identity", "context"]
+    ),
+)
+def identity_update(content: str) -> list[dict]:
+    """Update the identity profile.
 
-    def _run(self, content: str) -> str:
-        profile = get_current_profile()
-        if profile is None:
-            return "Identity is not available in this session."
+    A living markdown document that describes who you are (agent persona)
+    and who the user is (their profile). Replaces the entire identity.
 
-        profile.save_identity(content)
-        return "Identity profile updated."
+    Args:
+        content: The complete identity document in markdown format.
+            This replaces the entire identity. Include ALL information,
+            not just the new parts.
+    """
+    profile = get_current_profile()
+    if profile is None:
+        return [{"text": "Identity is not available in this session."}]
 
-
-memory_read = MemoryReadTool()
-memory_write = MemoryWriteTool()
-identity_update = IdentityUpdateTool()
+    profile.save_identity(content)
+    return [{"text": "Identity profile updated."}]

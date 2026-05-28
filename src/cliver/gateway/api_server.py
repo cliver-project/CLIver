@@ -9,7 +9,6 @@ Usage:
     routes = get_api_routes(executor, get_status, api_key="secret")
 """
 
-import asyncio
 import json
 import logging
 import time
@@ -37,14 +36,8 @@ def _server_system_appender():
 
 
 def _configure_server_mode(executor):
-    """Set up executor for headless server operation."""
-    if executor.permission_manager:
-        from cliver.permissions import PermissionMode
-
-        executor.permission_manager.set_mode(PermissionMode.YOLO)
-
-    # Auto-allow any permission prompts (no human to respond)
-    executor.on_permission_prompt = lambda tool, args: "allow"
+    """Set up executor for headless server operation (no-op for new AgentCore)."""
+    pass
 
 
 def _parse_chat_request(body: dict, executor) -> dict:
@@ -57,7 +50,7 @@ def _parse_chat_request(body: dict, executor) -> dict:
     conversation_history = []
     user_input = ""
 
-    from langchain_core.messages import AIMessage, HumanMessage
+    from cliver.messages import CLIverMessage
 
     for msg in messages:
         role = msg.get("role", "")
@@ -67,11 +60,11 @@ def _parse_chat_request(body: dict, executor) -> dict:
             system_message = content
         elif role == "user":
             if user_input:
-                conversation_history.append(HumanMessage(content=user_input))
+                conversation_history.append(CLIverMessage(role="user", content=user_input))
             user_input = content
         elif role == "assistant":
             if content:
-                conversation_history.append(AIMessage(content=content))
+                conversation_history.append(CLIverMessage(role="assistant", content=content))
 
     if not user_input:
         raise ValueError("No user message found in messages")
@@ -83,7 +76,7 @@ def _parse_chat_request(body: dict, executor) -> dict:
 
     return {
         "user_input": user_input,
-        "model": body.get("model") or executor.default_model,
+        "model": body.get("model") or executor._get_default_model_name(),
         "stream": body.get("stream", False),
         "system_message": system_message,
         "conversation_history": conversation_history if conversation_history else None,
@@ -151,16 +144,8 @@ def _build_system_appender(user_system_message: Optional[str] = None):
 
 def _build_models_response(executor) -> dict:
     """Build the /v1/models response."""
-    models = []
-    for name in executor.llm_models:
-        models.append(
-            {
-                "id": name,
-                "object": "model",
-                "created": 0,
-                "owned_by": "cliver",
-            }
-        )
+    cfg = executor._get_config_manager()
+    models = [{"id": name, "object": "model", "created": 0, "owned_by": "cliver"} for name in cfg.list_llm_models()]
     return {"object": "list", "data": models}
 
 
@@ -171,27 +156,16 @@ def _build_models_response(executor) -> dict:
 
 async def _handle_sync(executor, request_id: str, parsed: dict):
     """Handle a non-streaming chat completion request."""
-    system_appender = _build_system_appender(parsed.get("system_message"))
-
     try:
-        response = await asyncio.to_thread(
-            executor.process_user_input,
-            user_input=parsed["user_input"],
-            model=parsed["model"],
-            options=parsed.get("options"),
-            conversation_history=parsed.get("conversation_history"),
-            system_message_appender=system_appender,
+        agent = executor._get_agent(parsed["model"])
+        response = await agent.chat(
+            prompt=parsed["user_input"],
         )
-
-        from cliver.media_handler import extract_response_text
-
-        content = extract_response_text(response)
-
+        content = response.message.text or ""
         input_tokens, output_tokens = 0, 0
-        tracker = getattr(executor, "token_tracker", None)
-        if tracker and hasattr(tracker, "last_usage") and tracker.last_usage:
-            input_tokens = tracker.last_usage.input_tokens
-            output_tokens = tracker.last_usage.output_tokens
+        if response.usage:
+            input_tokens = response.usage.input_tokens
+            output_tokens = response.usage.output_tokens
 
         result = _build_completion_response(
             request_id,
@@ -209,19 +183,13 @@ async def _handle_sync(executor, request_id: str, parsed: dict):
 
 async def _handle_streaming(executor, request_id: str, parsed: dict):
     """Handle a streaming chat completion request via SSE."""
-    system_appender = _build_system_appender(parsed.get("system_message"))
 
     async def generate():
         try:
-            async for chunk in executor._stream_user_input_async(
-                user_input=parsed["user_input"],
-                model=parsed["model"],
-                options=parsed.get("options"),
-                conversation_history=parsed.get("conversation_history"),
-                system_message_appender=system_appender,
-            ):
-                if hasattr(chunk, "content") and chunk.content:
-                    data = _build_stream_chunk(request_id, parsed["model"], str(chunk.content))
+            agent = executor._get_agent(parsed["model"])
+            async for chunk in agent.stream(prompt=parsed["user_input"]):
+                if chunk.content:
+                    data = _build_stream_chunk(request_id, parsed["model"], chunk.content)
                     yield f"data: {json.dumps(data)}\n\n".encode()
 
             yield b"data: [DONE]\n\n"
@@ -297,7 +265,8 @@ def get_api_routes(
             return JSONResponse({"error": {"message": str(e)}}, status_code=400)
 
         model = parsed["model"]
-        if model and model not in executor.llm_models:
+        cfg = executor._get_config_manager()
+        if model and model not in cfg.list_llm_models():
             return JSONResponse({"error": {"message": f"Model '{model}' not found"}}, status_code=404)
 
         request_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"

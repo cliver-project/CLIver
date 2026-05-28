@@ -1,12 +1,10 @@
 """Built-in tool for browser automation via Playwright."""
 
-import asyncio
 import base64
 import logging
-from typing import Optional, Type
+from typing import Optional
 
-from langchain_core.tools import BaseTool
-from pydantic import BaseModel, Field
+from cliver.tool import tool
 
 logger = logging.getLogger(__name__)
 
@@ -71,106 +69,87 @@ async def close_browser_session():
         _browser_session = None
 
 
-class BrowserActionInput(BaseModel):
-    action: str = Field(description="Action to perform: navigate, click, fill, screenshot, get_text, evaluate")
-    selector: Optional[str] = Field(
-        default=None,
-        description="CSS selector for the target element (for click, fill, get_text)",
-    )
-    value: Optional[str] = Field(
-        default=None,
-        description="URL for navigate, text for fill, JavaScript code for evaluate",
-    )
-
-
-class BrowserActionTool(BaseTool):
-    name: str = "Browser"
-    description: str = (
-        "Control a headless browser for interactive web automation — click buttons, "
+@tool(
+    name="Browser",
+    description=(
+        "Control a headless browser for interactive web automation -- click buttons, "
         "fill forms, take screenshots, run JavaScript. "
-        "Do NOT use for searching or fetching information — use WebSearch or WebFetch instead. "
+        "Do NOT use for searching or fetching information -- use WebSearch or WebFetch instead. "
         "Only use this when you need to interact with a web page (login, submit forms, scrape dynamic content)."
-    )
-    args_schema: Type[BaseModel] = BrowserActionInput
-    tags: list = ["browser", "web", "execute"]
+    ),
+)
+async def browser_action(
+    action: str,
+    selector: Optional[str] = None,
+    value: Optional[str] = None,
+) -> list[dict]:
+    """Control a headless browser for interactive web automation.
 
-    def _run(self, action: str, selector: str = None, value: str = None) -> str:
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
+    The @tool decorator wraps this async function with asyncio.run() in
+    its own thread, so each invocation gets a fresh event loop.
 
-        if loop and loop.is_running():
-            # We're inside an async context — create a new thread to run the coroutine
-            import concurrent.futures
+    Args:
+        action: Action to perform: navigate, click, fill, screenshot, get_text, evaluate.
+        selector: CSS selector for the target element (for click, fill, get_text).
+        value: URL for navigate, text for fill, JavaScript code for evaluate.
+    """
+    session = get_browser_session()
 
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                future = pool.submit(asyncio.run, self._async_run(action, selector, value))
-                return future.result()
-        else:
-            return asyncio.run(self._async_run(action, selector, value))
+    try:
+        page = await session.ensure_started()
+    except ImportError as e:
+        return [{"error": str(e)}]
 
-    async def _async_run(self, action: str, selector: str = None, value: str = None) -> str:
-        session = get_browser_session()
+    try:
+        if action == "navigate":
+            if not value:
+                return [{"error": "'value' (URL) is required for navigate action"}]
+            await page.goto(value, wait_until="domcontentloaded", timeout=30000)
+            title = await page.title()
+            return [{"text": f"Navigated to {value} -- Title: {title}"}]
 
-        try:
-            page = await session.ensure_started()
-        except ImportError as e:
-            return str(e)
+        elif action == "click":
+            if not selector:
+                return [{"error": "'selector' is required for click action"}]
+            await page.click(selector, timeout=10000)
+            return [{"text": f"Clicked: {selector}"}]
 
-        try:
-            if action == "navigate":
-                if not value:
-                    return "Error: 'value' (URL) is required for navigate action"
-                await page.goto(value, wait_until="domcontentloaded", timeout=30000)
-                title = await page.title()
-                return f"Navigated to {value} — Title: {title}"
+        elif action == "fill":
+            if not selector:
+                return [{"error": "'selector' is required for fill action"}]
+            if value is None:
+                return [{"error": "'value' (text) is required for fill action"}]
+            await page.fill(selector, value, timeout=10000)
+            return [{"text": f"Filled '{selector}' with: {value}"}]
 
-            elif action == "click":
-                if not selector:
-                    return "Error: 'selector' is required for click action"
-                await page.click(selector, timeout=10000)
-                return f"Clicked: {selector}"
+        elif action == "screenshot":
+            screenshot_bytes = await page.screenshot(full_page=False)
+            b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
+            return [{"text": f"Screenshot captured ({len(screenshot_bytes)} bytes). Base64: {b64[:100]}..."}]
 
-            elif action == "fill":
-                if not selector:
-                    return "Error: 'selector' is required for fill action"
-                if value is None:
-                    return "Error: 'value' (text) is required for fill action"
-                await page.fill(selector, value, timeout=10000)
-                return f"Filled '{selector}' with: {value}"
-
-            elif action == "screenshot":
-                screenshot_bytes = await page.screenshot(full_page=False)
-                b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
-                return f"Screenshot captured ({len(screenshot_bytes)} bytes). Base64: {b64[:100]}..."
-
-            elif action == "get_text":
-                if selector:
-                    element = await page.query_selector(selector)
-                    if element:
-                        text = await element.text_content()
-                        return text or "(empty)"
-                    return f"Element not found: {selector}"
-                else:
-                    text = await page.text_content("body")
-                    # Truncate to avoid massive output
-                    if text and len(text) > 5000:
-                        return text[:5000] + f"\n\n... (truncated, {len(text)} total chars)"
-                    return text or "(empty page)"
-
-            elif action == "evaluate":
-                if not value:
-                    return "Error: 'value' (JavaScript code) is required for evaluate action"
-                result = await page.evaluate(value)
-                return str(result) if result is not None else "(no return value)"
-
+        elif action == "get_text":
+            if selector:
+                element = await page.query_selector(selector)
+                if element:
+                    text = await element.text_content()
+                    return [{"text": text or "(empty)"}]
+                return [{"text": f"Element not found: {selector}"}]
             else:
-                return f"Unknown action: {action}. Use: navigate, click, fill, screenshot, get_text, evaluate"
+                text = await page.text_content("body")
+                # Truncate to avoid massive output
+                if text and len(text) > 5000:
+                    return [{"text": text[:5000] + f"\n\n... (truncated, {len(text)} total chars)"}]
+                return [{"text": text or "(empty page)"}]
 
-        except Exception as e:
-            logger.warning(f"Browser action '{action}' failed: {e}")
-            return f"Error: {e}"
+        elif action == "evaluate":
+            if not value:
+                return [{"error": "'value' (JavaScript code) is required for evaluate action"}]
+            result = await page.evaluate(value)
+            return [{"text": str(result) if result is not None else "(no return value)"}]
 
+        else:
+            return [{"error": f"Unknown action: {action}. Use: navigate, click, fill, screenshot, get_text, evaluate"}]
 
-browser_action = BrowserActionTool()
+    except Exception as e:
+        logger.warning(f"Browser action '{action}' failed: {e}")
+        return [{"error": str(e)}]

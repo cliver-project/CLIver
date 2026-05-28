@@ -3,10 +3,9 @@
 import logging
 import platform
 import subprocess
-from typing import Optional, Type
+from typing import Optional
 
-from langchain_core.tools import BaseTool
-from pydantic import BaseModel, Field
+from cliver.tool import tool
 
 logger = logging.getLogger(__name__)
 
@@ -15,32 +14,9 @@ MAX_TIMEOUT_MS = 600000  # 10 minutes
 MAX_OUTPUT_LENGTH = 50000  # characters
 
 
-class RunShellCommandInput(BaseModel):
-    """Input schema for the run_shell_command tool."""
-
-    command: str = Field(description="The shell command to execute.")
-    description: Optional[str] = Field(
-        default=None,
-        description="Brief description of what this command does (5-10 words). "
-        "Helps the user understand the purpose of the command.",
-    )
-    timeout: Optional[int] = Field(
-        default=None,
-        description=f"Optional timeout in milliseconds (max {MAX_TIMEOUT_MS}ms / 10 minutes). "
-        f"Defaults to {DEFAULT_TIMEOUT_MS}ms (2 minutes).",
-    )
-    directory: Optional[str] = Field(
-        default=None,
-        description="Optional: The absolute path of the directory to run the command in. "
-        "If not provided, the current working directory is used.",
-    )
-
-
-class RunShellCommandTool(BaseTool):
-    """Executes shell commands with timeout and output capture."""
-
-    name: str = "Bash"
-    description: str = (
+@tool(
+    name="Bash",
+    description=(
         "Executes a given shell command and returns its output. "
         "Use this for terminal operations like git, npm, docker, pip, make, etc. "
         "Do NOT use this for file operations (reading, writing, searching) - "
@@ -49,62 +25,66 @@ class RunShellCommandTool(BaseTool):
         "- The command is required.\n"
         f"- Timeout defaults to {DEFAULT_TIMEOUT_MS // 1000}s, max {MAX_TIMEOUT_MS // 1000}s.\n"
         "- Write a clear description of what the command does.\n"
-        "- Avoid using this tool with find, grep, cat, head, tail, sed, awk — "
+        "- Avoid using this tool with find, grep, cat, head, tail, sed, awk - "
         "use the dedicated builtin tools instead."
-    )
-    args_schema: Type[BaseModel] = RunShellCommandInput
-    tags: list = ["execute", "shell", "command"]
+    ),
+)
+def run_shell_command(
+    command: str,
+    description: Optional[str] = None,
+    timeout: Optional[int] = None,
+    directory: Optional[str] = None,
+) -> list[dict]:
+    """Execute a shell command with timeout and output capture.
 
-    def _run(
-        self,
-        command: str,
-        description: Optional[str] = None,
-        timeout: Optional[int] = None,
-        directory: Optional[str] = None,
-    ) -> str:
-        timeout_ms = min(timeout or DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS)
-        timeout_s = timeout_ms / 1000.0
+    Args:
+        command: The shell command to execute.
+        description: Brief description of what this command does (5-10 words).
+        timeout: Optional timeout in milliseconds (max 600000ms / 10 minutes).
+            Defaults to 120000ms (2 minutes).
+        directory: Optional absolute path to run the command in.
+            If not provided, the current working directory is used.
+    """
+    timeout_ms = min(timeout or DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS)
+    timeout_s = timeout_ms / 1000.0
 
-        system = platform.system()
-        if system == "Windows":
-            shell_cmd = ["cmd.exe", "/c", command]
-        else:
-            shell_cmd = ["bash", "-c", command]
+    system = platform.system()
+    if system == "Windows":
+        shell_cmd = ["cmd.exe", "/c", command]
+    else:
+        shell_cmd = ["bash", "-c", command]
 
-        try:
-            result = subprocess.run(
-                shell_cmd,
-                capture_output=True,
-                text=True,
-                timeout=timeout_s,
-                cwd=directory,
-            )
+    try:
+        result = subprocess.run(
+            shell_cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+            cwd=directory,
+        )
 
-            output_parts = []
-            if result.stdout:
-                stdout = result.stdout
-                if len(stdout) > MAX_OUTPUT_LENGTH:
-                    stdout = stdout[:MAX_OUTPUT_LENGTH] + "\n... (output truncated)"
-                output_parts.append(stdout)
-            if result.stderr:
-                stderr = result.stderr
-                if len(stderr) > MAX_OUTPUT_LENGTH:
-                    stderr = stderr[:MAX_OUTPUT_LENGTH] + "\n... (stderr truncated)"
-                output_parts.append(f"STDERR:\n{stderr}")
+        output_parts = []
+        if result.stdout:
+            stdout = result.stdout
+            if len(stdout) > MAX_OUTPUT_LENGTH:
+                stdout = stdout[:MAX_OUTPUT_LENGTH] + "\n... (output truncated)"
+            output_parts.append(stdout)
+        if result.stderr:
+            stderr = result.stderr
+            if len(stderr) > MAX_OUTPUT_LENGTH:
+                stderr = stderr[:MAX_OUTPUT_LENGTH] + "\n... (stderr truncated)"
+            output_parts.append(f"STDERR:\n{stderr}")
 
-            output = "\n".join(output_parts) if output_parts else "(no output)"
+        output = "\n".join(output_parts) if output_parts else "(no output)"
 
-            if result.returncode != 0:
-                return f"Command exited with code {result.returncode}\n{output}"
-            return output
+        if result.returncode != 0:
+            return [{"text": f"Command exited with code {result.returncode}\n{output}"}]
+        return [{"text": output}]
 
-        except subprocess.TimeoutExpired:
-            return f"Error: Command timed out after {timeout_s:.0f} seconds."
-        except FileNotFoundError:
-            return "Error: Command not found or shell not available."
-        except Exception as e:
-            logger.error(f"Error executing command: {e}")
-            return f"Error executing command: {e}"
-
-
-run_shell_command = RunShellCommandTool()
+    except subprocess.TimeoutExpired:
+        return [{"error": f"Command timed out after {timeout_s:.0f} seconds."}]
+    except FileNotFoundError:
+        return [{"error": "Command not found or shell not available."}]
+    except Exception as e:
+        logger.error(f"Error executing command: {e}")
+        return [{"error": f"Error executing command: {e}"}]

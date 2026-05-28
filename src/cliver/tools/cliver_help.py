@@ -2,12 +2,9 @@
 
 import importlib
 import re
-from typing import Type
-
-from langchain_core.tools import BaseTool
-from pydantic import BaseModel, Field
 
 from cliver.command_router import HANDLERS
+from cliver.tool import tool
 from cliver.util import get_config_dir
 
 _ALIASES = {"tasks": "task", "skill": "skills"}
@@ -31,7 +28,6 @@ def _config_file_help() -> str:
 _STATIC_TOPICS = {
     "config_file": _config_file_help,
 }
-
 
 _COMMAND_SUMMARIES = {
     "clear": "Clear the conversation history and start fresh",
@@ -88,25 +84,9 @@ def _get_command_help(command_name: str) -> str:
         return f"/{command_name} — error loading help: {e}"
 
 
-class CliverHelpInput(BaseModel):
-    topic: str = Field(
-        description=(
-            "The topic to look up. Valid values:\n"
-            "  'commands'    — List all available CLIver commands with one-line descriptions.\n"
-            "  'config_file' — Show config.yaml structure and key sections.\n"
-            "  '<command>'   — Show full help for a specific command including all subcommands,\n"
-            "                  parameters (with types, required/optional, defaults), and examples.\n"
-            "                  Valid command names: agent, config, cost, gateway, identity, mcp,\n"
-            "                  model, permissions, provider, session, skills, task."
-        ),
-    )
-
-
-class CliverHelpTool(BaseTool):
-    """Look up CLIver command syntax, parameters, and configuration reference."""
-
-    name: str = "CliverHelp"
-    description: str = (
+@tool(
+    name="CliverHelp",
+    description=(
         "Look up CLIver's own slash commands and configuration reference. "
         "Returns precise syntax with parameter types, required/optional status, "
         "valid values, defaults, and examples. "
@@ -114,27 +94,33 @@ class CliverHelpTool(BaseTool):
         "or topic='<command_name>' (e.g. 'task', 'model', 'session') for full "
         "command documentation including all subcommands and parameters. "
         "Use topic='config_file' for config.yaml structure."
-    )
-    args_schema: Type[BaseModel] = CliverHelpInput
-    tags: list = ["admin", "help"]
+    ),
+)
+def cliver_help(topic: str) -> list[dict]:
+    """Look up CLIver command syntax, parameters, and configuration reference.
 
-    def _run(self, topic: str) -> str:
-        topic = topic.strip().lower()
+    Args:
+        topic: The topic to look up. Valid values:
+            'commands' — List all available CLIver commands with one-line descriptions.
+            'config_file' — Show config.yaml structure and key sections.
+            '<command>' — Show full help for a specific command including all
+            subcommands, parameters (with types, required/optional, defaults),
+            and examples. Valid command names: agent, config, cost, gateway,
+            identity, mcp, model, permissions, provider, session, skills, task.
+    """
+    topic = topic.strip().lower()
 
-        if topic == "commands":
-            return _list_commands()
+    if topic == "commands":
+        return [{"text": _list_commands()}]
 
-        if topic in _STATIC_TOPICS:
-            fn = _STATIC_TOPICS[topic]
-            return fn() if callable(fn) else fn
+    if topic in _STATIC_TOPICS:
+        fn = _STATIC_TOPICS[topic]
+        return [{"text": fn() if callable(fn) else fn}]
 
-        resolved = _ALIASES.get(topic, topic)
-        if resolved in HANDLERS:
-            help_text = _get_command_help(resolved)
-            return help_text
+    resolved = _ALIASES.get(topic, topic)
+    if resolved in HANDLERS:
+        help_text = _get_command_help(resolved)
+        return [{"text": help_text}]
 
-        available = sorted({"commands", "config_file"} | set(HANDLERS.keys()))
-        return f"Unknown topic: '{topic}'. Available: {', '.join(available)}"
-
-
-cliver_help = CliverHelpTool()
+    available = sorted({"commands", "config_file"} | set(HANDLERS.keys()))
+    return [{"text": f"Unknown topic: '{topic}'. Available: {', '.join(available)}"}]

@@ -142,20 +142,17 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
         """Run all golden tests for a lab, return results with actual outputs."""
         lab_id = request.path_params["lab_id"]
         gateway = context.get("gateway")
-        if not gateway or not getattr(gateway, "_agent_core", None):
+        if not gateway:
             return JSONResponse({"error": "Agent not available"}, status_code=503)
 
         tests = await _run_in_thread(lab_store.list_golden_tests, lab_id)
-        executor = gateway._agent_core
 
         results = []
         for test in tests:
             try:
-                actual_output = await _run_in_thread(
-                    executor.process_user_input,
-                    test.input,
-                )
-                actual_text = str(actual_output) if actual_output else ""
+                agent = gateway._get_agent()
+                response = await agent.chat(prompt=test.input)
+                actual_text = response.message.text or ""
             except Exception as e:
                 actual_text = f"Error: {e}"
 
@@ -213,15 +210,12 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
         if not prompt:
             return JSONResponse({"error": "'message' is required"}, status_code=400)
 
-        executor = gateway._agent_core
-        model = body.get("model") or executor.default_model
+        model = body.get("model") or gateway._get_default_model_name()
         system_message = body.get("system_message")
         agent_name = body.get("agent", "").strip()
         raw_history = body.get("conversation_history") or []
         tool_names = body.get("filter_tools")
         mcp_server_ids = body.get("mcp_server_ids") or []
-        save_media_dir = body.get("save_media_dir")
-
         # Resolve MCP server IDs to names for tool prefix filtering.
         # Run in thread to avoid blocking the event loop.
         mcp_server_names: list[str] = []
@@ -283,19 +277,17 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
         # Build conversation history
         conversation_history = None
         if raw_history:
-            from langchain_core.messages import AIMessage, HumanMessage
+            from cliver.messages import CLIverMessage
 
             conversation_history = []
             for msg in raw_history:
                 role = msg.get("role", "")
                 content = msg.get("content", "")
-                if role == "user":
-                    conversation_history.append(HumanMessage(content=content))
-                elif role == "assistant":
-                    extra = {}
-                    if "reasoning_content" in msg:
-                        extra["reasoning_content"] = msg["reasoning_content"]
-                    conversation_history.append(AIMessage(content=content, additional_kwargs=extra))
+                vendor = {}
+                if "reasoning_content" in msg:
+                    vendor["reasoning_content"] = msg["reasoning_content"]
+                if role in ("user", "assistant"):
+                    conversation_history.append(CLIverMessage(role=role, content=content, vendor_ext=vendor))
 
         def _system_appender():
             parts = []
@@ -329,12 +321,6 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
                         result.append(t)
                 return result
 
-        from cliver.permissions import PermissionMode
-
-        if executor.permission_manager:
-            executor.permission_manager.set_mode(PermissionMode.YOLO)
-        executor.on_permission_prompt = lambda tool, args: "allow"
-
         uses_thinking = True
 
         async def generate():
@@ -342,45 +328,20 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
                 yield f"data: {json.dumps({'type': 'session', 'session_id': session_id})}\n\n".encode()
 
             logger.info(
-                "Lab chat start — lab=%s session=%s model=%s skills=%d mcp_servers=%s",
+                "Lab chat start — lab=%s session=%s model=%s",
                 lab_id,
                 session_id or "new",
                 model,
-                len(tool_names) if tool_names else 0,
-                mcp_server_names or "none",
             )
 
             full_text = ""
-            media_files = []
-            stream_media = []
             try:
-                async for chunk in executor._stream_user_input_async(
-                    user_input=prompt,
-                    model=model,
-                    system_message_appender=_system_appender,
-                    filter_tools=_tool_filter,
-                    conversation_history=conversation_history,
-                    outputs_dir=save_media_dir,
-                    enabled_skills=set(tool_names) if tool_names else None,
-                ):
-                    if hasattr(chunk, "content") and chunk.content:
-                        text = str(chunk.content)
-                        full_text += text
-                        data = json.dumps({"type": "content", "content": text})
+                agent = gateway._get_agent(model)
+                async for chunk in agent.stream(prompt=prompt):
+                    if chunk.content:
+                        full_text += chunk.content
+                        data = json.dumps({"type": "content", "content": chunk.content})
                         yield f"data: {data}\n\n".encode()
-                    chunk_kwargs = getattr(chunk, "additional_kwargs", None) or {}
-                    if "media_content" in chunk_kwargs:
-                        stream_media.extend(chunk_kwargs["media_content"])
-
-                if save_media_dir and stream_media:
-                    try:
-                        from cliver.media_handler import MultimediaResponse, MultimediaResponseHandler
-
-                        handler = MultimediaResponseHandler(save_directory=save_media_dir)
-                        multimedia = MultimediaResponse(media_content=stream_media)
-                        media_files = handler.save_media_content(multimedia, prefix="chat")
-                    except Exception as e:
-                        logger.warning("Failed to save media: %s", e)
 
                 # Strip inline tool_calls JSON from the accumulated text
                 # (some models emit tool calls as text rather than structured)
@@ -397,8 +358,6 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
                 done_data = {
                     "type": "done",
                     "content": clean_text,
-                    "media": media_files,
-                    "media_files": media_files,
                     "session_id": session_id,
                 }
                 if uses_thinking:

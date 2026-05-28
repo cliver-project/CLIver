@@ -26,7 +26,7 @@ def main():
     gw = Gateway(config_dir=config_dir, resolved_config=cfg)
     try:
         gw.init()
-        logger.info("AgentCore initialized (model: %s)", gw._agent_core.default_model)
+        logger.info("Gateway initialized (default model: %s)", gw._get_default_model_name())
     except Exception as e:
         logger.error("AgentCore init failed: %s", e)
 

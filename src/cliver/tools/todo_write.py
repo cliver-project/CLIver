@@ -1,15 +1,13 @@
 """Built-in todo_write tool for managing structured task lists."""
 
 import logging
-from typing import List, Literal, Type
 
-from langchain_core.tools import BaseTool
-from pydantic import BaseModel, Field
+from cliver.tool import tool
 
 logger = logging.getLogger(__name__)
 
 # Module-level todo storage (persists within a session)
-_current_todos: List[dict] = []
+_current_todos: list[dict] = []
 
 STATUS_ICONS = {
     "pending": "[ ]",
@@ -18,7 +16,7 @@ STATUS_ICONS = {
 }
 
 
-def get_current_todos() -> List[dict]:
+def get_current_todos() -> list[dict]:
     """Get the current todo list (for use by other tools or the system)."""
     return list(_current_todos)
 
@@ -53,27 +51,9 @@ def format_todo_summary(todos: list[dict]) -> str:
     return "\n".join(lines)
 
 
-class TodoItem(BaseModel):
-    """A single todo item."""
-
-    id: str = Field(description="Unique identifier for the todo item.")
-    content: str = Field(min_length=1, description="Description of the task.")
-    status: Literal["pending", "in_progress", "completed"] = Field(
-        description="Status of the todo item: 'pending', 'in_progress', or 'completed'."
-    )
-
-
-class TodoWriteInput(BaseModel):
-    """Input schema for the todo_write tool."""
-
-    todos: List[TodoItem] = Field(description="The complete updated todo list.")
-
-
-class TodoWriteTool(BaseTool):
-    """Creates and manages a structured task list for the current session."""
-
-    name: str = "TodoWrite"
-    description: str = (
+@tool(
+    name="TodoWrite",
+    description=(
         "Creates and manages a structured task list for your current session. "
         "This helps track progress, organize complex tasks, and demonstrate thoroughness.\n\n"
         "When to use:\n"
@@ -88,25 +68,23 @@ class TodoWriteTool(BaseTool):
         "- Purely conversational or informational queries\n\n"
         "Each call replaces the entire todo list. Always include all items "
         "(pending, in_progress, completed) in every call."
-    )
-    args_schema: Type[BaseModel] = TodoWriteInput
-    tags: list = ["think", "planning", "task"]
+    ),
+)
+def todo_write(todos: list[dict]) -> list[dict]:
+    """Creates and manages a structured task list for your current session.
 
-    def _run(self, todos: List[dict]) -> str:
-        global _current_todos
+    Each call replaces the entire todo list. Always include all items
+    (pending, in_progress, completed) in every call.
 
-        # Convert dicts to TodoItem for validation, then back to dicts for storage
-        validated = []
-        for item in todos:
-            if isinstance(item, dict):
-                validated.append(item)
-            elif isinstance(item, TodoItem):
-                validated.append(item.model_dump())
-            else:
-                validated.append(dict(item))
+    Args:
+        todos: The complete updated todo list. Each item should be a dict with keys:
+            id (str): Unique identifier for the todo item.
+            content (str): Description of the task.
+            status (str): One of 'pending', 'in_progress', or 'completed'.
+    """
+    global _current_todos
 
-        _current_todos = validated
-        return format_todo_summary(_current_todos)
-
-
-todo_write = TodoWriteTool()
+    # Ensure we store a clean copy
+    validated = [dict(item) if not isinstance(item, dict) else item for item in todos]
+    _current_todos = validated
+    return [{"text": format_todo_summary(_current_todos)}]

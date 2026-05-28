@@ -7,10 +7,7 @@ and inference options via /session option.
 Session recording happens automatically in chat.py after each LLM response.
 """
 
-import asyncio
-
 import click
-from langchain_core.messages import AIMessage, HumanMessage
 
 from cliver.cli import Cliver, pass_cliver
 from cliver.commands import click_help, wants_help
@@ -204,88 +201,28 @@ def _delete_session(cliver: Cliver, session_id: str):
 
 def _compress_session(cliver: Cliver):
     """Force-compress the current conversation history to save tokens."""
-    from cliver.conversation_compressor import ConversationCompressor, estimate_tokens, get_context_window
 
     if not cliver.conversation_messages or len(cliver.conversation_messages) < 2:
         cliver.output("Not enough conversation history to compress.")
         return
 
-    _session_options = cliver.session_options or {}
-    model_name = _session_options.get("model", None)
-    # TODO: port to new AgentCore when ConversationCompressor is migrated
-    agent_core = cliver.agent_core
-    model_config = agent_core._get_llm_model(model_name)
-
-    if not model_config:
-        cliver.output("No model configured. Cannot compress.")
-        return
-
-    context_window = get_context_window(model_config)
-    compressor = ConversationCompressor(context_window)
-    llm_engine = agent_core.get_llm_engine(model_name)
-
-    before_tokens = estimate_tokens(cliver.conversation_messages)
-    before_count = len(cliver.conversation_messages)
-
-    try:
-        compressed = asyncio.run(compressor.compress(cliver.conversation_messages, llm_engine, force=True))
-    except Exception as e:
-        cliver.output(f"Compression failed: {e}")
-        return
-
-    cliver.conversation_messages = compressed
-    after_tokens = estimate_tokens(cliver.conversation_messages)
-
-    cliver.output(
-        f"Compressed: {before_count} messages (~{before_tokens} tokens) "
-        f"→ {len(compressed)} messages (~{after_tokens} tokens)"
-    )
+    cliver.output("Compression not available in this version. Use /clear to start fresh.")
 
 
 def _turns_to_messages(turns):
-    """Convert session turn dicts to LLM-ready BaseMessage objects."""
-    messages = []
-    for turn in turns:
-        role = turn.get("role", "")
-        content = turn.get("content", "")
-        if role == "user":
-            messages.append(HumanMessage(content=content))
-        elif role == "assistant":
-            messages.append(AIMessage(content=content))
-    return messages
+    """Convert session turn dicts to CLIverMessage objects."""
+    from cliver.messages import CLIverMessage
+
+    return [
+        CLIverMessage(role=turn.get("role", "user"), content=turn.get("content", ""))
+        for turn in turns
+        if turn.get("role") in ("user", "assistant")
+    ]
 
 
 def _compress_loaded_session(cliver):
-    """Compress conversation messages if they exceed context window on session load."""
-    from cliver.conversation_compressor import ConversationCompressor, estimate_tokens, get_context_window
-
-    if not cliver.conversation_messages:
-        return
-
-    _session_options = cliver.session_options or {}
-    model_name = _session_options.get("model", None)
-    agent_core = cliver.agent_core
-    model_config = agent_core._get_llm_model(model_name)
-
-    if not model_config:
-        return
-
-    context_window = get_context_window(model_config)
-    compressor = ConversationCompressor(context_window)
-
-    if not compressor.needs_compression([], cliver.conversation_messages, ""):
-        return
-
-    before_tokens = estimate_tokens(cliver.conversation_messages)
-    llm_engine = agent_core.get_llm_engine(model_name)
-
-    try:
-        compressed = asyncio.run(compressor.compress(cliver.conversation_messages, llm_engine))
-        cliver.conversation_messages = compressed
-        after_tokens = estimate_tokens(cliver.conversation_messages)
-        cliver.output(f"[Session compressed: ~{before_tokens} → ~{after_tokens} tokens]")
-    except Exception as e:
-        cliver.output(f"[Warning: session compression failed: {e}]")
+    """Compress conversation messages — skipped in v1."""
+    return
 
 
 # ---------------------------------------------------------------------------
