@@ -12,7 +12,6 @@ Inspired by Hermes's nudge-based skill creation, but simpler:
 - If the review decides to create a skill, it writes SKILL.md to user's skills dir
 """
 
-import asyncio
 import logging
 from pathlib import Path
 from typing import Optional
@@ -101,19 +100,8 @@ async def maybe_review_for_skill(
     )
 
     try:
-        # Support both old AgentCore (process_user_input) and new (chat)
-        if hasattr(agent_core, "chat"):
-            response = await agent_core.chat(user_input=prompt, max_iterations=8)
-            result = response.message.text or ""
-        else:
-            response = await asyncio.to_thread(
-                agent_core.process_user_input,
-                user_input=prompt,
-                max_iterations=8,
-            )
-            from cliver.media_handler import extract_response_text
-
-            result = extract_response_text(response)
+        response = await agent_core.chat(user_input=prompt, max_iterations=8)
+        result = response.message.text or ""
 
         if "no skill needed" in result.lower():
             logger.info("Skill review: no skill created")

@@ -1,29 +1,27 @@
-"""
-Conversation Compressor — manages conversation history size within context window limits.
+"""Conversation Compressor — manages history size within context window limits.
 
 Two-tier compression:
   Tier 1 — prune stale tool results (cheap, no LLM call, triggers at 50% context)
   Tier 2 — LLM-generated summary of older turns (triggers at 70%+ context)
 """
 
-import logging
-from typing import List
+from __future__ import annotations
 
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from langchain_core.messages.base import BaseMessage
+import logging
+from typing import TYPE_CHECKING
 
 from cliver.config import ModelConfig
+from cliver.messages import CLIverMessage
+
+if TYPE_CHECKING:
+    from cliver.agent import Agent
 
 logger = logging.getLogger(__name__)
 
-# Sentinel prefix to identify compressed summary messages
 SUMMARY_PREFIX = "[Conversation Summary]"
-
-# Default context window when model doesn't specify one
 DEFAULT_CONTEXT_WINDOW = 32768
 
-# Well-known context window sizes by model name pattern
-_CONTEXT_WINDOW_DEFAULTS = {
+_CONTEXT_WINDOW_DEFAULTS: dict[str, int] = {
     "qwen": 131072,
     "deepseek": 131072,
     "gpt-4o": 128000,
@@ -51,9 +49,8 @@ Conversation:
 
 
 def get_context_window(config: ModelConfig) -> int:
-    """Get context window size for a model, with heuristic defaults."""
     opts = config.options
-    if opts and opts.context_window is not None:
+    if opts and getattr(opts, "context_window", None) is not None:
         return opts.context_window
 
     name = config.api_model_name.lower()
@@ -64,16 +61,15 @@ def get_context_window(config: ModelConfig) -> int:
     return DEFAULT_CONTEXT_WINDOW
 
 
-def estimate_tokens(messages: List[BaseMessage]) -> int:
+def estimate_tokens(messages: list[CLIverMessage]) -> int:
     """Rough token estimate: ~4 chars per token."""
     total_chars = 0
     for m in messages:
         content = m.content
         if isinstance(content, list):
-            # Multipart content (e.g., images + text)
             for part in content:
                 if isinstance(part, dict) and "text" in part:
-                    total_chars += len(part["text"])
+                    total_chars += len(str(part["text"]))
                 elif isinstance(part, str):
                     total_chars += len(part)
         elif isinstance(content, str):
@@ -82,41 +78,36 @@ def estimate_tokens(messages: List[BaseMessage]) -> int:
 
 
 def estimate_tokens_str(text: str) -> int:
-    """Rough token estimate for a plain string."""
     return len(text) // 4
 
 
-def _is_summary_message(msg: BaseMessage) -> bool:
-    """Check if a message is a conversation summary."""
-    return isinstance(msg, HumanMessage) and isinstance(msg.content, str) and msg.content.startswith(SUMMARY_PREFIX)
+def _is_summary_message(msg: CLIverMessage) -> bool:
+    return msg.role == "user" and isinstance(msg.content, str) and msg.content.startswith(SUMMARY_PREFIX)
 
 
 TOOL_PRUNE_MIN_CHARS = 200
 
 
-def prune_stale_tool_results(messages: List[BaseMessage]) -> List[BaseMessage]:
+def prune_stale_tool_results(messages: list[CLIverMessage]) -> list[CLIverMessage]:
     """Replace large, already-processed ToolMessage contents with a short stub.
 
-    A ToolMessage is "stale" when an AIMessage appears after it — the LLM has
-    already seen and acted on the result.  ToolMessages from the current
-    (unfinished) Re-Act iteration are left intact.
-
+    A ToolMessage is "stale" when an assistant message appears after it.
     Returns a new list; the original is not mutated.
     """
     if not messages:
         return []
 
-    last_ai_idx = -1
+    last_assistant_idx = -1
     for i in range(len(messages) - 1, -1, -1):
-        if isinstance(messages[i], AIMessage):
-            last_ai_idx = i
+        if messages[i].role == "assistant":
+            last_assistant_idx = i
             break
 
-    result: list[BaseMessage] = []
+    result: list[CLIverMessage] = []
     for i, msg in enumerate(messages):
         if (
-            isinstance(msg, ToolMessage)
-            and i < last_ai_idx
+            msg.role == "tool"
+            and i < last_assistant_idx
             and isinstance(msg.content, str)
             and len(msg.content) > TOOL_PRUNE_MIN_CHARS
         ):
@@ -126,24 +117,23 @@ def prune_stale_tool_results(messages: List[BaseMessage]) -> List[BaseMessage]:
                 f"You already processed this result in your following response. "
                 f"Refer to that response for the details.]"
             )
-            result.append(ToolMessage(content=stub, tool_call_id=msg.tool_call_id))
+            result.append(CLIverMessage(role="tool", content=stub, tool_call_id=msg.tool_call_id))
         else:
             result.append(msg)
 
     return result
 
 
-def _format_turns_for_compression(messages: List[BaseMessage]) -> str:
-    """Format message list into readable text for the compression prompt."""
+def _format_turns_for_compression(messages: list[CLIverMessage]) -> str:
     lines = []
     for msg in messages:
         if _is_summary_message(msg):
             role = "Previous Summary"
-        elif isinstance(msg, HumanMessage):
+        elif msg.role == "user":
             role = "User"
-        elif isinstance(msg, AIMessage):
+        elif msg.role == "assistant":
             role = "Assistant"
-        elif isinstance(msg, ToolMessage):
+        elif msg.role == "tool":
             content = msg.content if isinstance(msg.content, str) else str(msg.content)
             lines.append(f"Tool result: {content[:200]}" if len(content) > 200 else f"Tool result: {content}")
             continue
@@ -152,7 +142,6 @@ def _format_turns_for_compression(messages: List[BaseMessage]) -> str:
 
         content = msg.content
         if isinstance(content, list):
-            # Extract text parts only
             text_parts = []
             for part in content:
                 if isinstance(part, dict) and "text" in part:
@@ -166,10 +155,7 @@ def _format_turns_for_compression(messages: List[BaseMessage]) -> str:
 
 
 class ConversationCompressor:
-    """Compresses conversation history to fit within model context windows.
-
-    Stateless utility — operates on message lists passed in by the caller.
-    """
+    """Compresses conversation history to fit within model context windows."""
 
     def __init__(
         self,
@@ -177,23 +163,16 @@ class ConversationCompressor:
         threshold: float = 0.7,
         preserve_ratio: float = 0.3,
     ):
-        """
-        Args:
-            context_window: Model's total context window in tokens.
-            threshold: Fraction of context window that triggers compression (default 0.7).
-            preserve_ratio: Fraction of conversation history to keep verbatim (default 0.3).
-        """
         self.context_window = context_window
         self.threshold = threshold
         self.preserve_ratio = preserve_ratio
 
     def needs_compression(
         self,
-        system_messages: List[BaseMessage],
-        conversation_history: List[BaseMessage],
+        system_messages: list[CLIverMessage],
+        conversation_history: list[CLIverMessage],
         new_input: str,
     ) -> bool:
-        """Check if the combined messages exceed the compression threshold."""
         total = (
             estimate_tokens(system_messages) + estimate_tokens(conversation_history) + estimate_tokens_str(new_input)
         )
@@ -202,31 +181,28 @@ class ConversationCompressor:
 
     async def compress(
         self,
-        conversation_history: List[BaseMessage],
-        llm_engine,
+        conversation_history: list[CLIverMessage],
+        agent: "Agent",
         force: bool = False,
-    ) -> List[BaseMessage]:
+    ) -> list[CLIverMessage]:
         """Compress conversation history, keeping recent turns verbatim.
 
         Args:
-            conversation_history: Full conversation history (HumanMessage/AIMessage pairs).
-            llm_engine: LLM engine instance to use for generating the summary.
+            conversation_history: Full conversation history.
+            agent: Agent instance for the summary LLM call.
             force: If True, compress regardless of size.
 
         Returns:
-            Compressed history: [SystemMessage(summary), ...recent_turns]
+            Compressed history with summary + recent turns.
         """
         if not conversation_history:
             return []
 
-        # Need at least 2 messages (1 exchange) to compress
         if len(conversation_history) < 4 and not force:
             return list(conversation_history)
 
-        # Find split point: keep the newest preserve_ratio of turns
         total_turns = len(conversation_history)
         preserve_count = max(2, int(total_turns * self.preserve_ratio))
-        # Round up to even number to keep complete user/assistant pairs
         if preserve_count % 2 != 0:
             preserve_count += 1
         preserve_count = min(preserve_count, total_turns)
@@ -238,47 +214,36 @@ class ConversationCompressor:
         older_turns = conversation_history[:split_idx]
         recent_turns = conversation_history[split_idx:]
 
-        # Try LLM-based compression
         try:
-            summary = await self._generate_summary(older_turns, llm_engine)
-            summary_msg = HumanMessage(content=f"{SUMMARY_PREFIX}\n{summary}")
+            summary = await self._generate_summary(older_turns, agent)
+            summary_msg = CLIverMessage(role="user", content=f"{SUMMARY_PREFIX}\n{summary}")
             logger.info(
-                f"Compressed {len(older_turns)} messages into summary "
-                f"(~{estimate_tokens(older_turns)} → ~{estimate_tokens([summary_msg])} tokens)"
+                "Compressed %d messages into summary (~%d → ~%d tokens)",
+                len(older_turns),
+                estimate_tokens(older_turns),
+                estimate_tokens([summary_msg]),
             )
             return [summary_msg] + list(recent_turns)
         except Exception as e:
-            logger.warning(f"LLM compression failed, falling back to truncation: {e}")
+            logger.warning("LLM compression failed, falling back to truncation: %s", e)
             return self._truncate_fallback(conversation_history)
 
     async def _generate_summary(
         self,
-        messages: List[BaseMessage],
-        llm_engine,
+        messages: list[CLIverMessage],
+        agent: "Agent",
     ) -> str:
-        """Use the LLM to generate a conversation summary."""
         conversation_text = _format_turns_for_compression(messages)
         prompt = COMPRESSION_PROMPT.format(conversation=conversation_text)
 
-        response = await llm_engine.infer(
-            [HumanMessage(content=prompt)],
-            tools=None,
-        )
+        response = await agent.chat(prompt=prompt, max_iterations=1)
+        return (response.message.text or "").strip()
 
-        summary = response.content
-        if isinstance(summary, list):
-            summary = "\n".join(
-                part.get("text", str(part)) if isinstance(part, dict) else str(part) for part in summary
-            )
-        return summary.strip()
-
-    def _truncate_fallback(self, conversation_history: List[BaseMessage]) -> List[BaseMessage]:
-        """Simple truncation: keep newest turns within budget."""
+    def _truncate_fallback(self, conversation_history: list[CLIverMessage]) -> list[CLIverMessage]:
         budget = int(self.context_window * self.threshold)
-        result = []
+        result: list[CLIverMessage] = []
         total = 0
 
-        # Work backwards from newest to oldest
         for msg in reversed(conversation_history):
             msg_tokens = estimate_tokens([msg])
             if total + msg_tokens > budget:
@@ -286,9 +251,11 @@ class ConversationCompressor:
             result.insert(0, msg)
             total += msg_tokens
 
-        # Prepend a note about truncation
         if len(result) < len(conversation_history):
-            note = HumanMessage(content=f"{SUMMARY_PREFIX}\nEarlier conversation was truncated due to length.")
+            note = CLIverMessage(
+                role="user",
+                content=f"{SUMMARY_PREFIX}\nEarlier conversation was truncated due to length.",
+            )
             result.insert(0, note)
 
         return result
