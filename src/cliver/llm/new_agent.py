@@ -6,20 +6,20 @@ No langchain dependency. No model fallback. No compression (v1).
 import asyncio
 import logging
 import time
-from typing import AsyncIterator, Any
+from typing import Any, AsyncIterator
 
 from cliver.events import (
     EventHandler,
     ToolEvent,
     ToolEventType,
 )
+from cliver.mcp import MCPClient
 from cliver.messages import (
     CLIverMessage,
     CLIverMessageChunk,
     ToolCall,
     ToolCallAccumulator,
 )
-from cliver.mcp import MCPClient
 from cliver.provider import CLIverRequest, CLIverResponse, Provider
 from cliver.tool import CLIverTool, ToolRegistry
 
@@ -36,26 +36,23 @@ class AgentCore:
     (they can share the same ``mcp_client`` and ``builtin_tools``).
 
     **Instance state** (bound at construction, reused across calls):
-        provider, builtin_tools, mcp_client, on_event
+        provider, model, builtin_tools, mcp_client, on_event
 
     **Call state** (passed per chat/stream, varies each turn):
         user_input, system_prompt, conversation, extra_tools, mcp_servers, options
-
-    AgentCore does NOT know about protocols, SDKs, or API formats —
-    those are handled by Provider and ProtocolEngine.
-    It does NOT know about MCP transports — those are handled by MCPClient.
-    It only sees CLIverMessage and CLIverTool.
     """
 
     def __init__(
         self,
         provider: Provider,
+        model: str,
         builtin_tools: list[CLIverTool] | None = None,
         mcp_client: MCPClient | None = None,
         *,
         on_event: EventHandler | None = None,
     ):
         self.provider = provider
+        self.model = model
         self.tool_registry = ToolRegistry(builtin_tools or [])
         self.mcp_client = mcp_client
         self.on_event = on_event
@@ -66,7 +63,6 @@ class AgentCore:
         self,
         user_input: str,
         *,
-        model: str,
         system_prompt: str | None = None,
         conversation: list[CLIverMessage] | None = None,
         extra_tools: list[CLIverTool] | None = None,
@@ -74,22 +70,7 @@ class AgentCore:
         options: dict[str, Any] | None = None,
         max_iterations: int = 50,
     ) -> CLIverResponse:
-        """Non-streaming chat.  Returns the final response.
-
-        Args:
-            user_input: The user's message text.
-            model: API-facing model name (e.g. ``"deepseek-chat"``).
-            system_prompt: System prompt for this call (memory, identity,
-                skill instructions, etc. are assembled by the caller).
-            conversation: Prior conversation turns (CLIverMessages).
-            extra_tools: Additional tools for this request.
-            mcp_servers: Which MCP servers to use (None = all).
-            options: Provider-specific options (temperature, etc.).
-            max_iterations: Max Re-Act loop iterations.
-
-        Returns:
-            CLIverResponse with the final assistant message and usage info.
-        """
+        """Non-streaming chat.  Returns the final response."""
         messages = self._build_messages(user_input, system_prompt, conversation)
         all_tools = await self._gather_tools(extra_tools, mcp_servers)
         opts = options or {}
@@ -97,13 +78,12 @@ class AgentCore:
         if self.mcp_client:
             await self.mcp_client.start()
 
-        return await self._run_loop(messages, all_tools, model, opts, max_iterations)
+        return await self._run_loop(messages, all_tools, opts, max_iterations)
 
     async def stream(
         self,
         user_input: str,
         *,
-        model: str,
         system_prompt: str | None = None,
         conversation: list[CLIverMessage] | None = None,
         extra_tools: list[CLIverTool] | None = None,
@@ -111,11 +91,7 @@ class AgentCore:
         options: dict[str, Any] | None = None,
         max_iterations: int = 50,
     ) -> AsyncIterator[CLIverMessageChunk]:
-        """Streaming chat.  Yields chunks, executes tools between iterations.
-
-        Same arguments as chat(), but yields CLIverMessageChunk objects
-        as they arrive from the provider.
-        """
+        """Streaming chat.  Yields chunks, executes tools between iterations."""
         messages = self._build_messages(user_input, system_prompt, conversation)
         all_tools = await self._gather_tools(extra_tools, mcp_servers)
         opts = options or {}
@@ -123,9 +99,7 @@ class AgentCore:
         if self.mcp_client:
             await self.mcp_client.start()
 
-        async for chunk in self._run_stream_loop(
-            messages, all_tools, model, opts, max_iterations
-        ):
+        async for chunk in self._run_stream_loop(messages, all_tools, opts, max_iterations):
             yield chunk
 
     # ── Re-Act Loop (non-streaming) ───────────────────────────
@@ -134,7 +108,6 @@ class AgentCore:
         self,
         messages: list[CLIverMessage],
         tools: list[CLIverTool],
-        model: str,
         options: dict[str, Any],
         max_iterations: int,
     ) -> CLIverResponse:
@@ -144,7 +117,7 @@ class AgentCore:
             request = CLIverRequest(
                 messages=messages,
                 tools=tools or None,
-                model=model,
+                model=self.model,
                 options=options,
             )
 
@@ -155,17 +128,13 @@ class AgentCore:
                 return response
 
             messages.append(msg)
-            consecutive_errors, stop = await self._execute_tool_calls(
-                messages, msg.tool_calls, consecutive_errors
-            )
+            consecutive_errors, stop = await self._execute_tool_calls(messages, msg.tool_calls, consecutive_errors)
             if stop:
                 return CLIverResponse(
                     message=CLIverMessage(
                         role="assistant",
-                        content=(
-                            "Tool calls failed repeatedly. "
-                            "Please check the tool arguments or try a different approach."
-                        ),
+                        content="Tool calls failed repeatedly. Please check the tool arguments or try a different "
+                        "approach.",
                     ),
                     usage=response.usage,
                 )
@@ -183,7 +152,6 @@ class AgentCore:
         self,
         messages: list[CLIverMessage],
         tools: list[CLIverTool],
-        model: str,
         options: dict[str, Any],
         max_iterations: int,
     ) -> AsyncIterator[CLIverMessageChunk]:
@@ -193,7 +161,7 @@ class AgentCore:
             request = CLIverRequest(
                 messages=messages,
                 tools=tools or None,
-                model=model,
+                model=self.model,
                 options=options,
             )
 
@@ -206,7 +174,7 @@ class AgentCore:
                     content_parts.append(raw.content)
                 for key, delta in raw.vendor_ext.items():
                     vendor_buffers[key] = vendor_buffers.get(key, "") + delta
-                for tc_chunk in (raw.tool_call_chunks or []):
+                for tc_chunk in raw.tool_call_chunks or []:
                     tool_acc.feed(tc_chunk)
 
                 if raw.content or raw.vendor_ext:
@@ -220,22 +188,20 @@ class AgentCore:
                 return
 
             vendor = {k: v for k, v in vendor_buffers.items() if v}
-            messages.append(CLIverMessage(
-                role="assistant",
-                content="".join(content_parts) if content_parts else None,
-                tool_calls=tool_calls,
-                vendor_ext=vendor,
-            ))
-
-            consecutive_errors, stop = await self._execute_tool_calls(
-                messages, tool_calls, consecutive_errors
+            messages.append(
+                CLIverMessage(
+                    role="assistant",
+                    content="".join(content_parts) if content_parts else None,
+                    tool_calls=tool_calls,
+                    vendor_ext=vendor,
+                )
             )
+
+            consecutive_errors, stop = await self._execute_tool_calls(messages, tool_calls, consecutive_errors)
             if stop:
                 yield CLIverMessageChunk(
-                    content=(
-                        "Tool calls failed repeatedly. "
-                        "Please check the tool arguments or try a different approach."
-                    ),
+                    content="Tool calls failed repeatedly. Please check the tool arguments or try a different "
+                    "approach.",
                 )
                 return
 
@@ -257,11 +223,13 @@ class AgentCore:
         """
         for tc in tool_calls:
             result = await self._execute_tool(tc)
-            messages.append(CLIverMessage(
-                role="tool",
-                content=self._format_tool_result(result),
-                tool_call_id=tc.id,
-            ))
+            messages.append(
+                CLIverMessage(
+                    role="tool",
+                    content=self._format_tool_result(result),
+                    tool_call_id=tc.id,
+                )
+            )
 
             if self._is_error(result):
                 consecutive_errors += 1
@@ -313,13 +281,11 @@ class AgentCore:
         start = time.monotonic()
         try:
             if "#" in tc.name:
-                # MCP tool
                 if not self.mcp_client:
                     result = [{"error": "No MCP client configured"}]
                 else:
                     result = await self.mcp_client.call_tool(tc.name, tc.args)
             else:
-                # Builtin tool — always offloaded to thread
                 tool = self.tool_registry.get(tc.name)
                 if tool is None:
                     result = [{"error": f"Tool '{tc.name}' not found"}]
@@ -360,21 +326,14 @@ class AgentCore:
         """Check if any result dict contains an 'error' key."""
         if not result:
             return False
-        return any(
-            isinstance(r, dict) and "error" in r
-            for r in result
-        )
+        return any(isinstance(r, dict) and "error" in r for r in result)
 
     @staticmethod
     def _format_tool_result(result: list[dict]) -> str:
-        """Format tool result for a ToolMessage.
-
-        Extracts the most meaningful content from the result list.
-        """
+        """Format tool result for a ToolMessage."""
         if not result:
             return "(no output)"
 
-        # If the result is a single error dict, format it
         if len(result) == 1 and isinstance(result[0], dict):
             r = result[0]
             if "error" in r:
@@ -384,7 +343,6 @@ class AgentCore:
             if "tool_result" in r:
                 return str(r["tool_result"])
 
-        # Multiple results or unknown format — serialize
         import json
 
         return json.dumps(result, ensure_ascii=False, default=str)

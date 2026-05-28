@@ -151,9 +151,7 @@ class Cliver:
         from cliver.agent_profile import set_agent_factory
         from cliver.agents import AgentFactory
 
-        self.agent_factory = AgentFactory(
-            self.config_manager.config, self.get_new_agent_core
-        )
+        self.agent_factory = AgentFactory(self.config_manager.config, self.get_new_agent_core)
         set_agent_factory(self.agent_factory)
 
         from cliver.cost_tracker import CostTracker
@@ -240,9 +238,7 @@ class Cliver:
         from cliver.tool import ToolRegistry, discover_builtin_tools
 
         if self._new_mcp_client is None:
-            self._new_mcp_client = MCPClient(
-                self.config_manager.list_mcp_servers_for_mcp_caller()
-            )
+            self._new_mcp_client = MCPClient(self.config_manager.list_mcp_servers_for_mcp_caller())
 
         if not self._new_builtin_tools:
             all_tools = discover_builtin_tools()
@@ -263,14 +259,13 @@ class Cliver:
         def _tool_event_handler(event):
             import asyncio
 
-            handler = create_tool_progress_handler(
-                self.console, thinking=self.thinking
-            )
+            handler = create_tool_progress_handler(self.console, thinking=self.thinking)
             if handler:
                 asyncio.ensure_future(handler(event))
 
         agent = NewAgentCore(
             provider=provider,
+            model=model_name,
             builtin_tools=self._new_builtin_tools,
             mcp_client=self._new_mcp_client,
             on_event=_tool_event_handler,

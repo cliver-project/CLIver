@@ -135,9 +135,7 @@ class ToolCallAccumulator:
         self._by_index: dict[int, dict] = {}
 
     def feed(self, chunk: ToolCallChunk) -> None:
-        entry = self._by_index.setdefault(
-            chunk.index, {"id": None, "name": None, "args_parts": []}
-        )
+        entry = self._by_index.setdefault(chunk.index, {"id": None, "name": None, "args_parts": []})
         if chunk.id is not None:
             entry["id"] = chunk.id
         if chunk.name is not None:
@@ -152,11 +150,7 @@ class ToolCallAccumulator:
             try:
                 args = json.loads(args_str) if args_str else {}
             except json.JSONDecodeError:
-                logger.warning(
-                    "Failed to parse tool call args as JSON: %s", args_str[:200]
-                )
+                logger.warning("Failed to parse tool call args as JSON: %s", args_str[:200])
                 args = {}
-            result.append(
-                ToolCall(id=entry["id"] or "", name=entry["name"] or "", args=args)
-            )
+            result.append(ToolCall(id=entry["id"] or "", name=entry["name"] or "", args=args))
         return result

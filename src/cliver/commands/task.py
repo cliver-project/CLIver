@@ -170,12 +170,10 @@ def _run_task(cliver: Cliver, name: str, model: Optional[str] = None) -> int:
         response = asyncio.run(
             agent.chat(
                 user_input=task_def.prompt,
-                model=use_model or cliver.config_manager.get_llm_model().name,
                 system_prompt=system_prompt,
             )
         )
         response_text = response.message.text
-        result = response  # for compatibility below
         status = "completed" if response_text else "failed"
         error = None if response_text else "No result returned"
 

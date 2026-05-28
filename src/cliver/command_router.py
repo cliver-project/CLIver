@@ -243,9 +243,7 @@ class CommandRouter:
             cliver.record_turn("user", text)
 
             def on_response(response_text: str) -> None:
-                cliver.conversation_messages.append(
-                    CLIverMessage(role="assistant", content=response_text)
-                )
+                cliver.conversation_messages.append(CLIverMessage(role="assistant", content=response_text))
                 cliver.record_turn("assistant", response_text)
 
             # conversation_history excludes the current user message

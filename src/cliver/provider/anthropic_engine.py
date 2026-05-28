@@ -8,7 +8,7 @@ import time
 from typing import Any
 from uuid import uuid4
 
-from anthropic import AsyncAnthropic, NOT_GIVEN
+from anthropic import NOT_GIVEN, AsyncAnthropic
 
 from cliver.events import EventHandler, InferenceEvent, InferenceEventType
 from cliver.messages import (
@@ -85,9 +85,7 @@ class AnthropicEngine(ProtocolEngine):
             "input_schema": tool.parameters,
         }
 
-    def extract_cliver_message(
-        self, response, tool_name_map: dict[str, str] | None = None
-    ) -> CLIverMessage:
+    def extract_cliver_message(self, response, tool_name_map: dict[str, str] | None = None) -> CLIverMessage:
         content_parts: list[str] = []
         tool_calls: list[ToolCall] = []
         vendor_ext: dict[str, Any] = {}
@@ -99,9 +97,7 @@ class AnthropicEngine(ProtocolEngine):
                 name = block.name
                 if tool_name_map and name in tool_name_map:
                     name = tool_name_map[name]
-                tool_calls.append(
-                    ToolCall(id=block.id, name=name, args=dict(block.input))
-                )
+                tool_calls.append(ToolCall(id=block.id, name=name, args=dict(block.input)))
             elif block.type == "thinking":
                 vendor_ext.setdefault("thinking", "")
                 vendor_ext["thinking"] += block.thinking
@@ -139,17 +135,13 @@ class AnthropicEngine(ProtocolEngine):
                     )
                 ]
             elif event.content_block.type == "thinking":
-                chunk.vendor_ext["thinking"] = getattr(
-                    event.content_block, "thinking", ""
-                )
+                chunk.vendor_ext["thinking"] = getattr(event.content_block, "thinking", "")
 
         return chunk
 
     # ── Tool name sanitization ──────────────────────────────
 
-    def _sanitize_tool_names(
-        self, tools: list[CLIverTool]
-    ) -> tuple[dict[str, str], dict[str, str]]:
+    def _sanitize_tool_names(self, tools: list[CLIverTool]) -> tuple[dict[str, str], dict[str, str]]:
         """Ensure tool names match Anthropic's ^[a-zA-Z0-9_-]{1,128}$ constraint.
 
         Returns (forward_map, reverse_map):
@@ -207,20 +199,20 @@ class AnthropicEngine(ProtocolEngine):
     def _build_params(options: dict[str, Any]) -> dict[str, Any]:
         """Extract known Anthropic params. Does NOT mutate the input dict."""
         known_keys = {
-            "max_tokens", "max_completion_tokens",
-            "temperature", "top_p", "top_k", "thinking",
+            "max_tokens",
+            "max_completion_tokens",
+            "temperature",
+            "top_p",
+            "top_k",
+            "thinking",
         }
-        max_tokens = options.get(
-            "max_tokens", options.get("max_completion_tokens", 4096)
-        )
+        max_tokens = options.get("max_tokens", options.get("max_completion_tokens", 4096))
         params: dict[str, Any] = {"max_tokens": max_tokens}
         for key in ("temperature", "top_p", "top_k", "thinking"):
             if key in options:
                 params[key] = options[key]
         # Pass through anything else
-        params.update(
-            {k: v for k, v in options.items() if k not in known_keys}
-        )
+        params.update({k: v for k, v in options.items() if k not in known_keys})
         return params
 
     # ── API Calls ───────────────────────────────────────────
@@ -241,9 +233,7 @@ class AnthropicEngine(ProtocolEngine):
 
         system, conv_messages = self._split_system(messages)
 
-        name_forward, name_reverse = (
-            self._sanitize_tool_names(tools) if tools else ({}, {})
-        )
+        name_forward, name_reverse = self._sanitize_tool_names(tools) if tools else ({}, {})
         native_tools = NOT_GIVEN
         if tools:
             native_tools = []
@@ -280,9 +270,7 @@ class AnthropicEngine(ProtocolEngine):
             usage = UsageInfo(
                 input_tokens=response.usage.input_tokens,
                 output_tokens=response.usage.output_tokens,
-                cache_read_input_tokens=getattr(
-                    response.usage, "cache_read_input_tokens", None
-                ),
+                cache_read_input_tokens=getattr(response.usage, "cache_read_input_tokens", None),
             )
 
         await self._emit(
@@ -317,9 +305,7 @@ class AnthropicEngine(ProtocolEngine):
 
         system, conv_messages = self._split_system(messages)
 
-        name_forward, name_reverse = (
-            self._sanitize_tool_names(tools) if tools else ({}, {})
-        )
+        name_forward, name_reverse = self._sanitize_tool_names(tools) if tools else ({}, {})
         native_tools = NOT_GIVEN
         if tools:
             native_tools = []
@@ -342,14 +328,7 @@ class AnthropicEngine(ProtocolEngine):
                 async for event in stream:
                     chunk = self.extract_chunk(event)
 
-                    if (
-                        not first_token_emitted
-                        and (
-                            chunk.content
-                            or chunk.tool_call_chunks
-                            or chunk.vendor_ext
-                        )
-                    ):
+                    if not first_token_emitted and (chunk.content or chunk.tool_call_chunks or chunk.vendor_ext):
                         first_token_emitted = True
                         await self._emit(
                             InferenceEvent(
@@ -357,9 +336,7 @@ class AnthropicEngine(ProtocolEngine):
                                 model=model,
                                 provider="anthropic",
                                 request_id=request_id,
-                                data={
-                                    "latency_ms": (time.monotonic() - start) * 1000
-                                },
+                                data={"latency_ms": (time.monotonic() - start) * 1000},
                             )
                         )
 

@@ -25,7 +25,11 @@ class MCPClient:
     Usage::
 
         client = MCPClient({
-            "filesystem": {"transport": "stdio", "command": "npx", "args": ["-y", "@modelcontextprotocol/server-filesystem"]},
+            "filesystem": {
+                "transport": "stdio",
+                "command": "npx",
+                "args": ["-y", "@modelcontextprotocol/server-filesystem"],
+            },
             "brave": {"transport": "streamable_http", "url": "http://localhost:8080/mcp"},
         })
         await client.start()
@@ -52,11 +56,9 @@ class MCPClient:
             return_exceptions=True,
         )
         self._started = True
-        for name, result in zip(self._adapters.keys(), results):
+        for name, result in zip(self._adapters.keys(), results, strict=False):
             if isinstance(result, Exception):
-                logger.warning(
-                    "MCP server '%s' failed to start: %s", name, result
-                )
+                logger.warning("MCP server '%s' failed to start: %s", name, result)
 
     async def add_server(self, name: str, config: dict[str, Any]) -> None:
         """Add or replace an MCP server at runtime."""
@@ -83,27 +85,19 @@ class MCPClient:
 
     # ── Tools ──────────────────────────────────────────────
 
-    async def get_tools(
-        self, servers: list[str] | None = None
-    ) -> list[CLIverTool]:
+    async def get_tools(self, servers: list[str] | None = None) -> list[CLIverTool]:
         """Get tools from all servers, or a filtered subset.
 
         Args:
             servers: If given, only return tools from these server names.
         """
-        targets = (
-            {s: self._adapters[s] for s in servers if s in self._adapters}
-            if servers
-            else self._adapters
-        )
+        targets = {s: self._adapters[s] for s in servers if s in self._adapters} if servers else self._adapters
         tools: list[CLIverTool] = []
         for adapter in targets.values():
             tools.extend(adapter.tools)
         return tools
 
-    async def call_tool(
-        self, full_name: str, args: dict[str, Any]
-    ) -> list[dict]:
+    async def call_tool(self, full_name: str, args: dict[str, Any]) -> list[dict]:
         """Call a tool by its full name: 'server_name#tool_name'.
 
         Args:
@@ -124,19 +118,12 @@ class MCPClient:
         server_name, tool_name = full_name.split("#", 1)
         adapter = self._adapters.get(server_name)
         if not adapter:
-            return [
-                {
-                    "error": f"MCP server '{server_name}' not found. "
-                    f"Available servers: {list(self._adapters)}"
-                }
-            ]
+            return [{"error": f"MCP server '{server_name}' not found. Available servers: {list(self._adapters)}"}]
         return await adapter.call_tool(tool_name, args)
 
     # ── Resources ───────────────────────────────────────────
 
-    async def list_resources(
-        self, server: str, resource_path: str | None = None
-    ) -> list[dict]:
+    async def list_resources(self, server: str, resource_path: str | None = None) -> list[dict]:
         """List resources from a specific MCP server."""
         adapter = self._adapters.get(server)
         if not adapter:

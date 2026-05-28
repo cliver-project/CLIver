@@ -10,7 +10,7 @@ import shutil
 from pathlib import Path
 from typing import Any, Callable, Optional, get_args, get_origin
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -151,12 +151,8 @@ def tool(
                 required.append(param_name)
                 continue
 
-            properties[param_name] = _python_type_to_json_schema(
-                param.annotation
-            )
-            if param.default is inspect.Parameter.empty and not _is_optional(
-                param.annotation
-            ):
+            properties[param_name] = _python_type_to_json_schema(param.annotation)
+            if param.default is inspect.Parameter.empty and not _is_optional(param.annotation):
                 required.append(param_name)
 
         parameters: dict[str, Any] = {
@@ -213,8 +209,7 @@ _ALWAYS_ENABLED = {"core", "memory", "automation"}
 _TOOLSET_CHECKS: dict[str, Callable[[], bool]] = {
     "web": lambda: True,
     "browser": lambda: False,  # opt-in via config
-    "container": lambda: shutil.which("docker") is not None
-    or shutil.which("podman") is not None,
+    "container": lambda: shutil.which("docker") is not None or shutil.which("podman") is not None,
 }
 
 _TOOL_CHECKS: dict[str, Callable[[], bool]] = {
@@ -305,8 +300,9 @@ def discover_builtin_tools() -> list[CLIverTool]:
     """
     import inspect
 
-    import cliver.tools as tools_module
     from langchain_core.tools import BaseTool
+
+    import cliver.tools as tools_module
 
     wrapped: list[CLIverTool] = []
     for _name, obj in inspect.getmembers(tools_module):
@@ -318,7 +314,6 @@ def discover_builtin_tools() -> list[CLIverTool]:
 
 def _wrap_base_tool(bt) -> CLIverTool:
     """Wrap a langchain BaseTool as a CLIverTool."""
-    from langchain_core.tools import BaseTool
 
     # Build JSON Schema from the tool's args_schema (pydantic model)
     parameters: dict[str, Any] = {"type": "object", "properties": {}}
@@ -346,7 +341,6 @@ def _wrap_base_tool(bt) -> CLIverTool:
 
 def _pydantic_to_json_schema(model) -> dict:
     """Convert a Pydantic v2 model to JSON Schema dict."""
-    import json
 
     schema = model.model_json_schema()
     # Remove pydantic-specific keys

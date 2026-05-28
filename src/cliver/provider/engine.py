@@ -81,6 +81,4 @@ def create_engine(
 
         return AnthropicEngine(api_key=api_key, base_url=base_url, on_event=on_event)
     else:
-        raise ValueError(
-            f"Unknown protocol '{protocol}'. Supported: ['openai', 'anthropic']"
-        )
+        raise ValueError(f"Unknown protocol '{protocol}'. Supported: ['openai', 'anthropic']")

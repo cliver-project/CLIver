@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
-from typing import TYPE_CHECKING, AsyncIterator, List, Optional
+from typing import TYPE_CHECKING, AsyncIterator
 
-from cliver.agent import Agent, AgentChunk, AgentResult, Artifact
+from cliver.agent import Agent, AgentChunk, AgentResult
 
 if TYPE_CHECKING:
     from cliver.config import AgentConfig
@@ -32,14 +31,11 @@ class CliverAgent(Agent):
         )
         self._agent_core = agent_core
 
-    async def _do_run(
-        self, prompt: str, *, images=None, files=None, **kwargs
-    ) -> AgentResult:
+    async def _do_run(self, prompt: str, *, images=None, files=None, **kwargs) -> AgentResult:
         start = time.monotonic()
         try:
             response = await self._agent_core.chat(
                 user_input=prompt,
-                model=self.config.model or "",
                 system_prompt=self._build_system_prompt(),
             )
             duration = int((time.monotonic() - start) * 1000)
@@ -69,7 +65,6 @@ class CliverAgent(Agent):
         try:
             async for chunk in self._agent_core.stream(
                 user_input=prompt,
-                model=self.config.model or "",
                 system_prompt=self._build_system_prompt(),
             ):
                 if chunk.content:

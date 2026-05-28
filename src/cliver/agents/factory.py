@@ -25,7 +25,7 @@ class AgentFactory:
     def __init__(
         self,
         config: "AppConfig",
-        agent_core_factory: Callable[[str | None], "NewAgentCore"],
+        agent_core_factory: Callable[[str], "NewAgentCore"],
     ):
         self._config = config
         self._agent_core_factory = agent_core_factory

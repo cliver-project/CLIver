@@ -13,8 +13,8 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from mcp import ClientSession
-from mcp.client.stdio import stdio_client
 from mcp.client.sse import sse_client
+from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamable_http_client
 
 from cliver.tool import CLIverTool
@@ -72,9 +72,7 @@ class MCPServerAdapter(ABC):
                             name=f"{self.name}#{t.name}",
                             description=t.description or f"MCP tool: {t.name}",
                             parameters=_normalize_schema(t.inputSchema),
-                            execute=functools.partial(
-                                self._call_tool, t.name
-                            ),
+                            execute=functools.partial(self._call_tool, t.name),
                         )
                         for t in mcp_tools.tools
                     ]
@@ -85,9 +83,7 @@ class MCPServerAdapter(ABC):
                 len(self._tools),
             )
         except Exception:
-            logger.warning(
-                "MCP server '%s' failed to start", self.name, exc_info=True
-            )
+            logger.warning("MCP server '%s' failed to start", self.name, exc_info=True)
 
     @property
     def tools(self) -> list[CLIverTool]:
@@ -101,9 +97,7 @@ class MCPServerAdapter(ABC):
                     await session.initialize()
                     result = await session.call_tool(tool_name, arguments=args)
                     if result.isError:
-                        return [
-                            {"error": f"MCP tool '{tool_name}' failed on server '{self.name}'"}
-                        ]
+                        return [{"error": f"MCP tool '{tool_name}' failed on server '{self.name}'"}]
                     return [c.model_dump() for c in result.content]
         except Exception as e:
             return [{"error": str(e)}]
@@ -174,8 +168,5 @@ def create_adapter(name: str, config: dict[str, Any]) -> MCPServerAdapter:
     transport = config.get("transport", "stdio")
     cls = _TRANSPORTS.get(transport)
     if not cls:
-        raise ValueError(
-            f"Unknown MCP transport '{transport}' for server '{name}'. "
-            f"Supported: {list(_TRANSPORTS)}"
-        )
+        raise ValueError(f"Unknown MCP transport '{transport}' for server '{name}'. Supported: {list(_TRANSPORTS)}")
     return cls(name=name, config=config)

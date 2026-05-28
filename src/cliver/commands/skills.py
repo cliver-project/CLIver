@@ -9,12 +9,12 @@ import logging
 from pathlib import Path
 
 import click
-from cliver.messages import CLIverMessage
 from rich import box
 from rich.table import Table
 
 from cliver.cli import Cliver, pass_cliver
 from cliver.commands import click_help, wants_help
+from cliver.messages import CLIverMessage
 from cliver.skill_manager import SkillManager, validate_skill_name
 from cliver.util import get_config_dir
 

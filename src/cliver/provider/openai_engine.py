@@ -8,7 +8,7 @@ import time
 from typing import Any
 from uuid import uuid4
 
-from openai import AsyncOpenAI, NOT_GIVEN
+from openai import NOT_GIVEN, AsyncOpenAI
 
 from cliver.events import EventHandler, InferenceEvent, InferenceEventType
 from cliver.messages import (
@@ -139,9 +139,7 @@ class OpenAIEngine(ProtocolEngine):
         )
 
         try:
-            native_tools = (
-                [self.tool_to_native(t) for t in tools] if tools else NOT_GIVEN
-            )
+            native_tools = [self.tool_to_native(t) for t in tools] if tools else NOT_GIVEN
             response = await self.client.chat.completions.create(
                 model=model,
                 messages=messages,
@@ -199,9 +197,7 @@ class OpenAIEngine(ProtocolEngine):
         )
 
         try:
-            native_tools = (
-                [self.tool_to_native(t) for t in tools] if tools else NOT_GIVEN
-            )
+            native_tools = [self.tool_to_native(t) for t in tools] if tools else NOT_GIVEN
             stream = await self.client.chat.completions.create(
                 model=model,
                 messages=messages,
@@ -228,10 +224,7 @@ class OpenAIEngine(ProtocolEngine):
 
             delta = sdk_chunk.choices[0].delta
 
-            if not first_token_emitted and (
-                delta.content
-                or (delta.tool_calls and delta.tool_calls[0].function)
-            ):
+            if not first_token_emitted and (delta.content or (delta.tool_calls and delta.tool_calls[0].function)):
                 first_token_emitted = True
                 await self._emit(
                     InferenceEvent(
@@ -255,9 +248,7 @@ class OpenAIEngine(ProtocolEngine):
                                 provider="openai",
                                 request_id=request_id,
                                 data={
-                                    "tool_name": tc.function.name
-                                    if tc.function
-                                    else "?",
+                                    "tool_name": tc.function.name if tc.function else "?",
                                     "tool_call_id": tc.id,
                                 },
                             )

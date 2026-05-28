@@ -34,17 +34,13 @@ class _EngineProvider(Provider):
     async def chat(self, request: CLIverRequest) -> CLIverResponse:
         messages = [self.msg_to_native(m) for m in request.messages]
         options = self.filter_options(request.options)
-        response = await self.engine.chat(
-            messages, request.tools or [], request.model, options
-        )
+        response = await self.engine.chat(messages, request.tools or [], request.model, options)
         return self.on_response(response)
 
     async def stream(self, request: CLIverRequest) -> AsyncIterator[CLIverMessageChunk]:
         messages = [self.msg_to_native(m) for m in request.messages]
         options = self.filter_options(request.options)
-        async for chunk in self.engine.stream(
-            messages, request.tools or [], request.model, options
-        ):
+        async for chunk in self.engine.stream(messages, request.tools or [], request.model, options):
             yield self.on_chunk(chunk)
 
 

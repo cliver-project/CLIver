@@ -6,10 +6,10 @@ Uses the new AgentCore (langchain-free).
 """
 
 import logging
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Callable, List, Optional
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Callable
 
-from cliver.messages import CLIverMessage, CLIverMessageChunk
+from cliver.messages import CLIverMessage
 
 if TYPE_CHECKING:
     from cliver.cli import Cliver
@@ -94,7 +94,6 @@ def _stream_call(cliver, opts, thinking, console) -> LLMCallResult:
     """Execute a streaming LLM call using the new AgentCore."""
     agent = cliver.get_new_agent_core(opts.model)
     system_prompt = cliver.build_system_prompt(agent)
-    model = opts.model or cliver.config_manager.get_llm_model().name
 
     first_token_emitted = False
 
@@ -113,7 +112,6 @@ def _stream_call(cliver, opts, thinking, console) -> LLMCallResult:
         async def _run_stream():
             async for chunk in agent.stream(
                 user_input=opts.user_input,
-                model=model,
                 system_prompt=system_prompt,
                 conversation=opts.conversation_history,
                 options=opts.options,
@@ -123,7 +121,6 @@ def _stream_call(cliver, opts, thinking, console) -> LLMCallResult:
                     print(chunk.content, end="")
                     text_parts.append(chunk.content)
                 if chunk.vendor_ext.get("reasoning_content"):
-                    # Reasoning content can be shown differently if desired
                     pass
 
         import asyncio
@@ -137,7 +134,7 @@ def _stream_call(cliver, opts, thinking, console) -> LLMCallResult:
         console.print()
         return LLMCallResult(success=True, text=text)
 
-    except Exception as e:
+    except Exception:
         raise
 
 
@@ -145,14 +142,12 @@ def _sync_call(cliver, opts, thinking, console) -> LLMCallResult:
     """Execute a synchronous (non-streaming) LLM call using the new AgentCore."""
     agent = cliver.get_new_agent_core(opts.model)
     system_prompt = cliver.build_system_prompt(agent)
-    model = opts.model or cliver.config_manager.get_llm_model().name
 
     import asyncio
 
     response = asyncio.run(
         agent.chat(
             user_input=opts.user_input,
-            model=model,
             system_prompt=system_prompt,
             conversation=opts.conversation_history,
             options=opts.options,
@@ -191,9 +186,7 @@ def _show_token_usage(cliver) -> None:
     if cost_tracker is not None:
         from cliver.cost_tracker import format_cost
 
-        estimate = cost_tracker.estimate_cost(
-            model, last.input_tokens, last.output_tokens, last.cached_tokens
-        )
+        estimate = cost_tracker.estimate_cost(model, last.input_tokens, last.output_tokens, last.cached_tokens)
         cost_info = ""
         if estimate.total_cost > 0:
             session_cost = cost_tracker.get_session_total()
