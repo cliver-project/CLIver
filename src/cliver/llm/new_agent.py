@@ -14,6 +14,7 @@ from cliver.events import (
     ToolEventType,
 )
 from cliver.mcp import MCPClient
+from cliver.media import MediaContent
 from cliver.messages import (
     CLIverMessage,
     CLIverMessageChunk,
@@ -65,13 +66,18 @@ class AgentCore:
         *,
         system_prompt: str | None = None,
         conversation: list[CLIverMessage] | None = None,
+        media: list[MediaContent] | None = None,
         extra_tools: list[CLIverTool] | None = None,
         mcp_servers: list[str] | None = None,
         options: dict[str, Any] | None = None,
         max_iterations: int = 50,
     ) -> CLIverResponse:
-        """Non-streaming chat.  Returns the final response."""
-        messages = self._build_messages(user_input, system_prompt, conversation)
+        """Non-streaming chat.  Returns the final response.
+
+        ``media`` is attached to the user message as content blocks
+        (images as data URLs, audio/video as text placeholders).
+        """
+        messages = self._build_messages(user_input, system_prompt, conversation, media)
         all_tools = await self._gather_tools(extra_tools, mcp_servers)
         opts = options or {}
 
@@ -86,13 +92,14 @@ class AgentCore:
         *,
         system_prompt: str | None = None,
         conversation: list[CLIverMessage] | None = None,
+        media: list[MediaContent] | None = None,
         extra_tools: list[CLIverTool] | None = None,
         mcp_servers: list[str] | None = None,
         options: dict[str, Any] | None = None,
         max_iterations: int = 50,
     ) -> AsyncIterator[CLIverMessageChunk]:
         """Streaming chat.  Yields chunks, executes tools between iterations."""
-        messages = self._build_messages(user_input, system_prompt, conversation)
+        messages = self._build_messages(user_input, system_prompt, conversation, media)
         all_tools = await self._gather_tools(extra_tools, mcp_servers)
         opts = options or {}
 
@@ -101,6 +108,30 @@ class AgentCore:
 
         async for chunk in self._run_stream_loop(messages, all_tools, opts, max_iterations):
             yield chunk
+
+    async def generate(
+        self,
+        prompt: str,
+        *,
+        media_type: str = "image",
+        media: list[MediaContent] | None = None,
+        output_dir: str | None = None,
+        **options,
+    ) -> CLIverResponse:
+        """Generate media — image, audio, or video.
+
+        ``media_type``: ``"image"`` (default), ``"audio"``, or ``"video"``.
+        Reference media for editing is passed via ``media``.
+        Generated files are saved to ``output_dir`` if given.
+        """
+        return await self.provider.generate(
+            prompt=prompt,
+            model=self.model,
+            media_type=media_type,
+            media=media,
+            output_dir=output_dir,
+            **options,
+        )
 
     # ── Re-Act Loop (non-streaming) ───────────────────────────
 
@@ -247,13 +278,23 @@ class AgentCore:
         user_input: str,
         system_prompt: str | None,
         conversation: list[CLIverMessage] | None,
+        media: list[MediaContent] | None = None,
     ) -> list[CLIverMessage]:
         messages: list[CLIverMessage] = []
         if system_prompt:
             messages.append(CLIverMessage(role="system", content=system_prompt))
         if conversation:
             messages.extend(conversation)
-        messages.append(CLIverMessage(role="user", content=user_input))
+
+        if media:
+            # Embed media into the user message as content blocks
+            content_parts: list[dict] = [{"type": "text", "text": user_input}]
+            from cliver.media import add_media_content_to_message_parts
+
+            add_media_content_to_message_parts(content_parts, media)
+            messages.append(CLIverMessage(role="user", content=content_parts))
+        else:
+            messages.append(CLIverMessage(role="user", content=user_input))
         return messages
 
     async def _gather_tools(

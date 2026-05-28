@@ -43,6 +43,13 @@ class _EngineProvider(Provider):
         async for chunk in self.engine.stream(messages, request.tools or [], request.model, options):
             yield self.on_chunk(chunk)
 
+    async def generate(
+        self, prompt: str, *, model: str, media_type: str = "image", media=None, output_dir=None, **options
+    ) -> CLIverResponse:
+        return await self.engine.generate(
+            prompt=prompt, model=model, media_type=media_type, media=media, output_dir=output_dir, **options
+        )
+
 
 # ── Lazy imports for individual providers ────────────────────
 # Each provider module defines a class that extends _EngineProvider.

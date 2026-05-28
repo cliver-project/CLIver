@@ -40,7 +40,7 @@ class ProviderConfig(BaseModel):
     """
 
     name: str
-    type: str = Field(description="API protocol: openai (OpenAI-compatible) or anthropic")
+    type: str = Field(default="openai", description="API protocol: openai (OpenAI-compatible) or anthropic")
     api_url: str = Field(description="Base URL for the provider API")
     api_key: Optional[str] = Field(default=None, description="API key (supports Jinja2 templates)")
     rate_limit: Optional[RateLimitConfig] = Field(default=None, description="Rate limit for API calls")
@@ -98,7 +98,7 @@ class ModelConfig(BaseModel):
     def get_provider_type(self) -> str:
         if self._provider_config is not None:
             return self._provider_config.type
-        return self.provider
+        return "openai"
 
     def get_resolved_url(self) -> Optional[str]:
         if self._provider_config is not None:

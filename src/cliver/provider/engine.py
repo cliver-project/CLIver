@@ -11,7 +11,7 @@ from abc import abstractmethod
 from typing import Any, AsyncIterator
 
 from cliver.events import EventHandler
-from cliver.messages import CLIverMessageChunk
+from cliver.messages import CLIverMessage, CLIverMessageChunk
 from cliver.provider import CLIverResponse, MessageConverter
 
 
@@ -57,6 +57,29 @@ class ProtocolEngine(MessageConverter):
     ) -> AsyncIterator[CLIverMessageChunk]:
         """Streaming chat completion."""
         ...
+
+    async def generate(
+        self,
+        prompt: str,
+        model: str,
+        *,
+        media_type: str = "image",
+        media: list[Any] | None = None,
+        output_dir: str | None = None,
+        **options,
+    ) -> CLIverResponse:
+        """Generate media (image, audio, video).
+
+        Engines that support media generation override this.
+        The default returns an error response — no exception is raised,
+        so callers can safely call generate() on any engine.
+        """
+        return CLIverResponse(
+            message=CLIverMessage(
+                role="assistant",
+                content=f"{type(self).__name__} does not support {media_type} generation.",
+            ),
+        )
 
 
 # ── Engine factory ─────────────────────────────────────────────

@@ -269,3 +269,180 @@ class OpenAIEngine(ProtocolEngine):
     async def _emit(self, event: InferenceEvent) -> None:
         if self.on_event:
             await self.on_event(event)
+
+    # ── Media generation ────────────────────────────────────
+
+    async def generate(
+        self,
+        prompt: str,
+        model: str,
+        *,
+        media: list[Any] | None = None,
+        output_dir: str | None = None,
+        media_type: str = "image",
+        **options,
+    ) -> CLIverResponse:
+        """Generate media — image, audio, or video.
+
+        Dispatches to the appropriate SDK method based on ``media_type``.
+        ``media`` holds reference files for editing/variation.
+        Generated files are saved to ``output_dir`` if given.
+        """
+        if media_type == "image":
+            return await self._generate_image(prompt, model, media=media, output_dir=output_dir, **options)
+        elif media_type == "audio":
+            return await self._generate_audio(prompt, model, output_dir=output_dir, **options)
+        elif media_type == "video":
+            return self._generate_video(prompt, model, output_dir=output_dir, **options)
+        else:
+            raise ValueError(f"Unknown media_type '{media_type}'. Supported: image, audio, video")
+
+    async def _generate_image(
+        self,
+        prompt: str,
+        model: str,
+        *,
+        media: list[Any] | None = None,
+        output_dir: str | None = None,
+        **options,
+    ) -> CLIverResponse:
+        """Generate images via the OpenAI Images API."""
+        from pathlib import Path
+
+        from cliver.media import MediaContent, MediaType
+
+        reference_image: Any | None = None
+        if media:
+            for m in media:
+                if hasattr(m, "type") and m.type == MediaType.IMAGE:
+                    reference_image = m
+                    break
+
+        kwargs: dict[str, Any] = {"model": model, "prompt": prompt, **options}
+        if reference_image:
+            kwargs["image"] = reference_image.data
+            if not reference_image.data.startswith("data:"):
+                kwargs["image"] = f"data:image/png;base64,{reference_image.data}"
+
+        response = await self.client.images.generate(**kwargs)
+
+        media_items: list[MediaContent] = []
+        out_dir = Path(output_dir) if output_dir else None
+
+        for i, img in enumerate(response.data):
+            url = img.url
+            b64 = getattr(img, "b64_json", None)
+            data = url or b64 or ""
+
+            mc = MediaContent(type=MediaType.IMAGE, data=data, mime_type="image/png")
+            if out_dir and data:
+                out_dir.mkdir(parents=True, exist_ok=True)
+                fname = getattr(img, "filename", None) or f"generated_{i}.png"
+                mc.save(out_dir / fname)
+            media_items.append(mc)
+
+        return self._build_generate_response(media_items)
+
+    async def _generate_audio(
+        self,
+        prompt: str,
+        model: str,
+        *,
+        output_dir: str | None = None,
+        **options,
+    ) -> CLIverResponse:
+        """Generate audio via the OpenAI TTS API."""
+        from pathlib import Path
+
+        from cliver.media import MediaContent, MediaType
+
+        voice = options.pop("voice", "alloy")
+        response_format = options.pop("response_format", "mp3")
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "input": prompt,
+            "voice": voice,
+            "response_format": response_format,
+            **options,
+        }
+
+        response = await self.client.audio.speech.create(**kwargs)
+        audio_bytes = response.content  # raw bytes from TTS
+
+        mime = f"audio/{response_format}"
+        mc = MediaContent(type=MediaType.AUDIO, data="", mime_type=mime)
+
+        if output_dir:
+            out_dir = Path(output_dir)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            fname = f"speech_{uuid4().hex[:8]}.{response_format}"
+            path = out_dir / fname
+            path.write_bytes(audio_bytes)
+            mc.saved_path = str(path)
+            mc.data = str(path)
+
+        return self._build_generate_response([mc])
+
+    _DEFAULT_VIDEO_PATH = "/videos/generations"
+
+    async def _generate_video(
+        self,
+        prompt: str,
+        model: str,
+        *,
+        output_dir: str | None = None,
+        **options,
+    ) -> CLIverResponse:
+        """Generate video via OpenAI-compatible endpoint.
+
+        The endpoint path defaults to ``/videos/generations`` and can be
+        overridden via ``options["path"]`` (set in model config options).
+        """
+        from pathlib import Path
+
+        from cliver.media import MediaContent, MediaType
+
+        path = options.pop("path", self._DEFAULT_VIDEO_PATH)
+        body: dict[str, Any] = {"model": model, "prompt": prompt, **options}
+
+        try:
+            response = await self.client.post(path, body=body)
+            result = response.json()
+        except Exception as e:
+            logger.warning("Video generation failed: %s", e)
+            return CLIverResponse(
+                message=CLIverMessage(
+                    role="assistant",
+                    content=f"Video generation failed: {e}",
+                ),
+            )
+
+        media_items: list[MediaContent] = []
+        out_dir = Path(output_dir) if output_dir else None
+
+        data_list = result.get("data", [])
+        if not isinstance(data_list, list):
+            data_list = [result]
+
+        for i, item in enumerate(data_list):
+            url = item.get("url") or item.get("video_url", "")
+            mc = MediaContent(type=MediaType.VIDEO, data=url or "", mime_type="video/mp4")
+            if out_dir and url:
+                out_dir.mkdir(parents=True, exist_ok=True)
+                fname = item.get("filename") or f"generated_{i}.mp4"
+                mc.save(out_dir / fname)
+            media_items.append(mc)
+
+        return self._build_generate_response(media_items)
+
+    @staticmethod
+    def _build_generate_response(media_items: list) -> CLIverResponse:
+        paths = [mc.saved_path for mc in media_items if mc.saved_path]
+        label = media_items[0].type.value if media_items else "media"
+        content = f"Generated {len(media_items)} {label}(s)."
+        if paths:
+            content += "\n" + "\n".join(f"- {p}" for p in paths)
+        return CLIverResponse(
+            message=CLIverMessage(role="assistant", content=content),
+            media=media_items if media_items else None,
+        )

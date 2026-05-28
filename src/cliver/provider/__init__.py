@@ -1,13 +1,12 @@
 """Provider interface and request/response models."""
 
-from __future__ import annotations
-
 import logging
 from abc import ABC, abstractmethod
 from typing import Any, AsyncIterator
 
 from pydantic import BaseModel, Field
 
+from cliver.media import MediaContent
 from cliver.messages import CLIverMessage, CLIverMessageChunk, UsageInfo
 from cliver.tool import CLIverTool
 
@@ -15,7 +14,11 @@ logger = logging.getLogger(__name__)
 
 
 class CLIverRequest(BaseModel):
-    """A request to an LLM provider."""
+    """A request to an LLM provider.
+
+    Media (images/audio/video) is embedded into the user message content
+    as content blocks by AgentCore before the request is built.
+    """
 
     messages: list[CLIverMessage]
     tools: list[CLIverTool] | None = None
@@ -29,6 +32,8 @@ class CLIverResponse(BaseModel):
     """A response from an LLM provider."""
 
     message: CLIverMessage
+    media: list[MediaContent] | None = None
+    # Generated or returned media files (images, audio, video).
     usage: UsageInfo | None = None
 
 
@@ -109,3 +114,9 @@ class Provider(MessageConverter):
 
     @abstractmethod
     async def stream(self, request: CLIverRequest) -> AsyncIterator[CLIverMessageChunk]: ...
+
+    async def generate(
+        self, prompt: str, *, model: str, media_type: str = "image", media=None, output_dir=None, **options
+    ) -> CLIverResponse:
+        """Generate media (image, audio, video).  Override in subclass."""
+        raise NotImplementedError(f"{self.provider_name()} does not support media generation")
