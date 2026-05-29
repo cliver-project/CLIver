@@ -1,17 +1,14 @@
 import logging
 import os
 import platform
-import re
 import select
 import stat
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Awaitable, Callable, List, Optional
+from typing import Any, Callable
 from zoneinfo import ZoneInfo
-
-from langchain_core.tools import BaseTool
 
 from cliver.constants import APP_NAME, CONFIG_DIR
 
@@ -189,54 +186,6 @@ def retry_with_confirmation(
 
     # If we get here, all retries were exhausted
     raise last_exception
-
-
-async def create_tools_filter(
-    pattern: Optional[str] = None,
-) -> Optional[Callable[[str, List[BaseTool]], Awaitable[List[BaseTool]]]]:
-    """
-    Create a filter function that can be used to filter tools based on a pattern,
-    while ensuring builtin tools are always included.
-
-    Args:
-        pattern: A regex pattern to match against tool names, it is in format: `mcp_server_name#tool_name`
-
-    Returns:
-        A filter function or None if no filtering is needed
-    """
-    if not pattern:
-        # No filtering needed
-        return None
-
-    async def filter_fn(user_input: str, tools: List[BaseTool]) -> List[BaseTool]:
-        if not pattern or pattern.strip() == "":
-            # If no pattern is specified, return all tools
-            return tools
-        # TODO: we may introduce logic to relate the user_input to filter the tools
-        # Convert wildcard patterns to regex patterns
-        # Replace * with .* and ? with .
-        regex_pattern = pattern.replace("*", ".*").replace("?", ".")
-        # Add anchors to match the entire string
-        regex_pattern = f"^{regex_pattern}$"
-
-        try:
-            compiled_pattern = re.compile(regex_pattern, re.IGNORECASE)
-            filtered_tools = []
-
-            for tool in tools:
-                # Tool names in MCP tools follow the format "server_name#tool_name"
-                tool_name = tool.name
-                if compiled_pattern.search(tool_name):
-                    filtered_tools.append(tool)
-
-            logger.debug(f"Filtering tools with pattern '{pattern}', matched {len(filtered_tools)}/{len(tools)} tools")
-            return filtered_tools
-        except re.error as e:
-            logger.error(f"Invalid regex pattern '{pattern}': {e}")
-            # Return all tools if pattern is invalid
-            return tools
-
-    return filter_fn
 
 
 async def retry_with_confirmation_async(

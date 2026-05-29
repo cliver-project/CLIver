@@ -16,7 +16,6 @@ from cliver import __version__, commands
 from cliver.agent_profile import CliverProfile
 from cliver.cli_tool_progress import ThinkingIndicator, create_tool_progress_handler
 from cliver.config import ConfigManager
-from cliver.llm import AgentCore  # old — still used for reference
 from cliver.messages import CLIverMessage
 from cliver.permissions import PermissionManager
 from cliver.ui_bridge import CLIBridge, UIBridge
@@ -75,8 +74,8 @@ class Cliver:
         # LLM-ready conversation history for multi-turn context
         self.conversation_messages: list[CLIverMessage] = []
         # New AgentCore factory — shared MCPClient + builtin tools, lazy per-model cores
-        self._new_agent_cores: dict[str, "AgentCore"] = {}
-        self._new_mcp_client = None
+        self._new_agent_cores: dict[str, Any] = {}
+        self._new_mcp_client: Any = None
         self._new_builtin_tools: list = []
         # RSS feed state for scrolling headlines
         self._rss_headlines: list[str] = []
@@ -131,22 +130,9 @@ class Cliver:
 
         configure_timezone(self.config_manager.config.timezone)
 
-        self.agent_core = AgentCore(
-            llm_models=self.config_manager.list_llm_models(),
-            mcp_servers=self.config_manager.list_mcp_servers_for_mcp_caller(),
-            default_model=self.config_manager.get_llm_model().name if self.config_manager.get_llm_model() else None,
-            user_agent=self.config_manager.config.user_agent,
-            agent_name=self.agent_profile.profile_name,
-            on_tool_event=create_tool_progress_handler(self.console, thinking=self.thinking),
-            agent_profile=self.agent_profile,
-            token_tracker=self.token_tracker,
-            permission_manager=self.permission_manager,
-            on_permission_prompt=_create_permission_prompt(self.console, self),
-            enabled_toolsets=self.config_manager.config.enabled_toolsets,
-            skill_auto_learn=self.config_manager.config.skill_auto_learn,
-            model_auto_fallback=self.config_manager.config.model_auto_fallback,
-        )
-        self.agent_core.configure_rate_limits(self.config_manager.config.providers)
+        # New AgentCore factory is lazily initialized in get_new_agent_core()
+        # Permission prompt callback (used by tools)
+        self._permission_prompt = _create_permission_prompt(self.console, self)
 
         from cliver.cost_tracker import CostTracker
 

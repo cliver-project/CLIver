@@ -293,58 +293,9 @@ class ToolRegistry:
 
 
 def discover_builtin_tools() -> list[CLIverTool]:
-    """Scan ``cliver.tools`` for existing BaseTool instances and wrap as CLIverTool.
-
-    This discovers both legacy BaseTool instances and new CLIverTool
-    instances created with the ``@tool`` decorator.
-    """
+    """Scan ``cliver.tools`` for CLIverTool instances."""
     import inspect
-
-    from langchain_core.tools import BaseTool
 
     import cliver.tools as tools_module
 
-    wrapped: list[CLIverTool] = []
-    for _name, obj in inspect.getmembers(tools_module):
-        if isinstance(obj, CLIverTool):
-            wrapped.append(obj)
-        elif isinstance(obj, BaseTool):
-            wrapped.append(_wrap_base_tool(obj))
-    return wrapped
-
-
-def _wrap_base_tool(bt) -> CLIverTool:
-    """Wrap a langchain BaseTool as a CLIverTool."""
-
-    # Build JSON Schema from the tool's args_schema (pydantic model)
-    parameters: dict[str, Any] = {"type": "object", "properties": {}}
-    if hasattr(bt, "args_schema") and bt.args_schema:
-        parameters = _pydantic_to_json_schema(bt.args_schema)
-
-    def _execute(**kwargs) -> list[dict]:
-        result = bt.invoke(input=kwargs)
-        if isinstance(result, dict):
-            return [result]
-        if isinstance(result, list):
-            return result
-        if result is None:
-            return [{}]
-        return [{"tool_result": str(result)}]
-
-    return CLIverTool(
-        name=bt.name,
-        description=bt.description or "",
-        long_description=getattr(bt, "description", None),
-        parameters=parameters,
-        execute=_execute,
-    )
-
-
-def _pydantic_to_json_schema(model) -> dict:
-    """Convert a Pydantic v2 model to JSON Schema dict."""
-
-    schema = model.model_json_schema()
-    # Remove pydantic-specific keys
-    for key in ("title", "description", "$defs", "additionalProperties"):
-        schema.pop(key, None)
-    return schema
+    return [obj for _name, obj in inspect.getmembers(tools_module) if isinstance(obj, CLIverTool)]

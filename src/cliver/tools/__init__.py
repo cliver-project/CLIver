@@ -1,6 +1,6 @@
 #
 # All builtin tools should be implemented within this module.
-# Each tool should be annotated with '@tool' from langchain
+# Each tool should be annotated with '@tool' from cliver.tool
 #
 
 from cliver.tools.ask_user_question import ask_user_question  # noqa: F401

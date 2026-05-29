@@ -74,9 +74,6 @@ class Scheduler:
         # Add or update jobs for existing tasks
         for task in self._task_manager.list_tasks():
             self._add_or_update_job(task)
-
-        # Validate task configs
-        for task in self._task_manager.list_tasks():
             if not task.prompt or not task.prompt.strip():
                 logger.warning("Task '%s' has an empty prompt", task.name)
 

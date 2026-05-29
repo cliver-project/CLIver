@@ -15,8 +15,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from langchain_core.messages.base import BaseMessage
-
 logger = logging.getLogger(__name__)
 
 
@@ -72,79 +70,18 @@ def format_tokens(n: int) -> str:
 # ---------------------------------------------------------------------------
 
 
-def extract_usage(response: BaseMessage) -> TokenUsage:
-    """Extract token usage from a langchain LLM response.
+def extract_usage(response) -> TokenUsage:
+    """Extract token usage from a CLIverResponse or dict."""
+    usage = getattr(response, "usage", None)
+    if usage is None and isinstance(response, dict):
+        usage = response.get("usage")
+    if usage is None:
+        return TokenUsage()
 
-    Tries structured usage_metadata first, then falls back to
-    response_metadata dict (OpenAI-style token_usage).
-    Extracts cached token counts from provider-specific fields.
-    """
-    # Try structured usage_metadata (newer langchain / some providers)
-    usage_meta = getattr(response, "usage_metadata", None)
-    if usage_meta:
-        if isinstance(usage_meta, dict):
-            input_tok = usage_meta.get("input_tokens", 0) or 0
-            output_tok = usage_meta.get("output_tokens", 0) or 0
-        else:
-            input_tok = getattr(usage_meta, "input_tokens", 0) or 0
-            output_tok = getattr(usage_meta, "output_tokens", 0) or 0
-        if input_tok or output_tok:
-            cached = _extract_cached_tokens(response)
-            return TokenUsage(input_tokens=input_tok, output_tokens=output_tok, cached_tokens=cached)
-
-    # Fallback: response_metadata dict (OpenAI-style)
-    resp_meta = getattr(response, "response_metadata", None) or {}
-    token_usage = resp_meta.get("token_usage", {})
-    if token_usage:
-        cached = _extract_cached_tokens(response)
-        return TokenUsage(
-            input_tokens=token_usage.get("prompt_tokens", 0) or 0,
-            output_tokens=token_usage.get("completion_tokens", 0) or 0,
-            cached_tokens=cached,
-        )
-
-    return TokenUsage()
-
-
-def _extract_cached_tokens(response: BaseMessage) -> int:
-    """Extract cached token count from provider-specific response fields.
-
-    Supports:
-    - OpenAI/GLM: usage.prompt_tokens_details.cached_tokens
-    - DeepSeek: usage.prompt_cache_hit_tokens
-    - LangChain usage_metadata: input_token_details.cache_read
-    """
-    # LangChain usage_metadata (newer versions)
-    usage_meta = getattr(response, "usage_metadata", None)
-    if usage_meta:
-        if isinstance(usage_meta, dict):
-            details = usage_meta.get("input_token_details", {})
-            if isinstance(details, dict):
-                cached = details.get("cache_read", 0)
-                if cached:
-                    return cached
-        else:
-            details = getattr(usage_meta, "input_token_details", None)
-            if details:
-                cached = getattr(details, "cache_read", 0)
-                if cached:
-                    return cached
-
-    # OpenAI/GLM: response_metadata.token_usage.prompt_tokens_details.cached_tokens
-    resp_meta = getattr(response, "response_metadata", None) or {}
-    token_usage = resp_meta.get("token_usage", {})
-    prompt_details = token_usage.get("prompt_tokens_details", {})
-    if isinstance(prompt_details, dict):
-        cached = prompt_details.get("cached_tokens", 0)
-        if cached:
-            return cached
-
-    # DeepSeek: response_metadata.token_usage.prompt_cache_hit_tokens
-    cached = token_usage.get("prompt_cache_hit_tokens", 0)
-    if cached:
-        return cached
-
-    return 0
+    input_tok = getattr(usage, "input_tokens", 0) or 0
+    output_tok = getattr(usage, "output_tokens", 0) or 0
+    cached = getattr(usage, "cache_read_input_tokens", 0) or 0
+    return TokenUsage(input_tokens=input_tok, output_tokens=output_tok, cached_tokens=cached)
 
 
 # ---------------------------------------------------------------------------

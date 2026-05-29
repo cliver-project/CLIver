@@ -287,6 +287,7 @@ class Gateway:
             )
             if self._scheduler:
                 self._scheduler.validate_tasks()
+                self._scheduler.cleanup_orphan_runs()
                 self._scheduler.sync_tasks()
                 self._scheduler.start()
         except Exception as e:
@@ -373,11 +374,13 @@ class Gateway:
         return self._get_status()
 
     async def _cleanup_loop(self) -> None:
-        """Background task: periodic cleanup of stale session locks."""
+        """Background task: periodic cleanup and task resync."""
         while True:
             try:
-                await asyncio.sleep(3600)
+                await asyncio.sleep(600)
                 self._thread_queue.cleanup(max_idle_seconds=3600)
+                if self._scheduler:
+                    self._scheduler.sync_tasks()
             except asyncio.CancelledError:
                 return
 
@@ -476,6 +479,8 @@ class Gateway:
                 task.run_at = None
                 self._task_manager.save_task(task)
                 logger.info(f"Cleared run_at for one-shot task '{task.name}'")
+                if self._scheduler:
+                    self._scheduler.sync_tasks()
 
     def _load_session_history(self, session_id: str):
         """Load conversation history from a linked session for task context."""
@@ -837,6 +842,10 @@ class Gateway:
                 )
                 response_text = response.message.text or "No response."
                 logger.info("Agent response: %.200s", response_text)
+
+                # Sync any tasks created via CreateTask tool during this chat
+                if self._scheduler:
+                    self._scheduler.sync_tasks()
             except Exception as e:
                 logger.exception("Agent error: %s", e)
                 response_text = f"Error: {e}"
