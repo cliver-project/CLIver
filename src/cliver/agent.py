@@ -16,7 +16,7 @@ from cliver.provider import CLIverResponse
 
 if TYPE_CHECKING:
     from cliver.config import AgentConfig
-    from cliver.llm.new_agent import AgentCore
+    from cliver.llm.agent_core import AgentCore
 
 logger = logging.getLogger(__name__)
 

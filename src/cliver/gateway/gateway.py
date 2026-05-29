@@ -29,7 +29,7 @@ from cliver.gateway.platform_adapter import (
 )
 from cliver.gateway.scheduler import Scheduler
 from cliver.gateway.task_store import TaskStore
-from cliver.llm.new_agent import AgentCore as NewAgentCore
+from cliver.llm.agent_core import AgentCore as NewAgentCore
 from cliver.mcp import MCPClient
 from cliver.messages import CLIverMessage
 from cliver.provider.providers import create_provider

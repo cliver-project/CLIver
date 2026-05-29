@@ -212,7 +212,7 @@ class Cliver:
         if model_name in self._new_agent_cores:
             return self._new_agent_cores[model_name]
 
-        from cliver.llm.new_agent import AgentCore as NewAgentCore
+        from cliver.llm.agent_core import AgentCore as NewAgentCore
         from cliver.mcp import MCPClient
         from cliver.provider.providers import create_provider
         from cliver.tool import ToolRegistry, discover_builtin_tools
