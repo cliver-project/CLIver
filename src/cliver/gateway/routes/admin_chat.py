@@ -19,7 +19,7 @@ def get_chat_routes(context: dict, require_auth: Callable) -> list:
     @require_auth
     async def handle_chat(request: Request):
         gateway = context.get("gateway")
-        if not gateway or not getattr(gateway, "_agent_core", None):
+        if not gateway:
             return JSONResponse({"error": "Agent not available"}, status_code=503)
 
         session_manager = context.get("cli_session_manager")

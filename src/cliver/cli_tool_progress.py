@@ -11,7 +11,7 @@ import threading
 
 from rich.console import Console
 
-from cliver.tool_events import ToolEvent, ToolEventHandler, ToolEventType
+from cliver.events import EventHandler, ToolEvent, ToolEventType
 
 logger = logging.getLogger(__name__)
 
@@ -28,13 +28,9 @@ def get_last_full_output() -> tuple[str, str]:
 # ─── Status Icons ─────────────────────────────────────────────────────────────
 
 _STATUS_ICONS = {
-    ToolEventType.TOOL_START: "⟳",
-    ToolEventType.TOOL_END: "✓",
-    ToolEventType.TOOL_ERROR: "✗",
-    ToolEventType.MODEL_RETRY: "↻",
-    ToolEventType.MODEL_COMPRESS: "⊘",
-    ToolEventType.MODEL_FALLBACK: "⇢",
-    ToolEventType.MODEL_RATE_LIMIT: "⏱",
+    ToolEventType.START: "⟳",
+    ToolEventType.END: "✓",
+    ToolEventType.ERROR: "✗",
 }
 
 # ─── Tool Activity Descriptions ──────────────────────────────────────────────
@@ -201,7 +197,7 @@ def _hex_to_rgb(hex_color: str) -> str:
 def create_tool_progress_handler(
     console: Console,
     thinking: ThinkingIndicator | None = None,
-) -> ToolEventHandler:
+) -> EventHandler:
     """Create a tool event handler that displays progress using Rich.
 
     Args:
@@ -209,16 +205,16 @@ def create_tool_progress_handler(
         thinking: Optional ThinkingIndicator to stop when tools start
 
     Returns:
-        A ToolEventHandler callback for use with AgentCore
+        A EventHandler callback for use with AgentCore
     """
     # Track whether we're inside a tool execution block for spacing
     state = {"in_block": False}
 
-    def handler(event: ToolEvent) -> None:
-        icon = _STATUS_ICONS.get(event.event_type, "")
+    async def handler(event: ToolEvent) -> None:
+        icon = _STATUS_ICONS.get(event.event, "")
         tool = event.tool_name
 
-        if event.event_type == ToolEventType.TOOL_START:
+        if event.event == ToolEventType.START:
             # Stop thinking spinner when tool execution begins (no blank line — spinner restarts after)
             if thinking:
                 thinking.stop(blank_line=False)
@@ -231,7 +227,7 @@ def create_tool_progress_handler(
             desc = _describe_tool(event.tool_name, event.args)
             console.print(f"  {icon} {desc}")
 
-        elif event.event_type == ToolEventType.TOOL_END:
+        elif event.event == ToolEventType.END:
             duration = f"{event.duration_ms:.0f}ms" if event.duration_ms else ""
             console.print(f"  {icon} {tool} {duration}")
 
@@ -251,7 +247,7 @@ def create_tool_progress_handler(
             if thinking:
                 thinking.start(thinking._model)
 
-        elif event.event_type == ToolEventType.TOOL_ERROR:
+        elif event.event == ToolEventType.ERROR:
             duration = f"{event.duration_ms:.0f}ms" if event.duration_ms else ""
             console.print(f"  {icon} {tool} {duration}")
             if event.error:
@@ -264,31 +260,6 @@ def create_tool_progress_handler(
             # Restart spinner while LLM processes the error
             if thinking:
                 thinking.start(thinking._model)
-
-        elif event.event_type == ToolEventType.MODEL_FALLBACK:
-            if thinking:
-                thinking.stop(blank_line=False)
-            model = f"{event.tool_name}"
-            reason = f"{event.result}" if event.result else ""
-            console.print(f"\n  {icon} Falling back to {model}  {reason}\n")
-            if thinking:
-                thinking.start(event.tool_name)
-
-        elif event.event_type == ToolEventType.MODEL_RETRY:
-            reason = event.result or ""
-            logger.info("Retrying %s  %s", event.tool_name, reason)
-
-        elif event.event_type == ToolEventType.MODEL_COMPRESS:
-            if thinking:
-                thinking.stop(blank_line=False)
-            model = f"{event.tool_name}"
-            console.print(f"\n  {icon} Compressing context for {model}\n")
-            if thinking:
-                thinking.start(event.tool_name)
-
-        elif event.event_type == ToolEventType.MODEL_RATE_LIMIT:
-            detail = event.result or ""
-            logger.info("Rate limit pacing %s  %s", event.tool_name, detail)
 
     return handler
 

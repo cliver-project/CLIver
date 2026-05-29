@@ -74,12 +74,9 @@ class Cliver:
         # LLM-ready conversation history for multi-turn context
         self.conversation_messages: list[CLIverMessage] = []
         # New AgentCore factory — shared MCPClient + builtin tools, lazy per-model cores
-        self._new_agent_cores: dict[str, Any] = {}
-        self._new_mcp_client: Any = None
-        self._new_builtin_tools: list = []
-        # RSS feed state for scrolling headlines
-        self._rss_headlines: list[str] = []
-        self._rss_index = 0
+        self._agent_cores: dict[str, Any] = {}
+        self._mcp_client: Any = None
+        self._builtin_tools: list = []
         self._cancel_requested = False
         # Pending user input state for TUI mode (permission prompts, ask_user_question)
         # These are used by cli_dialog.py and will be migrated to UIBridge in Task 6.
@@ -130,7 +127,7 @@ class Cliver:
 
         configure_timezone(self.config_manager.config.timezone)
 
-        # New AgentCore factory is lazily initialized in get_new_agent_core()
+        # AgentCore factory is lazily initialized in get_agent_core()
         # Permission prompt callback (used by tools)
         self._permission_prompt = _create_permission_prompt(self.console, self)
 
@@ -202,29 +199,29 @@ class Cliver:
 
     # ─── New AgentCore (per-model factory) ────────────────────────────────────
 
-    def get_new_agent_core(self, model_name: str | None = None):
+    def get_agent_core(self, model_name: str | None = None):
         """Get or create a new-style AgentCore for the given model.
 
         Lazy-creates a Provider + AgentCore per model.  Shared resources
         (MCPClient, builtin tools) are initialized once.
         """
         model_name = model_name or self.config_manager.get_llm_model().name
-        if model_name in self._new_agent_cores:
-            return self._new_agent_cores[model_name]
+        if model_name in self._agent_cores:
+            return self._agent_cores[model_name]
 
         from cliver.llm.agent_core import AgentCore as NewAgentCore
         from cliver.mcp import MCPClient
         from cliver.provider.providers import create_provider
         from cliver.tool import ToolRegistry, discover_builtin_tools
 
-        if self._new_mcp_client is None:
-            self._new_mcp_client = MCPClient(self.config_manager.list_mcp_servers_for_mcp_caller())
+        if self._mcp_client is None:
+            self._mcp_client = MCPClient(self.config_manager.list_mcp_servers_for_mcp_caller())
 
-        if not self._new_builtin_tools:
+        if not self._builtin_tools:
             all_tools = discover_builtin_tools()
             reg = ToolRegistry(all_tools)
             reg.configure(self.config_manager.config.enabled_toolsets)
-            self._new_builtin_tools = reg.all_tools
+            self._builtin_tools = reg.all_tools
 
         mc = self._resolve_model_config(model_name)
         if not mc:
@@ -236,21 +233,20 @@ class Cliver:
             protocol=mc.get_provider_type(),
         )
 
-        def _tool_event_handler(event):
-            import asyncio
+        progress_handler = create_tool_progress_handler(self.console, thinking=self.thinking)
 
-            handler = create_tool_progress_handler(self.console, thinking=self.thinking)
-            if handler:
-                asyncio.ensure_future(handler(event))
+        async def _tool_event_handler(event):
+            if progress_handler:
+                await progress_handler(event)
 
         agent = NewAgentCore(
             provider=provider,
-            model=model_name,
-            builtin_tools=self._new_builtin_tools,
-            mcp_client=self._new_mcp_client,
+            model=mc.api_model_name,
+            builtin_tools=self._builtin_tools,
+            mcp_client=self._mcp_client,
             on_event=_tool_event_handler,
         )
-        self._new_agent_cores[model_name] = agent
+        self._agent_cores[model_name] = agent
         return agent
 
     def build_system_prompt(self, agent) -> str:
@@ -259,20 +255,17 @@ class Cliver:
         Combines: builtin system message, identity, memory, context files.
         Called by cli_llm_call before each chat/stream invocation.
         """
-        from cliver.llm.base import LLMInferenceEngine
+        from cliver.system_prompt import build as build_system_prompt
 
         available_tools = {t.name for t in agent.tool_registry.all_tools}
-
-        # Use the existing system_message builder (stateless section helpers)
-        engine = LLMInferenceEngine.__new__(LLMInferenceEngine)
-        engine.config = None
-        engine.agent_name = self.agent_profile.profile_name
+        agents = getattr(self.config_manager.config, "agents", None)
 
         parts = [
-            engine.system_message(
+            build_system_prompt(
+                agent_name=self.agent_profile.profile_name,
                 available_tools=available_tools,
                 models=self.config_manager.list_llm_models(),
-                agents=self.config_manager.config.agents if hasattr(self.config_manager.config, "agents") else None,
+                agents=agents,
             )
         ]
 

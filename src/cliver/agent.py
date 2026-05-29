@@ -49,10 +49,11 @@ class Agent:
         prompt: str,
         *,
         media: list[MediaContent] | None = None,
+        system_prompt: str | None = None,
         **kwargs,
     ) -> CLIverResponse:
         """Run with retry/timeout.  Returns CLIverResponse (same as AgentCore)."""
-        system_prompt = self._build_system_prompt()
+        sp = system_prompt or self._build_system_prompt()
         timeout = self.config.timeout_s or 300
         last_error = None
 
@@ -61,7 +62,7 @@ class Agent:
                 return await asyncio.wait_for(
                     self._core.chat(
                         user_input=prompt,
-                        system_prompt=system_prompt,
+                        system_prompt=sp,
                         media=media,
                         **kwargs,
                     ),
@@ -89,13 +90,14 @@ class Agent:
         prompt: str,
         *,
         media: list[MediaContent] | None = None,
+        system_prompt: str | None = None,
         **kwargs,
     ) -> AsyncIterator[CLIverMessageChunk]:
         """Streaming — no retry for streams.  Yields CLIverMessageChunk."""
-        system_prompt = self._build_system_prompt()
+        sp = system_prompt or self._build_system_prompt()
         async for chunk in self._core.stream(
             user_input=prompt,
-            system_prompt=system_prompt,
+            system_prompt=sp,
             media=media,
             **kwargs,
         ):

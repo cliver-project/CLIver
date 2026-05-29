@@ -15,6 +15,7 @@ class MiniMaxProvider(_EngineProvider):
     """
 
     supported_protocols = ["openai", "anthropic"]
+    default_base_url = "https://api.minimax.chat/v1"
 
     UNSUPPORTED_PARAMS = {
         "frequency_penalty",

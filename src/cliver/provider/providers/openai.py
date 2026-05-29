@@ -9,3 +9,4 @@ class OpenAIProvider(_EngineProvider):
     """Generic OpenAI-compatible provider. No special handling needed."""
 
     supported_protocols = ["openai"]
+    default_base_url = "https://api.openai.com/v1"

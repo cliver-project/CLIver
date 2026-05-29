@@ -15,26 +15,26 @@ Single instance per host. Resources stored under {config_dir}/:
 
 import logging
 from pathlib import Path
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Callable, Optional
 
 import yaml
 
 from cliver.util import get_config_dir
 
+if TYPE_CHECKING:
+    from cliver.llm.agent_core import AgentCore
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Current profile registry — single source of truth for the active profile.
-# Set by AgentCore at init, accessed by builtin tools (memory, etc.).
+# Module-level singletons — set at startup, accessed by builtin tools.
 # ---------------------------------------------------------------------------
 
 _current_profile: Optional["CliverProfile"] = None
-
-_agent_core = None
-
-_input_fn = input
-_output_fn = print
-_cli_instance = None
+_agent_core: Optional["AgentCore"] = None
+_input_fn: Callable[..., str] = input
+_output_fn: Callable[..., None] = print
+_cli_instance: Any = None
 
 
 def set_current_profile(profile: Optional["CliverProfile"]) -> None:
@@ -46,39 +46,39 @@ def get_current_profile() -> Optional["CliverProfile"]:
     return _current_profile
 
 
-def set_agent_core(executor) -> None:
+def set_agent_core(executor: "AgentCore") -> None:
     global _agent_core
     _agent_core = executor
 
 
-def get_agent_core():
+def get_agent_core() -> Optional["AgentCore"]:
     return _agent_core
 
 
-def set_input_fn(fn) -> None:
+def set_input_fn(fn: Callable[..., str]) -> None:
     global _input_fn
     _input_fn = fn
 
 
-def get_input_fn():
+def get_input_fn() -> Callable[..., str]:
     return _input_fn
 
 
-def set_output_fn(fn) -> None:
+def set_output_fn(fn: Callable[..., None]) -> None:
     global _output_fn
     _output_fn = fn
 
 
-def get_output_fn():
+def get_output_fn() -> Callable[..., None]:
     return _output_fn
 
 
-def set_cli_instance(instance) -> None:
+def set_cli_instance(instance: Any) -> None:
     global _cli_instance
     _cli_instance = instance
 
 
-def get_cli_instance():
+def get_cli_instance() -> Any:
     return _cli_instance
 
 

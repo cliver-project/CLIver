@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 HANDLERS: dict[str, str] = {
+    "help": "cliver.commands.help_cmd",
     "clear": "cliver.commands.clear_cmd",
     "model": "cliver.commands.model",
     "config": "cliver.commands.config",

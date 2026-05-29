@@ -162,15 +162,19 @@ def tool(
         if required:
             parameters["required"] = required
 
-        # Normalize execute to sync
+        # Normalize execute to sync, with argument coercion
         if inspect.iscoroutinefunction(fn):
 
             def _execute_sync(**kwargs):
-                return asyncio.run(fn(**kwargs))
+                return asyncio.run(fn(**_coerce_args(parameters, kwargs)))
 
             execute = _execute_sync
         else:
-            execute = fn
+
+            def _execute_coerced(**kwargs):
+                return fn(**_coerce_args(parameters, kwargs))
+
+            execute = _execute_coerced
 
         return CLIverTool(
             name=name or fn.__name__,
@@ -181,6 +185,31 @@ def tool(
         )
 
     return decorator
+
+
+def _coerce_args(parameters: dict, kwargs: dict) -> dict:
+    """Coerce argument values to match JSON Schema types.
+
+    LLMs sometimes pass "100" instead of 100 for integer params.
+    This prevents TypeErrors at runtime.
+    """
+    props = parameters.get("properties", {})
+    coerced = {}
+    for key, value in kwargs.items():
+        schema = props.get(key, {})
+        json_type = schema.get("type", "string")
+        try:
+            if json_type == "integer" and not isinstance(value, int):
+                coerced[key] = int(value)
+            elif json_type == "number" and not isinstance(value, (int, float)):
+                coerced[key] = float(value)
+            elif json_type == "boolean" and not isinstance(value, bool):
+                coerced[key] = str(value).lower() in ("true", "1", "yes")
+            else:
+                coerced[key] = value
+        except (ValueError, TypeError):
+            coerced[key] = value  # keep original on coercion failure
+    return coerced
 
 
 def _first_line(text: str) -> str:

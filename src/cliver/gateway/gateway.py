@@ -598,7 +598,7 @@ class Gateway:
 
         agent_core = NewAgentCore(
             provider=provider,
-            model=model_name,
+            model=mc.api_model_name,
             builtin_tools=self._builtin_tools,
             mcp_client=self._mcp_client,
             on_event=_create_gateway_tool_handler(),
@@ -970,12 +970,12 @@ def _looks_like_base64(s: str) -> bool:
 
 def _create_gateway_tool_handler():
     """Create a tool event handler that logs via the standard logger."""
-    from cliver.tool_events import ToolEvent, ToolEventType
+    from cliver.events import ToolEvent, ToolEventType
 
     tool_logger = logging.getLogger("cliver.gateway.tools")
 
     def _handler(event: ToolEvent) -> None:
-        if event.event_type == ToolEventType.TOOL_START:
+        if event.event == ToolEventType.START:
             args_summary = ""
             if event.args:
                 parts = []
@@ -987,7 +987,7 @@ def _create_gateway_tool_handler():
                 args_summary = " " + ", ".join(parts[:5])
             tool_logger.info("[START] %s%s", event.tool_name, args_summary)
 
-        elif event.event_type == ToolEventType.TOOL_END:
+        elif event.event == ToolEventType.END:
             duration = f" ({event.duration_ms:.0f}ms)" if event.duration_ms else ""
             tool_logger.info("[DONE]  %s%s", event.tool_name, duration)
             if event.result:
@@ -999,7 +999,7 @@ def _create_gateway_tool_handler():
                     else:
                         tool_logger.info("        %s", line[:500])
 
-        elif event.event_type == ToolEventType.TOOL_ERROR:
+        elif event.event == ToolEventType.ERROR:
             duration = f" ({event.duration_ms:.0f}ms)" if event.duration_ms else ""
             tool_logger.warning("[ERROR] %s%s: %s", event.tool_name, duration, event.error)
 

@@ -224,21 +224,8 @@ def _statusbar_content(cliver: "Cliver"):
     right_mode = f" 🔒 {mode} "
     right_model = f" ◆ {model} "
 
-    middle_text = ""
-    if cliver._rss_headlines:
-        headline = cliver._rss_headlines[cliver._rss_index % len(cliver._rss_headlines)]
-        cliver._rss_index += 1
-        middle_text = f" {headline} "
-
-    fixed = _dw(left) + _dw(middle_text) + _dw(right_agent) + _dw(right_mode) + _dw(right_model) + 6
-    padding = max(0, tw - fixed)
-
-    if middle_text:
-        pad_left = padding // 2
-        pad_right = padding - pad_left
-        middle = f"{' ' * pad_left}{middle_text}{' ' * pad_right}"
-    else:
-        middle = " " * padding
+    fixed = _dw(left) + _dw(right_agent) + _dw(right_mode) + _dw(right_model) + 6
+    middle = " " * max(0, tw - fixed)
 
     return tw, left, middle, right_agent, right_mode, right_model
 

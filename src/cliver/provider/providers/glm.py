@@ -9,6 +9,7 @@ class GLMProvider(_EngineProvider):
     """Zhipu / GLM provider."""
 
     supported_protocols = ["openai"]
+    default_base_url = "https://open.bigmodel.cn/api/paas/v4"
 
     UNSUPPORTED_PARAMS = {
         "frequency_penalty",

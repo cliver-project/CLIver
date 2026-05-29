@@ -16,6 +16,7 @@ class DeepSeekProvider(_EngineProvider):
     """
 
     supported_protocols = ["openai", "anthropic"]
+    default_base_url = "https://api.deepseek.com/v1"
 
     def msg_to_native(self, msg: CLIverMessage) -> dict:
         native = self.engine.msg_to_native(msg)

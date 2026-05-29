@@ -161,4 +161,8 @@ def create_provider(
     else:
         cls = provider_class
 
+    # Use provider's default URL if none specified
+    if not base_url:
+        base_url = getattr(cls, "default_base_url", "")
+
     return cls(api_key=api_key, base_url=base_url, protocol=protocol)

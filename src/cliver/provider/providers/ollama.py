@@ -9,6 +9,7 @@ class OllamaProvider(_EngineProvider):
     """Ollama provider (local, no API key needed)."""
 
     supported_protocols = ["openai"]
+    default_base_url = "http://localhost:11434/v1"
 
     UNSUPPORTED_PARAMS = {
         "frequency_penalty",

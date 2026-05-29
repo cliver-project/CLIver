@@ -45,22 +45,19 @@ class LLMCallOptions:
     user_input: str = ""
     model: str | None = None
     stream: bool = True
+    system_prompt: str | None = None
+    # Additional system content (skill instructions, IM context, etc.).
+    # Merged after the builtin system prompt.
     options: dict[str, Any] | None = None
     conversation_history: list[CLIverMessage] | None = None
+    mcp_servers: list[str] | None = None
+    # Which MCP servers to use (None = all configured servers).
     on_response: Callable[[str], None] | None = None
     timeout_s: int | None = None
 
 
 def llm_call(cliver: "Cliver", opts: LLMCallOptions) -> LLMCallResult:
-    """Execute an LLM call with full CLI presentation.
-
-    Args:
-        cliver: The Cliver CLI instance.
-        opts: LLM call options.
-
-    Returns:
-        LLMCallResult with the response text.
-    """
+    """Execute an LLM call with full CLI presentation."""
     console = cliver.console
     thinking = getattr(cliver, "thinking", None)
     model = opts.model
@@ -90,10 +87,16 @@ def llm_call(cliver: "Cliver", opts: LLMCallOptions) -> LLMCallResult:
     return result
 
 
+def _merge_system_prompt(cliver, agent, extra: str | None) -> str | None:
+    parts = [cliver.build_system_prompt(agent)]
+    if extra:
+        parts.append(extra)
+    return "\n\n".join(parts) or None
+
+
 def _stream_call(cliver, opts, thinking, console) -> LLMCallResult:
-    """Execute a streaming LLM call using the new AgentCore."""
-    agent = cliver.get_new_agent_core(opts.model)
-    system_prompt = cliver.build_system_prompt(agent)
+    agent = cliver.get_agent_core(opts.model)
+    system_prompt = _merge_system_prompt(cliver, agent, opts.system_prompt)
 
     first_token_emitted = False
 
@@ -114,6 +117,7 @@ def _stream_call(cliver, opts, thinking, console) -> LLMCallResult:
                 user_input=opts.user_input,
                 system_prompt=system_prompt,
                 conversation=opts.conversation_history,
+                mcp_servers=opts.mcp_servers,
                 options=opts.options,
             ):
                 if chunk.content:
@@ -139,9 +143,8 @@ def _stream_call(cliver, opts, thinking, console) -> LLMCallResult:
 
 
 def _sync_call(cliver, opts, thinking, console) -> LLMCallResult:
-    """Execute a synchronous (non-streaming) LLM call using the new AgentCore."""
-    agent = cliver.get_new_agent_core(opts.model)
-    system_prompt = cliver.build_system_prompt(agent)
+    agent = cliver.get_agent_core(opts.model)
+    system_prompt = _merge_system_prompt(cliver, agent, opts.system_prompt)
 
     import asyncio
 
@@ -150,6 +153,7 @@ def _sync_call(cliver, opts, thinking, console) -> LLMCallResult:
             user_input=opts.user_input,
             system_prompt=system_prompt,
             conversation=opts.conversation_history,
+            mcp_servers=opts.mcp_servers,
             options=opts.options,
         )
     )

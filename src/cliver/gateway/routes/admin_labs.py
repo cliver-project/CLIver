@@ -194,7 +194,7 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
     async def handle_lab_chat(request: Request):
         """Create or continue a lab chat session with SSE streaming."""
         gateway = context.get("gateway")
-        if not gateway or not getattr(gateway, "_agent_core", None):
+        if not gateway:
             return JSONResponse({"error": "Agent not available"}, status_code=503)
 
         session_manager = context.get("cli_session_manager")
