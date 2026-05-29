@@ -974,7 +974,7 @@ def _create_gateway_tool_handler():
 
     tool_logger = logging.getLogger("cliver.gateway.tools")
 
-    def _handler(event: ToolEvent) -> None:
+    async def _handler(event: ToolEvent) -> None:
         if event.event == ToolEventType.START:
             args_summary = ""
             if event.args:

@@ -45,6 +45,12 @@ class AnthropicEngine(ProtocolEngine):
     def msg_to_native(self, msg: CLIverMessage) -> dict:
         content: list[dict] = []
 
+        # Preserve thinking blocks from vendor_ext (required by MiniMax & Anthropic)
+        if msg.role == "assistant" and "thinking" in msg.vendor_ext:
+            thinking_text = msg.vendor_ext["thinking"]
+            if thinking_text:
+                content.append({"type": "thinking", "thinking": thinking_text})
+
         if isinstance(msg.content, str):
             if msg.content:
                 content.append({"type": "text", "text": msg.content})

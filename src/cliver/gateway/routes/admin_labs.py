@@ -13,6 +13,13 @@ from starlette.routing import Route
 logger = logging.getLogger(__name__)
 
 
+def _strip_tool_calls(text: str) -> str:
+    """Strip inline JSON tool call blocks from text output."""
+    import re
+
+    return re.sub(r'\s*\{[^{}]*"tool_calls"[^{}]*\[[^\]]*\][^{}]*\}', "", text, flags=re.DOTALL).strip()
+
+
 def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
     """Return AI Lab CRUD, chat, and golden test API routes."""
     from cliver.gateway.admin import _run_in_thread
@@ -343,11 +350,7 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
                         data = json.dumps({"type": "content", "content": chunk.content})
                         yield f"data: {data}\n\n".encode()
 
-                # Strip inline tool_calls JSON from the accumulated text
-                # (some models emit tool calls as text rather than structured)
-                from cliver.llm.llm_utils import strip_tool_calls_from_text
-
-                clean_text = strip_tool_calls_from_text(full_text)
+                clean_text = _strip_tool_calls(full_text)
 
                 if session_manager and session_id:
                     try:

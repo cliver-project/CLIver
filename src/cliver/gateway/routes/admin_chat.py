@@ -13,6 +13,13 @@ from starlette.routing import Route
 logger = logging.getLogger(__name__)
 
 
+def _strip_tool_calls(text: str) -> str:
+    """Strip inline JSON tool call blocks from text output."""
+    import re
+
+    return re.sub(r'\s*\{[^{}]*"tool_calls"[^{}]*\[[^\]]*\][^{}]*\}', "", text, flags=re.DOTALL).strip()
+
+
 def get_chat_routes(context: dict, require_auth: Callable) -> list:
     """Return chat API route (SSE streaming)."""
 
@@ -145,9 +152,7 @@ def get_chat_routes(context: dict, require_auth: Callable) -> list:
                         data = json.dumps({"type": "content", "content": chunk.content})
                         yield f"data: {data}\n\n".encode()
 
-                from cliver.llm.llm_utils import strip_tool_calls_from_text
-
-                clean_text = strip_tool_calls_from_text(full_text)
+                clean_text = _strip_tool_calls(full_text)
 
                 # Persist assistant turn
                 if session_manager and session_id:
