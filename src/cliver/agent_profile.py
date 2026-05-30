@@ -22,7 +22,7 @@ import yaml
 from cliver.util import get_config_dir
 
 if TYPE_CHECKING:
-    from cliver.llm.agent_core import AgentCore
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,6 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _current_profile: Optional["CliverProfile"] = None
-_agent_core: Optional["AgentCore"] = None
 _input_fn: Callable[..., str] = input
 _output_fn: Callable[..., None] = print
 _cli_instance: Any = None
@@ -44,15 +43,6 @@ def set_current_profile(profile: Optional["CliverProfile"]) -> None:
 
 def get_current_profile() -> Optional["CliverProfile"]:
     return _current_profile
-
-
-def set_agent_core(executor: "AgentCore") -> None:
-    global _agent_core
-    _agent_core = executor
-
-
-def get_agent_core() -> Optional["AgentCore"]:
-    return _agent_core
 
 
 def set_input_fn(fn: Callable[..., str]) -> None:
@@ -236,6 +226,8 @@ def _parse_frontmatter(content: str) -> tuple[dict, str]:
 
     Returns (frontmatter_dict, body_string).
     """
+    if not isinstance(content, str):
+        return {}, ""
     if not content.startswith("---"):
         return {}, content
 

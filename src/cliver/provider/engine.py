@@ -31,10 +31,12 @@ class ProtocolEngine(MessageConverter):
         api_key: str,
         base_url: str,
         on_event: EventHandler | None = None,
+        user_agent: str | None = None,
     ):
         self.api_key = api_key
         self.base_url = base_url
         self.on_event = on_event
+        self.user_agent = user_agent
 
     @abstractmethod
     async def chat(
@@ -90,6 +92,7 @@ def create_engine(
     api_key: str,
     base_url: str,
     on_event: EventHandler | None = None,
+    user_agent: str | None = None,
 ) -> ProtocolEngine:
     """Create a ProtocolEngine for the given protocol.
 
@@ -98,10 +101,10 @@ def create_engine(
     if protocol == "openai":
         from cliver.provider.openai_engine import OpenAIEngine
 
-        return OpenAIEngine(api_key=api_key, base_url=base_url, on_event=on_event)
+        return OpenAIEngine(api_key=api_key, base_url=base_url, on_event=on_event, user_agent=user_agent)
     elif protocol == "anthropic":
         from cliver.provider.anthropic_engine import AnthropicEngine
 
-        return AnthropicEngine(api_key=api_key, base_url=base_url, on_event=on_event)
+        return AnthropicEngine(api_key=api_key, base_url=base_url, on_event=on_event, user_agent=user_agent)
     else:
         raise ValueError(f"Unknown protocol '{protocol}'. Supported: ['openai', 'anthropic']")

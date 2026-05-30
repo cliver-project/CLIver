@@ -38,12 +38,21 @@ def skill(skill_name: str, prompt: str | None = None) -> list[dict]:
     if not prompt:
         return [{"text": manager.activate_skill(skill_name)}]
 
-    # Run the skill through the LLM
-    from cliver.agent_profile import get_agent_core
+    # Run the skill through the LLM — create a minimal AgentCore for the call
+    from cliver.agent_factory import create_agent_core, resolve_model
+    from cliver.config import ConfigManager
+    from cliver.util import get_config_dir
 
-    agent_core = get_agent_core()
-    if not agent_core:
+    cm = ConfigManager(get_config_dir())
+    mc = resolve_model(None, cm)
+    if not mc:
         return [{"text": manager.activate_skill(skill_name, prompt=prompt)}]
+
+    agent_core = create_agent_core(
+        model_config=mc,
+        builtin_tools=[],
+        user_agent=cm.config.user_agent,
+    )
 
     import asyncio
 

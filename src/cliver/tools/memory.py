@@ -17,10 +17,10 @@ logger = logging.getLogger(__name__)
 @tool(
     name="MemoryRead",
     description=(
-        "Read your persistent memory to recall knowledge from previous conversations. "
-        "Returns both global memory (shared across all agents) and your agent-specific memory. "
-        "Use this when you need to check what you already know about the user's preferences, "
-        "past decisions, or previously learned information."
+        "Recall knowledge from previous conversations that persists across sessions. "
+        "ONLY use this when the user's request references past context, preferences, "
+        "or decisions that you need to look up. Do NOT read memory for greetings, "
+        "casual chat, or general questions — it adds latency and cost for no benefit."
     ),
 )
 def memory_read() -> list[dict]:

@@ -146,7 +146,11 @@ def get_chat_routes(context: dict, require_auth: Callable) -> list:
             media_files = []
             try:
                 agent = gateway._get_agent(model)
-                async for chunk in agent.stream(prompt=prompt):
+                async for chunk in agent.stream(
+                    prompt=prompt,
+                    system_prompt=gateway._build_agent_system_prompt(agent, extra=_system_appender()),
+                    conversation=conversation_history,
+                ):
                     if chunk.content:
                         full_text += chunk.content
                         data = json.dumps({"type": "content", "content": chunk.content})

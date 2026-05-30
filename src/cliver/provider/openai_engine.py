@@ -33,9 +33,11 @@ class OpenAIEngine(ProtocolEngine):
         api_key: str,
         base_url: str,
         on_event: EventHandler | None = None,
+        user_agent: str | None = None,
     ):
-        super().__init__(api_key, base_url, on_event)
-        self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        super().__init__(api_key, base_url, on_event, user_agent=user_agent)
+        extra_headers = {"User-Agent": user_agent} if user_agent else {}
+        self.client = AsyncOpenAI(api_key=api_key, base_url=base_url, default_headers=extra_headers)
 
     # ── Conversion ──────────────────────────────────────────
 

@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from cliver.db import SQLiteStore, get_store
+from cliver.messages import CLIverMessage
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,7 @@ CREATE TABLE IF NOT EXISTS turns (
     session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
     role TEXT NOT NULL,
     content TEXT NOT NULL,
+    message_json TEXT,
     timestamp TEXT NOT NULL
 );
 
@@ -146,13 +148,25 @@ class SessionManager:
 
     # -- Conversation recording ------------------------------------------------
 
-    def append_turn(self, session_id: str, role: str, content: str) -> None:
-        """Append a conversation turn to a session."""
+    def append_turn(self, session_id: str, role: str, content: str, *, message: Any = None) -> None:
+        """Append a conversation turn to a session.
+
+        ``message`` is an optional ``CLIverMessage`` whose full JSON is
+        persisted alongside the plain-text columns.  When provided, the
+        session can be fully reconstructed (tool calls, thinking blocks, etc.).
+        """
+        message_json = None
+        if message is not None:
+            try:
+                message_json = message.model_dump_json()
+            except Exception:
+                pass
+
         now = _timestamp()
         with self._get_store().write() as db:
             db.execute(
-                "INSERT INTO turns (session_id, role, content, timestamp) VALUES (?, ?, ?, ?)",
-                (session_id, role, content, now),
+                "INSERT INTO turns (session_id, role, content, message_json, timestamp) VALUES (?, ?, ?, ?, ?)",
+                (session_id, role, content, message_json, now),
             )
             db.execute(
                 "UPDATE sessions SET updated_at = ?, turn_count = turn_count + 1 WHERE id = ?",
@@ -166,13 +180,26 @@ class SessionManager:
                 )
 
     def load_turns(self, session_id: str) -> List[Dict[str, str]]:
-        """Load all conversation turns from a session."""
+        """Load all conversation turns from a session.
+
+        Each turn dict has ``role``, ``content``, ``timestamp``, and
+        optionally ``message`` (a ``CLIverMessage`` reconstructed from JSON).
+        """
         with self._get_store().read() as db:
             rows = db.execute(
-                "SELECT role, content, timestamp FROM turns WHERE session_id = ? ORDER BY id",
+                "SELECT role, content, message_json, timestamp FROM turns WHERE session_id = ? ORDER BY id",
                 (session_id,),
             ).fetchall()
-        return [dict(r) for r in rows]
+        result = []
+        for r in rows:
+            turn = {"role": r["role"], "content": r["content"], "timestamp": r["timestamp"]}
+            if r["message_json"]:
+                try:
+                    turn["message"] = CLIverMessage.model_validate_json(r["message_json"])
+                except Exception:
+                    pass
+            result.append(turn)
+        return result
 
     def trim_turns(self, session_id: str, keep_last: int = 50) -> int:
         """Delete older turns, keeping only the most recent ones.

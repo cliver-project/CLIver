@@ -88,7 +88,10 @@ def llm_call(cliver: "Cliver", opts: LLMCallOptions) -> LLMCallResult:
 
 
 def _merge_system_prompt(cliver, agent, extra: str | None) -> str | None:
-    parts = [cliver.build_system_prompt(agent)]
+    parts = []
+    builtin_extra = cliver.build_system_prompt()
+    if builtin_extra:
+        parts.append(builtin_extra)
     if extra:
         parts.append(extra)
     return "\n\n".join(parts) or None

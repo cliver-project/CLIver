@@ -24,9 +24,9 @@ class _EngineProvider(Provider):
     filter_options) for brand-specific behavior.
     """
 
-    def __init__(self, protocol: str, api_key: str, base_url: str):
+    def __init__(self, protocol: str, api_key: str, base_url: str, user_agent: str | None = None):
         super().__init__(protocol, api_key, base_url)
-        self.engine: ProtocolEngine = create_engine(protocol, api_key, base_url)
+        self.engine: ProtocolEngine = create_engine(protocol, api_key, base_url, user_agent=user_agent)
 
     def msg_to_native(self, msg: CLIverMessage) -> Any:
         return self.engine.msg_to_native(msg)
@@ -139,6 +139,7 @@ def create_provider(
     *,
     protocol: str = "openai",
     provider_class: type[Provider] | str | None = None,
+    user_agent: str | None = None,
 ) -> Provider:
     """Create a Provider instance.
 
@@ -149,6 +150,7 @@ def create_provider(
         provider_class: Optional override for auto-detection.
             Can be a class, a string name (e.g. ``"deepseek"``, ``"minimax"``),
             or ``None`` for auto-detection from ``base_url``.
+        user_agent: Optional User-Agent header sent with all HTTP requests.
 
     Returns:
         A Provider instance ready to use.
@@ -165,4 +167,4 @@ def create_provider(
     if not base_url:
         base_url = getattr(cls, "default_base_url", "")
 
-    return cls(api_key=api_key, base_url=base_url, protocol=protocol)
+    return cls(api_key=api_key, base_url=base_url, protocol=protocol, user_agent=user_agent)

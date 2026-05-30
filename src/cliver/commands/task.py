@@ -166,7 +166,7 @@ def _run_task(cliver: Cliver, name: str, model: Optional[str] = None) -> int:
         import asyncio
 
         agent = cliver.get_agent_core(use_model)
-        system_prompt = cliver.build_system_prompt(agent)
+        system_prompt = cliver.build_system_prompt()
         response = asyncio.run(
             agent.chat(
                 user_input=task_def.prompt,

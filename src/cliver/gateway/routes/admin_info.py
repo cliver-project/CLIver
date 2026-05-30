@@ -95,14 +95,12 @@ def _get_adapters(ctx: dict, config_manager=None) -> list:
 
 def _get_agent_info(ctx: dict) -> dict:
     try:
-        from cliver.agent_profile import CliverProfile
-
+        gateway = ctx.get("gateway")
         agent_name = ctx.get("agent_name", "CLIver")
-        config_dir = ctx.get("config_dir")
         info = {"name": agent_name, "identity": "", "memory": ""}
 
-        if config_dir:
-            profile = CliverProfile(config_dir)
+        if gateway and hasattr(gateway, "_agent_profile"):
+            profile = gateway._agent_profile
             if profile.identity_file.exists():
                 content = profile.identity_file.read_text(encoding="utf-8")
                 info["identity"] = content[:2000]

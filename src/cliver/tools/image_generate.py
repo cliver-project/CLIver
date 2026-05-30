@@ -39,7 +39,9 @@ def _find_image_model(requested: str = "") -> tuple[str | None, str]:
     name="ImageGenerate",
     description=(
         "Generate an image from a text description and save it to disk. "
-        "Use `model` to select a specific image-capable model (see Available Models). "
+        'The `model` parameter is optional — leave it blank ("") to auto-select '
+        "the first available image model from the Configured Models list. "
+        "Only pass a model name if you verified it exists in Configured Models. "
         "Use `output_dir` to save to a user-specified directory. "
         "Use when the user asks to create, draw, or generate an image."
     ),
@@ -83,6 +85,7 @@ def image_generate(
         api_key=mc.get_api_key() or "",
         base_url=mc.get_resolved_url() or "",
         protocol=mc.get_provider_type(),
+        user_agent=cm.config.user_agent,
     )
 
     agent_core = AgentCore(provider=provider, model=mc.api_model_name)

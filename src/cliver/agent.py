@@ -53,7 +53,7 @@ class Agent:
         **kwargs,
     ) -> CLIverResponse:
         """Run with retry/timeout.  Returns CLIverResponse (same as AgentCore)."""
-        sp = system_prompt or self._build_system_prompt()
+        sp = self._merge_system_prompt(system_prompt)
         timeout = self.config.timeout_s or 300
         last_error = None
 
@@ -94,7 +94,7 @@ class Agent:
         **kwargs,
     ) -> AsyncIterator[CLIverMessageChunk]:
         """Streaming — no retry for streams.  Yields CLIverMessageChunk."""
-        sp = system_prompt or self._build_system_prompt()
+        sp = self._merge_system_prompt(system_prompt)
         async for chunk in self._core.stream(
             user_input=prompt,
             system_prompt=sp,
@@ -123,11 +123,19 @@ class Agent:
 
     # ── Helpers ────────────────────────────────────────────────
 
-    def _build_system_prompt(self) -> str | None:
-        role = self.config.system_prompt
-        if not role:
-            return None
-        return f"Your role: {role}"
+    def _merge_system_prompt(self, builtin: str | None) -> str | None:
+        """Merge the builtin system prompt with the agent's persona.
+
+        The builtin prompt (model inventory, tools, guidelines) always comes
+        first.  The agent's persona from AgentConfig is appended if set.
+        """
+        persona = self.config.system_prompt
+        if not persona:
+            return builtin
+        role_section = f"# Role\n\n{persona}"
+        if builtin:
+            return f"{builtin}\n\n{role_section}"
+        return role_section
 
     async def cleanup(self) -> None:
         pass

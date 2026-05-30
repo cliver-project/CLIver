@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
+
+if TYPE_CHECKING:
+    from cliver.gateway.gateway import Gateway
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse, StreamingResponse
@@ -148,17 +151,29 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
     async def handle_run_tests(request: Request):
         """Run all golden tests for a lab, return results with actual outputs."""
         lab_id = request.path_params["lab_id"]
-        gateway = context.get("gateway")
+        gateway: Gateway = context.get("gateway")
         if not gateway:
             return JSONResponse({"error": "Agent not available"}, status_code=503)
 
         tests = await _run_in_thread(lab_store.list_golden_tests, lab_id)
 
+        from cliver.agent_factory import create_agent_core, resolve_model
+
+        config_manager = gateway._get_config_manager()
+        model_config = resolve_model(gateway._get_default_model_name(), config_manager)
+
         results = []
         for test in tests:
             try:
-                agent = gateway._get_agent()
-                response = await agent.chat(prompt=test.input)
+                agent_core = create_agent_core(
+                    model_config=model_config,
+                    builtin_tools=gateway._builtin_tools,
+                    mcp_client=gateway._mcp_client,
+                    user_agent=config_manager.config.user_agent,
+                    models=config_manager.list_llm_models(),
+                    agents=getattr(config_manager.config, "agents", None),
+                )
+                response = await agent_core.chat(user_input=test.input)
                 actual_text = response.message.text or ""
             except Exception as e:
                 actual_text = f"Error: {e}"
@@ -200,7 +215,7 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
     @require_auth
     async def handle_lab_chat(request: Request):
         """Create or continue a lab chat session with SSE streaming."""
-        gateway = context.get("gateway")
+        gateway: Gateway = context.get("gateway")
         if not gateway:
             return JSONResponse({"error": "Agent not available"}, status_code=503)
 
@@ -217,6 +232,25 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
         if not prompt:
             return JSONResponse({"error": "'message' is required"}, status_code=400)
 
+        def _build_history(turns: list) -> list:
+            """Build conversation history from turn dicts or CLIverMessage objects."""
+            from cliver.messages import CLIverMessage
+
+            msgs = []
+            for t in turns:
+                if "message" in t:
+                    msgs.append(t["message"])
+                else:
+                    role = t.get("role", "")
+                    content = t.get("content", "")
+                    vendor = {}
+                    if "reasoning_content" in t:
+                        vendor["reasoning_content"] = t["reasoning_content"]
+                    if role in ("user", "assistant"):
+                        msgs.append(CLIverMessage(role=role, content=content, vendor_ext=vendor))
+            return msgs
+
+        conversation_history = None
         model = body.get("model") or gateway._get_default_model_name()
         system_message = body.get("system_message")
         agent_name = body.get("agent", "").strip()
@@ -250,6 +284,14 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
                 except Exception:
                     pass
 
+        # Resolve the model config for AgentCore creation
+        from cliver.agent_factory import resolve_model
+
+        config_manager = gateway._get_config_manager()
+        resolved_model = resolve_model(model, config_manager)
+        if not resolved_model:
+            return JSONResponse({"error": f"Model '{model}' not found"}, status_code=400)
+
         # Session management
         session_id = None
         if session_id_param:
@@ -259,7 +301,8 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
             session_id = session_id_param
             if not raw_history and session_manager:
                 loaded = session_manager.load_turns(session_id)
-                raw_history = [{"role": t["role"], "content": t["content"]} for t in loaded]
+                conversation_history = _build_history(loaded)
+                raw_history = None  # signal that history is already built
         elif session_manager:
             session_options = {}
             if agent_name:
@@ -281,27 +324,23 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
             except Exception as e:
                 logger.warning("Failed to persist user turn: %s", e)
 
-        # Build conversation history
-        conversation_history = None
-        if raw_history:
-            from cliver.messages import CLIverMessage
+        # Build conversation history (None = not yet built, may already be set from DB)
+        if conversation_history is None and raw_history:
+            conversation_history = _build_history(raw_history)
 
-            conversation_history = []
-            for msg in raw_history:
-                role = msg.get("role", "")
-                content = msg.get("content", "")
-                vendor = {}
-                if "reasoning_content" in msg:
-                    vendor["reasoning_content"] = msg["reasoning_content"]
-                if role in ("user", "assistant"):
-                    conversation_history.append(CLIverMessage(role=role, content=content, vendor_ext=vendor))
+        def _extra_system_prompt() -> str | None:
+            """Build extra system prompt content (persona, MCPs, server mode).
 
-        def _system_appender():
+            The builtin prompt (models, tools, self-awareness) is generated
+            automatically by create_agent_core — we only add runtime context.
+            """
             parts = []
             if agent_role:
                 parts.append(agent_role)
             if system_message:
                 parts.append(system_message)
+            if mcp_server_names:
+                parts.append("## Linked MCP Servers\n\n" + "\n".join(f"- **{name}**" for name in mcp_server_names))
             parts.append(
                 "\n## Server Mode\n\n"
                 "You are running as a backend API service via the admin portal. "
@@ -309,26 +348,7 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
                 "After a tool call completes, summarize the result briefly — "
                 "do NOT repeat the tool input or arguments you already provided."
             )
-            return "\n".join(parts)
-
-        _tool_filter = None
-        if tool_names or mcp_server_names:
-            allowed_skills = set(tool_names) if tool_names else set()
-            allowed_mcp_prefixes = {f"{n}#" for n in mcp_server_names} if mcp_server_names else set()
-
-            async def _tool_filter(user_input, tools):
-                result = []
-                for t in tools:
-                    name = t.name
-                    if name in allowed_skills:
-                        result.append(t)
-                    elif allowed_mcp_prefixes and any(name.startswith(p) for p in allowed_mcp_prefixes):
-                        result.append(t)
-                    elif not allowed_skills and not allowed_mcp_prefixes:
-                        result.append(t)
-                return result
-
-        uses_thinking = True
+            return "\n\n".join(parts) if parts else None
 
         async def generate():
             if session_id:
@@ -343,8 +363,27 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
 
             full_text = ""
             try:
-                agent = gateway._get_agent(model)
-                async for chunk in agent.stream(prompt=prompt):
+                from cliver.agent_factory import create_agent_core
+
+                config_manager = gateway._get_config_manager()
+                tool_filter = set(tool_names) if tool_names else None
+                agent_core = create_agent_core(
+                    model_config=resolved_model,
+                    builtin_tools=gateway._builtin_tools,
+                    mcp_client=gateway._mcp_client,
+                    tool_filter=tool_filter,
+                    user_agent=config_manager.config.user_agent,
+                    agent_name=agent_name or "CLIver",
+                    models=config_manager.list_llm_models(),
+                    agents=getattr(config_manager.config, "agents", None),
+                )
+
+                async for chunk in agent_core.stream(
+                    user_input=prompt,
+                    system_prompt=_extra_system_prompt(),
+                    conversation=conversation_history,
+                    mcp_servers=mcp_server_names or None,
+                ):
                     if chunk.content:
                         full_text += chunk.content
                         data = json.dumps({"type": "content", "content": chunk.content})
@@ -363,8 +402,6 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
                     "content": clean_text,
                     "session_id": session_id,
                 }
-                if uses_thinking:
-                    done_data["reasoning_content"] = ""
                 yield f"data: {json.dumps(done_data)}\n\n".encode()
 
             except Exception as e:

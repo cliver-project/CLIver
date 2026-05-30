@@ -11,13 +11,13 @@ def build(
     enabled_skills: set[str] | None = None,
     models: dict | None = None,
     agents: dict | None = None,
+    current_model: str | None = None,
+    current_provider: str | None = None,
 ) -> str:
     sections = [
         _section_identity(agent_name),
-        _section_self_awareness(available_tools),
+        _section_self_awareness(available_tools, models, agents, current_model, current_provider),
     ]
-    if models:
-        sections.append(_section_models_and_agents(models, agents))
     sections.append(_section_tool_usage())
     sections.append(_section_interaction_guidelines(available_tools, enabled_skills))
     sections.append(_section_response_format())
@@ -53,7 +53,13 @@ def _section_identity(agent_name: str) -> str:
     )
 
 
-def _section_self_awareness(available_tools: set[str] | None = None) -> str:
+def _section_self_awareness(
+    available_tools: set[str] | None = None,
+    models: dict | None = None,
+    agents: dict | None = None,
+    current_model: str | None = None,
+    current_provider: str | None = None,
+) -> str:
     def _has(*names: str) -> bool:
         return available_tools is None or bool(available_tools & set(names))
 
@@ -62,10 +68,42 @@ def _section_self_awareness(available_tools: set[str] | None = None) -> str:
     config_dir = get_config_dir()
     lines = [
         "# Self-Awareness\n",
-        "You are powered by CLIver, a configurable AI agent platform.\n",
-        "## Key files you can read and edit\n",
-        f"- Config: `{config_dir}/config.yaml`",
+        "You are powered by CLIver, a configurable AI agent platform.",
     ]
+
+    # ── Model inventory ──────────────────────────────────────
+    if models:
+        by_cat: dict[str, list] = {}
+        for name, mc in models.items():
+            cat = getattr(mc, "category", "text") or "text"
+            by_cat.setdefault(cat, []).append(name)
+
+        active_marker = " **(active)**"
+        lines.append("\n## Configured Models\n")
+        for cat in ("text", "image", "audio", "video"):
+            items = by_cat.get(cat, [])
+            if not items:
+                continue
+            lines.append(f"\n### {cat.title()}")
+            for name in items:
+                marker = active_marker if name == current_model else ""
+                provider = getattr(models.get(name, None), "provider", "")
+                provider_note = f" ({provider})" if provider else ""
+                lines.append(f"- **`{name}`**{provider_note}{marker}")
+    elif current_model:
+        provider_note = f" via the **{current_provider}** protocol" if current_provider else ""
+        lines.append(f"\nYou are running as the **`{current_model}`** model{provider_note}.")
+
+    # ── Agent profiles ───────────────────────────────────────
+    if agents:
+        lines.append("\n## Agent Profiles\n")
+        for aname, acfg in agents.items():
+            role = getattr(acfg, "role", None) or getattr(acfg, "description", None) or ""
+            lines.append(f"- **{aname}**: {role}" if role else f"- **{aname}**")
+
+    # ── Key files ────────────────────────────────────────────
+    lines.append("\n## Key files you can read and edit\n")
+    lines.append(f"- Config: `{config_dir}/config.yaml`")
     if _has("Identity"):
         lines.append(f"- Identity: `{config_dir}/identity.md`")
     if _has("MemoryRead", "MemoryWrite"):
@@ -75,27 +113,6 @@ def _section_self_awareness(available_tools: set[str] | None = None) -> str:
     lines.append(f"- Tasks: `{config_dir}/tasks/`")
     cmds = "/model, /config, /gateway, /mcp, /skills, /identity, /profile, /cost, /provider, /task"
     lines.append(f"\n## Commands\n\n{cmds}")
-    return "\n".join(lines)
-
-
-def _section_models_and_agents(models: dict, agents: dict | None) -> str:
-    lines = ["# Available Models\n"]
-    by_cat: dict[str, list] = {}
-    for name, mc in models.items():
-        cat = getattr(mc, "category", "text") or "text"
-        by_cat.setdefault(cat, []).append(name)
-    for cat in ("text", "image", "audio", "video"):
-        items = by_cat.get(cat, [])
-        if not items:
-            continue
-        lines.append(f"\n## {cat.title()}")
-        for name in items:
-            lines.append(f"- **`{name}`**")
-    if agents:
-        lines.append("\n## Agents\n")
-        for aname, acfg in agents.items():
-            role = getattr(acfg, "role", None) or getattr(acfg, "description", None) or ""
-            lines.append(f"- **{aname}**: {role}" if role else f"- **{aname}**")
     return "\n".join(lines)
 
 
@@ -153,6 +170,14 @@ def _section_interaction_guidelines(
         "3. Complex: Use the planning pipeline (Skill + brainstorm/write-plan/execute-plan)."
     )
     parts.append("## Error handling\n\nIf a tool call fails, analyse the error and try an alternative approach.")
+    parts.append(
+        "## Accuracy\n\n"
+        "Do not fabricate or guess facts, URLs, file paths, API names, version numbers, "
+        "command flags, or configuration syntax. If you do not know something, say so "
+        "rather than inventing a plausible answer. Prefer reading files or running "
+        "discovery commands to verify state before making claims about it. "
+        "When you are uncertain, state your confidence level explicitly."
+    )
     parts.append("## Security\n\nNever read, display, or log credentials, API keys, private keys, or secrets.")
     return "\n\n".join(parts)
 

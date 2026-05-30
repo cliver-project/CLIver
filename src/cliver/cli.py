@@ -155,22 +155,21 @@ class Cliver:
 
         return SessionManager(self.agent_profile.db_path)
 
-    def record_turn(self, role: str, content: str) -> None:
+    def record_turn(self, role: str, content: str, *, message=None) -> None:
         """Record a conversation turn to the current session.
 
         Auto-creates a session on the first turn if none exists.
-        Called by chat.py after each user input and LLM response.
+        ``message`` is an optional ``CLIverMessage`` for full-message persistence.
         """
         if not content:
             return
 
-        # Auto-create session on first chat in interactive mode
         if not self.current_session_id:
             sm = self.get_session_manager()
             self.current_session_id = sm.create_session()
 
         sm = self.get_session_manager()
-        sm.append_turn(self.current_session_id, role, content)
+        sm.append_turn(self.current_session_id, role, content, message=message)
         self.session_history.append({"role": role, "content": content})
 
     def _get_commands(self) -> set[str]:
@@ -202,16 +201,15 @@ class Cliver:
     def get_agent_core(self, model_name: str | None = None):
         """Get or create a new-style AgentCore for the given model.
 
-        Lazy-creates a Provider + AgentCore per model.  Shared resources
+        Lazy-creates an AgentCore per model.  Shared resources
         (MCPClient, builtin tools) are initialized once.
         """
         model_name = model_name or self.config_manager.get_llm_model().name
         if model_name in self._agent_cores:
             return self._agent_cores[model_name]
 
-        from cliver.llm.agent_core import AgentCore as NewAgentCore
+        from cliver.agent_factory import create_agent_core
         from cliver.mcp import MCPClient
-        from cliver.provider.providers import create_provider
         from cliver.tool import ToolRegistry, discover_builtin_tools
 
         if self._mcp_client is None:
@@ -227,47 +225,33 @@ class Cliver:
         if not mc:
             raise ValueError(f"Model '{model_name}' not found in config.")
 
-        provider = create_provider(
-            api_key=mc.get_api_key() or "",
-            base_url=mc.get_resolved_url() or "",
-            protocol=mc.get_provider_type(),
-        )
-
         progress_handler = create_tool_progress_handler(self.console, thinking=self.thinking)
 
         async def _tool_event_handler(event):
             if progress_handler:
                 await progress_handler(event)
 
-        agent = NewAgentCore(
-            provider=provider,
-            model=mc.api_model_name,
+        agent = create_agent_core(
+            model_config=mc,
             builtin_tools=self._builtin_tools,
             mcp_client=self._mcp_client,
             on_event=_tool_event_handler,
+            user_agent=self.config_manager.config.user_agent,
+            agent_name=self.agent_profile.profile_name,
+            models=self.config_manager.list_llm_models(),
+            agents=getattr(self.config_manager.config, "agents", None),
         )
         self._agent_cores[model_name] = agent
         return agent
 
-    def build_system_prompt(self, agent) -> str:
-        """Assemble the system prompt from all sources.
+    def build_system_prompt(self) -> str | None:
+        """Assemble extra system prompt content (identity + memory).
 
-        Combines: builtin system message, identity, memory, context files.
-        Called by cli_llm_call before each chat/stream invocation.
+        The builtin system prompt (models, tools, self-awareness) is
+        generated automatically by AgentCore.  This method only adds
+        user-specific identity and memory context.
         """
-        from cliver.system_prompt import build as build_system_prompt
-
-        available_tools = {t.name for t in agent.tool_registry.all_tools}
-        agents = getattr(self.config_manager.config, "agents", None)
-
-        parts = [
-            build_system_prompt(
-                agent_name=self.agent_profile.profile_name,
-                available_tools=available_tools,
-                models=self.config_manager.list_llm_models(),
-                agents=agents,
-            )
-        ]
+        parts = []
 
         identity = self.agent_profile.load_identity()
         if identity:
@@ -277,7 +261,7 @@ class Cliver:
         if memory:
             parts.append(f"# Agent Memory\n\n{memory}")
 
-        return "\n\n".join(parts)
+        return "\n\n".join(parts) if parts else None
 
     def _resolve_model_config(self, name: str):
         models = self.config_manager.list_llm_models()

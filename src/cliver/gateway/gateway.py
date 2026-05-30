@@ -29,10 +29,8 @@ from cliver.gateway.platform_adapter import (
 )
 from cliver.gateway.scheduler import Scheduler
 from cliver.gateway.task_store import TaskStore
-from cliver.llm.agent_core import AgentCore as NewAgentCore
 from cliver.mcp import MCPClient
 from cliver.messages import CLIverMessage
-from cliver.provider.providers import create_provider
 from cliver.session_manager import SessionManager
 from cliver.task_manager import TaskDefinition, TaskManager, TaskRun
 from cliver.tool import ToolRegistry, discover_builtin_tools
@@ -89,10 +87,11 @@ class Gateway:
         self._task_manager: Optional[TaskManager] = None
         self._adapter_manager: Optional[AdapterManager] = None
         self._session_manager: Optional[SessionManager] = None
+        self._key_store = None
+        self._cli_session_manager: Optional[SessionManager] = None
         self._tasks_run = 0
         self._start_time = 0.0
         self._thread_queue = ThreadQueue()
-        self._template_store = None
         self._lab_store = None
 
     def init(self) -> None:
@@ -104,24 +103,32 @@ class Gateway:
         """
         self._init_shared_resources()
 
-        # Initialize template store early so routes can be built in create_app()
+        # Initialize stores backed by the unified database
+        db_path = self._agent_profile.db_path
+
         try:
-            profile = CliverProfile(self.config_dir)
-            from cliver.chat_templates import ChatTemplateStore
+            from cliver.key_store import KeyStore
 
-            self._template_store = ChatTemplateStore(profile.config_dir)
-            logger.info("Template store initialized")
+            self._key_store = KeyStore(db_path)
+            logger.info("Key store initialized")
         except Exception as e:
-            logger.error(f"Failed to init template store: {e}")
+            logger.error("Failed to init key store: %s", e)
+            self._key_store = None
 
-        # Initialize lab store
+        try:
+            self._cli_session_manager = SessionManager(db_path)
+            logger.info("CLI session manager initialized")
+        except Exception as e:
+            logger.error("Failed to init CLI session manager: %s", e)
+            self._cli_session_manager = None
+
         try:
             from cliver.lab.store import LabStore
 
-            self._lab_store = LabStore(self.config_dir / "cliver.db")
+            self._lab_store = LabStore(db_path)
             logger.info("Lab store initialized")
         except Exception as e:
-            logger.error(f"Failed to init lab store: {e}")
+            logger.error("Failed to init lab store: %s", e)
             self._lab_store = None
 
     def _get_config_manager(self) -> "ConfigManager":
@@ -170,45 +177,21 @@ class Gateway:
             admin_user = gw_config.admin_username if gw_config else None
             admin_pass = gw_config.admin_password if gw_config else None
 
-            cli_sm = None
-            try:
-                from cliver.session_manager import SessionManager as SM
-
-                cli_sm = SM(self.config_dir / "cliver.db")
-            except Exception as e:
-                logger.debug("CLI sessions not available: %s", e)
-
-            profile = CliverProfile(self.config_dir)
             config_manager = self._get_config_manager()
-
-            # Shared KeyStore — one instance for the gateway lifecycle
-            from cliver.key_store import KeyStore
-
-            key_store = KeyStore(self.config_dir / "cliver.db")
 
             admin_ctx = {
                 "get_status": self._get_status_async,
-                "profile_name": profile.profile_name,
+                "profile_name": self._agent_profile.profile_name,
                 "config_dir": self.config_dir,
                 "gateway": self,
-                "cli_session_manager": cli_sm,
+                "cli_session_manager": self._cli_session_manager,
                 "config_manager": config_manager,
-                "key_store": key_store,
+                "key_store": self._key_store,
             }
             # Admin API routes (returns auth function for reuse)
             admin_api_routes, spa_routes, shared_auth = get_admin_routes(
                 username=admin_user, password=admin_pass, context=admin_ctx
             )
-
-            # Template routes
-            try:
-                if hasattr(self, "_template_store") and self._template_store:
-                    from cliver.gateway.routes.admin_templates import get_template_routes
-
-                    routes.extend(get_template_routes(self._template_store, shared_auth))
-                    logger.info("Template routes registered")
-            except Exception as e:
-                logger.error(f"Failed to register template routes: {e}")
 
             # Lab routes
             try:
@@ -274,16 +257,15 @@ class Gateway:
 
         # Scheduler (APScheduler)
         try:
-            agent_profile = CliverProfile(self.config_dir)
-            agent_profile.ensure_dirs()
-            self._run_store = TaskStore(agent_profile.db_path)
-            self._task_manager = TaskManager(agent_profile.tasks_dir, self._run_store)
+            db_path = self._agent_profile.db_path
+            self._run_store = TaskStore(db_path)
+            self._task_manager = TaskManager(self._agent_profile.tasks_dir, self._run_store)
 
             self._scheduler = Scheduler(
                 task_manager=self._task_manager,
                 run_store=self._run_store,
                 run_task_fn=self._run_task,
-                db_path=agent_profile.db_path,
+                db_path=db_path,
             )
             if self._scheduler:
                 self._scheduler.validate_tasks()
@@ -291,7 +273,7 @@ class Gateway:
                 self._scheduler.sync_tasks()
                 self._scheduler.start()
         except Exception as e:
-            logger.error(f"Failed to initialize scheduler: {e}")
+            logger.error("Failed to initialize scheduler: %s", e)
 
         # Global asyncio exception handler — catches unhandled exceptions in tasks
         loop = asyncio.get_running_loop()
@@ -312,17 +294,17 @@ class Gateway:
         except Exception as e:
             logger.error(f"Failed to start adapters: {e}")
 
-        # Initialize session manager (single instance for the gateway lifetime)
+        # Session cleanup (reuses the store initialized in init())
         try:
-            agent_profile = CliverProfile(self.config_dir)
-            self._session_manager = SessionManager(agent_profile.db_path)
-            sc = self._get_config_manager().config.session
-            deleted = self._session_manager.delete_stale_sessions(max_age_days=sc.max_age_days)
-            if deleted:
-                logger.info("Cleaned up %d stale sessions (>%d days)", deleted, sc.max_age_days)
-            deleted = self._session_manager.delete_oldest_sessions(keep=sc.max_sessions)
-            if deleted:
-                logger.info("Cleaned up %d oldest sessions (kept %d)", deleted, sc.max_sessions)
+            self._session_manager = self._cli_session_manager
+            if self._session_manager:
+                sc = self._get_config_manager().config.session
+                deleted = self._session_manager.delete_stale_sessions(max_age_days=sc.max_age_days)
+                if deleted:
+                    logger.info("Cleaned up %d stale sessions (>%d days)", deleted, sc.max_age_days)
+                deleted = self._session_manager.delete_oldest_sessions(keep=sc.max_sessions)
+                if deleted:
+                    logger.info("Cleaned up %d oldest sessions (kept %d)", deleted, sc.max_sessions)
         except Exception as e:
             logger.warning("Session cleanup failed: %s", e)
 
@@ -443,6 +425,7 @@ class Gateway:
             response = await agent.chat(
                 prompt=task.prompt,
                 conversation=conversation_history,
+                system_prompt=self._build_agent_system_prompt(agent),
             )
 
             response_text = response.message.text or "No response."
@@ -538,8 +521,7 @@ class Gateway:
         """Save execution result as a JSON file for non-IM tasks."""
         import json
 
-        agent_profile = CliverProfile(self.config_dir)
-        task_results_dir = agent_profile.tasks_dir / task_name
+        task_results_dir = self._agent_profile.tasks_dir / task_name
         task_results_dir.mkdir(parents=True, exist_ok=True)
 
         filename = f"{task_name}_execution_{run_record.execution_id}.json"
@@ -579,8 +561,18 @@ class Gateway:
 
         self._mcp_client = MCPClient(config_manager.list_mcp_servers_for_mcp_caller())
 
+    def _build_agent_system_prompt(self, agent: Agent, *, extra: str | None = None) -> str | None:
+        """Return extra system prompt content for this agent call.
+
+        The builtin prompt (models, tools, self-awareness) is generated
+        automatically by AgentCore — this method only returns runtime context.
+        """
+        return extra
+
     def _get_agent(self, model_name: str | None = None) -> Agent:
         """Get or create an Agent for the given model."""
+        from cliver.agent_factory import create_agent_core
+
         config_manager = self._get_config_manager()
         model_name = model_name or config_manager.get_llm_model().name
         if model_name in self._agents:
@@ -590,18 +582,15 @@ class Gateway:
         if not mc:
             raise ValueError(f"Model '{model_name}' not found in config.")
 
-        provider = create_provider(
-            api_key=mc.get_api_key() or "",
-            base_url=mc.get_resolved_url() or "",
-            protocol=mc.get_provider_type(),
-        )
-
-        agent_core = NewAgentCore(
-            provider=provider,
-            model=mc.api_model_name,
+        agent_core = create_agent_core(
+            model_config=mc,
             builtin_tools=self._builtin_tools,
             mcp_client=self._mcp_client,
             on_event=_create_gateway_tool_handler(),
+            user_agent=config_manager.config.user_agent,
+            agent_name="gateway",
+            models=config_manager.list_llm_models(),
+            agents=getattr(config_manager.config, "agents", None),
         )
 
         agent = Agent(name="gateway", config=self._get_default_agent_config(), agent_core=agent_core)
@@ -821,7 +810,7 @@ class Gateway:
                 _reply_to_parts.append(im_ctx["thread_id"])
             _reply_to_token = ":".join(_reply_to_parts)
 
-            im_system_prompt = (
+            im_context_text = (
                 "# IM Context\n\n"
                 "You are responding in an IM conversation (e.g. Slack, Telegram).\n\n"
                 "When you need to ask the user a question, use the structured format "
@@ -832,13 +821,14 @@ class Gateway:
                 "so results are delivered back to this conversation.\n"
             )
             if linked_task_name:
-                im_system_prompt += f"\nYou are continuing from task '{linked_task_name}'. Reply in this same thread."
+                im_context_text += f"\nYou are continuing from task '{linked_task_name}'. Reply in this same thread."
 
             try:
                 agent = self._get_agent(default_model)
                 response = await agent.chat(
                     prompt=event.text,
                     conversation=conversation_history or None,
+                    system_prompt=self._build_agent_system_prompt(agent, extra=im_context_text),
                 )
                 response_text = response.message.text or "No response."
                 logger.info("Agent response: %.200s", response_text)
@@ -936,8 +926,7 @@ class Gateway:
         if not self._run_store:
             return
 
-        agent_profile = CliverProfile(self.config_dir)
-        task_manager = TaskManager(agent_profile.tasks_dir, self._run_store)
+        task_manager = TaskManager(self._agent_profile.tasks_dir, self._run_store)
 
         suspended = self._run_store.get_tasks_by_status("suspended")
         for state in suspended:

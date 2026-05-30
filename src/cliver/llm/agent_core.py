@@ -26,7 +26,7 @@ from cliver.tool import CLIverTool, ToolRegistry
 
 logger = logging.getLogger(__name__)
 
-MAX_CONSECUTIVE_ERRORS = 3
+_MAX_CONSECUTIVE_ERRORS = 5
 
 
 class AgentCore:
@@ -37,10 +37,13 @@ class AgentCore:
     (they can share the same ``mcp_client`` and ``builtin_tools``).
 
     **Instance state** (bound at construction, reused across calls):
-        provider, model, builtin_tools, mcp_client, on_event
+        provider, model, builtin_tools, mcp_client, on_event, builtin_system_prompt
 
     **Call state** (passed per chat/stream, varies each turn):
         user_input, system_prompt, conversation, extra_tools, mcp_servers, options
+
+    ``system_prompt`` (call-time) is appended to ``builtin_system_prompt``
+    (construction-time) — the caller only needs to pass persona / extra context.
     """
 
     def __init__(
@@ -51,16 +54,16 @@ class AgentCore:
         mcp_client: MCPClient | None = None,
         *,
         on_event: EventHandler | None = None,
+        max_consecutive_errors: int = _MAX_CONSECUTIVE_ERRORS,
+        builtin_system_prompt: str | None = None,
     ):
         self.provider = provider
         self.model = model
         self.tool_registry = ToolRegistry(builtin_tools or [])
         self.mcp_client = mcp_client
         self.on_event = on_event
-
-        from cliver.agent_profile import set_agent_core
-
-        set_agent_core(self)
+        self.max_consecutive_errors = max_consecutive_errors
+        self._builtin_system_prompt = builtin_system_prompt
 
     # ── Public API ────────────────────────────────────────────
 
@@ -268,7 +271,7 @@ class AgentCore:
 
             if self._is_error(result):
                 consecutive_errors += 1
-                if consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                if consecutive_errors >= self.max_consecutive_errors:
                     return consecutive_errors, True
             else:
                 consecutive_errors = 0
@@ -284,9 +287,19 @@ class AgentCore:
         conversation: list[CLIverMessage] | None,
         media: list[MediaContent] | None = None,
     ) -> list[CLIverMessage]:
-        messages: list[CLIverMessage] = []
+        # Merge builtin system prompt + caller's extra context into one message.
+        # Engines (Anthropic's _split_system, OpenAI's msg_to_native) expect a
+        # single system message — merging here avoids engine-level complexity.
+        parts: list[str] = []
+        if self._builtin_system_prompt:
+            parts.append(self._builtin_system_prompt)
         if system_prompt:
-            messages.append(CLIverMessage(role="system", content=system_prompt))
+            parts.append(system_prompt)
+        merged_system = "\n\n".join(parts) if parts else None
+
+        messages: list[CLIverMessage] = []
+        if merged_system:
+            messages.append(CLIverMessage(role="system", content=merged_system))
         if conversation:
             messages.extend(conversation)
 

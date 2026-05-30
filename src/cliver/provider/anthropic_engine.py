@@ -36,9 +36,11 @@ class AnthropicEngine(ProtocolEngine):
         api_key: str,
         base_url: str,
         on_event: EventHandler | None = None,
+        user_agent: str | None = None,
     ):
-        super().__init__(api_key, base_url, on_event)
-        self.client = AsyncAnthropic(api_key=api_key, base_url=base_url)
+        super().__init__(api_key, base_url, on_event, user_agent=user_agent)
+        extra_headers = {"User-Agent": user_agent} if user_agent else {}
+        self.client = AsyncAnthropic(api_key=api_key, base_url=base_url, default_headers=extra_headers)
 
     # ── Conversion ──────────────────────────────────────────
 
@@ -202,6 +204,34 @@ class AnthropicEngine(ProtocolEngine):
         return system, conversation
 
     @staticmethod
+    def _merge_tool_results(conv_messages: list[dict]) -> list[dict]:
+        """Merge consecutive tool_result-only user messages into one.
+
+        Anthropic requires all ``tool_result`` blocks for a given assistant
+        message to live in a single subsequent user message.  CLIver's
+        Re-Act loop emits one message per tool call, so we merge them here.
+        """
+        merged: list[dict] = []
+        for m in conv_messages:
+            if not isinstance(m, dict) or m.get("role") != "user":
+                merged.append(m)
+                continue
+            content = m.get("content")
+            if not isinstance(content, list) or not content:
+                merged.append(m)
+                continue
+            is_all_tool_results = all(isinstance(b, dict) and b.get("type") == "tool_result" for b in content)
+            if is_all_tool_results and merged and merged[-1].get("role") == "user":
+                prev_content = merged[-1].get("content")
+                if isinstance(prev_content, list) and any(
+                    isinstance(b, dict) and b.get("type") == "tool_result" for b in prev_content
+                ):
+                    prev_content.extend(content)
+                    continue
+            merged.append(m)
+        return merged
+
+    @staticmethod
     def _build_params(options: dict[str, Any]) -> dict[str, Any]:
         """Extract known Anthropic params. Does NOT mutate the input dict."""
         known_keys = {
@@ -238,6 +268,7 @@ class AnthropicEngine(ProtocolEngine):
         )
 
         system, conv_messages = self._split_system(messages)
+        conv_messages = self._merge_tool_results(conv_messages)
 
         name_forward, name_reverse = self._sanitize_tool_names(tools) if tools else ({}, {})
         native_tools = NOT_GIVEN
@@ -310,6 +341,7 @@ class AnthropicEngine(ProtocolEngine):
         )
 
         system, conv_messages = self._split_system(messages)
+        conv_messages = self._merge_tool_results(conv_messages)
 
         name_forward, name_reverse = self._sanitize_tool_names(tools) if tools else ({}, {})
         native_tools = NOT_GIVEN

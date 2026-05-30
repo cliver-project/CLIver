@@ -14,16 +14,14 @@ logger = logging.getLogger(__name__)
 
 def _get_tasks(ctx: dict) -> list:
     try:
-        from cliver.agent_profile import CliverProfile
         from cliver.gateway.task_store import TaskStore
         from cliver.task_manager import TaskManager
 
-        config_dir = ctx.get("config_dir")
-        if not config_dir:
+        gateway = ctx.get("gateway")
+        if not gateway:
             return []
-        profile = CliverProfile(config_dir)
-        store = TaskStore(profile.db_path)
-        tm = TaskManager(profile.tasks_dir, store)
+        store = TaskStore(gateway._agent_profile.db_path)
+        tm = TaskManager(gateway._agent_profile.tasks_dir, store)
         entries = tm.list_task_entries()
 
         result = []
@@ -59,16 +57,14 @@ def _get_tasks(ctx: dict) -> list:
 
 def _get_task_detail(ctx, task_name):
     try:
-        from cliver.agent_profile import CliverProfile
         from cliver.gateway.task_store import TaskStore
         from cliver.task_manager import TaskManager
 
-        config_dir = ctx.get("config_dir")
-        if not config_dir:
+        gateway = ctx.get("gateway")
+        if not gateway:
             return None
-        profile = CliverProfile(config_dir)
-        store = TaskStore(profile.db_path)
-        tm = TaskManager(profile.tasks_dir, store)
+        store = TaskStore(gateway._agent_profile.db_path)
+        tm = TaskManager(gateway._agent_profile.tasks_dir, store)
         task_entry = tm.get_task_entry(task_name)
         if not task_entry:
             return None
@@ -100,18 +96,15 @@ def _get_task_detail(ctx, task_name):
 
 async def _run_task(ctx: dict, task_name: str) -> dict:
     try:
-        from cliver.agent_profile import CliverProfile
         from cliver.gateway.task_store import TaskStore
         from cliver.task_manager import TaskManager
 
-        config_dir = ctx.get("config_dir")
         gateway = ctx.get("gateway")
-        if not config_dir or not gateway:
-            return {"status": "error", "message": "gateway or config_dir not available"}
+        if not gateway:
+            return {"status": "error", "message": "gateway not available"}
 
-        profile = CliverProfile(config_dir)
-        store = TaskStore(profile.db_path)
-        tm = TaskManager(profile.tasks_dir, store)
+        store = TaskStore(gateway._agent_profile.db_path)
+        tm = TaskManager(gateway._agent_profile.tasks_dir, store)
         task = tm.get_task(task_name)
         if not task:
             return {"status": "error", "message": f"task '{task_name}' not found"}
@@ -156,17 +149,15 @@ def get_task_routes(context: dict, require_auth: Callable) -> list:
         task_name = request.path_params["name"]
         logger.info("[admin] Task '%s' deleted via admin portal", task_name)
         try:
-            from cliver.agent_profile import CliverProfile
             from cliver.gateway.task_store import TaskStore
             from cliver.task_manager import TaskManager
 
-            config_dir = context.get("config_dir")
-            if not config_dir:
-                return JSONResponse({"error": "No config dir"}, status_code=500)
+            gateway = context.get("gateway")
+            if not gateway:
+                return JSONResponse({"error": "Gateway not available"}, status_code=500)
 
-            profile = CliverProfile(config_dir)
-            store = TaskStore(profile.db_path)
-            tm = TaskManager(profile.tasks_dir, store)
+            store = TaskStore(gateway._agent_profile.db_path)
+            tm = TaskManager(gateway._agent_profile.tasks_dir, store)
             removed = tm.remove_task(task_name)
 
             deleted_runs = 0
