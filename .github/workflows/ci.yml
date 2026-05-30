@@ -5,9 +5,6 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-    paths:
-      - "src/**"
-      - "tests/**"
 
 jobs:
   test:
@@ -29,12 +26,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
 
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: make init
-
-      - name: Install admin portal dependencies
-        run: cd admin && npm ci
 
       - name: Build admin portal
         run: make admin-build

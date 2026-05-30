@@ -67,7 +67,7 @@ export default function TaskForm({ mode, initialData, onSubmit, isPending, error
   const { data: agentsData } = useAgents();
   const { data: skillsData } = useSkills();
 
-  const agentList = ((agentsData ?? []) as Array<Record<string, unknown>>).map((a) => String(a.name));
+  const agentList = ((agentsData ?? []) as unknown as Array<Record<string, unknown>>).map((a) => String(a.name));
   const skillList = ((skillsData ?? []) as Array<Record<string, unknown>>).map((s) => String(s.name));
 
   const [form, setForm] = useState<TaskFormData>(

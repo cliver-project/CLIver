@@ -9,15 +9,6 @@ init: ## Init CLIver development dependencies
 
 ##@ Development
 
-.PHONY: admin-package
-admin-package: admin-build ## Build admin portal and copy to package
-	rm -rf src/cliver/gateway/admin_dist
-	cp -r admin/dist src/cliver/gateway/admin_dist
-
-.PHONY: build
-build: admin-package ## Build CLIver distribution packages
-	uv build
-
 .PHONY: test
 test: init ## Run tests
 	uv run pytest
@@ -42,13 +33,24 @@ clean: ## Clean build artifacts
 
 ##@ Admin Portal
 
+ADMIN_DIST_DIR := src/cliver/gateway/admin_dist
+
 .PHONY: admin-install
 admin-install: ## Install admin portal dependencies
-	cd admin && npm install
+	cd admin && npm ci
 
 .PHONY: admin-build
-admin-build: ## Build admin portal for production
+admin-build: admin-install ## Build admin portal for production
 	cd admin && npm run build
+
+.PHONY: admin-clean
+admin-clean: ## Remove built admin portal from package
+	rm -rf $(ADMIN_DIST_DIR)
+
+.PHONY: admin-package
+admin-package: admin-clean admin-build ## Build admin portal and copy into Python package
+	mkdir -p $(ADMIN_DIST_DIR)
+	cp -r admin/dist/* $(ADMIN_DIST_DIR)/
 
 .PHONY: admin-dev
 admin-dev: ## Start admin portal dev server (hot reload)
@@ -64,20 +66,13 @@ gateway-dev: ## Start gateway with admin portal dev proxy (hot reload)
 	@echo "Then start gateway: uv run cliver gateway start"
 	@echo "Access admin at http://localhost:5173/admin/ (Vite dev server proxies API to gateway)"
 
-##@ Documentation
+##@ Build & Release
 
-.PHONY: docs-build
-docs-build: ## Build documentation site
-	uv sync --group docs
-	uv run mkdocs build
-
-.PHONY: docs-serve
-docs-serve: docs-build ## Serve documentation site locally
-	uv run mkdocs serve
-
-##@ Release
+.PHONY: build
+build: admin-package ## Build CLIver distribution packages (wheel + sdist, includes admin portal)
+	uv build
 
 .PHONY: release
-release: build ## Build and release to PyPI
+release: build ## Build and publish to PyPI (includes admin portal)
 	uv publish
 

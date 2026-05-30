@@ -20,7 +20,7 @@ const PROVIDER_COLORS: Record<string, string> = {
   anthropic: "bg-orange-500",
 };
 
-const MODALITY_COLORS: Record<string, string> = {
+const _MODALITY_COLORS: Record<string, string> = {
   text: "bg-emerald-500",
   image: "bg-purple-500",
   audio: "bg-red-500",
@@ -243,7 +243,7 @@ export default function ModelsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [showProviderDialog, setShowProviderDialog] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ModelInfo | null>(null);
-  const [form, setForm] = useState<Partial<ModelInfo>>({ capabilities: [], options: {} });
+  const [form, setForm] = useState<Partial<ModelInfo>>({ options: {} });
   const [showNewKey, setShowNewKey] = useState(false);
   const [providerForm, setProviderForm] = useState({
     name: "", type: "openai", api_key: "", api_url: "",
@@ -253,7 +253,7 @@ export default function ModelsPage() {
   const [keyForm, setKeyForm] = useState({ name: "", value: "", description: "" });
 
   const resetForm = () => {
-    setForm({ capabilities: [], options: {} });
+    setForm({ options: {} });
   };
 
   const cleanOptions = (opts?: Record<string, unknown>) => {
@@ -456,7 +456,7 @@ export default function ModelsPage() {
                 </div>
               </div>
               <div className="flex items-center justify-between mt-3 pt-3 border-t">
-                <span className="text-xs text-muted-foreground">{timeAgo(model.updated_at)}</span>
+                <span className="text-xs text-muted-foreground">{timeAgo(model.updated_at || "")}</span>
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button className="p-1 hover:bg-muted rounded" onClick={(e) => { e.stopPropagation(); openEdit(model); }}>
                     <Pencil className="w-3.5 h-3.5" />

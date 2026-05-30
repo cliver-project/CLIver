@@ -165,7 +165,7 @@ export default function ChatPage() {
       parentId: null,
       sourceId: null,
       runConfig: undefined,
-    } as AppendMessage);
+    } as unknown as AppendMessage);
     setInputText("");
   }, [inputText, isRunning]);
 
@@ -326,7 +326,7 @@ export default function ChatPage() {
   const onNewRef = useRef(onNew);
   onNewRef.current = onNew;
 
-  const handleCancel = useCallback(() => {
+  const handleCancel = useCallback(async () => {
     abortRef.current?.abort();
     abortRef.current = null;
     if (runningConvId) {
@@ -336,7 +336,9 @@ export default function ChatPage() {
         const last = msgs[msgs.length - 1];
         if (
           last?.role === "assistant" &&
-          last.content?.[0]?.type === "text" &&
+          last.content &&
+          typeof last.content !== "string" &&
+          last.content[0]?.type === "text" &&
           !last.content[0].text
         ) {
           return { ...prev, [runningConvId]: msgs.slice(0, -1) };
@@ -424,7 +426,7 @@ export default function ChatPage() {
                                 if (status?.type === "running") {
                                   return <span className="whitespace-pre-wrap">{text}</span>;
                                 }
-                                return <MarkdownTextPrimitive text={text} />;
+                                return <MarkdownTextPrimitive {...({ children: text } as any)} />;
                               },
                             }}
                           />
@@ -599,7 +601,7 @@ function ComposerConfigPanel({
   }, []);
 
   const agentList: string[] = agents
-    ? (agents as Array<Record<string, unknown>>).map((a) => a.name as string).filter(Boolean)
+    ? (agents as unknown as Array<Record<string, unknown>>).map((a) => a.name as string).filter(Boolean)
     : [];
   const skillList: string[] = skills
     ? (skills as Array<Record<string, unknown>>).map((s) => s.name as string).filter(Boolean)

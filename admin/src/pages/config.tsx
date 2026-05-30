@@ -20,7 +20,7 @@ type Gateway = {
 };
 type Session = { max_sessions: number; max_turns_per_session: number; max_age_days: number };
 
-function TagInput({ tags, onChange, placeholder, addLabel, disabled }: {
+function _TagInput({ tags, onChange, placeholder, addLabel, disabled }: {
   tags: string[]; onChange: (t: string[]) => void;
   placeholder: string; addLabel: string; disabled?: boolean;
 }) {
@@ -57,7 +57,7 @@ function TagInput({ tags, onChange, placeholder, addLabel, disabled }: {
   );
 }
 
-function KVEditor({ entries, onChange, keyLabel, valueLabel, addLabel }: {
+function _KVEditor({ entries, onChange, keyLabel, valueLabel, addLabel }: {
   entries: Record<string, string>; onChange: (e: Record<string, string>) => void;
   keyLabel: string; valueLabel: string; addLabel: string;
 }) {
@@ -93,7 +93,7 @@ function KVEditor({ entries, onChange, keyLabel, valueLabel, addLabel }: {
   );
 }
 
-function CollapsibleCard({ title, defaultOpen, onDelete, className, children }: {
+function _CollapsibleCard({ title, defaultOpen, onDelete, className, children }: {
   title: string; defaultOpen?: boolean; onDelete?: () => void; className?: string; children: React.ReactNode;
 }) {
   const { t } = useTranslation();

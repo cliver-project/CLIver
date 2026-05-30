@@ -175,7 +175,9 @@ export default function LabChatPage() {
       parentId: null,
       sourceId: null,
       runConfig: undefined,
-    } as AppendMessage);
+      metadata: undefined,
+      createdAt: new Date(),
+    } as unknown as AppendMessage);
     setInputText("");
   }, [inputText, isRunning]);
 
@@ -187,7 +189,7 @@ export default function LabChatPage() {
     }
   }, [handleSend]);
 
-  const handleCancel = useCallback(() => {
+  const handleCancel = useCallback(async () => {
     abortRef.current?.abort();
     abortRef.current = null;
     setRunningConvId(null);
@@ -396,7 +398,7 @@ export default function LabChatPage() {
                                   if (status?.type === "running") {
                                     return <span className="whitespace-pre-wrap">{text}</span>;
                                   }
-                                  return <MarkdownTextPrimitive text={text} />;
+                                  return <MarkdownTextPrimitive {...({ children: text } as any)} />;
                                 },
                               }}
                             />

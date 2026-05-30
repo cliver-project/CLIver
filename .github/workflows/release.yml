@@ -25,14 +25,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+          cache: npm
+          cache-dependency-path: admin/package-lock.json
 
-      - name: Install dependencies
+      - name: Install Python dependencies
         run: make init
 
-      - name: Install admin portal dependencies
-        run: cd admin && npm ci
-
-      - name: Build and release to PyPI
+      - name: Build admin portal, package, and publish to PyPI
         env:
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
         run: make release

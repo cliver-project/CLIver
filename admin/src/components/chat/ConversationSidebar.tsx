@@ -1,6 +1,6 @@
 import { memo, useState, useRef, useCallback } from "react";
 import { Link } from "react-router";
-import { Plus, Trash2, MessageSquare, Pencil, Check, X } from "lucide-react";
+import { Plus, Trash2, MessageSquare, Pencil } from "lucide-react";
 import {
   Dialog,
   DialogContent,

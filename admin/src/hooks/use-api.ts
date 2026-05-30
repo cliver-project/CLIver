@@ -515,6 +515,8 @@ export interface ModelInfo {
   api_url: string | null;
   options: Record<string, unknown>;
   is_default: number;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export function useModels(category?: string) {
