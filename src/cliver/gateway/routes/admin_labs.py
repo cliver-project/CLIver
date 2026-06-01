@@ -167,11 +167,7 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
             try:
                 agent_core = create_agent_core(
                     model_config=model_config,
-                    builtin_tools=gateway._builtin_tools,
-                    mcp_client=gateway._mcp_client,
-                    user_agent=config_manager.config.user_agent,
-                    models=config_manager.list_llm_models(),
-                    agents=getattr(config_manager.config, "agents", None),
+                    config_manager=config_manager,
                 )
                 response = await agent_core.chat(user_input=test.input)
                 actual_text = response.message.text or ""
@@ -366,16 +362,10 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
                 from cliver.agent_factory import create_agent_core
 
                 config_manager = gateway._get_config_manager()
-                tool_filter = set(tool_names) if tool_names else None
+                tool_filter = (lambda t, names=set(tool_names): t.name in names) if tool_names else None
                 agent_core = create_agent_core(
                     model_config=resolved_model,
-                    builtin_tools=gateway._builtin_tools,
-                    mcp_client=gateway._mcp_client,
-                    tool_filter=tool_filter,
-                    user_agent=config_manager.config.user_agent,
-                    agent_name=agent_name or "CLIver",
-                    models=config_manager.list_llm_models(),
-                    agents=getattr(config_manager.config, "agents", None),
+                    config_manager=config_manager,
                 )
 
                 async for chunk in agent_core.stream(
@@ -383,6 +373,7 @@ def get_lab_routes(lab_store, context: dict, require_auth: Callable) -> list:
                     system_prompt=_extra_system_prompt(),
                     conversation=conversation_history,
                     mcp_servers=mcp_server_names or None,
+                    tool_filter=tool_filter,
                 ):
                     if chunk.content:
                         full_text += chunk.content

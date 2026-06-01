@@ -48,15 +48,17 @@ def _list_models(cliver: Cliver):
 
     table = Table(title="Configured LLM Models", box=box.SQUARE)
     table.add_column("", min_width=1, max_width=1, no_wrap=True)
-    table.add_column("Model", style="green")
+    table.add_column("Name", style="green")
+    table.add_column("API Model", style="yellow")
     table.add_column("Provider", style="cyan")
-    table.add_column("Modalities", style="blue")
+    table.add_column("Type", style="blue")
 
     for name, mc in models.items():
         modality = mc.category or "text"
+        api_model = mc.model
 
         marker = "✔" if name == default_name else ""
-        table.add_row(marker, name, mc.provider, modality)
+        table.add_row(marker, name, api_model, mc.provider, modality)
 
     cliver.output(table)
 
@@ -177,6 +179,7 @@ def _add_model(
     cliver: Cliver,
     provider: str,
     model_name: str,
+    api_model: str = "",
     option: tuple = None,
 ):
     """Add a new LLM model to a provider."""
@@ -200,19 +203,25 @@ def _add_model(
     config_manager.add_or_update_llm_model(
         provider,
         model_name,
+        api_model_name=api_model,
         options=options_dict,
     )
 
+    # Resolve API model name (may differ from CLIver name)
+    mc, _ = _resolve_model(config_manager, model_name)
+    api_model = mc.model if mc and mc.model != model_name else None
+
     if is_first:
-        # Auto-set as default (add_or_update_llm_model already does this when config.default_model is None)
-        cliver.output(f"Added LLM Model: {model_name} (set as default)")
+        suffix = f" (API: {api_model})" if api_model else ""
+        cliver.output(f"Added LLM Model: {model_name}{suffix} (set as default)")
     else:
-        cliver.output(f"Added LLM Model: {model_name}")
+        cliver.output(f"Added LLM Model: {model_name}" + (f" (API: {api_model})" if api_model else ""))
 
 
 def _update_model(
     cliver: Cliver,
     name: str,
+    api_model: str = "",
     option: tuple = None,
 ):
     """Update an existing LLM model."""
@@ -226,12 +235,14 @@ def _update_model(
     if option:
         options_dict = parse_key_value_options(option, cliver.console)
 
+    model_key = mc.name.split("/", 1)[1] if "/" in mc.name else mc.name
     config_manager.add_or_update_llm_model(
         provider_name,
-        mc.name.split("/", 1)[1] if "/" in mc.name else mc.name,
+        model_key,
+        api_model_name=api_model,
         options=options_dict,
     )
-    cliver.output(f"LLM Model: {mc.name} updated")
+    cliver.output(f"LLM Model: {mc.name} updated" + (f" (API: {api_model})" if api_model else ""))
 
 
 # ---------------------------------------------------------------------------
@@ -295,6 +306,8 @@ def _parse_model_flags(rest: str) -> dict:
     flag_map = {
         "--name": "name",
         "-n": "name",
+        "--model": "model",
+        "-m": "model",
         "--provider": "provider",
         "-p": "provider",
     }
@@ -320,7 +333,7 @@ def _dispatch_add(cliver: Cliver, rest: str) -> None:
     if not name or not provider:
         cliver.output("Usage: /model add --provider NAME --name MODEL_NAME [--option K=V]")
         return
-    _add_model(cliver, provider, name, option=opts.get("option"))
+    _add_model(cliver, provider, name, api_model=opts.get("model", ""), option=opts.get("option"))
 
 
 def _dispatch_set(cliver: Cliver, rest: str) -> None:
@@ -330,7 +343,7 @@ def _dispatch_set(cliver: Cliver, rest: str) -> None:
     if not name:
         cliver.output("Usage: /model set --name NAME [--option K=V]")
         return
-    _update_model(cliver, name, option=opts.get("option"))
+    _update_model(cliver, name, api_model=opts.get("model", ""), option=opts.get("option"))
 
 
 # ---------------------------------------------------------------------------
@@ -369,7 +382,14 @@ def remove_llm_model(cliver: Cliver, name: str):
     "-n",
     type=str,
     required=True,
-    help="Model API name as used by the provider (e.g. 'deepseek-chat')",
+    help="CLIver name for this model (e.g. 'my-deepseek')",
+)
+@click.option(
+    "--model",
+    "-m",
+    type=str,
+    default="",
+    help="API-facing model name sent to the provider (defaults to --name if not set)",
 )
 @click.option(
     "--provider",
@@ -386,8 +406,8 @@ def remove_llm_model(cliver: Cliver, name: str):
     help="Model option as key=value (repeatable, e.g. -o temperature=0.7)",
 )
 @pass_cliver
-def add_llm_model(cliver: Cliver, name: str, provider: str, option: tuple):
-    _add_model(cliver, provider, name, option)
+def add_llm_model(cliver: Cliver, name: str, model: str, provider: str, option: tuple):
+    _add_model(cliver, provider, name, api_model=model, option=option)
 
 
 # noinspection PyUnresolvedReferences
@@ -400,6 +420,13 @@ def add_llm_model(cliver: Cliver, name: str, provider: str, option: tuple):
     help="Model name in canonical (provider/model) or short form",
 )
 @click.option(
+    "--model",
+    "-m",
+    type=str,
+    default="",
+    help="Change the API-facing model name sent to the provider",
+)
+@click.option(
     "--option",
     "-o",
     multiple=True,
@@ -407,8 +434,8 @@ def add_llm_model(cliver: Cliver, name: str, provider: str, option: tuple):
     help="Option as key=value to update (repeatable, e.g. -o temperature=0.5)",
 )
 @pass_cliver
-def update_llm_model(cliver: Cliver, name: str, option: tuple):
-    _update_model(cliver, name, option)
+def update_llm_model(cliver: Cliver, name: str, model: str, option: tuple):
+    _update_model(cliver, name, api_model=model, option=option)
 
 
 @model.command(name="show", help="Show detailed information about a specific model")

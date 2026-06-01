@@ -1,0 +1,36 @@
+---
+title: Admin Portal
+---
+
+The admin portal is a React-based web UI for managing your CLIver gateway. It runs alongside the gateway daemon.
+
+## Access
+
+Once the gateway is running, the admin portal is available at:
+
+```
+http://localhost:8080/admin/
+```
+
+## Features
+
+- **Dashboard** — gateway status, active tasks, recent activity
+- **Task Management** — create, edit, run, and delete scheduled tasks
+- **Agent Configuration** — manage agent profiles and model settings
+- **Session Viewer** — browse and search conversation history
+
+## Development Mode
+
+For UI development with hot reload:
+
+```bash
+# Terminal 1: Start the Vite dev server
+make admin-dev
+
+# Terminal 2: Start gateway with dev proxy
+make gateway-dev
+
+# Admin available at http://localhost:5173/admin/
+```
+
+The admin portal source lives in `admin/` — a Vite + React + TypeScript project with Tailwind CSS.

@@ -66,6 +66,28 @@ gateway-dev: ## Start gateway with admin portal dev proxy (hot reload)
 	@echo "Then start gateway: uv run cliver gateway start"
 	@echo "Access admin at http://localhost:5173/admin/ (Vite dev server proxies API to gateway)"
 
+##@ Documentation Website
+
+.PHONY: docs-install
+docs-install: ## Install docs website dependencies
+	cd website && npm ci
+
+.PHONY: docs-build
+docs-build: docs-install ## Build docs website to static files
+	cd website && npm run build
+
+.PHONY: docs-serve
+docs-serve: docs-install ## Start docs website dev server (hot reload)
+	cd website && npm run dev
+
+.PHONY: docs-preview
+docs-preview: docs-build ## Preview the built docs website
+	cd website && npm run preview
+
+.PHONY: clean-docs
+clean-docs: ## Clean docs website build output
+	rm -rf website/dist/
+
 ##@ Build & Release
 
 .PHONY: build

@@ -6,7 +6,7 @@ No langchain dependency. No model fallback. No compression (v1).
 import asyncio
 import logging
 import time
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Callable
 
 from cliver.events import (
     EventHandler,
@@ -76,6 +76,7 @@ class AgentCore:
         media: list[MediaContent] | None = None,
         extra_tools: list[CLIverTool] | None = None,
         mcp_servers: list[str] | None = None,
+        tool_filter: Callable[[CLIverTool], bool] | None = None,
         options: dict[str, Any] | None = None,
         max_iterations: int = 50,
     ) -> CLIverResponse:
@@ -85,7 +86,7 @@ class AgentCore:
         (images as data URLs, audio/video as text placeholders).
         """
         messages = self._build_messages(user_input, system_prompt, conversation, media)
-        all_tools = await self._gather_tools(extra_tools, mcp_servers)
+        all_tools = await self._gather_tools(extra_tools, mcp_servers, tool_filter)
         opts = options or {}
 
         if self.mcp_client:
@@ -102,12 +103,13 @@ class AgentCore:
         media: list[MediaContent] | None = None,
         extra_tools: list[CLIverTool] | None = None,
         mcp_servers: list[str] | None = None,
+        tool_filter: Callable[[CLIverTool], bool] | None = None,
         options: dict[str, Any] | None = None,
         max_iterations: int = 50,
     ) -> AsyncIterator[CLIverMessageChunk]:
         """Streaming chat.  Yields chunks, executes tools between iterations."""
         messages = self._build_messages(user_input, system_prompt, conversation, media)
-        all_tools = await self._gather_tools(extra_tools, mcp_servers)
+        all_tools = await self._gather_tools(extra_tools, mcp_servers, tool_filter)
         opts = options or {}
 
         if self.mcp_client:
@@ -318,12 +320,15 @@ class AgentCore:
         self,
         extra: list[CLIverTool] | None,
         mcp_servers: list[str] | None,
+        tool_filter: Callable[[CLIverTool], bool] | None = None,
     ) -> list[CLIverTool]:
         tools = list(self.tool_registry.all_tools)
         if self.mcp_client:
             tools.extend(await self.mcp_client.get_tools(servers=mcp_servers or None))
         if extra:
             tools.extend(extra)
+        if tool_filter:
+            tools = [t for t in tools if tool_filter(t)]
         return tools
 
     async def _execute_tool(self, tc: ToolCall) -> list[dict]:

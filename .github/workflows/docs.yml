@@ -4,10 +4,8 @@ on:
   push:
     branches: [main]
     paths:
-      - "docs/**"
-      - "mkdocs.yml"
+      - "website/**"
 
-  # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
 permissions:
@@ -27,27 +25,29 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install uv
-        uses: astral-sh/setup-uv@v3
+
+      - uses: actions/setup-node@v4
         with:
-          enable-cache: true
-          cache-dependency-glob: "uv.lock"
-      - uses: actions/setup-python@v4
-        with:
-          python-version: '3.13'
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
       - name: Install dependencies
-        run: make init
-      - name: Build the Documentation
-        run: make docs-build
+        run: cd website && npm ci
+
+      - name: Build
+        run: cd website && npm run build
 
       - name: Setup Pages
         id: pages
         uses: actions/configure-pages@v5
+
       - name: Upload artifact
         id: upload_artifact
         uses: actions/upload-pages-artifact@v4
         with:
-          path: ./dist/site
+          path: ./website/dist
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4

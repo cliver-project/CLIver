@@ -1,0 +1,154 @@
+/* ── Deep Tech theme for Starlight ─────────────────────────── */
+
+:root {
+  /* Dark palette (default) */
+  --sl-color-accent-low: #1e1b4b;
+  --sl-color-accent: #60a5fa;
+  --sl-color-accent-high: #a78bfa;
+  --sl-color-white: #ffffff;
+  --sl-color-gray-1: #e2e8f0;
+  --sl-color-gray-2: #cbd5e1;
+  --sl-color-gray-3: #94a3b8;
+  --sl-color-gray-4: #64748b;
+  --sl-color-gray-5: #475569;
+  --sl-color-gray-6: #334155;
+  --sl-color-gray-7: #1e293b;
+  --sl-color-black: #0f0f23;
+  --sl-color-bg-nav: #0d0d1a;
+  --sl-color-bg-sidebar: #0d0d1a;
+  --sl-color-bg: #0f0f23;
+  --sl-color-hairline: #1e293b;
+
+  /* Typography */
+  --sl-font: "Inter", system-ui, -apple-system, sans-serif;
+  --sl-font-mono: "JetBrains Mono", "Fira Code", monospace;
+
+  /* Hero accent gradient */
+  --hero-gradient: linear-gradient(135deg, #60a5fa, #a78bfa, #38bdf8);
+}
+
+/* Light palette */
+:root[data-theme="light"] {
+  --sl-color-accent-low: #dbeafe;
+  --sl-color-accent: #2563eb;
+  --sl-color-accent-high: #7c3aed;
+  --sl-color-white: #0f172a;
+  --sl-color-gray-1: #1e293b;
+  --sl-color-gray-2: #334155;
+  --sl-color-gray-3: #475569;
+  --sl-color-gray-4: #64748b;
+  --sl-color-gray-5: #94a3b8;
+  --sl-color-gray-6: #e2e8f0;
+  --sl-color-gray-7: #f1f5f9;
+  --sl-color-black: #ffffff;
+  --sl-color-bg-nav: #f8fafc;
+  --sl-color-bg-sidebar: #f8fafc;
+  --sl-color-bg: #ffffff;
+  --sl-color-hairline: #e2e8f0;
+}
+
+/* ── Typography refinements ────────────────────────────────── */
+
+h1, h2, h3 {
+  letter-spacing: -0.02em;
+}
+
+.site-title {
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+/* ── Hero section on landing page ──────────────────────────── */
+
+.hero {
+  background: radial-gradient(ellipse at 50% 0%, #1e1b4b 0%, #0f0f23 60%);
+  position: relative;
+  overflow: hidden;
+}
+
+.hero::before {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle at 30% 50%, rgba(96, 165, 250, 0.08) 0%, transparent 50%),
+              radial-gradient(circle at 70% 50%, rgba(167, 139, 250, 0.06) 0%, transparent 50%);
+  pointer-events: none;
+}
+
+.hero-gradient-text {
+  background: var(--hero-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── Feature cards ─────────────────────────────────────────── */
+
+.feature-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+}
+
+.feature-card {
+  background: var(--sl-color-gray-7);
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+  transition: border-color 0.2s, transform 0.2s;
+}
+
+.feature-card:hover {
+  border-color: var(--sl-color-accent);
+  transform: translateY(-2px);
+}
+
+.feature-icon {
+  font-size: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+/* ── Blog listing ──────────────────────────────────────────── */
+
+.blog-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.blog-card {
+  background: var(--sl-color-gray-7);
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 0.75rem;
+  padding: 1.5rem;
+  transition: border-color 0.2s;
+}
+
+.blog-card:hover {
+  border-color: var(--sl-color-accent);
+}
+
+.blog-date {
+  font-size: 0.875rem;
+  color: var(--sl-color-gray-4);
+}
+
+/* Hide left sidebar — navigation is in the header */
+.sidebar-pane {
+  display: none !important;
+}
+html[data-has-sidebar] {
+  --sl-content-inline-start: 0px !important;
+}
+
+/* Narrower right sidebar (Table of Contents) */
+.right-sidebar-panel {
+  width: 8rem !important;
+  min-width: 8rem !important;
+  max-width: 8rem !important;
+  flex: none !important;
+  border-left: none !important;
+}

@@ -1,0 +1,232 @@
+---
+import Search from "@astrojs/starlight/components/Search.astro";
+import ThemeSelect from "@astrojs/starlight/components/ThemeSelect.astro";
+
+const base = import.meta.env.BASE_URL;
+
+const navItems = [
+  {
+    label: "Getting Started",
+    href: `${base}getting-started/`,
+    children: [
+      { label: "Introduction", href: `${base}getting-started/` },
+      { label: "Installation", href: `${base}getting-started/installation/` },
+    ],
+  },
+  {
+    label: "Configuration",
+    href: `${base}configuration/`,
+    children: [
+      { label: "Overview", href: `${base}configuration/` },
+      { label: "Providers & Models", href: `${base}configuration/providers/` },
+      { label: "Permissions", href: `${base}configuration/permissions/` },
+    ],
+  },
+  {
+    label: "Core Concepts",
+    href: `${base}core-concepts/`,
+    children: [
+      { label: "AgentCore", href: `${base}core-concepts/` },
+      { label: "Tools", href: `${base}core-concepts/tools/` },
+      { label: "Skills", href: `${base}core-concepts/skills/` },
+      { label: "Memory & Identity", href: `${base}core-concepts/memory/` },
+    ],
+  },
+  {
+    label: "CLI Usage",
+    href: `${base}cli/`,
+    children: [
+      { label: "Chat & Commands", href: `${base}cli/` },
+      { label: "Sessions", href: `${base}cli/sessions/` },
+    ],
+  },
+  {
+    label: "Gateway",
+    href: `${base}gateway/`,
+    children: [
+      { label: "Overview", href: `${base}gateway/` },
+      { label: "Admin Portal", href: `${base}gateway/admin/` },
+    ],
+  },
+  {
+    label: "API",
+    href: `${base}api/`,
+  },
+  {
+    label: "Blog",
+    href: `${base}blog/`,
+  },
+];
+---
+
+<header class="header">
+  <div class="header__inner">
+    <div class="header__left">
+      <a href={base} class="site-logo">
+        <img src={`${base}icon.png`} alt="CLIver" width="28" height="28" />
+        <span class="site-title">CLIver</span>
+      </a>
+      <nav class="header__nav">
+        {navItems.map((item) => (
+          item.children ? (
+            <div class="nav-dropdown">
+              <a href={item.href} class="nav-dropdown__trigger">{item.label}</a>
+              <div class="nav-dropdown__menu">
+                {item.children.map((child) => (
+                  <a href={child.href}>{child.label}</a>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <a href={item.href}>{item.label}</a>
+          )
+        ))}
+      </nav>
+    </div>
+    <div class="header__right">
+      <Search />
+      <ThemeSelect />
+    </div>
+  </div>
+</header>
+
+<style>
+  .header {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: var(--sl-color-bg-nav);
+    border-bottom: 1px solid var(--sl-color-hairline);
+    padding: 0 1.5rem;
+    height: 3.5rem;
+  }
+  .header__inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 100%;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+  .header__left {
+    display: flex;
+    align-items: center;
+    gap: 2rem;
+  }
+  .site-logo {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    text-decoration: none;
+    color: var(--sl-color-white);
+    flex-shrink: 0;
+  }
+  .site-title {
+    font-weight: 800;
+    font-size: 1.15rem;
+    letter-spacing: -0.02em;
+  }
+  .header__nav {
+    display: flex;
+    gap: 0.25rem;
+  }
+  .header__nav > a {
+    color: var(--sl-color-gray-2);
+    text-decoration: none;
+    font-size: 0.85rem;
+    font-weight: 500;
+    padding: 0.4rem 0.6rem;
+    border-radius: 0.375rem;
+    transition: color 0.15s, background 0.15s;
+    white-space: nowrap;
+  }
+  .header__nav > a:hover {
+    color: var(--sl-color-accent);
+    background: var(--sl-color-gray-7);
+  }
+
+  /* Dropdown */
+  .nav-dropdown {
+    position: relative;
+  }
+  .nav-dropdown::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    height: 0.5rem;
+  }
+  .nav-dropdown__trigger {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    color: var(--sl-color-gray-2);
+    text-decoration: none;
+    font-size: 0.85rem;
+    font-weight: 500;
+    padding: 0.4rem 0.6rem;
+    border-radius: 0.375rem;
+    transition: color 0.15s, background 0.15s;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .nav-dropdown__trigger::after {
+    content: "";
+    display: inline-block;
+    width: 0.4rem;
+    height: 0.4rem;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: rotate(45deg);
+    margin-top: -2px;
+    opacity: 0.5;
+  }
+  .nav-dropdown:hover .nav-dropdown__trigger {
+    color: var(--sl-color-accent);
+    background: var(--sl-color-gray-7);
+  }
+  .nav-dropdown__menu {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    margin-top: 0.25rem;
+    min-width: 200px;
+    background: var(--sl-color-bg-nav);
+    border: 1px solid var(--sl-color-hairline);
+    border-radius: 0.5rem;
+    padding: 0.5rem;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+  }
+  .nav-dropdown:hover .nav-dropdown__menu {
+    display: block;
+  }
+  .nav-dropdown__menu a {
+    display: block;
+    color: var(--sl-color-gray-2);
+    text-decoration: none;
+    font-size: 0.85rem;
+    padding: 0.4rem 0.75rem;
+    border-radius: 0.25rem;
+    transition: color 0.15s, background 0.15s;
+    white-space: nowrap;
+  }
+  .nav-dropdown__menu a:hover {
+    color: var(--sl-color-accent);
+    background: var(--sl-color-gray-7);
+  }
+
+  .header__right {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    flex-shrink: 0;
+  }
+
+  @media (max-width: 1024px) {
+    .header__nav {
+      display: none;
+    }
+  }
+</style>

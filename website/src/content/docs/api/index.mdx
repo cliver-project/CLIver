@@ -1,0 +1,91 @@
+---
+title: AgentCore Python API
+---
+
+AgentCore is the embeddable engine behind CLIver. Use it to integrate agent capabilities into your own Python applications.
+
+## Quick Example
+
+```python
+import asyncio
+from cliver.agent_factory import create_agent_core
+from cliver.config import ConfigManager
+
+async def main():
+    config = ConfigManager()
+    model = config.get_llm_model()
+
+    agent = create_agent_core(model_config=model)
+
+    async for chunk in agent.stream("Analyze sales.csv"):
+        if chunk.content:
+            print(chunk.content, end="", flush=True)
+
+asyncio.run(main())
+```
+
+## API Methods
+
+### `agent.chat(user_input, **kwargs) → CLIverResponse`
+
+Non-streaming chat. Returns the final response with content, tool calls, and token usage.
+
+```python
+response = await agent.chat(
+    "What's in this directory?",
+    system_prompt="You are a DevOps assistant.",
+    conversation=previous_messages,
+    max_iterations=30,
+)
+print(response.message.text)
+```
+
+### `agent.stream(user_input, **kwargs) → AsyncIterator[CLIverMessageChunk]`
+
+Streaming chat. Yields content deltas and tool call chunks as they arrive.
+
+```python
+async for chunk in agent.stream("Write a README"):
+    if chunk.content:
+        print(chunk.content, end="", flush=True)
+    elif chunk.tool_call_chunks:
+        print(f"\n[Calling tools...]")
+```
+
+### `agent.generate(prompt, **kwargs) → CLIverResponse`
+
+Generate media — image, audio, or video:
+
+```python
+# Generate an image
+result = await agent.generate("A sunset over mountains", media_type="image")
+
+# Generate audio
+result = await agent.generate("A jazz piano melody", media_type="audio")
+```
+
+## Common Parameters (chat/stream)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `user_input` | `str` | The user's message |
+| `system_prompt` | `str \| None` | Additional persona/context (appended to builtin prompt) |
+| `conversation` | `list[CLIverMessage]` | Previous messages for multi-turn context |
+| `extra_tools` | `list[CLIverTool]` | Additional tools for this call only |
+| `mcp_servers` | `list[str]` | MCP server names to activate for this call |
+| `tool_filter` | `Callable[[CLIverTool], bool] \| None` | Predicate to filter tools (builtin + MCP + extras) |
+| `max_iterations` | `int` | Max Re-Act loop iterations (default: 50) |
+
+## Event Handling
+
+Monitor tool execution and inference in real time:
+
+```python
+async def on_event(event):
+    if event.type == "tool_start":
+        print(f"Running: {event.tool_name}")
+    elif event.type == "tool_end":
+        print(f"Done: {event.tool_name} ({event.duration_ms}ms)")
+
+agent = create_agent_core(model_config=model, on_event=on_event)
+```

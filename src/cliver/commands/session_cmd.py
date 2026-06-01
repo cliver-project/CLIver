@@ -587,8 +587,10 @@ def dispatch(cliver: Cliver, args: str):
         cliver.output(click_help(_SUBCOMMANDS[sub], f"/session {sub}"))
         return
 
-    if sub == "list" or sub == "":
+    if sub == "":
         _show_current_session(cliver)
+    elif sub == "list":
+        _list_sessions(cliver)
     elif sub == "show":
         _show_session(cliver, rest.strip() if rest else None)
     elif sub == "search":

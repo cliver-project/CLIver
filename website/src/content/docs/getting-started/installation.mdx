@@ -1,0 +1,38 @@
+---
+title: Installation
+---
+
+## Requirements
+
+- **Python 3.10+**
+- An API key for at least one LLM provider
+
+## Install via pip
+
+```bash
+pip install cliver
+```
+
+## Install with Optional Dependencies
+
+```bash
+# Gateway mode (cron scheduler, admin portal)
+pip install cliver[gateway]
+
+# Platform adapters
+pip install cliver[slack]      # Slack bot
+
+# Everything
+pip install cliver[all]
+```
+
+## Verify Installation
+
+```bash
+cliver --version
+cliver --help
+```
+
+## Next Steps
+
+[Configure a provider](/configuration/providers/) to connect CLIver to your LLM of choice.

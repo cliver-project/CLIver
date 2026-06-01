@@ -1,0 +1,38 @@
+---
+title: Memory & Identity
+---
+
+CLIver remembers who you are and what you've told it. The memory system persists knowledge across sessions, while identity profiles let you customize the agent's persona.
+
+## Identity (Agent Profile)
+
+The profile is stored directly in the config directory:
+
+```
+~/.cliver/
+├── identity.md    # Agent name, role, preferences
+└── memory.md      # Persistent knowledge
+```
+
+Set your identity:
+
+```bash
+cliver profile set name "Lin Gao"
+cliver profile set role "AI Engineer"
+cliver profile set preferences.style "concise"
+```
+
+## Persistent Memory
+
+Store facts, preferences, and context that survive across sessions:
+
+```bash
+# Using the CLI
+cliver memory add "Production cluster: https://api.prod.example.com"
+cliver memory add "Preferred deployment strategy: rolling updates"
+cliver memory show
+
+# The LLM can also write memories via the memory tool
+```
+
+Memory is stored as a markdown file (`memory.md`) in the config directory. The LLM reads it at the start of each session to maintain context across conversations.

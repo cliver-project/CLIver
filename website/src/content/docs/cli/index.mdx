@@ -1,0 +1,60 @@
+---
+title: Chat & Commands
+---
+
+The CLIver CLI supports two modes: **one-shot queries** and **interactive chat**. Both go through the same AgentCore engine.
+
+## One-Shot Mode
+
+Pass a prompt directly:
+
+```bash
+cliver "What time is it in Tokyo?"
+cliver -p "Summarize README.md" -f README.md
+```
+
+## Interactive Mode
+
+Start a conversation session:
+
+```bash
+cliver
+```
+
+In interactive mode, you get:
+- **Multi-turn conversation** with context maintained across turns
+- **Rich TUI** with syntax highlighting, markdown rendering, and progress indicators
+- **Thinking indicator** while the LLM processes
+- **Permission prompts** for tool confirmations
+
+## Slash Commands
+
+Inside interactive mode, use `/` commands to control the session:
+
+| Command | Action |
+|---------|--------|
+| `/help` | Show available commands |
+| `/model` | Switch models mid-session |
+| `/memory` | View or add persistent memory |
+| `/clear` | Clear conversation context |
+| `/cost` | Show token usage and cost |
+| `/exit` | End the session |
+
+## Piped Input
+
+CLIver reads from stdin when data is piped:
+
+```bash
+cat error.log | cliver "What's causing these errors?"
+git diff | cliver "Write a commit message for these changes"
+```
+
+## Model Selection
+
+```bash
+# Use a specific model
+cliver -m deepseek-reasoner "Explain this algorithm"
+
+# Set default model
+cliver model default minimax-2.7
+```

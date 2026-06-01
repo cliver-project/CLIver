@@ -584,13 +584,8 @@ class Gateway:
 
         agent_core = create_agent_core(
             model_config=mc,
-            builtin_tools=self._builtin_tools,
-            mcp_client=self._mcp_client,
+            config_manager=config_manager,
             on_event=_create_gateway_tool_handler(),
-            user_agent=config_manager.config.user_agent,
-            agent_name="gateway",
-            models=config_manager.list_llm_models(),
-            agents=getattr(config_manager.config, "agents", None),
         )
 
         agent = Agent(name="gateway", config=self._get_default_agent_config(), agent_core=agent_core)

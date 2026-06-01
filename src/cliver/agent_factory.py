@@ -1,4 +1,9 @@
-"""AgentCore factory — creates AgentCore from configuration."""
+"""AgentCore factory — creates AgentCore from configuration.
+
+All context is derived from ``config_manager``.  The simplest usage::
+
+    agent = create_agent_core(model_config=mc)
+"""
 
 from __future__ import annotations
 
@@ -14,44 +19,80 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Module-level caches
+_builtin_tools_cache: list["CLIverTool"] | None = None
+_mcp_client_cache: "MCPClient | None" = None
+
+
+def _get_builtin_tools(config_manager: "ConfigManager") -> list["CLIverTool"]:
+    """Return builtin tools, caching the discovery result."""
+    global _builtin_tools_cache
+    if _builtin_tools_cache is not None:
+        return _builtin_tools_cache
+    from cliver.tool import ToolRegistry, discover_builtin_tools
+
+    all_tools = discover_builtin_tools()
+    reg = ToolRegistry(all_tools)
+    reg.configure(config_manager.config.enabled_toolsets)
+    _builtin_tools_cache = reg.all_tools
+    return _builtin_tools_cache
+
+
+def _get_mcp_client(config_manager: "ConfigManager") -> "MCPClient":
+    """Return MCP client, caching the instance."""
+    global _mcp_client_cache
+    if _mcp_client_cache is not None:
+        return _mcp_client_cache
+    from cliver.mcp import MCPClient
+
+    _mcp_client_cache = MCPClient(config_manager.list_mcp_servers_for_mcp_caller())
+    return _mcp_client_cache
+
 
 def create_agent_core(
     model_config: "ModelConfig",
-    builtin_tools: list["CLIverTool"],
     *,
-    mcp_client: "MCPClient | None" = None,
-    tool_filter: set[str] | None = None,
+    config_manager: "ConfigManager | None" = None,
     on_event: "EventHandler | None" = None,
     max_consecutive_errors: int = 5,
-    user_agent: str | None = "CLIver",
-    agent_name: str = "CLIver",
-    models: dict | None = None,
-    agents: dict | None = None,
 ) -> "AgentCore":
-    """Create an AgentCore from a model config and tool list.
+    """Create an AgentCore from a model config.
 
-    The builtin system prompt (model inventory, self-awareness, tools) is
-    generated automatically and always included.  Callers only need to
-    pass persona / extra context via ``system_prompt`` on ``chat()`` / ``stream()``.
+    Everything is derived from ``config_manager`` (or auto-loaded from
+    ``~/.cliver`` if not provided).
+
+    The builtin system prompt is always included.  Callers add per-call
+    persona / extra context via ``system_prompt`` on ``chat()`` / ``stream()``.
 
     Args:
         model_config: The ModelConfig for the desired model.
-        builtin_tools: Full list of available builtin tools.
-        mcp_client: Shared MCP client (one per process).
-        tool_filter: If set, only include tools whose names are in this set.
+        config_manager: ConfigManager (auto-loaded from default config dir if None).
+        tool_filter: Optional predicate to filter tools (receives CLIverTool,
+            returns True to include).
         on_event: Optional handler for ToolEvent/InferenceEvent callbacks.
         max_consecutive_errors: Max consecutive tool errors before stopping.
-        user_agent: User-Agent header for LLM provider HTTP requests.
-        agent_name: Name for the identity section of the system prompt.
-        models: All configured models dict (for system prompt inventory).
-        agents: All agent profiles dict (for system prompt inventory).
 
     Returns:
         A configured AgentCore ready for ``chat()`` / ``stream()``.
     """
+    from cliver.agent_profile import CliverProfile
     from cliver.llm.agent_core import AgentCore
     from cliver.provider.providers import create_provider
     from cliver.system_prompt import build as build_system_prompt
+
+    if config_manager is None:
+        from cliver.config import ConfigManager
+        from cliver.util import get_config_dir
+
+        config_manager = ConfigManager(get_config_dir())
+
+    profile = CliverProfile(config_manager.config_dir)
+
+    models = config_manager.list_llm_models()
+    agents = getattr(config_manager.config, "agents", None)
+    user_agent = config_manager.config.user_agent
+
+    tools = _get_builtin_tools(config_manager)
 
     provider = create_provider(
         api_key=model_config.get_api_key() or "",
@@ -60,12 +101,8 @@ def create_agent_core(
         user_agent=user_agent,
     )
 
-    tools = builtin_tools
-    if tool_filter is not None:
-        tools = [t for t in builtin_tools if t.name in tool_filter]
-
     builtin_sp = build_system_prompt(
-        agent_name=agent_name,
+        agent_name=profile.profile_name,
         available_tools={t.name for t in tools},
         models=models,
         agents=agents,
@@ -77,7 +114,7 @@ def create_agent_core(
         provider=provider,
         model=model_config.api_model_name,
         builtin_tools=tools,
-        mcp_client=mcp_client,
+        mcp_client=_get_mcp_client(config_manager),
         on_event=on_event,
         max_consecutive_errors=max_consecutive_errors,
         builtin_system_prompt=builtin_sp,

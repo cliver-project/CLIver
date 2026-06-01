@@ -308,7 +308,10 @@ class ToolRegistry:
         """Get enabled tools (to send to LLM)."""
         if not self._enabled_names:
             self.configure()
-        return [t for name, t in self._by_name.items() if name in self._enabled_names]
+        return sorted(
+            (t for name, t in self._by_name.items() if name in self._enabled_names),
+            key=lambda t: t.name,
+        )
 
     def get(self, name: str) -> CLIverTool | None:
         return self._by_name.get(name)

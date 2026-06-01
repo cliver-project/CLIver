@@ -1,0 +1,52 @@
+---
+title: AgentCore
+---
+
+AgentCore is the reasoning engine at the heart of CLIver. It's a self-contained Python class that implements the **Re-Act loop** — the cycle of sending messages to an LLM, executing tools, and continuing until a final response is ready.
+
+## Why It Matters
+
+AgentCore has **zero CLI dependencies**. It takes config dicts and returns message objects. This means you can embed it directly into your own Python applications, web services, or automation scripts.
+
+## The Re-Act Loop
+
+```
+1. Receive user input
+2. Build messages (system prompt + conversation history + user input)
+3. Send to LLM
+4. If LLM returns a tool call → execute tool → go to step 3
+5. If LLM returns text → done, return response
+```
+
+The loop runs up to 50 iterations by default, with a safety limit of 5 consecutive tool errors before stopping.
+
+## Using AgentCore in Python
+
+```python
+from cliver.agent_factory import create_agent_core
+from cliver.config import ConfigManager
+
+# Load config (auto-loads from ~/.cliver)
+config = ConfigManager()
+model = config.get_llm_model()
+
+# Create agent — tools, MCP, and identity are derived automatically
+agent = create_agent_core(model_config=model)
+
+# Chat (non-streaming)
+response = await agent.chat("What's the weather in Tokyo?")
+print(response.message.text)
+
+# Stream (real-time output)
+async for chunk in agent.stream("Write a poem about code"):
+    if chunk.content:
+        print(chunk.content, end="", flush=True)
+```
+
+## Key Properties
+
+- **Minimal construction.** Just a `ModelConfig` — tools, MCP client, and agent identity are derived from the config directory automatically.
+- **Stateless instance, stateful calls.** One AgentCore instance per model. Conversation context is passed per call — safe for concurrent use.
+- **Tool gathering is lazy.** Builtin tools are registered at construction. Extra tools, MCP servers, and tool filtering are resolved at call time via `chat()`/`stream()`.
+- **Events are observable.** Pass an `on_event` handler to monitor tool calls, errors, and inference in real time.
+- **Media generation.** Call `agent.generate(prompt, media_type="image")` to produce images, audio, or video via the provider's generation endpoint.

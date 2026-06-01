@@ -1,0 +1,56 @@
+---
+title: Configuration Overview
+---
+
+CLIver reads its configuration from `~/.cliver/config.yaml`. The config covers providers, models, permissions, and runtime behavior.
+
+## Config File Location
+
+```
+~/.cliver/
+├── config.yaml          # Main configuration
+├── identity.md          # Agent profile (name, role, preferences)
+├── memory.md            # Persistent knowledge
+├── skills/              # User-global skills
+├── tasks/               # Task definitions
+└── audit_logs/          # Token usage logs
+```
+
+## Secret Resolution
+
+API keys are resolved through three layers:
+
+1. **KeyStore** — encrypted secrets stored in CLIver's database
+2. **Environment variable** — all-uppercase names resolve from `os.environ`
+3. **Literal** — used as-is if no match above
+
+```yaml
+api_key: deepseek           # 1. Looks up "deepseek" in KeyStore
+api_key: DEEPSEEK_API_KEY   # 2. Falls back to env var
+api_key: sk-abc123          # 3. Used literally
+```
+
+Manage keys with:
+
+```bash
+cliver keys add deepseek    # Store encrypted in KeyStore
+cliver keys list            # List stored key names
+```
+
+## Minimal Config
+
+A working config needs one provider and one model:
+
+```yaml
+providers:
+  deepseek:
+    type: openai
+    api_url: https://api.deepseek.com
+    api_key: DEEPSEEK_API_KEY
+
+models:
+  text:
+    deepseek-chat:
+      provider: deepseek
+      model: deepseek-chat
+```

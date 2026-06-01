@@ -5,7 +5,7 @@ description = "Personal AI Lab"
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [
-    { name = "Leo Gao", email = "aoingl@gmail.com" }
+    { name = "Lin Gao", email = "aoingl@gmail.com" }
 ]
 requires-python = ">=3.10"
 classifiers = [
@@ -51,12 +51,6 @@ dev = [
     "ruff>=0.0.270",
     "black>=25.1.0",
     "pymdown-extensions>=10.16.1",
-]
-
-docs = [
-    "mkdocs>=1.4.0",
-    "mkdocs-material>=9.0.0",
-    "mkdocs-minify-plugin>=0.2.0",
 ]
 
 [project.optional-dependencies]

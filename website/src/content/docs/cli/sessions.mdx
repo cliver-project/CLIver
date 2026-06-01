@@ -1,0 +1,38 @@
+---
+title: Sessions
+---
+
+Sessions keep track of your conversations. CLIver stores conversation history, lets you search past sessions, and maintains context across restarts.
+
+## Session Lifecycle
+
+- **Auto-created** on the first message of an interactive session
+- **Auto-saved** after each turn (user message + agent response)
+- **Auto-trimmed** to keep storage manageable (configurable limits)
+
+## Managing Sessions
+
+```bash
+# List recent sessions
+cliver session list
+
+# Resume a previous session
+cliver session load <session-id>
+
+# Search across all sessions
+cliver session search "deployment error"
+
+# Delete a session
+cliver session delete <session-id>
+```
+
+## Storage Limits
+
+Configure in `config.yaml`:
+
+```yaml
+session:
+  max_turns_per_session: 100   # Trim old turns
+  max_age_days: 30             # Delete sessions older than this
+  max_sessions: 50             # Keep at most this many sessions
+```

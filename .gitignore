@@ -70,6 +70,9 @@ instance/
 # Sphinx documentation
 docs/_build/
 
+node_modules/
+.astro
+
 # PyBuilder
 .pybuilder/
 target/
@@ -142,9 +145,6 @@ venv.bak/
 # Rope project settings
 .ropeproject
 
-# mkdocs documentation
-/site
-
 # mypy
 .mypy_cache/
 .dmypy.json
@@ -188,3 +188,11 @@ docs/wbs/
 
 # Admin portal package data (build artifact)
 src/cliver/gateway/admin_dist/
+
+# Website (docs site)
+website/node_modules/
+website/dist/
+
+# Superpowers (design docs, not committed)
+.superpowers/
+docs/superpowers/

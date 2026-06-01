@@ -56,6 +56,7 @@ class UIBridge(Protocol):
     def output(self, text: str, style: str = "") -> None: ...
     def ask_permission(self, tool_name: str, args: dict, meta: dict) -> tuple[str, str]: ...
     def ask_input(self, prompt: str, choices: list[str] | None = None) -> str: ...
+    def ask_password(self, prompt: str) -> str: ...
     def ask_fields(self, fields: list[FieldSpec]) -> dict | None: ...
     def show_tool_event(self, event) -> None: ...
 
@@ -121,6 +122,14 @@ class CLIBridge:
             valid = ", ".join(choices)
             print(f"  Invalid choice. Use: {valid}")
 
+    def ask_password(self, prompt: str) -> str:
+        import getpass
+
+        try:
+            return getpass.getpass(prompt).strip()
+        except (EOFError, KeyboardInterrupt):
+            return ""
+
     def ask_fields(self, fields: list[FieldSpec]) -> dict | None:
         return _ask_fields_impl(self, fields)
 
@@ -172,6 +181,15 @@ class TUIBridge:
         result = self._response or ""
         self._valid_choices = None
         return result
+
+    def ask_password(self, prompt: str) -> str:
+        self.output(prompt)
+        event = threading.Event()
+        self._response = None
+        self._pending = event
+        event.wait()
+        self._pending = None
+        return self._response or ""
 
     def ask_fields(self, fields: list[FieldSpec]) -> dict | None:
         return _ask_fields_impl(self, fields)

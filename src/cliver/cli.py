@@ -233,13 +233,7 @@ class Cliver:
 
         agent = create_agent_core(
             model_config=mc,
-            builtin_tools=self._builtin_tools,
-            mcp_client=self._mcp_client,
             on_event=_tool_event_handler,
-            user_agent=self.config_manager.config.user_agent,
-            agent_name=self.agent_profile.profile_name,
-            models=self.config_manager.list_llm_models(),
-            agents=getattr(self.config_manager.config, "agents", None),
         )
         self._agent_cores[model_name] = agent
         return agent

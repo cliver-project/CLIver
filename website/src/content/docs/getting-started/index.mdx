@@ -1,0 +1,16 @@
+---
+title: Introduction
+---
+
+CLIver is a **Personal AI Lab** for AI agent research and experimentation. It connects to any LLM provider, comes with built-in tools, and can be used interactively, embedded as a Python library, or deployed as a gateway service.
+
+## Highlights
+
+**Model freedom.** You choose the model. CLIver speaks both OpenAI and Anthropic protocols, and connects to any compatible endpoint — cloud providers like DeepSeek and MiniMax, or local ones like Ollama and vLLM.
+
+**Open architecture.** CLIver is designed to be extended — add custom tools, skills, and knowledge bases. The skill system follows the Agent Skills specification, and the tool registry makes it easy to plug in new capabilities without touching the core engine.
+
+**Safe by default.** Every tool execution goes through a permission system. You can auto-approve file edits, require confirmation for shell commands, or run fully hands-off.
+
+**Embeddable by design.** `AgentCore` is the engine behind the CLI. It's a standalone Python API with no CLI dependencies — use it in your own scripts and applications.
+

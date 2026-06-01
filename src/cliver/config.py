@@ -32,12 +32,7 @@ class PricingConfig(BaseModel):
 
 
 class ProviderConfig(BaseModel):
-    """Configuration for an LLM provider (API endpoint + credentials + rate limit).
-
-    Models are listed under the provider in config.yaml and flattened into
-    AppConfig.models during loading.  The ``models`` field here is only used
-    during YAML load/save — at runtime, look at AppConfig.models instead.
-    """
+    """Configuration for an LLM provider (API endpoint + credentials + rate limit)."""
 
     name: str
     type: str = Field(default="openai", description="API protocol: openai (OpenAI-compatible) or anthropic")
@@ -45,8 +40,6 @@ class ProviderConfig(BaseModel):
     api_key: Optional[str] = Field(default=None, description="API key (supports Jinja2 templates)")
     rate_limit: Optional[RateLimitConfig] = Field(default=None, description="Rate limit for API calls")
     pricing: Optional[PricingConfig] = Field(default=None, description="Token pricing for cost tracking")
-    models: Optional[List] = Field(default=None, description="Models served by this provider (YAML load/save only)")
-
     model_config = {"extra": "allow"}
 
     def get_api_key(self) -> Optional[str]:
@@ -57,7 +50,6 @@ class ProviderConfig(BaseModel):
     def model_dump(self, **kwargs):
         data = super().model_dump(**kwargs)
         data.pop("name", None)
-        data.pop("models", None)
         return {k: v for k, v in data.items() if v is not None}
 
 
@@ -667,6 +659,8 @@ class ConfigManager:
             if self.config.default_model is None:
                 self.config.default_model = model_name
 
+        if api_model_name:
+            llm.model = api_model_name
         if api_url is not None:
             llm.api_url = api_url
         if options:

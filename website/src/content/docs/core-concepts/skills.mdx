@@ -1,0 +1,60 @@
+---
+title: Skills
+---
+
+Skills extend CLIver's capabilities through structured `SKILL.md` files. They follow the [Agent Skills specification](https://agentskills.io) and are activated by the LLM based on task context.
+
+## How Skills Work
+
+A skill is a markdown file with YAML frontmatter:
+
+```markdown
+---
+name: my-skill
+description: What this skill helps with
+---
+
+# Skill Body
+
+Instructions and context for the LLM when this skill is active.
+```
+
+When the agent encounters a task matching a skill's description, it calls the `skill` tool to load the skill's body into context. The skill's body becomes part of the system prompt for the duration of the task.
+
+## Built-in Skills
+
+Built-in skills:
+
+| Skill | Purpose |
+|-------|---------|
+| `brainstorm` | Collaborative design dialogue before implementation |
+| `write-plan` | Detailed step-by-step implementation planning |
+| `execute-plan` | Systematic plan execution with verification checkpoints |
+| `wbs-planner` | Work breakdown structure for complex projects |
+
+## Skill Discovery Order
+
+Skills are discovered from multiple locations (higher overrides lower):
+
+1. **Built-in** — shipped with CLIver (`src/cliver/skills/`)
+2. **User-global** — `~/.cliver/skills/` and `~/.agents/skills/`
+3. **Project-local** — `.cliver/skills/`, `.agent/skills/`, `.claude/skills/`, `.gemini/skills/`
+
+## Creating a Skill
+
+Create a `SKILL.md` file in any discovery directory:
+
+```bash
+mkdir -p ~/.cliver/skills/my-domain
+cat > ~/.cliver/skills/my-domain/SKILL.md <<'EOF'
+---
+name: my-domain
+description: Expert knowledge about my specific domain
+---
+
+You are an expert in my domain. When answering questions:
+1. Consider the specific constraints of our environment
+2. Prefer approach X over approach Y
+3. Reference our internal conventions at docs/internal/conventions.md
+EOF
+```

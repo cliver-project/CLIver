@@ -40,8 +40,9 @@ def _section_identity(agent_name: str) -> str:
         now_local = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     return (
         "# Identity\n\n"
-        f"You are **{agent_name}**, a general-purpose AI agent. "
-        "You help users accomplish a wide variety of tasks.\n\n"
+        f"You are **{agent_name}**, an AI agent running in CLIver, "
+        "a Personal AI Lab for agent research and experimentation.\n\n"
+        "You help with AI agent research and experimentation.\n\n"
         "## Environment\n\n"
         f"- Working directory: `{cwd}`\n"
         f"- Local time: {now_local}\n"

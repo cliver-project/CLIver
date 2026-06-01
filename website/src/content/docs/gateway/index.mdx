@@ -1,0 +1,66 @@
+---
+title: Gateway Overview
+---
+
+Gateway mode runs CLIver as a **long-running daemon** with cron scheduling, a web admin portal, and platform adapters for messaging services.
+
+## Architecture
+
+```
+┌─────────────────────────────────────┐
+│            Gateway Daemon            │
+│                                     │
+│  ┌──────────┐  ┌──────────────────┐ │
+│  │  Cron    │  │  Control Server  │ │
+│  │ Scheduler│  │  (Unix Socket)   │ │
+│  └──────────┘  └──────────────────┘ │
+│                                     │
+│  ┌────────────────────────────────┐ │
+│  │     Platform Adapters          │ │
+│  │     Slack    ...                │ │
+│  └────────────────────────────────┘ │
+│                                     │
+│  ┌────────────────────────────────┐ │
+│  │        AgentCore               │ │
+│  └────────────────────────────────┘ │
+└─────────────────────────────────────┘
+```
+
+## Starting the Gateway
+
+```bash
+# Install gateway dependencies
+pip install cliver[gateway]
+
+# Start the daemon
+cliver gateway start
+
+# Check status
+cliver gateway status
+
+# Stop
+cliver gateway stop
+```
+
+## Cron Scheduling
+
+The gateway's cron scheduler runs tasks on a schedule. Tasks are defined with a `schedule` field and executed by their own AgentCore instance.
+
+```bash
+# Create a scheduled task
+cliver task create daily-summary \
+  --prompt "Summarize today's activity from the logs" \
+  --schedule "0 9 * * *"
+
+# List tasks
+cliver task list
+
+# Run a task immediately
+cliver task run daily-summary
+```
+
+## Platform Adapters
+
+Gateway exposes AgentCore through messaging platforms. Each adapter handles message routing, permission prompts, and session management for its platform.
+
+Currently tested: Slack.

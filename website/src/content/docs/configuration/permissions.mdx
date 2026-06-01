@@ -1,0 +1,44 @@
+---
+title: Permissions
+---
+
+CLIver's permission system governs every tool execution. You choose how much autonomy to give the agent.
+
+## Permission Modes
+
+| Mode | Behavior |
+|------|----------|
+| **default** | Confirm every tool execution before it runs |
+| **auto-edit** | Auto-approve file reads/writes; confirm shell and network |
+| **yolo** | Auto-approve everything — use with caution |
+
+## Setting Mode
+
+```yaml
+# ~/.cliver/cliver-settings.yaml
+permission_mode: auto-edit
+```
+
+```bash
+# Or via CLI
+cliver permissions mode auto-edit
+```
+
+## Per-Tool Overrides
+
+Grant or deny specific tools regardless of mode:
+
+```yaml
+permissions:
+  - tool: Read
+    action: allow
+  - tool: Bash
+    resource: "git *"
+    action: allow
+  - tool: "github#.*"
+    action: deny
+```
+
+## Project-Local Settings
+
+Drop a `.cliver/cliver-settings.yaml` in any project directory for project-specific permissions. These merge with and override your global settings.

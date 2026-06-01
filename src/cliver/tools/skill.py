@@ -48,11 +48,7 @@ def skill(skill_name: str, prompt: str | None = None) -> list[dict]:
     if not mc:
         return [{"text": manager.activate_skill(skill_name, prompt=prompt)}]
 
-    agent_core = create_agent_core(
-        model_config=mc,
-        builtin_tools=[],
-        user_agent=cm.config.user_agent,
-    )
+    agent_core = create_agent_core(model_config=mc)
 
     import asyncio
 

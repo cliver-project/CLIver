@@ -12,7 +12,6 @@ Discovery order (later sources override earlier ones with the same name):
 4. .agent/skills/                 — project-local (agent-agnostic)
 5. .claude/skills/                — project-local (Claude Code compat)
 6. .gemini/skills/                — project-local (Gemini compat)
-7. .qwen/skills/                  — project-local (Qwen Code compat)
 """
 
 import logging
@@ -271,7 +270,6 @@ _PROJECT_SKILL_DIRS = [
     (".agent/skills", "project (.agent)"),
     (".claude/skills", "project (.claude compat)"),
     (".gemini/skills", "project (.gemini compat)"),
-    (".qwen/skills", "project (.qwen compat)"),
 ]
 
 # Builtin skills shipped with the CLIver package (lowest priority).

@@ -1,0 +1,105 @@
+---
+title: Providers & Models
+---
+
+CLIver supports two API protocols: **OpenAI-compatible** and **Anthropic**. Providers define API endpoints and credentials. Models reference a provider and specify which model to call.
+
+## Provider Types
+
+| Type | Protocol | Example Providers |
+|------|----------|-------------------|
+| `openai` | OpenAI Chat Completions | DeepSeek, MiniMax, Ollama, vLLM |
+| `anthropic` | Anthropic Messages | DeepSeek-Anthropic, MiniMax-Anthropic |
+
+## Configuring Providers
+
+```yaml
+providers:
+  deepseek:
+    type: openai
+    api_url: https://api.deepseek.com
+    api_key: DEEPSEEK_API_KEY
+
+  minimax:
+    type: openai
+    api_url: https://api.minimaxi.com/v1
+    api_key: MINIMAX_API_KEY
+```
+
+## Configuring Models
+
+Models reference a provider and specify the API-facing model name:
+
+```yaml
+models:
+  text:
+    deepseek-chat:
+      provider: deepseek
+      model: deepseek-chat
+
+    deepseek-reasoner:
+      provider: deepseek
+      model: deepseek-reasoner
+
+    minimax-2.7:
+      provider: minimax
+      model: MiniMax-M2.7
+```
+
+## Image Models
+
+Models with `category: image` can be used for image generation:
+
+```yaml
+models:
+  image:
+    minimax-image:
+      provider: minimax
+      model: image-01
+```
+
+The provider must support image generation (e.g., `api_url` points to an image-capable endpoint, or a per-model `api_url` override is set).
+
+## Model Options
+
+Fine-tune behavior per model:
+
+```yaml
+models:
+  text:
+    deepseek-chat:
+      provider: deepseek
+      model: deepseek-chat
+      options:
+        temperature: 0.7
+        max_tokens: 4096
+```
+
+## Rate Limiting
+
+Control request frequency per provider:
+
+```yaml
+providers:
+  deepseek:
+    type: openai
+    api_url: https://api.deepseek.com
+    api_key: DEEPSEEK_API_KEY
+    rate_limit:
+      requests: 1500
+      period: 5h
+      margin: 0.1
+```
+
+## Switching Models
+
+```bash
+# List configured models
+cliver model list
+
+# Use a specific model for one query
+cliver -m deepseek-chat "Explain quantum computing"
+
+# Change default model
+cliver model default deepseek-reasoner
+```
