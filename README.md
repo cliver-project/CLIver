@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="icon.png" alt="CLIver" width="120"/>
+  <img src="https://github.com/cliver-project/CLIver/blob/main/website/public/icon.png?raw=true" alt="CLIver" width="120"/>
   <h1>CLIver</h1>
   <p><strong>Personal AI Lab</strong> — Experimenting with AI agents in your terminal, as a Python library, or as a gateway service.</p>
 </div>
