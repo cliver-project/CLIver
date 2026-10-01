@@ -1,0 +1,10 @@
+[project]
+name = "cliver-gateway"
+version = "0.3.0a1"
+description = "CLIver gateway daemon + admin web UI (scaffold)"
+requires-python = ">=3.10"
+dependencies = []
+
+[build-system]
+requires = ["uv_build>=0.7,<0.8"]
+build-backend = "uv_build"

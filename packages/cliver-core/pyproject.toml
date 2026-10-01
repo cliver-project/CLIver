@@ -1,0 +1,31 @@
+[project]
+name = "cliver-core"
+version = "0.3.0a1"
+description = "CLIver — embeddable AgentCore library"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.0.0",
+    "tomli; python_version < '3.11'",
+]
+
+# Extras are declared empty here; they are filled in by later phases:
+# openai = ["openai>=1.0.0"]
+# anthropic = ["anthropic>=0.50.0"]
+# mcp = ["mcp>=1.2.1"]
+# mediagen = ["httpx>=0.24.0"]
+# all = [...]
+
+[dependency-groups]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=1.2.0",
+    "ruff>=0.0.270",
+]
+
+[project.urls]
+Homepage = "https://github.com/cliver-project/CLIver"
+Repository = "https://github.com/cliver-project/CLIver"
+
+[build-system]
+requires = ["uv_build>=0.7,<0.8"]
+build-backend = "uv_build"

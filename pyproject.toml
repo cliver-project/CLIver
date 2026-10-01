@@ -1,104 +1,18 @@
-[project]
-name = "cliver"
-version = "0.2.1"
-description = "Personal AI Lab"
-readme = "README.md"
-license = { file = "LICENSE" }
-authors = [
-    { name = "Lin Gao", email = "aoingl@gmail.com" }
+[tool.uv.workspace]
+members = [
+    "packages/cliver-core",
+    "packages/cliver",
+    "packages/cliver-gateway",
 ]
-requires-python = ">=3.10"
-classifiers = [
-    "Development Status :: 3 - Alpha",
-    "Environment :: Console",
-    "Intended Audience :: Developers",
-    "Topic :: Software Development :: Libraries",
-    "Topic :: Scientific/Engineering :: Artificial Intelligence",
-    "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
-]
-
-dependencies = [
-    "click>=8.1.0",
-    "rich>=13.0.0",
-    "httpx>=0.24.0",
-    "pydantic>=2.0.0",
-    "prompt_toolkit>=3.0.0",
-    "pyyaml>=6.0.0",
-    "mcp>=1.2.1",
-    "openai>=1.0.0",
-    "anthropic>=0.50.0",
-    "python-dotenv>=1.1.0",
-    "jinja2>=3.1.0",
-    "requests>=2.32.3",
-    "json-repair>=0.52.0",
-    "cryptography>=42.0.0",
-    "tomli; python_version < '3.11'",
-    "apscheduler>=3.11.2",
-    "sqlalchemy>=2.0.50",
-]
-
-[dependency-groups]
-dev = [
-    "pytest>=7.0.0",
-    "pytest-cov",
-    "pytest-asyncio>=1.2.0",
-    "isort>=5.12.0",
-    "mypy>=1.0.0",
-    "ruff>=0.0.270",
-    "black>=25.1.0",
-    "pymdown-extensions>=10.16.1",
-]
-
-[project.optional-dependencies]
-gateway = ["croniter>=2.0", "starlette>=0.38"]
-telegram = ["python-telegram-bot>=21.0"]
-discord = ["discord.py>=2.3"]
-slack = ["slack-bolt>=1.18", "slack-sdk>=3.27"]
-wechat = ["aiohttp>=3.9"]
-feishu = ["aiohttp>=3.9"]
-api = ["aiohttp>=3.9"]
-browser = ["firecrawl-py>=1.0", "playwright>=1.40"]
-all = [
-    "croniter>=2.0",
-    "starlette>=0.38",
-    "python-telegram-bot>=21.0",
-    "discord.py>=2.3",
-    "slack-bolt>=1.18",
-    "slack-sdk>=3.27",
-    "aiohttp>=3.9",
-    "firecrawl-py>=1.0",
-    "playwright>=1.40",
-]
-
-[project.scripts]
-cliver = "cliver.cli:cliver_main"
-
-[project.urls]
-Homepage = "https://github.com/cliver-project/CLIver"
-Documentation = "https://cliver-project.github.io/CLIver/"
-Repository = "https://github.com/cliver-project/CLIver"
-Issues = "https://github.com/cliver-project/CLIver/issues"
-
-[build-system]
-requires = ["uv_build>=0.7,<0.8"]
-build-backend = "uv_build"
 
 [tool.uv]
-package = true
+package = false
 
-[tool.hatch.build.targets.wheel]
-force-include = { "src/cliver/gateway/admin_dist" = "cliver/gateway/admin_dist" }
-
-[tool.mypy]
-python_version = "3.10"
-warn_return_any = true
-warn_unused_configs = true
-disallow_untyped_defs = true
-disallow_incomplete_defs = true
+[tool.pytest.ini_options]
+testpaths = ["packages/cliver-core/src/cliver_core/tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-ra"
 
 [tool.ruff]
 line-length = 120
@@ -108,10 +22,4 @@ target-version = "py310"
 select = ["E", "F", "B", "I"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**/*" = ["E501"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-asyncio_mode = "auto"
-asyncio_default_fixture_loop_scope = "function"
-
+"packages/*/tests/**/*" = ["E501"]
