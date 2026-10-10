@@ -1,5 +1,8 @@
 """
-Test that cliver_core's import closure has zero third-party deps beyond pydantic.
+Test that cliver_core's import closure sticks to its declared hard deps.
+
+Hard deps (per pyproject): pydantic, openai, anthropic, httpx.  Everything
+else — CLI, gateway, tooling libraries — must not be pulled in by an import.
 
 CraftForge pattern: spawn a subprocess with a sys.meta_path finder that raises
 ImportError for any module on the blocklist, then import cliver_core and assert
@@ -19,9 +22,6 @@ BLOCKED = frozenset(
         "rich",
         "prompt_toolkit",
         "dotenv",
-        "httpx",
-        "openai",
-        "anthropic",
         "mcp",
         "yaml",
         "jinja2",
@@ -50,14 +50,26 @@ sys.meta_path.insert(0, Blocker())
 
 import cliver_core
 import cliver_core.agent
+import cliver_core.bindings
+import cliver_core.capabilities
+import cliver_core.capabilities.asr
+import cliver_core.capabilities.embed
+import cliver_core.capabilities.image
+import cliver_core.capabilities.rerank
+import cliver_core.capabilities.tts
+import cliver_core.capabilities.video
+import cliver_core.media_jobs
 import cliver_core.messages
+import cliver_core.presets
 import cliver_core.tool
 import cliver_core.media
 import cliver_core.events
-import cliver_core.ui_bridge
 import cliver_core.util
 import cliver_core.constants
 import cliver_core.provider
+import cliver_core.provider.transport
+import cliver_core.provider.transports
+import cliver_core.provider.providers
 import cliver_core.tools
 # NOTE: cliver_core.mcp is intentionally NOT imported here — the MCP SDK
 # lives behind the `cliver-core[mcp]` extra and imports are guarded.
@@ -65,7 +77,7 @@ print("OK")
 """
 
 
-def test_cliver_core_imports_with_only_pydantic() -> None:
+def test_cliver_core_imports_with_only_declared_deps() -> None:
     result = subprocess.run(
         [sys.executable, "-c", textwrap.dedent(_INSTALL_AND_IMPORT)],
         capture_output=True,

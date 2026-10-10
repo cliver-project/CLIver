@@ -14,6 +14,12 @@ from cliver_core.constants import APP_NAME, CONFIG_DIR
 
 logger = logging.getLogger(__name__)
 
+
+def drop_none(**kwargs: Any) -> dict[str, Any]:
+    """Drop ``None`` values — unset optional parameters are omitted, not sent as null."""
+    return {k: v for k, v in kwargs.items() if v is not None}
+
+
 # -- Timezone utilities -------------------------------------------------------
 
 _configured_tz: ZoneInfo | None = None

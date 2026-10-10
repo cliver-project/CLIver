@@ -6,7 +6,6 @@ import asyncio
 import inspect
 import logging
 import os
-import shutil
 from pathlib import Path
 from typing import Any, Callable, Optional, get_args, get_origin
 
@@ -230,15 +229,18 @@ TOOLSETS: dict[str, set[str]] = {
     "automation": {"Skill", "TodoRead", "TodoWrite", "CliverHelp"},
     "web": {"WebFetch", "WebSearch", "Browse"},
     "browser": {"Browser"},
-    "container": {"Docker"},
 }
 
 _ALWAYS_ENABLED = {"core", "memory", "automation"}
 
+# Every tool name that belongs to a toolset — a name outside this set was
+# registered directly (``register`` / ``builtin_tools=``) and is not gated
+# by the toolset enablement (an explicit registration is the enablement).
+_TOOLSET_TOOL_NAMES: frozenset[str] = frozenset().union(*TOOLSETS.values())
+
 _TOOLSET_CHECKS: dict[str, Callable[[], bool]] = {
     "web": lambda: True,
     "browser": lambda: False,  # opt-in via config
-    "container": lambda: shutil.which("docker") is not None or shutil.which("podman") is not None,
 }
 
 _TOOL_CHECKS: dict[str, Callable[[], bool]] = {
@@ -305,11 +307,16 @@ class ToolRegistry:
 
     @property
     def all_tools(self) -> list[CLIverTool]:
-        """Get enabled tools (to send to LLM)."""
+        """Get enabled tools (to send to LLM).
+
+        Toolset tools follow the enabled-toolset gate; a tool whose name is in
+        no toolset was registered directly (``register`` / ``builtin_tools=``)
+        and is always advertised — the toolset filter only governs builtins.
+        """
         if not self._enabled_names:
             self.configure()
         return sorted(
-            (t for name, t in self._by_name.items() if name in self._enabled_names),
+            (t for name, t in self._by_name.items() if name in self._enabled_names or name not in _TOOLSET_TOOL_NAMES),
             key=lambda t: t.name,
         )
 

@@ -62,6 +62,45 @@ def get_file_extension(mime_type: str) -> str:
     return _MIME_TO_EXTENSION.get(mime_type, ".bin")
 
 
+#: Image magic bytes → MIME — the containers vendors actually return.
+_IMAGE_MAGIC = (
+    (b"\x89PNG\r\n\x1a\n", "image/png"),
+    (b"\xff\xd8\xff", "image/jpeg"),
+    (b"GIF87a", "image/gif"),
+    (b"GIF89a", "image/gif"),
+)
+
+
+def sniff_image_mime(payload: bytes) -> Optional[str]:
+    """MIME of an image payload from its magic bytes, or ``None`` if unknown."""
+    if payload[:4] == b"RIFF" and payload[8:12] == b"WEBP":
+        return "image/webp"
+    for magic, mime in _IMAGE_MAGIC:
+        if payload.startswith(magic):
+            return mime
+    return None
+
+
+def resolve_media_mime(default: str, *, url: Optional[str] = None, payload: Optional[bytes] = None) -> str:
+    """Best-effort real MIME for a vendor-generated media item.
+
+    Vendors generate what they generate — MiniMax image-01 returns JPEG, not
+    the flow's PNG default — so the label follows the evidence: the payload's
+    magic bytes when the caller already holds them, then the format the URL
+    names for itself (stdlib ``mimetypes``, query/fragment stripped), then
+    the caller's default.
+    """
+    if payload:
+        sniffed = sniff_image_mime(payload)
+        if sniffed:
+            return sniffed
+    if url:
+        named, _ = mimetypes.guess_type(url)
+        if named and named.split("/", 1)[0] in ("image", "audio", "video"):
+            return named
+    return default
+
+
 @dataclass
 class MediaContent:
     """Represents a media content item."""
@@ -145,8 +184,6 @@ def load_media_file(source: str) -> MediaContent:
     """
     from urllib.parse import urlparse
 
-    import requests
-
     # Check if source is a URL
     parsed_url = urlparse(source)
     is_url = bool(parsed_url.scheme and parsed_url.netloc)
@@ -155,7 +192,10 @@ def load_media_file(source: str) -> MediaContent:
     filename = None
 
     if is_url:
-        # Load from URL
+        # Load from URL — requests is only needed for the remote branch,
+        # so local files work without it (keeps cliver-core pydantic-only).
+        import requests
+
         try:
             response = requests.get(source, headers={"User-Agent": get_app_user_agent()})
             response.raise_for_status()

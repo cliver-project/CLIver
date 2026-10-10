@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 
 class InferenceEventType(str, Enum):
-    """Events fired during LLM inference (by ProtocolEngine)."""
+    """Events fired during LLM inference (by the protocol providers)."""
 
     STARTED = "inference.started"
     FIRST_TOKEN = "inference.first_token"  # TTFT (time-to-first-token)

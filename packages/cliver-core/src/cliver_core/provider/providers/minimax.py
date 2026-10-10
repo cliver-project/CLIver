@@ -1,186 +1,153 @@
-"""MiniMax: strips unsupported params, normalises thinking key,
-and parses proprietary XML tool-call format."""
+"""MiniMax: Anthropic-compatible chat endpoint, plus image/TTS on MiniMax's
+own media endpoints.
+
+Chat is fully native through the official Anthropic SDK: tool calls arrive
+as standard ``tool_use`` blocks — never as XML — and ``/anthropic`` streams
+native ``thinking`` blocks (enable thinking in the request).  The
+brand-specific surface is media: image/TTS have their own endpoints
+(request bodies and response shapes), on the platform's ``/v1`` root.
+"""
 
 from __future__ import annotations
 
-import json
-import re
-import uuid
-from typing import List
+import base64
 
-from cliver_core.messages import CLIverMessageChunk, ToolCall
-from cliver_core.provider import CLIverResponse
-from cliver_core.provider.providers import _EngineProvider
-
-# MiniMax wraps tool calls in proprietary XML inside text content
-# instead of using Anthropic-native ``tool_use`` blocks.  Format:
-#
-#   <minimax:tool_call>
-#   <invoke name="tool_name">
-#   <parameter name="arg1">value</parameter>
-#   <parameter name="arg2">["json", "array"]</parameter>
-#   </invoke>
-#   </minimax:tool_call>
-#
-# Multiple <invoke> blocks may appear inside a single <minimax:tool_call>.
-
-# The opening tag may or may not have a leading "<" (both forms seen).
-_TOOL_CALL_RE = re.compile(
-    r"<?minimax:tool_call[>\s](.*?)</minimax:tool_call>",
-    re.DOTALL,
-)
-
-_INVOKE_RE = re.compile(
-    r'<invoke\s+name="([^"]+)"\s*>(.*?)</invoke>',
-    re.DOTALL,
-)
-
-_PARAM_RE = re.compile(
-    r'<parameter\s+name="([^"]+)"\s*>(.*?)</parameter>',
-    re.DOTALL,
-)
-
-# MiniMax built-in tools that cannot be executed locally.
-# The XML is stripped from the response and no ToolCall is created,
-# so the Re-Act loop won't attempt to execute them.
-_MINIMAX_BUILTIN_TOOLS = frozenset({"generate_images"})
+from cliver_core.provider import Provider
+from cliver_core.provider.providers.anthropic import AnthropicProvider
 
 
-def _parse_param_value(raw: str) -> str | int | float | bool | list | dict:
-    """Convert a parameter value string to its natural Python type."""
-    val = raw.strip()
-    # Strip leading/trailing newlines
-    if val.startswith("\n"):
-        val = val[1:]
-    if val.endswith("\n"):
-        val = val[:-1]
-    val = val.strip()
-    # Try JSON (arrays, objects, numbers, booleans, null)
-    try:
-        return json.loads(val)
-    except (json.JSONDecodeError, ValueError):
-        return val
+class _MiniMaxBase(Provider):
+    """MiniMax media quirks shared by the brand's leaf (mixin base, no
+    protocol lock).
 
-
-def _parse_minimax_tool_calls(text: str) -> tuple[str, List[ToolCall]]:
-    """Extract MiniMax XML tool calls from *text*.
-
-    Returns the cleaned text (XML blocks removed) and a list of
-    :class:`ToolCall` objects.
-    """
-    tool_calls: List[ToolCall] = []
-
-    def _replace(m: re.Match) -> str:
-        inner = m.group(1)
-        # A single <minimax:tool_call> may contain multiple <invoke> blocks.
-        for invoke in _INVOKE_RE.finditer(inner):
-            raw_name = invoke.group(1)
-            if raw_name in _MINIMAX_BUILTIN_TOOLS:
-                # MiniMax built-in tool (e.g. generate_images) — not a CLIver
-                # tool.  Skip it so the Re-Act loop doesn't try to execute it.
-                continue
-            args = {}
-            for pm in _PARAM_RE.finditer(invoke.group(2)):
-                args[pm.group(1)] = _parse_param_value(pm.group(2))
-            tool_calls.append(
-                ToolCall(
-                    id=f"minimax_{uuid.uuid4().hex[:8]}",
-                    name=raw_name,
-                    args=args,
-                )
-            )
-        return ""
-
-    cleaned = _TOOL_CALL_RE.sub(_replace, text).strip()
-    return cleaned, tool_calls
-
-
-class MiniMaxProvider(_EngineProvider):
-    """MiniMax provider.
-
-    Filters out params MiniMax doesn't support, remaps the
-    Anthropic-native ``thinking`` key to the canonical ``reasoning_content``
-    key in streaming chunks, and parses MiniMax's proprietary XML tool-call
-    format from text responses.
+    Chat, tools, and thinking are fully native through the generic protocol
+    provider — no option filtering, response rewriting, or chunk remapping.
+    Image/TTS are served on MiniMax's own media domain (brand URLs, body,
+    and response shapes) through the shared base media pipeline.
     """
 
-    supported_protocols = ["openai", "anthropic"]
+    protocol = ""  # intermediate opt-out — leaves lock the protocol
+    brand = "minimax"
 
-    # MiniMax's Anthropic-compatible endpoint uses Bearer auth (same as OpenAI),
-    # not Anthropic's native x-api-key header.
-    _anthropic_use_bearer_auth = True
-
-    # Protocol-specific default URLs. Falls back to ``default_base_url``
-    # for protocols not listed here.
-    _default_base_urls: dict[str, str] = {
-        "openai": "https://api.minimaxi.com/v1",
-        "anthropic": "https://api.minimaxi.com/anthropic",
-    }
-
-    UNSUPPORTED_PARAMS = {
-        "frequency_penalty",
-        "presence_penalty",
-        "logprobs",
-        "logit_bias",
-        "parallel_tool_calls",
-    }
-
-    def filter_options(self, options: dict) -> dict:
-        return {k: v for k, v in options.items() if k not in self.UNSUPPORTED_PARAMS}
-
-    def on_response(self, response: CLIverResponse) -> CLIverResponse:
-        """Parse MiniMax XML tool calls from text content."""
-        msg = response.message
-        if msg.content and isinstance(msg.content, str) and "minimax:tool_call" in msg.content:
-            cleaned, tool_calls = _parse_minimax_tool_calls(msg.content)
-            msg.content = cleaned or None
-            if tool_calls:
-                if msg.tool_calls:
-                    msg.tool_calls.extend(tool_calls)
-                else:
-                    msg.tool_calls = tool_calls
-        return response
-
-    def on_chunk(self, chunk: CLIverMessageChunk) -> CLIverMessageChunk:
-        if "thinking" in chunk.vendor_ext:
-            chunk.vendor_ext["reasoning_content"] = chunk.vendor_ext.pop("thinking")
-        return chunk
-
-    # MiniMax image generation; we override _resolve_media_gen_url so image
-    # requests always go to the correct domain regardless of model-level api_url.
+    # MiniMax media endpoints (image, TTS) live on MiniMax's own domain.
+    # These are the only media endpoints MiniMax serves, so no wire-standard
+    # fallback applies — other purposes report unsupported.
     _MEDIA_GEN_BASE = "https://api.minimaxi.com/v1"
     _media_gen_urls: dict[str, str] = {
         "image": "/image_generation",
+        "tts": "/t2a_v2",
     }
+    _standard_media_fallback = False
 
-    def _resolve_media_gen_url(self, media_type: str) -> str | None:
-        path = self._media_gen_urls.get(media_type)
+    #: T2A requires ``voice_setting.voice_id`` — omitting it fails with
+    #: base_resp 2013 "invalid params, empty field".  The default mirrors
+    #: OpenAIProvider's ``voice="alloy"``.
+    _DEFAULT_TTS_VOICE = "English_expressive_narrator"
+
+    #: TTS options that fold into ``voice_setting`` / ``audio_setting``
+    #: instead of riding the request body's top level.
+    _TTS_VOICE_TUNING = ("speed", "vol", "pitch", "emotion", "text_normalization", "latex_read")
+    _TTS_AUDIO_TUNING = ("sample_rate", "bitrate", "channel")
+
+    def _media_gen_base(self) -> str:
+        """The base URL media POSTs resolve against.
+
+        The configured ``base_url`` wins, so a proxy or the other MiniMax
+        platform (``api.minimax.io``) retargets image/TTS too.  The chat
+        base is anthropic-shaped (``…/anthropic``) — its media lives on the
+        sibling ``…/v1`` root, the same one the brand default names.
+        """
+        base = (self.base_url or self._MEDIA_GEN_BASE).rstrip("/")
+        if base.endswith("/anthropic"):
+            return base[: -len("/anthropic")] + "/v1"
+        return base
+
+    def _resolve_media_gen_url(self, purpose: str, override: str | None = None) -> str | None:
+        path = self.media_path(purpose, override)
         if path is None:
             return None
-        return self._MEDIA_GEN_BASE + path
+        if path.startswith(("http://", "https://")):
+            return path  # absolute override — use as-is
+        return self._media_gen_base().rstrip("/") + path
 
-    def _check_media_response_error(self, data: dict, media_type: str) -> str | None:
+    def _build_media_gen_body(
+        self,
+        prompt: str,
+        model: str,
+        purpose: str,
+        *,
+        media: list | None = None,
+        **options,
+    ) -> dict:
+        """Build the request body — MiniMax's T2A v2 shape for ``tts``.
+
+        The shared pipeline passes the text as *prompt*; T2A calls it
+        ``text``.  ``voice`` → ``voice_setting.voice_id`` (always sent — the
+        vendor requires it), ``response_format`` → ``audio_setting.format``,
+        tuning options fold into the two settings objects, and the audio is
+        requested hex-encoded (MiniMax returns bytes as hex, not base64).
+        Other purposes use the default body.
+        """
+        if purpose != "tts":
+            return super()._build_media_gen_body(prompt, model, purpose, media=media, **options)
+
+        voice_setting: dict = {"voice_id": options.pop("voice", None) or self._DEFAULT_TTS_VOICE}
+        audio_setting: dict = {"format": options.pop("response_format", None) or "mp3"}
+        for key in self._TTS_VOICE_TUNING:
+            if key in options:
+                voice_setting[key] = options.pop(key)
+        for key in self._TTS_AUDIO_TUNING:
+            if key in options:
+                audio_setting[key] = options.pop(key)
+
+        return {
+            "model": model,
+            "text": prompt,
+            "output_format": "hex",
+            "voice_setting": voice_setting,
+            "audio_setting": audio_setting,
+            **options,
+        }
+
+    def _check_media_response_error(self, data: dict, purpose: str) -> str | None:
         """MiniMax wraps errors in ``base_resp`` even on HTTP 200."""
         base = data.get("base_resp", {})
         if isinstance(base, dict) and base.get("status_code", 0) != 0:
             return base.get("status_msg", f"error code {base.get('status_code')}")
+        if purpose == "tts":
+            # A syntactically successful envelope can still carry no audio —
+            # surface that as an error instead of a silent "Generated 0".
+            inner = data.get("data")
+            audio = inner.get("audio") if isinstance(inner, dict) else None
+            if not isinstance(audio, str) or not audio:
+                return "response carried no audio payload"
+            try:
+                bytes.fromhex(audio)
+            except ValueError:
+                return "audio payload is not valid hex"
         return None
 
-    def _extract_media_items(self, data: dict, media_type: str) -> list[dict]:
-        """MiniMax returns images in ``image_urls`` (list of strings)."""
+    def _extract_media_items(self, data: dict, purpose: str) -> list[dict]:
+        """MiniMax returns images in ``image_urls``; TTS audio hex in ``data.audio``."""
+        if purpose == "tts":
+            inner = data.get("data")
+            audio = inner.get("audio") if isinstance(inner, dict) else None
+            if not isinstance(audio, str) or not audio:
+                return []
+            return [{"b64_json": base64.b64encode(bytes.fromhex(audio)).decode()}]
         # Try nested: data.data.image_urls
         inner = data.get("data", data)
         image_urls = inner.get("image_urls") or data.get("image_urls") or []
         return [{"url": u} for u in image_urls if isinstance(u, str)]
 
-    async def generate(
-        self, prompt: str, *, model: str, media_type: str = "image", media=None, output_dir=None, **options
-    ) -> CLIverResponse:
-        """Generate media via MiniMax's dedicated API endpoints.
 
-        We bypass the engine and use :meth:`_http_generate` to POST
-        directly to the media endpoint.
-        """
-        if media_type != "image":
-            raise ValueError(f"MiniMax only supports image generation, not {media_type}.")
-        return await self._http_generate(prompt, model=model, media_type=media_type, output_dir=output_dir, **options)
+class MiniMaxAnthropicProvider(_MiniMaxBase, AnthropicProvider):
+    """MiniMax Anthropic-compatible endpoint — the brand's chat leaf.
+
+    Uses Bearer auth (same as OpenAI), not Anthropic's native x-api-key
+    header.
+    """
+
+    protocol = "anthropic"  # explicit: the mixin's "" opt-out precedes the base in MRO
+    default_base_url = "https://api.minimaxi.com/anthropic"
+    _anthropic_use_bearer_auth = True

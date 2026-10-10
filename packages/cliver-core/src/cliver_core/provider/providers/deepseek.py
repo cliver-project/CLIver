@@ -1,42 +1,34 @@
-"""DeepSeek: reasoning_content round-tripping on every assistant message."""
+"""DeepSeek provider classes (OpenAI and Anthropic endpoints).
+
+DeepSeek ships no SDK: both leaves are plain protocol providers carrying just
+the brand identity and the endpoint default URL — no behavioral overrides.
+``reasoning_content`` round-trips through ``CLIverMessage.native``: the field
+sits in the native payload on responses and passes through unchanged when the
+message is echoed back on the next request.
+"""
 
 from __future__ import annotations
 
-from cliver_core.messages import CLIverMessage, CLIverMessageChunk
-from cliver_core.provider import CLIverResponse
-from cliver_core.provider.providers import _EngineProvider
+from cliver_core.provider.providers.anthropic import AnthropicProvider
+from cliver_core.provider.providers.openai import OpenAIProvider
 
 
-class DeepSeekProvider(_EngineProvider):
-    """DeepSeek provider.
+class DeepSeekOpenAIProvider(OpenAIProvider):
+    """DeepSeek OpenAI-compatible endpoint."""
 
-    Injects ``reasoning_content`` into every assistant message sent to
-    the API, and extracts it from responses into ``vendor_ext`` so it
-    round-trips correctly across multi-turn conversations.
-    """
+    brand = "deepseek"
+    default_base_url = "https://api.deepseek.com/v1"
+    # DeepSeek serves chat only — no media endpoints.  Media purposes report
+    # unsupported up front instead of posting to the wire-standard paths; an
+    # explicit binding ``path=`` still opts a purpose in.
+    _standard_media_fallback = False
 
-    supported_protocols = ["openai", "anthropic"]
 
-    # DeepSeek's Anthropic-compatible endpoint uses Bearer auth (same as OpenAI),
-    # not Anthropic's native x-api-key header.
+class DeepSeekAnthropicProvider(AnthropicProvider):
+    """DeepSeek Anthropic-compatible endpoint."""
+
+    brand = "deepseek"
+    default_base_url = "https://api.deepseek.com/anthropic"
+    # This endpoint accepts both Bearer and x-api-key (verified live); Bearer
+    # matches the other third-party Anthropic-compatible endpoints.
     _anthropic_use_bearer_auth = True
-
-    _default_base_urls: dict[str, str] = {
-        "openai": "https://api.deepseek.com/v1",
-        "anthropic": "https://api.deepseek.com/anthropic",
-    }
-
-    def msg_to_native(self, msg: CLIverMessage) -> dict:
-        native = self.engine.msg_to_native(msg)
-        if msg.role == "assistant" and "reasoning_content" in msg.vendor_ext:
-            native["reasoning_content"] = msg.vendor_ext["reasoning_content"]
-        return native
-
-    def on_response(self, response: CLIverResponse) -> CLIverResponse:
-        rc = response.message.vendor_ext.get("reasoning_content")
-        if rc:
-            response.message.vendor_ext["reasoning_content"] = rc
-        return response
-
-    def on_chunk(self, chunk: CLIverMessageChunk) -> CLIverMessageChunk:
-        return chunk

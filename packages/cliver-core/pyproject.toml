@@ -5,21 +5,33 @@ description = "CLIver — embeddable AgentCore library"
 requires-python = ">=3.10"
 dependencies = [
     "pydantic>=2.0.0",
-    "tomli; python_version < '3.11'",
+    "openai>=3.0.0",
+    "anthropic>=1.0.0",
+    "httpx>=0.28.0",
 ]
 
-# Extras are declared empty here; they are filled in by later phases:
-# openai = ["openai>=1.0.0"]
-# anthropic = ["anthropic>=0.50.0"]
-# mcp = ["mcp>=1.2.1"]
-# mediagen = ["httpx>=0.24.0"]
-# all = [...]
+# Optional integrations.  The chat stack (both SDKs + httpx for the
+# provider-level media/embed/rerank endpoints) is a hard dependency —
+# cliver-core speaks the native SDK message structures directly.
+# SDK floors sit at the verified major lines (openai 3.x, anthropic 1.x,
+# httpx 0.28.x — its breaking axis pre-1.0) rather than pinning patch
+# releases: the transports derive each SDK call's typed parameters at
+# import time via signature introspection, so newer releases within the
+# line are picked up automatically.
+# The `cliver.provider_sdks` entry-point group stays reserved for third
+# parties to register brand SDK adapters; cliver-core registers none itself.
+[project.optional-dependencies]
+mcp = ["mcp>=2.0.0"]
+all = ["cliver-core[mcp]"]
 
 [dependency-groups]
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=1.2.0",
     "ruff>=0.0.270",
+    # The HTTP stack the official SDKs ship on; tests mock at that layer
+    # (MockTransport) to exercise the SDK parse path.
+    "httpx2>=2.0.0",
 ]
 
 [project.urls]

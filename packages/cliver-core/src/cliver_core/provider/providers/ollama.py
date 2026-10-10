@@ -2,14 +2,18 @@
 
 from __future__ import annotations
 
-from cliver_core.provider.providers import _EngineProvider
+from cliver_core.provider.providers.openai import OpenAIProvider
 
 
-class OllamaProvider(_EngineProvider):
+class OllamaProvider(OpenAIProvider):
     """Ollama provider (local, no API key needed)."""
 
-    supported_protocols = ["openai"]
+    brand = "ollama"
     default_base_url = "http://localhost:11434/v1"
+    # Local server: no generation endpoints — media purposes report
+    # unsupported up front.  Embeddings keep the protocol default
+    # (``/v1/embeddings`` works); the opt-out is media-scoped.
+    _standard_media_fallback = False
 
     UNSUPPORTED_PARAMS = {
         "frequency_penalty",

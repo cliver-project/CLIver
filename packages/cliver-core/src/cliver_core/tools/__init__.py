@@ -1,13 +1,12 @@
 """Builtin tools that ship with cliver-core.
 
-Only the 10 already-pure tools are registered here. CLI-coupled tools
+Only the 9 already-pure tools are registered here. CLI-coupled tools
 (ask_user_question, cliver_help, create_task, memory, search_sessions,
 web_search, image_generate, skill, browse_web, browser_action) are
 re-derived in later phases.
 """
 
 from cliver_core.tool import CLIverTool
-from cliver_core.tools.docker_run import docker_run
 from cliver_core.tools.execute_code import execute_code
 from cliver_core.tools.grep_search import grep_search
 from cliver_core.tools.list_directory import list_directory
@@ -32,7 +31,6 @@ def discover_builtin_tools() -> list[CLIverTool]:
         grep_search,
         run_shell_command,
         execute_code,
-        docker_run,
         todo_read,
         todo_write,
         web_fetch,
@@ -46,7 +44,6 @@ __all__ = [
     "grep_search",
     "run_shell_command",
     "execute_code",
-    "docker_run",
     "todo_read",
     "todo_write",
     "web_fetch",

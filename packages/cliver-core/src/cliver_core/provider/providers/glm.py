@@ -1,21 +1,23 @@
-"""Zhipu GLM: OpenAI-compatible with parameter constraints."""
+"""Zhipu GLM: OpenAI- and Anthropic-compatible endpoints."""
 
 from __future__ import annotations
 
-from cliver_core.provider.providers import _EngineProvider
+from cliver_core.provider.providers.anthropic import AnthropicProvider
+from cliver_core.provider.providers.openai import OpenAIProvider
 
 
-class GLMProvider(_EngineProvider):
-    """Zhipu / GLM provider."""
+class GLMProvider(OpenAIProvider):
+    """Zhipu / GLM provider (OpenAI-compatible endpoint)."""
 
-    supported_protocols = ["openai"]
+    brand = "glm"
     default_base_url = "https://open.bigmodel.cn/api/paas/v4"
 
-    UNSUPPORTED_PARAMS = {
-        "frequency_penalty",
-        "presence_penalty",
-        "logit_bias",
-    }
 
-    def filter_options(self, options: dict) -> dict:
-        return {k: v for k, v in options.items() if k not in self.UNSUPPORTED_PARAMS}
+class GLMAnthropicProvider(AnthropicProvider):
+    """Zhipu GLM Anthropic-compatible endpoint (Claude Code-style base URL)."""
+
+    brand = "glm"
+    default_base_url = "https://open.bigmodel.cn/api/anthropic"
+    # This endpoint accepts both Bearer and x-api-key; Bearer matches the
+    # other third-party Anthropic-compatible endpoints (DeepSeek, MiniMax).
+    _anthropic_use_bearer_auth = True
