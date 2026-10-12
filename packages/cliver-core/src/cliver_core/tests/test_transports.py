@@ -140,6 +140,8 @@ def test_resolve_empty_key_names_the_brand_env_var() -> None:
         resolve_brand_sdk("openai", api_key="", base_url="https://api.deepseek.com/v1", brand="deepseek")
     with pytest.raises(ValueError, match="'glm' provider needs an API key"):
         resolve_brand_sdk("anthropic", api_key="", base_url="https://open.bigmodel.cn/api/anthropic", brand="glm")
+    with pytest.raises(ValueError, match="SEEDANCE_API_KEY"):
+        resolve_brand_sdk("openai", api_key="", base_url="https://ark.cn-beijing.volces.com/api/v3", brand="seedance")
 
 
 def test_resolve_empty_key_without_env_entry_offers_the_placeholder() -> None:
@@ -193,6 +195,10 @@ async def test_create_provider_picks_transport_by_brand() -> None:
     assert openai.transport.label == "openai-sdk"
     await openai.close()
 
+    seedance = create_provider(api_key="k", protocol="openai", provider_name="seedance")
+    assert seedance.transport.label == "openai-sdk"
+    await seedance.close()
+
 
 # ── SDK transports (official SDKs + httpx.MockTransport) ───────
 
@@ -222,6 +228,7 @@ async def test_openai_sdk_pipe_returns_wire_dicts() -> None:
                     "multipart": request.headers["content-type"].startswith("multipart/form-data"),
                     "has_model": b"whisper-1" in raw,
                     "has_file": b"RIFF-DATA" in raw,
+                    "language": request.headers.get("language"),
                 }
             )
             return httpx.Response(200, json={"text": "hello world"})
@@ -403,9 +410,10 @@ async def test_openai_sdk_pipe_returns_wire_dicts() -> None:
         "/audio/transcriptions",
         {"model": "whisper-1", "language": "en"},
         files={"file": ("clip.wav", b"RIFF-DATA", "audio/wav")},
+        headers={"language": "en"},
     )
     assert asr["text"] == "hello world"
-    assert posts[-1] == {"multipart": True, "has_model": True, "has_file": True}
+    assert posts[-1] == {"multipart": True, "has_model": True, "has_file": True, "language": "en"}
 
     await transport.close()
 
@@ -495,6 +503,9 @@ async def test_openai_sdk_pipe_restores_a_vendor_repeated_role() -> None:
                     "multipart": request.headers["content-type"].startswith("multipart/form-data"),
                     "has_model": b"whisper-1" in raw,
                     "has_file": b"RIFF-DATA" in raw,
+                    "language": request.headers.get("language"),
+                    # the client's own auth header must survive the merge
+                    "api_key": request.headers.get("x-api-key"),
                 }
             )
             return httpx2.Response(200, json={"text": "hello world"})
@@ -621,9 +632,16 @@ async def test_openai_sdk_pipe_restores_a_vendor_repeated_role() -> None:
         "/audio/transcriptions",
         {"model": "whisper-1", "language": "en"},
         files={"file": ("clip.wav", b"RIFF-DATA", "audio/wav")},
+        headers={"language": "en"},
     )
     assert asr["text"] == "hello world"
-    assert posts[-1] == {"multipart": True, "has_model": True, "has_file": True}
+    assert posts[-1] == {
+        "multipart": True,
+        "has_model": True,
+        "has_file": True,
+        "language": "en",
+        "api_key": "k",
+    }
 
     await transport.close()
 

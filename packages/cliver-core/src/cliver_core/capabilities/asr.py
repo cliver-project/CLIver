@@ -51,9 +51,18 @@ async def transcribe_audio(
             definition, its cached provider, the endpoint ``path`` override,
             and the default parameters.  Model configuration is never passed
             as loose arguments.
-        language: Optional ISO language hint for the transcription.
+        language: Optional language hint for the transcription — a BCP-47
+            tag (``en``, ``zh``, …).  Sent as a multipart form field in the
+            OpenAI fashion, or an HTTP header on providers that take it
+            there (MiniMax); omit it on those providers for mixed-language
+            recognition.
         **options: Extra transcription parameters, forwarded verbatim — a
             call-site ``path`` overrides the binding's endpoint path.
+            ``response_format`` selects the transcript shape: ``json`` /
+            ``verbose_json`` put the transcript in ``.message.content``,
+            while ``srt`` / ``vtt`` deliver timed subtitles as plain text.
+            ``stream=True`` raises ``ValueError`` — streaming transcription
+            is not implemented.
 
     Returns:
         A :class:`~cliver_core.provider.CLIverResponse`; the transcript is in

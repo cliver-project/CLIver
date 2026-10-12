@@ -101,6 +101,7 @@ class AnthropicSDK:
         *,
         files: dict | None = None,
         binary: bool = False,
+        headers: dict | None = None,
     ) -> Any:
         options: dict[str, Any] = {}
         if files is not None:
@@ -108,6 +109,11 @@ class AnthropicSDK:
             # lets httpx generate the boundary) when this header is set;
             # without it, `body` would be dropped from the request.
             options["headers"] = {"Content-Type": "multipart/form-data"}
+        if headers:
+            # Per-request extras (e.g. MiniMax's transcription `language`)
+            # merge over the multipart Content-Type; the client's default
+            # headers (auth) are untouched.
+            options["headers"] = {**options.get("headers", {}), **headers}
         raw = await self._client.post(path, cast_to=bytes, body=body or None, files=files, options=options)
         if binary:
             return raw

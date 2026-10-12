@@ -1,14 +1,21 @@
 """Provider interface and request/response models."""
 
 import base64
+import inspect
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, AsyncIterator
+from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable, Union
 
 from pydantic import BaseModel, Field
 
 from cliver_core.errors import CapabilityNotSupported
-from cliver_core.media import MediaContent, MediaType, resolve_media_mime
+from cliver_core.media import (
+    MediaContent,
+    MediaType,
+    extension_from_mime,
+    media_type_from_mime,
+    resolve_media_mime,
+)
 from cliver_core.messages import CLIverMessage, CLIverMessageChunk, UsageInfo
 from cliver_core.tool import CLIverTool
 
@@ -16,6 +23,17 @@ if TYPE_CHECKING:
     from cliver_core.provider.transport import BrandSDK
 
 logger = logging.getLogger(__name__)
+
+
+def _stream_requested(value: Any) -> bool:
+    """Wire truthiness of a ``stream`` option.
+
+    Vendor samples send the flag as the *string* ``"false"``, so only a real
+    ``True`` or an affirmative string counts as a streaming request.
+    """
+    if isinstance(value, str):
+        return value.strip().lower() in ("true", "1", "yes", "on")
+    return bool(value)
 
 
 class CLIverRequest(BaseModel):
@@ -44,6 +62,13 @@ class CLIverResponse(BaseModel):
     # Diagnostics echo of the request that produced this response
     # (model, provider, options, system_prompt, messages, tools) —
     # AgentCore collects it into the Re-Act trace.
+
+
+#: ``generate_media(output_handler=...)`` — a sync or async callable that turns
+#: the raw media payload (the parsed JSON body, or bytes when the request asked
+#: for a binary response) into the final :class:`CLIverResponse`, replacing the
+#: default output handling entirely.
+MediaOutputHandler = Callable[[Any], Union[CLIverResponse, Awaitable[CLIverResponse]]]
 
 
 class RerankItem(BaseModel):
@@ -165,6 +190,11 @@ class Provider(ABC):
     #: Purposes whose response payload is raw bytes, not JSON (per protocol).
     _BINARY_MEDIA_PURPOSES: frozenset[str] = frozenset()
 
+    #: Option keys a transcription routes to HTTP headers instead of multipart
+    #: form fields, per brand (MiniMax takes ``language`` as a BCP-47 header).
+    #: Empty (the default) = every option is a form field (OpenAI fashion).
+    _TRANSCRIBE_HEADER_OPTIONS: tuple[str, ...] = ()
+
     #: User-facing labels for purposes whose key is not the plain word.
     _UNSUPPORTED_MEDIA_LABELS: dict[str, str] = {"asr": "audio transcription"}
 
@@ -187,21 +217,27 @@ class Provider(ABC):
         "opus": ("audio/opus", "opus"),
     }
 
-    def _media_kind(self, purpose: str, options: dict[str, Any]) -> tuple[MediaType, str, str]:
+    def _media_kind(
+        self, purpose: str, options: dict[str, Any], *, mime: str | None = None
+    ) -> tuple[MediaType, str, str]:
         """Resolve (kind, mime, extension) for the shared HTTP media flow.
 
-        For TTS a requested ``response_format`` wins over the static default,
-        so ``response_format="wav"`` writes ``generated_0.wav`` with
+        An explicit *mime* (``generate_media(mime=...)``) labels the output of
+        purposes outside :attr:`_MEDIA_KINDS` and wins over the purpose
+        default.  For TTS a requested ``response_format`` wins over the static
+        default, so ``response_format="wav"`` writes ``generated_0.wav`` with
         ``audio/wav`` instead of mislabeling the bytes ``.mp3``.
         """
-        default = self._MEDIA_KINDS.get(purpose, (MediaType.IMAGE, "application/octet-stream", "bin"))
+        if mime:
+            return (media_type_from_mime(mime), mime, extension_from_mime(mime))
+        default = self._MEDIA_KINDS.get(purpose, (MediaType.FILE, "application/octet-stream", "bin"))
         if purpose != "tts":
             return default
         fmt = options.get("response_format")
         if not isinstance(fmt, str) or not fmt:
             return default
-        mime, ext = self._AUDIO_FORMAT_KINDS.get(fmt.lower(), (f"audio/{fmt.lower()}", fmt.lower()))
-        return (MediaType.AUDIO, mime, ext)
+        item_mime, ext = self._AUDIO_FORMAT_KINDS.get(fmt.lower(), (f"audio/{fmt.lower()}", fmt.lower()))
+        return (MediaType.AUDIO, item_mime, ext)
 
     # Per-purpose request paths by wire protocol — the standard wire fashion
     # (OpenAI-style endpoint names).  Brand classes override individual
@@ -297,6 +333,23 @@ class Provider(ABC):
             return []
         return [item for item in raw if isinstance(item, dict)]
 
+    async def _await_media_result(self, raw: Any, purpose: str, url: str, options: dict[str, Any]) -> Any:
+        """Resolve an async vendor's job object into its finished payload.
+
+        Some vendors answer the create POST with a *task id* — the result
+        only exists once the task finishes (Seedance video).  This is the
+        seam where such a vendor waits; the default is **inert** (returns
+        *raw* unchanged), so one-shot vendors are byte-identical.
+
+        *url* is the create endpoint exactly as POSTed (a poller derives the
+        task URL from it, honoring a call-site ``path=``), and *options* the
+        call's request options: the body was already built from a copy, so a
+        poller may consume its own keys (e.g. ``poll_interval``) here without
+        touching the wire.  Whatever is returned reaches output handling —
+        *output_handler*, or the envelope check + :meth:`_extract_media_items`.
+        """
+        return raw
+
     def _resolve_media_gen_url(self, purpose: str, override: str | None = None) -> str | None:
         """Resolve the URL for a media generation endpoint.
 
@@ -323,7 +376,15 @@ class Provider(ABC):
             return self.base_url.rstrip("/") + "/" + path.lstrip("/")
         return path
 
-    async def _post_media(self, url: str, body: dict, *, files: dict | None = None, binary: bool = False):
+    async def _post_media(
+        self,
+        url: str,
+        body: dict,
+        *,
+        files: dict | None = None,
+        binary: bool = False,
+        headers: dict | None = None,
+    ):
         """POST one media request through the transport — the single sender seam.
 
         Media traffic is transport I/O exactly like chat: the URL is the
@@ -331,14 +392,21 @@ class Provider(ABC):
         SDK transports pass absolute URLs through verbatim), and brand
         differences live in the body/response hooks — never in a second
         HTTP stack.
+
+        *headers* carries per-request extras for brands that take an option
+        as an HTTP header (e.g. MiniMax's transcription ``language``); it is
+        passed to the transport only when non-empty, so transports on the
+        older four-argument ``post`` signature keep working.
         """
         if self.transport is None:
             raise RuntimeError(
                 f"{self.provider_name()} has no transport — media generation requires a protocol provider"
             )
+        if headers:
+            return await self.transport.post(url, body, files=files, binary=binary, headers=headers)
         return await self.transport.post(url, body, files=files, binary=binary)
 
-    async def _generate_media(
+    async def generate_media(
         self,
         prompt: str,
         *,
@@ -346,22 +414,104 @@ class Provider(ABC):
         purpose: str = "image",
         media: list[MediaContent] | None = None,
         output_dir: str | None = None,
+        path: str | None = None,
+        mime: str | None = None,
+        binary: bool | None = None,
+        output_handler: MediaOutputHandler | None = None,
         **options: Any,
     ) -> CLIverResponse:
-        """Generate media — the single pipeline every provider shares.
+        """Generate any media kind — the public, extensible media pipeline.
 
-        Resolves the endpoint URL (*purpose* → ``path=`` override / brand map
-        / protocol default), POSTs through the transport, and turns the
-        payload into :class:`MediaContent` items (saved to *output_dir*).  A
-        purpose with no resolvable endpoint raises
+        Resolves the endpoint URL (*purpose* → *path* → brand map → protocol
+        default), POSTs through the provider's transport, and turns the
+        payload into :class:`MediaContent` items (saved to *output_dir*).  The
+        four built-in kinds are this same seam behind their shorthand
+        methods — ``provider.image(prompt, model)`` is exactly
+        ``provider.generate_media(prompt, model=model, purpose="image")``
+        (likewise ``video()`` / ``tts()`` / ``asr()``).
+
+        *options* pass through into the request body verbatim — there is no
+        fixed option list; whatever the vendor's API documents is what you
+        pass.  The response is expected in the OpenAI fashion,
+        ``{"data": [{"url": ... | "b64_json": ...}]}``; a vendor with a
+        different shape is supported by overriding the hooks in a provider
+        subclass (:meth:`_build_media_gen_body`, :meth:`_extract_media_items`,
+        :meth:`_check_media_response_error`, :meth:`_await_media_result`,
+        ``_media_gen_urls``) — or by taking over output handling completely
+        with *output_handler*.
+
+        A purpose with no resolvable endpoint raises
         :class:`CapabilityNotSupported` before anything reaches the wire;
         runtime failures return a friendly :class:`CLIverResponse`.
+
+        Common media kinds::
+
+            # image — built-in purposes need no path= at all
+            await provider.image("a cat on a mat", "image-01",
+                                 size="1024x1024", n=2, output_dir="out/")
+            # image editing — the reference rides media=
+            await provider.image("make it watercolor", "image-01",
+                                 media=[load_media_file("cat.png")])
+
+            # video
+            await provider.generate_media("a sunset over the sea", model="video-01",
+                                          purpose="video", duration=6, resolution="1080p")
+
+            # text-to-speech
+            await provider.tts("hello world", "speech-2.5",
+                               voice="English_expressive_narrator", output_dir="out/")
+
+            # speech-to-text — a reserved purpose: multipart in, transcript out
+            await provider.asr(load_media_file("talk.mp3"), "whisper-1", language="en")
+
+            # music — a kind the core does not model: pick a purpose name,
+            # point path= at the endpoint, pass the vendor's parameters
+            await provider.generate_media("calm piano loop", model="music-1",
+                                          purpose="music", path="/v1/music/generate",
+                                          duration=30, output_format="mp3", mime="audio/mpeg")
+
+            # sound effects
+            await provider.generate_media("thunder crack", model="sfx-1",
+                                          purpose="sfx", path="/v1/sfx", duration=3)
+
+            # a 3-D mesh — a bytes-out endpoint: binary=True brings the raw
+            # payload, mime= labels it
+            await provider.generate_media("a low-poly teapot", model="mesh-1",
+                                          purpose="3d", path="/v1/meshes", format="glb",
+                                          mime="model/gltf-binary", binary=True, output_dir="out/")
+
+            # full output handover — only a successful POST (resolved through
+            # the async-vendor hook) reaches the handler; it receives the raw
+            # payload (parsed JSON, or bytes with binary=True) and owns
+            # everything after that
+            def pick_track(body: dict) -> CLIverResponse:
+                track = body["tracks"][0]
+                return CLIverResponse(
+                    message=CLIverMessage(role="assistant", content=track["title"]),
+                    media=[MediaContent(type=MediaType.AUDIO, data=track["data"], mime_type="audio/mpeg")],
+                )
+
+            await provider.generate_media("calm piano loop", model="music-1",
+                                          purpose="music", path="/v1/music/generate",
+                                          output_handler=pick_track)
+
+        Output knobs: *mime* is the label of last resort — payload magic bytes
+        or the URL's own format still win (:func:`resolve_media_mime`).
+        *binary* asks the transport for raw bytes (default: the protocol's
+        ``_BINARY_MEDIA_PURPOSES`` policy).  *output_handler* must return a
+        :class:`CLIverResponse` (sync or async); nothing else touches the
+        payload then — no error envelope check, no extraction, no mime
+        resolution, no saving.  All three are generation-only:
+        ``purpose="asr"`` rejects them with ``ValueError``.
 
         ``timeout`` is consumed for call-site compatibility (the transport's
         client owns request timeouts) so it never leaks into the body.
         """
+        # The legacy alias, normalized before path resolution — media_path()
+        # does the same, and everything downstream keys on "tts".
+        purpose = "tts" if purpose == "audio" else purpose
         options.pop("timeout", None)
-        url = self._resolve_media_gen_url(purpose, options.pop("path", None))
+        url = self._resolve_media_gen_url(purpose, path)
         if not url:
             label = self._UNSUPPORTED_MEDIA_LABELS.get(purpose, purpose)
             raise CapabilityNotSupported(
@@ -372,6 +522,15 @@ class Provider(ABC):
             )
 
         if purpose == "asr":
+            # Raised here, before the generation try/except, so the guard is
+            # never swallowed into a friendly failure response.
+            knobs = {"mime": mime, "binary": binary, "output_handler": output_handler}
+            generation_only = [name for name, value in knobs.items() if value is not None]
+            if generation_only:
+                raise ValueError(
+                    f"{', '.join(generation_only)}= is generation-only and does not apply to "
+                    "transcription (purpose='asr') — use response_format for the transcript shape"
+                )
             if not isinstance(media, MediaContent):
                 raise TypeError("asr() expects a MediaContent instance")
             return await self._transcribe(media, model, url, options)
@@ -385,6 +544,9 @@ class Provider(ABC):
                 output_dir=output_dir,
                 url=url,
                 options=options,
+                mime=mime,
+                binary=binary,
+                output_handler=output_handler,
             )
         except Exception as e:
             self.logger.warning("%s %s generation failed: %s", self.provider_name(), purpose, e)
@@ -400,17 +562,40 @@ class Provider(ABC):
         output_dir: str | None,
         url: str,
         options: dict[str, Any],
+        mime: str | None = None,
+        binary: bool | None = None,
+        output_handler: MediaOutputHandler | None = None,
     ) -> CLIverResponse:
         """One non-ASR media request: build the body, POST it, wrap the payload."""
         from pathlib import Path
 
-        kind, mime, ext = self._media_kind(purpose, options)
-        binary = purpose in self._BINARY_MEDIA_PURPOSES
+        resolved_binary = purpose in self._BINARY_MEDIA_PURPOSES if binary is None else binary
         body = self._build_media_gen_body(prompt, model, purpose, media=media, **options)
 
-        raw = await self._post_media(url, body, binary=binary)
+        raw = await self._post_media(url, body, binary=resolved_binary)
+        # Async vendors (create → task id → poll) resolve their job object
+        # here; the default hook is a passthrough, so one-shot vendors are
+        # byte-identical.  Safe to consume options: the body above got a copy.
+        raw = await self._await_media_result(raw, purpose, url, options)
 
-        if binary:
+        # A caller-supplied handler sees the raw payload — parsed JSON, or the
+        # bytes we just asked the transport for — and owns everything after
+        # the POST.  It runs inside the caller's try/except, so a raising
+        # handler surfaces as the friendly failure response, like any other
+        # pipeline error.
+        if output_handler is not None:
+            result = output_handler(raw)
+            if inspect.isawaitable(result):
+                result = await result
+            if not isinstance(result, CLIverResponse):
+                raise TypeError(f"output_handler must return a CLIverResponse, got {type(result).__name__}")
+            return result
+
+        # Resolved after the POST: the body builder above received a fresh dict
+        # (``**options``), so reading the options here never mutates the request.
+        kind, item_default_mime, ext = self._media_kind(purpose, options, mime=mime)
+
+        if resolved_binary:
             raw_items: list[dict] = [{"b64_json": base64.b64encode(raw).decode()}] if raw else []
         else:
             # Check for provider-specific error envelopes in the JSON body
@@ -446,7 +631,7 @@ class Provider(ABC):
                     payload = base64.b64decode(data)
                 except (ValueError, TypeError):
                     payload = None
-            item_mime = resolve_media_mime(mime, url=item_url, payload=payload)
+            item_mime = resolve_media_mime(item_default_mime, url=item_url, payload=payload)
             media_items.append(MediaContent(type=kind, data=data, mime_type=item_mime))
 
         # Save to disk — same pattern for ALL providers.
@@ -454,7 +639,7 @@ class Provider(ABC):
             out = Path(output_dir)
             out.mkdir(parents=True, exist_ok=True)
             for i, mc in enumerate(media_items):
-                if mc.mime_type != mime:  # the item's real format won over the default
+                if mc.mime_type != item_default_mime:  # the item's real format won over the default
                     item_ext = mc.get_file_extension().removeprefix(".")
                 else:
                     item_ext = ext
@@ -476,21 +661,51 @@ class Provider(ABC):
         url: str,
         options: dict[str, Any],
     ) -> CLIverResponse:
-        """One multipart transcription request — text out, friendly on failure."""
+        """One multipart transcription request — text out, friendly on failure.
+
+        ``stream`` is consumed, not forwarded: SSE transcripts are not part
+        of the one-shot pipeline, so a truthy value is rejected before the
+        wire (a falsy one, including the vendor samples' ``"false"`` string,
+        just keeps the vendor's non-streaming default).  Options listed in
+        ``_TRANSCRIBE_HEADER_OPTIONS`` ride HTTP headers instead of the
+        multipart body (MiniMax's ``language``); everything else, including
+        the OpenAI-fashion ``language`` form field, rides the body.  A
+        ``response_format`` of ``text`` / ``srt`` / ``vtt`` returns a plain
+        text body — requested as raw bytes and decoded.
+        """
+        if _stream_requested(options.pop("stream", None)):
+            raise ValueError(
+                "streaming transcription is not supported — remove stream=True "
+                "(the pipeline reads the final transcript in one shot)"
+            )
+
+        headers: dict[str, str] = {}
+        for key in self._TRANSCRIBE_HEADER_OPTIONS:
+            value = options.pop(key, None)
+            if value:  # Provider.asr() always passes language=None down
+                headers[key] = value
+
         language = options.pop("language", None)
         filename = media.filename or f"audio{media.get_file_extension()}"
+        response_format = options.get("response_format")
+        plain_text = isinstance(response_format, str) and response_format.lower() in ("text", "srt", "vtt")
         body: dict[str, Any] = {"model": model, **options}
         if language:
             body["language"] = language
         files = {"file": (filename, media.to_bytes(), media.mime_type)}
 
         try:
-            result = await self._post_media(url, body, files=files)
+            result = await self._post_media(url, body, files=files, binary=plain_text, headers=headers)
         except Exception as e:
             self.logger.warning("%s asr API error: %s", self.provider_name(), e)
             return self._media_failure_response("asr", e)
 
-        text = result.get("text", "") if isinstance(result, dict) else str(result)
+        if isinstance(result, (bytes, bytearray)):
+            text = bytes(result).decode("utf-8", errors="replace")
+        elif isinstance(result, dict):
+            text = result.get("text", "")
+        else:
+            text = str(result)
         return CLIverResponse(
             message=CLIverMessage(role="assistant", content=text),
         )
@@ -516,11 +731,22 @@ class Provider(ABC):
     ) -> CLIverResponse:
         """Generate images — POST to the resolved image endpoint.
 
-        The endpoint path resolves via ``options["path"]`` (set by the call
-        site, model binding, or provider) → brand map → protocol default; a
-        purpose with no path raises :class:`CapabilityNotSupported`.
+        Example::
+
+            result = await provider.image("a cat on a mat", "image-01",
+                                          size="1024x1024", n=2, output_dir="out/")
+            # image editing — the reference rides media=
+            result = await provider.image("make it watercolor", "image-01",
+                                          media=[load_media_file("cat.png")])
+
+        The endpoint path resolves via ``path=`` (call-site option, model
+        binding, or brand map) → protocol default; a purpose with no path
+        raises :class:`CapabilityNotSupported`.  All other *options* pass
+        into the request body verbatim.  See :meth:`generate_media` for the
+        full pipeline (custom kinds, ``mime=`` / ``binary=`` /
+        ``output_handler=``).
         """
-        return await self._generate_media(
+        return await self.generate_media(
             prompt, model=model, purpose="image", media=media, output_dir=output_dir, **options
         )
 
@@ -535,10 +761,15 @@ class Provider(ABC):
     ) -> CLIverResponse:
         """Generate video — POST to the resolved video endpoint.
 
+        Example::
+
+            result = await provider.video("a sunset over the sea", "video-01",
+                                          duration=6, resolution="1080p", output_dir="out/")
+
         *media* is accepted for a uniform capability-call shape; the wire
-        video endpoint takes the prompt only.
+        video endpoint takes the prompt only.  See :meth:`generate_media`.
         """
-        return await self._generate_media(
+        return await self.generate_media(
             prompt, model=model, purpose="video", media=media, output_dir=output_dir, **options
         )
 
@@ -550,8 +781,19 @@ class Provider(ABC):
         output_dir: str | None = None,
         **options,
     ) -> CLIverResponse:
-        """Synthesize speech — POST to the resolved TTS endpoint."""
-        return await self._generate_media(text, model=model, purpose="tts", output_dir=output_dir, **options)
+        """Synthesize speech — POST to the resolved TTS endpoint.
+
+        Example::
+
+            result = await provider.tts("hello world", "speech-2.5",
+                                        voice="English_expressive_narrator", output_dir="out/")
+            # response_format drives the label: generated_0.wav, audio/wav
+            result = await provider.tts("hello world", "speech-2.5", response_format="wav")
+
+        The audio lands as one :class:`MediaContent` item (default MIME
+        ``audio/mpeg``).  See :meth:`generate_media`.
+        """
+        return await self.generate_media(text, model=model, purpose="tts", output_dir=output_dir, **options)
 
     async def asr(
         self,
@@ -561,8 +803,23 @@ class Provider(ABC):
         language: str | None = None,
         **options,
     ) -> CLIverResponse:
-        """Transcribe audio — multipart POST to the resolved transcription endpoint."""
-        return await self._generate_media(media, model=model, purpose="asr", media=media, language=language, **options)
+        """Transcribe audio — multipart POST to the resolved transcription endpoint.
+
+        Example::
+
+            result = await provider.asr(load_media_file("talk.mp3"), "whisper-1", language="en")
+            print(result.message.content)
+
+        ``language`` rides the multipart body in the OpenAI fashion, or an
+        HTTP header on providers that take it there (e.g. MiniMax); a
+        ``response_format`` of ``srt`` / ``vtt`` puts the timed text in
+        ``.message.content``.  ``stream=True`` raises ``ValueError`` —
+        streaming transcription is not implemented.  This is the reserved
+        ``purpose="asr"`` face of :meth:`generate_media`, so the
+        generation-only knobs (``mime=`` / ``binary=`` / ``output_handler=``)
+        do not apply here.
+        """
+        return await self.generate_media(media, model=model, purpose="asr", media=media, language=language, **options)
 
     # ── Rerank / embeddings (generic HTTP, shared across providers) ────
 

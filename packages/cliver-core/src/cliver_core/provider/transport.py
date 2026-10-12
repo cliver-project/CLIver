@@ -100,10 +100,15 @@ class BrandSDK(Protocol):
         *,
         files: dict | None = None,
         binary: bool = False,
+        headers: dict | None = None,
     ) -> Any:
         """Raw vendor call for media endpoints (images, speech, video, ...).
 
         Returns parsed JSON, or the raw response bytes when ``binary=True``.
+        *headers* is per-request extras for brands that take an option as an
+        HTTP header (e.g. MiniMax's transcription ``language``); providers
+        pass it only when non-empty, so implementing it is optional for
+        custom transports.
         """
         ...
 

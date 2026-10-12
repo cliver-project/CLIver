@@ -1,10 +1,10 @@
-"""MiniMax: Anthropic-compatible chat endpoint, plus image/TTS on MiniMax's
-own media endpoints.
+"""MiniMax: Anthropic-compatible chat endpoint, plus image/TTS/ASR on
+MiniMax's own media endpoints.
 
 Chat is fully native through the official Anthropic SDK: tool calls arrive
 as standard ``tool_use`` blocks — never as XML — and ``/anthropic`` streams
 native ``thinking`` blocks (enable thinking in the request).  The
-brand-specific surface is media: image/TTS have their own endpoints
+brand-specific surface is media: image/TTS/ASR have their own endpoints
 (request bodies and response shapes), on the platform's ``/v1`` root.
 """
 
@@ -22,22 +22,32 @@ class _MiniMaxBase(Provider):
 
     Chat, tools, and thinking are fully native through the generic protocol
     provider — no option filtering, response rewriting, or chunk remapping.
-    Image/TTS are served on MiniMax's own media domain (brand URLs, body,
-    and response shapes) through the shared base media pipeline.
+    Image/TTS/ASR are served on MiniMax's own media domain (brand URLs,
+    body, and response shapes) through the shared base media pipeline.
+    ASR (``asr-1.0``; wav/aiff/flac/alac(m4a)/mp3/aac/opus/ogg, ≤500 s,
+    ≤50 MB) reports errors with real HTTP status codes and an OpenAI-style
+    body — the ``base_resp`` envelope is image/TTS-only — so it never rides
+    ``_check_media_response_error``; the transport's non-2xx raise lands in
+    the shared friendly-failure path.
     """
 
     protocol = ""  # intermediate opt-out — leaves lock the protocol
     brand = "minimax"
 
-    # MiniMax media endpoints (image, TTS) live on MiniMax's own domain.
+    # MiniMax media endpoints (image, TTS, ASR) live on MiniMax's own domain.
     # These are the only media endpoints MiniMax serves, so no wire-standard
     # fallback applies — other purposes report unsupported.
     _MEDIA_GEN_BASE = "https://api.minimaxi.com/v1"
     _media_gen_urls: dict[str, str] = {
         "image": "/image_generation",
         "tts": "/t2a_v2",
+        "asr": "/speech_to_text",
     }
     _standard_media_fallback = False
+
+    #: MiniMax takes the transcription language as a BCP-47 HTTP header, not
+    #: a multipart form field (unlike the OpenAI transcription fashion).
+    _TRANSCRIBE_HEADER_OPTIONS = ("language",)
 
     #: T2A requires ``voice_setting.voice_id`` — omitting it fails with
     #: base_resp 2013 "invalid params, empty field".  The default mirrors

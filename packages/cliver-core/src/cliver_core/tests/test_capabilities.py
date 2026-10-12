@@ -422,3 +422,37 @@ async def test_transcribe_audio_works_out_of_the_box_on_the_openai_protocol(monk
     assert call["body"] == {"model": "whisper-1", "language": "en"}
     assert call["files"] == {"file": ("audio.wav", b"RIFF....", "audio/wav")}
     assert response.message.content == "hello world"
+
+
+@pytest.mark.asyncio
+async def test_transcribe_audio_works_out_of_the_box_on_the_minimax_brand(monkeypatch) -> None:
+    """The standalone call against the real MiniMax provider class, through
+    the preset: binding → provider → absolute brand URL on the shared
+    transport — with the language routed to a BCP-47 HTTP header."""
+    from cliver_core import presets
+    from cliver_core.provider.providers import anthropic as anthropic_module
+
+    class _StubTransport:
+        def __init__(self) -> None:
+            self.posts: list[dict] = []
+
+        async def post(self, path, body, *, files=None, binary=False, headers=None):
+            self.posts.append({"path": path, "body": body, "files": files, "binary": binary, "headers": headers})
+            return {"text": "the quick brown fox", "duration": 3.2, "trace_id": "t1"}
+
+        async def close(self) -> None:
+            pass
+
+    transport = _StubTransport()
+    monkeypatch.setattr(anthropic_module, "resolve_brand_sdk", lambda *args, **kwargs: transport)
+
+    binding = presets.minimax_asr(api_key="k")
+    response = await transcribe_audio(audio=b"RIFF....", binding=binding, language="en")
+
+    call = transport.posts[-1]
+    assert call["path"] == "https://api.minimaxi.com/v1/speech_to_text"
+    assert call["body"] == {"model": "asr-1.0"}
+    assert call["headers"] == {"language": "en"}
+    assert call["files"] == {"file": ("audio.wav", b"RIFF....", "audio/wav")}
+    assert response.message.content == "the quick brown fox"
+    await binding.aclose()

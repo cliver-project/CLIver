@@ -10,6 +10,14 @@ Brands are selected, never guessed: an exact ``provider_name`` match
 protocol.  A brand's ``default_base_url`` applies only from such an exact
 entry or an explicitly passed ``provider_class`` — otherwise ``base_url``
 must be explicit.
+
+Brand entries are convenience, never coverage: any endpoint that speaks
+either protocol works with **no brand entry at all** — pass *protocol* and
+an explicit *base_url* and the protocol-default class serves it.  The
+registry is a curated, live-verified shortlist (default endpoints,
+convention API-key env vars, verified wire quirks).  New wire protocols
+arrive out-of-tree via the ``cliver.provider_sdks`` entry-point group;
+private quirks via subclassing a provider and overriding its hooks.
 """
 
 from __future__ import annotations
@@ -73,6 +81,12 @@ def _get_ollama_provider():
     return OllamaProvider
 
 
+def _get_seedance_provider():
+    from cliver_core.provider.providers.seedance import SeedanceProvider
+
+    return SeedanceProvider
+
+
 # brand key → protocol → provider class factory.  Every brand entry is
 # protocol-locked; a brand without an entry for the requested protocol
 # falls back to the protocol-default class in ``resolve_provider_class``
@@ -87,6 +101,9 @@ _BRAND_PROTOCOL_FACTORIES: dict[str, dict[str, "callable"]] = {
     "ollama": {"openai": _get_ollama_provider},
     "openai": {"openai": _get_openai_provider},
     "anthropic": {"anthropic": _get_anthropic_provider},
+    # Seedance (Volcano Engine Ark): OpenAI-compatible chat + async-task
+    # video; media beyond video reports unsupported.
+    "seedance": {"openai": _get_seedance_provider},
 }
 
 # brand key → conventional API-key environment variables (first set wins).
@@ -98,6 +115,7 @@ API_KEY_ENV: dict[str, tuple[str, ...]] = {
     "glm": ("GLM_API_KEY", "ZHIPUAI_API_KEY"),
     "openai": ("OPENAI_API_KEY",),
     "anthropic": ("ANTHROPIC_API_KEY",),
+    "seedance": ("SEEDANCE_API_KEY",),
 }
 
 # ── Brand selection ──────────────────────────────────────────
@@ -159,7 +177,9 @@ def create_provider(
        its ``default_base_url``.
     3. Unknown names and brands without an entry for *protocol* select the
        protocol-default class with **no** default endpoint — *base_url* is
-       then required.
+       then required.  This is the open door for unlisted vendors: any
+       OpenAI- or Anthropic-compatible endpoint works, no registry entry
+       needed — pass *base_url* with the right *protocol*.
 
     Args:
         api_key: API key for the provider.
@@ -171,9 +191,10 @@ def create_provider(
         provider_class: Provider class.  If ``None``, selected from
             *provider_name* and *protocol*.
         provider_name: Exact brand key (e.g. ``"deepseek"``, ``"minimax"``,
-            ``"glm"``, ``"ollama"``, ``"openai"``, ``"anthropic"``;
-            case-insensitive).  No substrings, no aliases — self-hosted and
-            unknown endpoints pass *base_url* instead.
+            ``"glm"``, ``"ollama"``, ``"openai"``, ``"anthropic"``,
+            ``"seedance"``; case-insensitive).  No substrings, no aliases.
+            Unlisted vendors — self-hosted, proxies, compatible clones —
+            need no name at all: pass *base_url* with the right *protocol*.
         user_agent: Optional User-Agent header.
         logger: Optional logger for this provider.  When provided, all log
             output from the provider is routed through this logger.
@@ -204,8 +225,9 @@ def create_provider(
         raise ValueError(
             f"No base_url for protocol '{protocol}'"
             + (f" and provider_name '{provider_name}'" if provider_name else "")
-            + " — pass base_url explicitly; only these exact provider_name values carry a "
-            + f"default endpoint: {known}"
+            + " — pass base_url explicitly (any OpenAI- or Anthropic-compatible endpoint"
+            + " works; no registry entry needed).  Only these exact provider_name values"
+            + f" carry a built-in default endpoint: {known}"
         )
 
     return cls(api_key=api_key, base_url=url, user_agent=user_agent, logger=logger)

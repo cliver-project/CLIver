@@ -16,6 +16,7 @@ from cliver_core.provider.providers import API_KEY_ENV
 from cliver_core.provider.providers.deepseek import DeepSeekAnthropicProvider, DeepSeekOpenAIProvider
 from cliver_core.provider.providers.glm import GLMAnthropicProvider, GLMProvider
 from cliver_core.provider.providers.minimax import MiniMaxAnthropicProvider
+from cliver_core.provider.providers.seedance import SeedanceProvider
 
 # factory, purpose, protocol, brand, default model, provider class, default base_url
 CASES = [
@@ -81,6 +82,24 @@ CASES = [
         "speech-2.8-hd",
         MiniMaxAnthropicProvider,
         "https://api.minimaxi.com/anthropic",
+    ),
+    (
+        presets.minimax_asr,
+        "asr",
+        "anthropic",
+        "minimax",
+        "asr-1.0",
+        MiniMaxAnthropicProvider,
+        "https://api.minimaxi.com/anthropic",
+    ),
+    (
+        presets.seedance,
+        "video",
+        "openai",
+        "seedance",
+        "doubao-seedance-2-5-260628",
+        SeedanceProvider,
+        "https://ark.cn-beijing.volces.com/api/v3",
     ),
 ]
 
@@ -168,6 +187,10 @@ def test_params_use_the_purpose_factories_named_knobs() -> None:
         "response_format": "wav",
     }
     assert presets.minimax_image(size="1024x1024", n=2).params == {"size": "1024x1024", "n": 2}
+    assert presets.minimax_asr(language="zh", response_format="verbose_json").params == {
+        "language": "zh",
+        "response_format": "verbose_json",
+    }
 
 
 @pytest.mark.asyncio
@@ -214,6 +237,7 @@ async def test_media_presets_pin_the_endpoint_path_explicitly() -> None:
     cases = [
         (presets.minimax_image, "image", "/image_generation"),
         (presets.minimax_tts, "tts", "/t2a_v2"),
+        (presets.minimax_asr, "asr", "/speech_to_text"),
     ]
     for factory, purpose, path in cases:
         binding = factory(api_key="k")
@@ -228,6 +252,23 @@ async def test_media_presets_pin_the_endpoint_path_explicitly() -> None:
     assert "path" not in presets.minimax_tts(api_key="k", path=None).call_defaults()
 
 
+@pytest.mark.asyncio
+async def test_seedance_preset_resolves_the_ark_task_endpoint() -> None:
+    """The seedance preset pins the Ark task path; the binding default and the
+    brand-map fallback resolve to the same absolute URL.  The poll knobs ride
+    ``**params`` like any other default call option."""
+    binding = presets.seedance(api_key="k")
+    assert binding.call_defaults()["path"] == "/contents/generations/tasks"
+    provider = binding.get_provider()
+    via_binding = provider._resolve_media_gen_url("video", binding.call_defaults()["path"])
+    via_brand_map = provider._resolve_media_gen_url("video")
+    assert via_binding == via_brand_map == "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks"
+    await binding.aclose()
+
+    assert presets.seedance(poll_interval=2, poll_timeout=60).params == {"poll_interval": 2, "poll_timeout": 60}
+    assert "path" not in presets.seedance(api_key="k", path=None).call_defaults()
+
+
 def test_all_presets_are_exported() -> None:
     assert set(presets.__all__) == {
         "deepseek",
@@ -235,8 +276,10 @@ def test_all_presets_are_exported() -> None:
         "glm",
         "glm_anthropic",
         "minimax_anthropic",
+        "minimax_asr",
         "minimax_image",
         "minimax_tts",
+        "seedance",
     }
     import cliver_core
 

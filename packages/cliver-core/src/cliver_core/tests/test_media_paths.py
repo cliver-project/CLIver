@@ -11,6 +11,8 @@ media traffic).
 from __future__ import annotations
 
 import base64
+import inspect
+import logging
 from pathlib import Path
 
 import pytest
@@ -317,6 +319,60 @@ async def test_media_less_brands_raise_before_the_wire_but_keep_embeddings() -> 
         assert provider.media_path("rerank") == "/rerank"
 
 
+# ── ASR — multipart fashion, text formats, stream guard ────────
+
+
+@pytest.mark.asyncio
+async def test_asr_plain_text_formats_come_back_as_text() -> None:
+    """srt/vtt (and the OpenAI-wire ``text``) bodies are plain text, not
+    JSON — requested as raw bytes and decoded into the transcript slot."""
+    srt = b"1\n00:00:00,100 --> 00:00:01,660\nHello everyone.\n"
+
+    class _TextTransport:
+        def __init__(self) -> None:
+            self.posts: list[dict] = []
+
+        async def post(self, path, body, *, files=None, binary=False):
+            self.posts.append({"binary": binary, "body": body})
+            return srt if binary else {"text": "hello world"}
+
+    transport = _TextTransport()
+    provider = OpenAIProvider(api_key="k", base_url="https://api.example/v1", transport=transport)
+
+    response = await provider.asr(coerce_media(b"RIFF"), "whisper-1", response_format="srt")
+    assert transport.posts[-1]["binary"] is True
+    assert response.message.content == srt.decode()
+
+    # the default json fashion stays JSON-typed
+    response = await provider.asr(coerce_media(b"RIFF"), "whisper-1")
+    assert transport.posts[-1]["binary"] is False
+    assert response.message.content == "hello world"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", [True, "true", "1", "on"])
+async def test_asr_stream_true_is_rejected_before_the_wire(value) -> None:
+    transport = _RecordingTransport()
+    provider = OpenAIProvider(api_key="k", base_url="https://api.example/v1", transport=transport)
+
+    with pytest.raises(ValueError, match="streaming transcription is not supported"):
+        await provider.asr(coerce_media(b"RIFF"), "whisper-1", stream=value)
+    assert transport.posts == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", [False, None, "false", "0", ""])
+async def test_asr_falsy_stream_values_are_consumed_not_forwarded(value) -> None:
+    """The vendor samples send ``"false"`` — a falsy flag keeps the vendor's
+    non-streaming default and never leaks into the multipart body."""
+    transport = _RecordingTransport()
+    provider = OpenAIProvider(api_key="k", base_url="https://api.example/v1", transport=transport)
+
+    response = await provider.asr(coerce_media(b"RIFF"), "whisper-1", stream=value)
+    assert response.message.content == "transcribed"
+    assert "stream" not in transport.posts[-1]["body"]
+
+
 # ── MiniMax brand fashion ──────────────────────────────────────
 
 
@@ -326,6 +382,8 @@ def test_minimax_brand_paths_and_url_resolution() -> None:
     assert provider._resolve_media_gen_url("image") == "https://api.minimaxi.com/v1/image_generation"
     assert provider.media_path("tts") == "/t2a_v2"
     assert provider._resolve_media_gen_url("tts") == "https://api.minimaxi.com/v1/t2a_v2"
+    assert provider.media_path("asr") == "/speech_to_text"
+    assert provider._resolve_media_gen_url("asr") == "https://api.minimaxi.com/v1/speech_to_text"
     # a relative override stays on the brand's media domain
     assert (
         provider._resolve_media_gen_url("image", override="/image_generation_v2")
@@ -336,9 +394,8 @@ def test_minimax_brand_paths_and_url_resolution() -> None:
         provider._resolve_media_gen_url("image", override="https://edge.example/v9/gen")
         == "https://edge.example/v9/gen"
     )
-    # no wire-standard fallback: everything but image/tts is unsupported
+    # no wire-standard fallback: everything but image/tts/asr is unsupported
     assert provider.media_path("video") is None
-    assert provider.media_path("asr") is None
 
 
 @pytest.mark.asyncio
@@ -348,8 +405,6 @@ async def test_minimax_unsupported_purposes_raise() -> None:
 
     with pytest.raises(CapabilityNotSupported, match="does not support video"):
         await provider.video("a sunset", "video-01")
-    with pytest.raises(CapabilityNotSupported, match="does not support audio transcription"):
-        await provider.asr(coerce_media(b"RIFF"), "whisper-1")
     assert transport.posts == []  # nothing reaches the wire
 
 
@@ -365,8 +420,8 @@ class _QueuedTransport:
         self.posts: list[dict] = []
         self.queued = list(payloads)
 
-    async def post(self, path: str, body: dict, *, files=None, binary: bool = False):
-        self.posts.append({"path": path, "body": body, "files": files, "binary": binary})
+    async def post(self, path: str, body: dict, *, files=None, binary: bool = False, headers=None):
+        self.posts.append({"path": path, "body": body, "files": files, "binary": binary, "headers": headers})
         return self.queued.pop(0)
 
 
@@ -503,6 +558,49 @@ async def test_minimax_image_items_are_labeled_by_the_urls_own_format(tmp_path, 
     assert saved.read_bytes() == jpeg
 
 
+# ── MiniMax ASR — speech_to_text wire shape ────────────────────
+
+
+@pytest.mark.asyncio
+async def test_minimax_asr_posts_the_speech_to_text_wire_shape() -> None:
+    transport = _QueuedTransport({"text": "hello world", "duration": 1.5, "trace_id": "t1"})
+    provider = MiniMaxAnthropicProvider(api_key="k", base_url="https://api.minimaxi.com/anthropic", transport=transport)
+
+    response = await provider.asr(
+        coerce_media(b"RIFF"), "asr-1.0", language="en", response_format="json", timestamp_level="word"
+    )
+
+    call = transport.posts[-1]
+    assert call["path"] == "https://api.minimaxi.com/v1/speech_to_text"  # brand URL, verbatim
+    assert call["binary"] is False  # json/verbose_json answer JSON
+    # language rides the BCP-47 HTTP header — never the multipart body
+    assert call["headers"] == {"language": "en"}
+    assert call["body"] == {"model": "asr-1.0", "response_format": "json", "timestamp_level": "word"}
+    assert call["files"] == {"file": ("audio.wav", b"RIFF", "audio/wav")}
+    assert response.message.content == "hello world"
+
+
+@pytest.mark.asyncio
+async def test_minimax_asr_without_language_keeps_the_legacy_transport_shape() -> None:
+    """No header options → the transport call is exactly the four-argument
+    shape every pre-existing (including third-party) transport implements."""
+    posts: list[dict] = []
+
+    class _LegacyTransport:  # the pre-headers BrandSDK.post signature, verbatim
+        async def post(self, path: str, body: dict, *, files=None, binary: bool = False):
+            posts.append({"path": path, "body": body, "files": files, "binary": binary})
+            return {"text": "mixed language", "duration": 0.5, "trace_id": "t2"}
+
+    provider = MiniMaxAnthropicProvider(
+        api_key="k", base_url="https://api.minimaxi.com/anthropic", transport=_LegacyTransport()
+    )
+    response = await provider.asr(coerce_media(b"RIFF"), "asr-1.0")
+
+    assert posts[-1]["path"] == "https://api.minimaxi.com/v1/speech_to_text"
+    assert posts[-1]["body"] == {"model": "asr-1.0"}
+    assert response.message.content == "mixed language"
+
+
 # ── Capability functions forward path= ─────────────────────────
 
 
@@ -587,6 +685,374 @@ async def test_capabilities_forward_the_binding_path_to_the_provider() -> None:
     assert rec.calls["image"][-1]["path"] == "/call/gen"
 
 
+# ── Public generate_media seam — custom kinds and output knobs ──
+
+
+class _FailingTransport:
+    """Transport stub whose POST fails — the pipeline must fail friendly, not crash."""
+
+    async def post(self, path: str, body: dict, *, files=None, binary: bool = False):
+        raise RuntimeError("connection reset")
+
+
+def _identity_handler(payload) -> CLIverResponse:
+    return _response("handled")
+
+
+def test_public_seam_signature_is_pinned() -> None:
+    import cliver_core
+    from cliver_core.provider import MediaOutputHandler
+
+    assert MediaOutputHandler is not None  # importable from cliver_core.provider …
+    assert "MediaOutputHandler" not in cliver_core.__all__  # … but not a core export
+
+    params = inspect.signature(Provider.generate_media).parameters
+    assert list(params) == [
+        "self",
+        "prompt",
+        "model",
+        "purpose",
+        "media",
+        "output_dir",
+        "path",
+        "mime",
+        "binary",
+        "output_handler",
+        "options",
+    ]
+    assert params["prompt"].kind is inspect.Parameter.POSITIONAL_OR_KEYWORD
+    assert params["model"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert params["options"].kind is inspect.Parameter.VAR_KEYWORD
+    # tri-state: None keeps the protocol policy (tts is bytes-out, others JSON)
+    assert params["binary"].default is None
+    assert params["mime"].default is None
+    assert params["output_handler"].default is None
+    assert params["path"].default is None
+
+
+@pytest.mark.asyncio
+async def test_unknown_purpose_without_path_raises_before_the_wire() -> None:
+    transport = _RecordingTransport()
+    provider = OpenAIProvider(api_key="k", base_url="https://api.example/v1", transport=transport)
+
+    with pytest.raises(CapabilityNotSupported, match="does not support music"):
+        await provider.generate_media("p", model="m", purpose="music")
+    assert transport.posts == []
+
+
+@pytest.mark.asyncio
+async def test_custom_purpose_rides_the_whole_pipeline(tmp_path) -> None:
+    """A kind the core does not model: explicit path=, vendor options verbatim
+    into the body, OpenAI-fashion extraction, generated_i.<ext> saving."""
+    audio = base64.b64encode(b"music-bytes").decode()
+    transport = _QueuedTransport({"data": [{"b64_json": audio}]})
+    provider = OpenAIProvider(api_key="k", base_url="https://api.example/v1", transport=transport)
+
+    response = await provider.generate_media(
+        "calm piano loop",
+        model="music-1",
+        purpose="music",
+        path="/v1/music/generate",
+        mime="audio/mpeg",
+        duration=30,
+        output_format="mp3",
+        output_dir=str(tmp_path),
+    )
+
+    call = transport.posts[-1]
+    assert call["path"] == "https://api.example/v1/v1/music/generate"
+    # the pipeline knobs are consumed, never part of the request body
+    assert call["body"] == {"model": "music-1", "prompt": "calm piano loop", "duration": 30, "output_format": "mp3"}
+    assert call["binary"] is False
+
+    assert response.message.content.startswith("Generated 1 music(s)")
+    (mc,) = response.media
+    assert mc.type == MediaType.AUDIO and mc.mime_type == "audio/mpeg"
+    assert base64.b64decode(mc.data) == b"music-bytes"
+    saved = Path(mc.saved_path)
+    assert saved.name == "generated_0.mp3"
+    assert saved.read_bytes() == b"music-bytes"
+
+
+def test_media_kind_derives_kind_and_extension_from_an_explicit_mime() -> None:
+    provider = _BareOpenAI()
+
+    assert provider._media_kind("music", {}, mime="audio/mpeg") == (MediaType.AUDIO, "audio/mpeg", "mp3")
+    assert provider._media_kind("3d", {}, mime="model/gltf-binary") == (MediaType.FILE, "model/gltf-binary", "glb")
+    # an explicit mime wins over the purpose default and the tts format label
+    assert provider._media_kind("image", {}, mime="image/webp") == (MediaType.IMAGE, "image/webp", "webp")
+    assert provider._media_kind("tts", {"response_format": "wav"}, mime="audio/mpeg") == (
+        MediaType.AUDIO,
+        "audio/mpeg",
+        "mp3",
+    )
+    # without one, unknown purposes are plain files — never mislabeled images
+    assert provider._media_kind("music", {}) == (MediaType.FILE, "application/octet-stream", "bin")
+    assert provider._media_kind("image", {}) == (MediaType.IMAGE, "image/png", "png")
+
+
+def test_mime_helpers_classify_and_name_custom_formats() -> None:
+    from cliver_core.media import extension_from_mime, media_type_from_mime
+
+    assert media_type_from_mime("image/png") is MediaType.IMAGE
+    assert media_type_from_mime("audio/mpeg; charset=x") is MediaType.AUDIO
+    assert media_type_from_mime("video/mp4") is MediaType.VIDEO
+    assert media_type_from_mime("text/plain") is MediaType.TEXT
+    # everything unclassifiable is a plain file — never a mislabeled image
+    assert media_type_from_mime("model/gltf+json") is MediaType.FILE
+    assert media_type_from_mime("application/octet-stream") is MediaType.FILE
+
+    assert extension_from_mime("image/jpeg") == "jpg"  # the module's table decides
+    assert extension_from_mime("audio/mpeg; mode=x") == "mp3"  # parameters stripped
+    assert extension_from_mime("model/gltf+json") == "gltf"
+    assert extension_from_mime("model/gltf-binary") == "glb"
+    assert extension_from_mime("model/obj") == "obj"  # else the subtype itself
+    assert extension_from_mime("application/octet-stream") == "bin"
+    assert extension_from_mime("") == "bin"
+
+
+@pytest.mark.asyncio
+async def test_url_evidence_beats_the_explicit_mime_label() -> None:
+    """mime= is the label of last resort — the vendor's real format still wins."""
+    transport = _QueuedTransport({"data": [{"url": "https://cdn.example/a.webp"}]})
+    provider = OpenAIProvider(api_key="k", base_url="https://api.example/v1", transport=transport)
+
+    response = await provider.generate_media("p", model="m", purpose="art", path="/v1/art", mime="image/png")
+
+    (mc,) = response.media
+    assert mc.mime_type == "image/webp"
+
+
+@pytest.mark.asyncio
+async def test_binary_override_decides_bytes_out_per_call() -> None:
+    transport = _QueuedTransport(b"RIFF", {"data": [{"url": "https://cdn.example/out.mp3"}]})
+    provider = OpenAIProvider(api_key="k", base_url="https://api.example/v1", transport=transport)
+
+    # policy default for tts: the transport is asked for raw bytes
+    response = await provider.generate_media("hi", model="m", purpose="tts")
+    assert transport.posts[-1]["binary"] is True
+    (mc,) = response.media
+    assert mc.type == MediaType.AUDIO and mc.mime_type == "audio/mpeg"
+    assert base64.b64decode(mc.data) == b"RIFF"
+
+    # an explicit binary=False wins over the policy: JSON fashion
+    response = await provider.generate_media("hi", model="m", purpose="tts", binary=False)
+    assert transport.posts[-1]["binary"] is False
+    (mc,) = response.media
+    assert mc.mime_type == "audio/mpeg"
+
+    # an explicit binary=True brings bytes for a purpose the policy sends as JSON
+    mesh_transport = _QueuedTransport(b"mesh-bytes")
+    mesh_provider = OpenAIProvider(api_key="k", base_url="https://api.example/v1", transport=mesh_transport)
+    response = await mesh_provider.generate_media(
+        "a low-poly teapot", model="m", purpose="3d", path="/v1/meshes", mime="model/gltf-binary", binary=True
+    )
+    assert mesh_transport.posts[-1]["binary"] is True
+    (mc,) = response.media
+    assert mc.type == MediaType.FILE and mc.mime_type == "model/gltf-binary"
+    assert base64.b64decode(mc.data) == b"mesh-bytes"
+
+
+@pytest.mark.asyncio
+async def test_legacy_audio_purpose_normalizes_to_tts_on_the_public_seam() -> None:
+    """purpose="audio" must resolve the tts endpoint AND keep the bytes-out
+    policy — else the transport JSON-parses raw audio into a guaranteed failure."""
+    transport = _QueuedTransport(b"AUDIO")
+    provider = OpenAIProvider(api_key="k", base_url="https://api.example/v1", transport=transport)
+
+    response = await provider.generate_media("hi", model="m", purpose="audio")
+
+    assert transport.posts[-1]["path"] == "https://api.example/v1/audio/speech"
+    assert transport.posts[-1]["binary"] is True
+    (mc,) = response.media
+    assert mc.type == MediaType.AUDIO
+    assert base64.b64decode(mc.data) == b"AUDIO"
+
+
+@pytest.mark.asyncio
+async def test_output_handler_replaces_the_default_output_handling(tmp_path) -> None:
+    seen: list[dict] = []
+
+    def handle(payload: dict) -> CLIverResponse:
+        seen.append(payload)
+        return _response(f"picked {payload['data']['image_urls'][0]}")
+
+    envelope = {"base_resp": {"status_code": 2013, "status_msg": "invalid params"}, "data": {"image_urls": ["u1"]}}
+    transport = _QueuedTransport(envelope, envelope)
+    provider = MiniMaxAnthropicProvider(api_key="k", base_url="https://api.minimaxi.com/anthropic", transport=transport)
+
+    response = await provider.generate_media(
+        "p", model="image-01", purpose="image", output_dir=str(tmp_path), output_handler=handle
+    )
+
+    assert seen == [envelope]  # the raw payload, vendor error envelope and all
+    assert response.message.content == "picked u1"
+    assert response.media is None
+    assert list(tmp_path.iterdir()) == []  # output_dir is ignored under a handler
+
+    # control: the same payload without a handler is the vendor's error
+    failure = await provider.generate_media("p", model="image-01", purpose="image")
+    assert failure.media is None
+    assert "image generation failed" in failure.message.content
+
+
+@pytest.mark.asyncio
+async def test_output_handler_may_be_async() -> None:
+    async def handle(payload: dict) -> CLIverResponse:
+        return _response("async ok")
+
+    transport = _RecordingTransport()
+    provider = OpenAIProvider(api_key="k", base_url="https://api.example/v1", transport=transport)
+
+    response = await provider.generate_media("p", model="m", purpose="image", output_handler=handle)
+
+    assert response.message.content == "async ok"
+    assert transport.posts  # the POST happened first, then the handler ran
+
+
+@pytest.mark.asyncio
+async def test_output_handler_sees_raw_bytes_when_the_request_asked_for_them() -> None:
+    seen: list[type] = []
+
+    def handle(payload) -> CLIverResponse:
+        seen.append(type(payload))
+        return _response("bytes ok")
+
+    transport = _QueuedTransport(b"\x00\x01binary-mesh")
+    provider = OpenAIProvider(api_key="k", base_url="https://api.example/v1", transport=transport)
+
+    response = await provider.generate_media(
+        "a low-poly teapot", model="m", purpose="3d", path="/v1/meshes", binary=True, output_handler=handle
+    )
+
+    assert transport.posts[-1]["binary"] is True
+    assert seen == [bytes]
+    assert response.message.content == "bytes ok"
+
+
+@pytest.mark.asyncio
+async def test_raising_output_handler_becomes_a_friendly_failure(caplog) -> None:
+    def handle(payload) -> CLIverResponse:
+        raise ValueError("bad payload shape")
+
+    transport = _RecordingTransport()
+    provider = OpenAIProvider(api_key="k", base_url="https://api.example/v1", transport=transport)
+
+    with caplog.at_level(logging.WARNING):
+        response = await provider.generate_media("p", model="m", purpose="image", output_handler=handle)
+
+    assert response.media is None
+    assert "image generation failed" in response.message.content
+    assert "bad payload shape" in response.message.content
+    assert any("generation failed" in record.getMessage() for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_output_handler_must_return_a_cliver_response() -> None:
+    def handle(payload) -> CLIverResponse:
+        return "not a response"  # type: ignore[return-value]
+
+    transport = _RecordingTransport()
+    provider = OpenAIProvider(api_key="k", base_url="https://api.example/v1", transport=transport)
+
+    response = await provider.generate_media("p", model="m", purpose="image", output_handler=handle)
+
+    assert response.media is None
+    assert "output_handler must return a CLIverResponse, got str" in response.message.content
+
+
+@pytest.mark.asyncio
+async def test_output_handler_is_never_called_without_a_successful_post() -> None:
+    calls: list = []
+
+    def handle(payload) -> CLIverResponse:
+        calls.append(payload)
+        return _response("never")
+
+    # a transport failure never reaches the handler …
+    provider = OpenAIProvider(api_key="k", base_url="https://api.example/v1", transport=_FailingTransport())
+    response = await provider.generate_media("p", model="m", purpose="image", output_handler=handle)
+    assert "connection reset" in response.message.content
+    assert calls == []
+
+    # … and a purpose with no resolvable endpoint fails before the wire
+    provider = AnthropicProvider(api_key="k", base_url="https://api.example/v1", transport=_RecordingTransport())
+    with pytest.raises(CapabilityNotSupported, match="does not support image"):
+        await provider.generate_media("p", model="m", purpose="image", output_handler=handle)
+    assert calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "knob",
+    [
+        {"mime": "audio/mpeg"},
+        {"mime": ""},  # even an empty label is a generation intent
+        {"binary": True},
+        {"binary": False},
+        {"output_handler": _identity_handler},
+    ],
+)
+async def test_asr_purpose_rejects_generation_only_knobs(knob) -> None:
+    transport = _RecordingTransport()
+    provider = OpenAIProvider(api_key="k", base_url="https://api.example/v1", transport=transport)
+
+    with pytest.raises(ValueError, match="generation-only"):
+        await provider.generate_media(
+            coerce_media(b"RIFF"), model="whisper-1", purpose="asr", media=coerce_media(b"RIFF"), **knob
+        )
+    assert transport.posts == []
+
+
+@pytest.mark.asyncio
+async def test_asr_purpose_still_takes_path_and_language_on_the_public_seam() -> None:
+    transport = _RecordingTransport()
+    provider = OpenAIProvider(api_key="k", base_url="https://api.example/v1", transport=transport)
+
+    response = await provider.generate_media(
+        coerce_media(b"RIFF"),
+        model="whisper-1",
+        purpose="asr",
+        media=coerce_media(b"RIFF"),
+        path="/v1/asr/custom",
+        language="en",
+    )
+
+    call = transport.posts[-1]
+    assert call["path"] == "https://api.example/v1/v1/asr/custom"
+    assert call["body"] == {"model": "whisper-1", "language": "en"}
+    assert response.message.content == "transcribed"
+
+
+def test_file_media_never_becomes_a_message_part() -> None:
+    from cliver_core.media import MediaContent, add_media_content_to_message_parts
+
+    parts: list[dict] = []
+    glb = base64.b64encode(b"glb-bytes").decode()
+    mc = MediaContent(type=MediaType.FILE, data=glb, mime_type="model/gltf-binary")
+    add_media_content_to_message_parts(parts, [mc])
+    assert parts == []
+
+
+@pytest.mark.asyncio
+async def test_capability_calls_forward_media_output_knobs() -> None:
+    """The ``generate_media`` output knobs ride ``**options`` like ``path=``
+    does: binding defaults first, a call-site value wins."""
+    rec = _CapabilityRecorder()
+
+    def handler(payload) -> CLIverResponse:
+        return _response("handled")  # pragma: no cover - the recorder never invokes it
+
+    binding = ModelBinding.image(model="m", provider=rec, output_handler=handler, mime="image/webp")
+    await capabilities.generate_image(prompt="p", binding=binding)
+    call = rec.calls["image"][-1]
+    assert call["output_handler"] is handler
+    assert call["mime"] == "image/webp"
+
+    await capabilities.generate_image(prompt="p", binding=binding, mime="image/png")
+    assert rec.calls["image"][-1]["mime"] == "image/png"
+
+
 def test_binding_factories_set_path_field_not_params() -> None:
     image = ModelBinding.image(model="m", path="/v1/gen", size="512x512")
     assert image.path == "/v1/gen"  # endpoint config — a field, like base_url
@@ -640,3 +1106,70 @@ def test_mounting_a_binding_under_the_wrong_purpose_fails_fast() -> None:
     assert legacy.get("audio") is not None
     # raw-constructor bindings skip the check
     assert ModelBindings(embed=ModelBinding(model="m")).get("embed") is not None
+
+
+# ── The async-vendor hook — default-inert ──────────────────────
+
+
+@pytest.mark.asyncio
+async def test_await_media_result_default_is_an_identity_passthrough() -> None:
+    provider = _BareOpenAI()
+    assert list(inspect.signature(Provider._await_media_result).parameters) == [
+        "self",
+        "raw",
+        "purpose",
+        "url",
+        "options",
+    ]
+
+    raw = {"data": [{"url": "https://cdn.example/out"}]}
+    assert await provider._await_media_result(raw, "image", "https://api.example/v1/images/generations", {}) is raw
+    assert await provider._await_media_result(b"BYTES", "tts", "https://api.example/v1/audio/speech", {}) == b"BYTES"
+
+
+@pytest.mark.asyncio
+async def test_pipeline_calls_the_await_hook_once_before_output_handling() -> None:
+    calls: list[dict] = []
+
+    class _AsyncResultOpenAI(OpenAIProvider):
+        async def _await_media_result(self, raw, purpose, url, options):
+            calls.append({"raw": raw, "purpose": purpose, "url": url, "options": dict(options)})
+            return {"data": [{"url": "https://cdn.example/awaited"}]}
+
+    transport = _RecordingTransport()
+    provider = _AsyncResultOpenAI(api_key="k", base_url="https://api.example/v1", transport=transport)
+
+    response = await provider.image("p", "m")
+
+    assert len(calls) == 1
+    assert calls[0]["purpose"] == "image"
+    assert calls[0]["url"] == "https://api.example/v1/images/generations"
+    assert calls[0]["raw"] == {"data": [{"url": "https://cdn.example/out"}]}  # the transport payload
+    (mc,) = response.media
+    assert mc.data == "https://cdn.example/awaited"  # the hook's payload is what gets extracted
+
+    # the handler sits after the hook: it sees the resolved payload
+    seen: dict = {}
+
+    def handler(payload) -> CLIverResponse:
+        seen["payload"] = payload
+        return _response("handled")
+
+    response = await provider.image("p", "m", output_handler=handler)
+    assert seen["payload"] == {"data": [{"url": "https://cdn.example/awaited"}]}
+    assert response.message.content == "handled"
+
+
+@pytest.mark.asyncio
+async def test_await_hook_failure_lands_in_the_friendly_response() -> None:
+    class _BoomOpenAI(OpenAIProvider):
+        async def _await_media_result(self, raw, purpose, url, options):
+            raise RuntimeError("task exploded")
+
+    transport = _RecordingTransport()
+    provider = _BoomOpenAI(api_key="k", base_url="https://api.example/v1", transport=transport)
+
+    response = await provider.image("p", "m")
+
+    assert response.media is None
+    assert "openai image generation failed: task exploded" in response.message.content

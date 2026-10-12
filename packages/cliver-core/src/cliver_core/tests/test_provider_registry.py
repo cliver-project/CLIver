@@ -31,6 +31,18 @@ def test_minimax_registry_matrix_and_default_urls() -> None:
     assert resolve_provider_class(provider_name="minimax", protocol="openai") is OpenAIProvider
 
 
+def test_seedance_registry_matrix_and_default_urls() -> None:
+    from cliver_core.provider.providers.anthropic import AnthropicProvider
+    from cliver_core.provider.providers.seedance import SeedanceProvider
+
+    assert resolve_provider_class(provider_name="seedance", protocol="openai") is SeedanceProvider
+    assert SeedanceProvider.default_base_url == "https://ark.cn-beijing.volces.com/api/v3"
+    assert SeedanceProvider.provider_name() == "seedance"
+    # video is the only media surface (the async-task wire); the anthropic
+    # combo has no leaf and takes the documented protocol-default fallback
+    assert resolve_provider_class(provider_name="seedance", protocol="anthropic") is AnthropicProvider
+
+
 def test_deepseek_registry_matrix() -> None:
     from cliver_core.provider.providers.deepseek import DeepSeekAnthropicProvider, DeepSeekOpenAIProvider
 
@@ -136,6 +148,7 @@ def test_create_provider_requires_base_url_without_an_exact_brand_hit() -> None:
         {"provider_name": "my-deepseek-proxy"},  # substring match is gone
         {"provider_name": "zhipu"},  # alias dropped (exact "glm" only)
         {"provider_name": "minimax", "protocol": "openai"},  # no leaf for the combo
+        {"provider_name": "seedance", "protocol": "anthropic"},
         {"provider_name": "ollama", "protocol": "anthropic"},
     ):
         with pytest.raises(ValueError, match="base_url"):
@@ -144,6 +157,13 @@ def test_create_provider_requires_base_url_without_an_exact_brand_hit() -> None:
     # an unknown protocol fails with its own, more specific message
     with pytest.raises(ValueError, match="Unknown protocol 'mqtt'"):
         create_provider(api_key="k", provider_name="deepseek", protocol="mqtt")
+
+
+def test_no_base_url_error_teaches_the_open_door() -> None:
+    # the no-URL error must point at the way out: an unlisted, wire-compatible
+    # vendor needs no registry entry — base_url + protocol is all (D25)
+    with pytest.raises(ValueError, match="compatible endpoint works; no registry entry needed"):
+        create_provider(api_key="k")
 
 
 @pytest.mark.asyncio

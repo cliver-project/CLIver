@@ -32,6 +32,7 @@ class MediaType(Enum):
     AUDIO = "audio"
     VIDEO = "video"
     TEXT = "text"
+    FILE = "file"  # anything the types above don't classify (custom media kinds)
 
 
 # Shared MIME type to file extension mapping
@@ -46,6 +47,8 @@ _MIME_TO_EXTENSION = {
     "video/mp4": ".mp4",
     "video/quicktime": ".mov",
     "video/x-msvideo": ".avi",
+    "model/gltf+json": ".gltf",
+    "model/gltf-binary": ".glb",
 }
 
 
@@ -99,6 +102,40 @@ def resolve_media_mime(default: str, *, url: Optional[str] = None, payload: Opti
         if named and named.split("/", 1)[0] in ("image", "audio", "video"):
             return named
     return default
+
+
+#: MIME top-level types → media kind; everything else is ``MediaType.FILE``.
+_MIME_KIND_PREFIXES = {
+    "image": MediaType.IMAGE,
+    "audio": MediaType.AUDIO,
+    "video": MediaType.VIDEO,
+    "text": MediaType.TEXT,
+}
+
+
+def media_type_from_mime(mime_type: str) -> MediaType:
+    """Media kind for one MIME type — the top-level type decides, anything
+    unclassifiable (``application/...``, ``model/...``, ...) is ``FILE``."""
+    prefix = mime_type.split(";", 1)[0].strip().lower().split("/", 1)[0]
+    return _MIME_KIND_PREFIXES.get(prefix, MediaType.FILE)
+
+
+def extension_from_mime(mime_type: str) -> str:
+    """Dotless file extension for one MIME type (parameters stripped).
+
+    The module's own table decides first; otherwise the subtype is used
+    (``model/gltf+json`` → ``gltf``), with ``octet-stream``/``binary``/empty
+    falling back to ``bin``.  Deliberately NOT ``mimetypes.guess_extension``
+    — its platform database returns surprises like ``.jpe``.
+    """
+    mime = mime_type.split(";", 1)[0].strip().lower()
+    known = _MIME_TO_EXTENSION.get(mime)
+    if known:
+        return known.removeprefix(".")
+    subtype = mime.split("/", 1)[-1].split("+", 1)[0].strip()
+    if not subtype or subtype in ("octet-stream", "binary"):
+        return "bin"
+    return subtype
 
 
 @dataclass
