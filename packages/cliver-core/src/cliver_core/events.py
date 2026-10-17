@@ -51,7 +51,7 @@ class ToolEvent(BaseModel):
     """An event from tool execution."""
 
     event: ToolEventType
-    tool_name: str  # "Read" or "my_server#my_tool"
+    tool_name: str  # "Read" or "mcp__my_server__my_tool"
     tool_call_id: str
     args: dict[str, Any] | None = None
     result: str | None = None  # TOOL_END: truncated result text

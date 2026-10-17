@@ -606,7 +606,7 @@ class AgentCore:
         )
         start = time.monotonic()
         try:
-            if "#" in tc.name:
+            if tc.name.startswith("mcp__"):
                 if not self.mcp_client:
                     result = [{"error": "No MCP client configured"}]
                 else:

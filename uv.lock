@@ -229,6 +229,7 @@ mcp = [
 [package.dev-dependencies]
 dev = [
     { name = "httpx2" },
+    { name = "mcp" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "ruff" },
@@ -239,7 +240,7 @@ requires-dist = [
     { name = "anthropic", specifier = ">=1.0.0" },
     { name = "cliver-core", extras = ["mcp"], marker = "extra == 'all'" },
     { name = "httpx", specifier = ">=0.28.0" },
-    { name = "mcp", marker = "extra == 'mcp'", specifier = ">=2.0.0" },
+    { name = "mcp", marker = "extra == 'mcp'", specifier = ">=2.3.0,<3.0" },
     { name = "openai", specifier = ">=3.0.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
 ]
@@ -248,6 +249,7 @@ provides-extras = ["mcp", "all"]
 [package.metadata.requires-dev]
 dev = [
     { name = "httpx2", specifier = ">=2.0.0" },
+    { name = "mcp", specifier = ">=2.3.0" },
     { name = "pytest", specifier = ">=7.0.0" },
     { name = "pytest-asyncio", specifier = ">=1.2.0" },
     { name = "ruff", specifier = ">=0.0.270" },

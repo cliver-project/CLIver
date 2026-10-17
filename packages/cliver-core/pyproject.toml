@@ -21,7 +21,10 @@ dependencies = [
 # The `cliver.provider_sdks` entry-point group stays reserved for third
 # parties to register brand SDK adapters; cliver-core registers none itself.
 [project.optional-dependencies]
-mcp = ["mcp>=2.0.0"]
+# Adapters are written against the mcp 2.3.0-verified API (Client(transport,
+# mode=...), snake_case record attributes, streamable_http_client(http_client=));
+# <3 guards the next rename wave.
+mcp = ["mcp>=2.3.0,<3.0"]
 all = ["cliver-core[mcp]"]
 
 [dependency-groups]
@@ -32,6 +35,9 @@ dev = [
     # The HTTP stack the official SDKs ship on; tests mock at that layer
     # (MockTransport) to exercise the SDK parse path.
     "httpx2>=2.0.0",
+    # Keep the MCP SDK installed in dev so the adapter tests actually run
+    # (otherwise they skip via importorskip).
+    "mcp>=2.3.0",
 ]
 
 [project.urls]

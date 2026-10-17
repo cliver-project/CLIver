@@ -27,7 +27,7 @@ class ToolCall(BaseModel):
     """A tool call within an assistant message."""
 
     id: str
-    name: str  # "Read" or "my_server#my_tool"
+    name: str  # "Read" or "mcp__my_server__my_tool"
     args: dict[str, Any] = Field(default_factory=dict)
 
 
