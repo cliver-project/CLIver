@@ -1,6 +1,6 @@
 [project]
 name = "cliver-core"
-version = "0.3.0a1"
+version = "0.3.0a2"
 description = "CLIver — embeddable AgentCore library"
 readme = "README.md"
 license = "Apache-2.0"
@@ -42,6 +42,13 @@ dependencies = [
 # mode=...), snake_case record attributes, streamable_http_client(http_client=));
 # <3 guards the next rename wave.
 mcp = ["mcp>=2.3.0,<3.0"]
+# In-process local models.  These pull torch, so they stay opt-in and out of
+# `all` — an application chooses the backend it needs.
+#   local-st    sentence-transformers embedding models
+#   local-flag  FlagEmbedding dense embeddings + cross-encoder rerank
+local-st = ["sentence-transformers>=3.0", "huggingface-hub>=0.24.0"]
+local-flag = ["FlagEmbedding>=1.3.0", "huggingface-hub>=0.24.0"]
+local = ["cliver-core[local-st]", "cliver-core[local-flag]"]
 all = ["cliver-core[mcp]"]
 
 [dependency-groups]

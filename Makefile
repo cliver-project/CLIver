@@ -1,11 +1,14 @@
-.PHONY: help init test lint format dist clean
+.PHONY: help init init-local test lint format dist clean
 
 help: ## Show this help.
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
 init: ## Initialize workspace dev dependencies
 	@test -d .venv || uv venv
-	uv sync --all-packages --all-extras
+	uv sync --all-packages
+
+init-local: ## Add the optional in-process local model backends
+	uv sync --all-packages --extra local
 
 test: init ## Run the cliver-core test suite
 	uv run pytest

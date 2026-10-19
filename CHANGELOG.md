@@ -5,6 +5,30 @@ All notable changes to CLIver will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0a2] - 2026-10-19
+
+### Added
+- **cliver-core: in-process local models** — `cliver_core.local` provides `LocalEmbeddingProvider`
+  and `LocalRerankProvider` for sentence-transformers and FlagEmbedding models. A provider is
+  long-lived, loads lazily and thread-safely, serializes inference, and runs blocking work off the
+  event loop. `local_embed` / `local_rerank` build bindings around a caller-supplied provider;
+  `ModelBinding.aclose()` never closes it.
+- Explicit `model` + `backend` parameters; no model-name routing, instruction templates, or
+  query/document modes in the library. Generic options only: `dim`, `normalize`, `batch_size`, and
+  `top_k`.
+- `provider.info()` reports the resolved model directory, revision, device, dtype, dimension, and
+  load time; `LocalModelError` subclasses classify dependency, load, device, configuration,
+  dimension, inference, and closed-provider failures.
+- Optional extras: `local-st`, `local-flag`, and `local` (both). The backends pull torch and stay
+  opt-in; `all` remains MCP-only.
+- Gated live tests for `BAAI/bge-base-zh-v1.5` and `BAAI/bge-reranker-v2-m3`
+  (`CLIVER_LOCAL_MODEL_TESTS=1`, model env-overridable).
+
+### Changed
+- sentence-transformers 6 renamed `get_sentence_embedding_dimension` to
+  `get_embedding_dimension`; the backend prefers the current method and falls back for older
+  releases.
+
 ## [0.0.3] - 2026-03-24
 
 ### Added
