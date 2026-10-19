@@ -332,9 +332,7 @@ class ToolRegistry:
 
 
 def discover_builtin_tools() -> list[CLIverTool]:
-    """Scan ``cliver.tools`` for CLIverTool instances."""
-    import inspect
+    """Return the builtin tools that ship with cliver-core."""
+    from cliver_core.tools import discover_builtin_tools as _discover
 
-    import cliver.tools as tools_module
-
-    return [obj for _name, obj in inspect.getmembers(tools_module) if isinstance(obj, CLIverTool)]
+    return _discover()

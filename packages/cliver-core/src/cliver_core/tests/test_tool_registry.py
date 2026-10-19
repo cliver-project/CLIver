@@ -38,3 +38,12 @@ def test_toolset_tools_still_follow_their_gate() -> None:
     # default configure: core ✓ (always on), browser ✗ (opt-in toolset),
     # custom ✓ — the fix must not degrade into "advertise everything"
     assert [t.name for t in registry.all_tools] == ["Read", "sum"]
+
+
+def test_discover_builtin_tools_delegates_to_the_tools_package() -> None:
+    from cliver_core.tool import discover_builtin_tools
+    from cliver_core.tools import discover_builtin_tools as tools_discover
+
+    discovered = discover_builtin_tools()
+    assert [tool.name for tool in discovered] == [tool.name for tool in tools_discover()]
+    assert len(discovered) == 9

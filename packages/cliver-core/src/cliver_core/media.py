@@ -11,7 +11,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from cliver_core.util import get_app_user_agent, url_request
+from cliver_core.util import url_request
 
 logger = logging.getLogger(__name__)
 
@@ -229,33 +229,33 @@ def load_media_file(source: str) -> MediaContent:
     filename = None
 
     if is_url:
-        # Load from URL — requests is only needed for the remote branch,
-        # so local files work without it (keeps cliver-core pydantic-only).
-        import requests
+        # Load from URL with the stdlib — no third-party HTTP client needed.
+        import urllib.error
+        import urllib.request
 
         try:
-            response = requests.get(source, headers={"User-Agent": get_app_user_agent()})
-            response.raise_for_status()
-            file_data = response.content
+            request = url_request(source)
+            with urllib.request.urlopen(request, timeout=120) as response:
+                file_data = response.read()
 
-            # Try to get filename from URL or Content-Disposition header
-            if "content-disposition" in response.headers:
-                content_disposition = response.headers["content-disposition"]
+                # Try to get filename from URL or Content-Disposition header
+                content_disposition = response.headers.get("content-disposition", "")
                 if "filename=" in content_disposition:
                     filename = content_disposition.split("filename=")[1].strip('"')
 
-            if not filename:
-                # Extract filename from URL path
-                url_path = parsed_url.path
-                filename = url_path.split("/")[-1] if "/" in url_path else source.split("/")[-1]
+                if not filename:
+                    # Extract filename from URL path
+                    url_path = parsed_url.path
+                    filename = url_path.split("/")[-1] if "/" in url_path else source.split("/")[-1]
 
-            # Get mime type from response headers or guess from filename
-            if "content-type" in response.headers:
-                mime_type = response.headers["content-type"].split(";")[0]  # Remove charset info
-            else:
-                mime_type, _ = mimetypes.guess_type(filename)
+                # Get mime type from response headers or guess from filename
+                content_type = response.headers.get("content-type")
+                if content_type:
+                    mime_type = content_type.split(";")[0]  # Remove charset info
+                else:
+                    mime_type, _ = mimetypes.guess_type(filename)
 
-        except requests.RequestException as e:
+        except (urllib.error.URLError, OSError) as e:
             raise ValueError(f"Failed to download media from URL {source}: {e}") from e
     else:
         # Load from local file

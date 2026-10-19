@@ -252,19 +252,32 @@ async def retry_with_confirmation_async(
     raise last_exception
 
 
-def _confirm_tool_execution(prompt="Are you sure? (y/n): ") -> bool:
-    """Helper function to get user confirmation."""
-    from cliver_core.agent_profile import get_cli_instance, get_input_fn
+_cli_instance: Any | None = None
 
-    cliver_inst = get_cli_instance()
-    if cliver_inst:
-        response = cliver_inst.ui.ask_input(prompt, choices=["y", "yes", "n", "no"])
+
+def set_cli_instance(instance: Any | None) -> None:
+    """Install the host app instance used for interactive confirmations.
+
+    The instance is duck-typed: it only needs an ``ui`` object exposing
+    ``ask_input(prompt, choices=[...])``.  Pass ``None`` to uninstall it
+    (builtin ``input()`` becomes the fallback).
+    """
+    global _cli_instance
+    _cli_instance = instance
+
+
+def _confirm_tool_execution(prompt="Are you sure? (y/n): ") -> bool:
+    """Ask the host UI (when installed) or fall back to builtin input.
+
+    The host instance is duck-typed: it only needs
+    ``ui.ask_input(prompt, choices=[...])``.
+    """
+    if _cli_instance is not None:
+        response = _cli_instance.ui.ask_input(prompt, choices=["y", "yes", "n", "no"])
         return response.lower() in ("y", "yes")
 
-    # Fallback via get_input_fn (supports test mocking)
-    _input = get_input_fn()
     try:
-        response = _input(prompt).strip()
+        response = input(prompt).strip()
     except (EOFError, KeyboardInterrupt):
         return False
     return response.lower() in ("y", "yes")
