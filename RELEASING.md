@@ -6,19 +6,19 @@ their migration is complete, but **all three packages share one version** — a 
 
 ## One-time setup: trusted publishers
 
-Publishing uses PyPI trusted publishing (OIDC), not API tokens. On both indexes, register a
-publisher for `cliver-core` with these exact values:
+Publishing uses PyPI trusted publishing (OIDC), not API tokens. On PyPI, register a publisher
+for `cliver-core` with these exact values:
 
 | Field | Value |
 |---|---|
 | Owner | `cliver-project` |
 | Repository | `CLIver` |
 | Workflow | `release.yml` |
-| Environment | `pypi` (PyPI) / `testpypi` (TestPyPI) |
+| Environment | `pypi` |
 
 If the project does not exist yet, create a **pending publisher** with the settings above; the
 first successful release creates the project. The PyPI environment is what lets you require
-manual approval before a real publish in the repository settings.
+manual approval before a publish in the repository settings.
 
 ## Version rule
 
@@ -50,8 +50,8 @@ Because `0.3.0a1` is a pre-release, downstream projects must install with
    git push origin v0.3.0a1
    ```
 
-7. The `Release` workflow runs the tests, builds, verifies the tag, publishes to **TestPyPI**,
-   then to **PyPI**. A failure at any step stops the chain.
+7. The `Release` workflow runs the tests, builds, verifies the tag, and publishes directly to
+   **PyPI**. A failure at any step stops the chain.
 
 ## Notes
 
@@ -60,4 +60,6 @@ Because `0.3.0a1` is a pre-release, downstream projects must install with
 - Re-running a release for an already-published version is safe: PyPI ignores identical files.
   It never allows re-uploading a file with changed contents, so a broken release needs a new
   version.
+- If a release turns out to be broken after publishing, bump the pre-release (`0.3.0a2`,
+  `0.3.0a3`, …) and release again.
 - No `PYPI_TOKEN` secret is used or required.

@@ -61,31 +61,8 @@ jobs:
           path: dist/
           if-no-files-found: error
 
-  testpypi:
-    needs: build
-    runs-on: ubuntu-latest
-    environment: testpypi
-    permissions:
-      id-token: write
-    steps:
-      - name: Install uv
-        uses: astral-sh/setup-uv@v10
-        with:
-          version: "0.12.9"
-
-      - uses: actions/download-artifact@v8
-        with:
-          name: cliver-core-dist
-          path: dist
-
-      - name: Publish to TestPyPI
-        run: >-
-          uv publish dist/*
-          --publish-url https://test.pypi.org/legacy/
-          --trusted-publishing always
-
   pypi:
-    needs: testpypi
+    needs: build
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
