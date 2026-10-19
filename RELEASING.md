@@ -26,8 +26,10 @@ All three packages in `packages/*/pyproject.toml` must carry the exact same vers
 tag is `v` + that version, e.g. `v0.3.0a1`. The release workflow refuses to build if the tag and
 the `cliver-core` version disagree.
 
-Because `0.3.0a1` is a pre-release, downstream projects must install with
-`pip install --pre cliver-core` or pin `cliver-core==0.3.0a1`.
+Because `0.3.0a1` is a pre-release, downstream projects should pin it exactly:
+`pip install cliver-core==0.3.0a1`. The exact pin selects the pre-release without `--pre`;
+using `--pre` also allows pre-release versions of transitive dependencies (it can pull an
+unrelated dev build), so prefer the exact pin.
 
 ## Release steps
 
