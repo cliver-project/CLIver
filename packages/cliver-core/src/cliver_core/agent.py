@@ -130,11 +130,10 @@ class AgentCore:
         wins on conflict (presence wins, an explicit ``None`` included).
         """
         messages = self._build_messages(user_input, system_prompt, conversation, media)
-        all_tools = await self._gather_tools(extra_tools, mcp_servers, tool_filter)
-        opts = {**self.llm.params, **(options or {})}
-
         if self.mcp_client:
             await self.mcp_client.start()
+        all_tools = await self._gather_tools(extra_tools, mcp_servers, tool_filter)
+        opts = {**self.llm.params, **(options or {})}
 
         return await self._run_loop(messages, all_tools, opts, max_iterations)
 
@@ -157,11 +156,10 @@ class AgentCore:
         call-site over.
         """
         messages = self._build_messages(user_input, system_prompt, conversation, media)
-        all_tools = await self._gather_tools(extra_tools, mcp_servers, tool_filter)
-        opts = {**self.llm.params, **(options or {})}
-
         if self.mcp_client:
             await self.mcp_client.start()
+        all_tools = await self._gather_tools(extra_tools, mcp_servers, tool_filter)
+        opts = {**self.llm.params, **(options or {})}
 
         async for chunk in self._run_stream_loop(messages, all_tools, opts, max_iterations):
             yield chunk
