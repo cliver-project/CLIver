@@ -2,6 +2,23 @@
 name = "cliver-core"
 version = "0.3.0a1"
 description = "CLIver — embeddable AgentCore library"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "CLIver Project" }]
+keywords = ["ai", "agents", "llm", "mcp", "react-loop"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Typing :: Typed",
+]
 requires-python = ">=3.10"
 dependencies = [
     "pydantic>=2.0.0",
@@ -47,3 +64,7 @@ Repository = "https://github.com/cliver-project/CLIver"
 [build-system]
 requires = ["uv_build>=0.7,<0.8"]
 build-backend = "uv_build"
+
+[tool.uv.build-backend]
+# Tests stay in the repo and sdist but never ship in the wheel.
+wheel-exclude = ["tests"]

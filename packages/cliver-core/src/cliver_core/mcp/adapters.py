@@ -38,6 +38,42 @@ _MAX_LIST_PAGES = 50
 _MAX_TOOLS_WARN = 200
 _TOOL_PREFIX = "mcp__"
 _ERROR_DETAIL_LIMIT = 300
+
+
+@asynccontextmanager
+async def _timeout_after(seconds: float) -> AsyncIterator[None]:
+    """Cancel the current task after ``seconds`` (``asyncio.timeout`` for 3.10).
+
+    ``asyncio.wait_for`` cannot be used for connection timeouts: on Python
+    < 3.12 it runs the awaited coroutine in a *new* task, so the MCP client
+    enters its anyio cancel scopes in one task and exits them in another
+    (``RuntimeError: Attempted to exit cancel scope in a different task``).
+    Cancelling the current task keeps the SDK's context managers unwinding
+    in the task that entered them.
+    """
+    task = asyncio.current_task()
+    timed_out = False
+
+    def _cancel() -> None:
+        nonlocal timed_out
+        timed_out = True
+        if task is not None:
+            task.cancel()
+
+    handle = asyncio.get_running_loop().call_later(seconds, _cancel)
+    try:
+        yield
+    except asyncio.CancelledError:
+        if timed_out:
+            uncancel = getattr(task, "uncancel", None)
+            if uncancel is not None:  # Python 3.11+
+                uncancel()
+            raise TimeoutError(f"startup timed out after {seconds:g}s") from None
+        raise
+    finally:
+        handle.cancel()
+
+
 _SCHEMA_PASSTHROUGH = ("$defs", "definitions", "additionalProperties", "title")
 
 try:
@@ -136,12 +172,12 @@ class MCPServerAdapter(ABC):
             )
             stack = AsyncExitStack()
             try:
-                enter = stack.enter_async_context(client)
                 startup = self._startup_timeout()
                 if startup is None:
-                    await enter
+                    await stack.enter_async_context(client)
                 else:
-                    await asyncio.wait_for(enter, startup)
+                    async with _timeout_after(startup):
+                        await stack.enter_async_context(client)
                 yield client
             finally:
                 await stack.aclose()

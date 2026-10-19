@@ -1,4 +1,4 @@
-.PHONY: help init test lint format clean
+.PHONY: help init test lint format dist clean
 
 help: ## Show this help.
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -9,6 +9,9 @@ init: ## Initialize workspace dev dependencies
 
 test: init ## Run the cliver-core test suite
 	uv run pytest
+
+dist: ## Build the cliver-core sdist + wheel into dist/
+	uv build --package cliver-core --out-dir dist
 
 lint: ## Lint + format check
 	uv run ruff check

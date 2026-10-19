@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Optional
+from urllib.parse import urlsplit
 
 from cliver_core.util import url_request
 
@@ -98,7 +99,9 @@ def resolve_media_mime(default: str, *, url: Optional[str] = None, payload: Opti
         if sniffed:
             return sniffed
     if url:
-        named, _ = mimetypes.guess_type(url)
+        # ``mimetypes`` only strips query/fragment on newer Pythons; split
+        # explicitly so the documented behavior holds on 3.10/3.11 too.
+        named, _ = mimetypes.guess_type(urlsplit(url).path)
         if named and named.split("/", 1)[0] in ("image", "audio", "video"):
             return named
     return default
