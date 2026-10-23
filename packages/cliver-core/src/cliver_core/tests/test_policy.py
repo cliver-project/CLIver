@@ -1,0 +1,156 @@
+"""Tool policy: decisions, env specs, execution scopes, and the ambient policy context."""
+
+import asyncio
+from pathlib import Path
+
+from cliver_core.policy import (
+    SAFE_ENV_VARS,
+    Decision,
+    DecisionAction,
+    EnvSpec,
+    ExecutionPolicy,
+    ToolCallContext,
+    ToolCategory,
+    current_policy,
+    policy_scope,
+    scope_violation,
+)
+
+# ── Decisions and categories ──────────────────────────────────
+
+
+def test_decision_allow_and_deny():
+    allow = Decision.allow()
+    deny = Decision.deny("not on this server")
+
+    assert allow.action is DecisionAction.ALLOW and allow.reason is None
+    assert deny.action is DecisionAction.DENY and deny.reason == "not on this server"
+
+
+def test_tool_call_context_carries_server_and_category():
+    ctx = ToolCallContext(
+        tool_name="mcp__everything__get_weather",
+        args={"city": "Beijing"},
+        server="everything",
+        category=ToolCategory.ASK,
+    )
+
+    assert ctx.server == "everything"
+    assert ctx.category is ToolCategory.ASK
+
+
+# ── EnvSpec ───────────────────────────────────────────────────
+
+
+def test_env_spec_inherit():
+    source = {"PATH": "/bin", "SECRET": "x"}
+
+    assert EnvSpec().build(source) == source
+    assert EnvSpec().build(source) is not source  # a copy, never the caller's dict
+
+
+def test_env_spec_allowlist_only_lists_names():
+    built = EnvSpec(mode="allowlist", names={"PATH", "HOME", "MISSING"}).build(
+        {"PATH": "/bin", "HOME": "/u", "SECRET": "x"}
+    )
+
+    assert built == {"PATH": "/bin", "HOME": "/u"}  # SECRET dropped, MISSING absent
+
+
+def test_env_spec_denylist_drops_names():
+    built = EnvSpec(mode="denylist", names={"SECRET"}).build({"PATH": "/bin", "SECRET": "x"})
+
+    assert built == {"PATH": "/bin"}
+
+
+def test_safe_env_vars_starter_set():
+    assert {"PATH", "HOME", "TMPDIR", "LANG"} <= SAFE_ENV_VARS
+
+
+# ── ExecutionPolicy defaults ──────────────────────────────────
+
+
+def test_execution_policy_defaults():
+    policy = ExecutionPolicy()
+
+    assert policy.env.mode == "inherit" and policy.env.names == set()
+    assert policy.cwd is None
+    assert policy.read_paths is None
+    assert policy.write_paths is None
+
+
+# ── Ambient policy context ────────────────────────────────────
+
+
+def test_policy_scope_sets_and_resets():
+    outer = ExecutionPolicy()
+    inner = ExecutionPolicy(cwd=Path("/tmp/inner"))
+
+    assert current_policy() is None
+    with policy_scope(outer):
+        assert current_policy() is outer
+        with policy_scope(inner):
+            assert current_policy() is inner
+        assert current_policy() is outer
+    assert current_policy() is None
+
+
+def test_policy_scope_none_is_noop():
+    with policy_scope(None):
+        assert current_policy() is None
+
+
+async def test_policy_scope_isolated_across_concurrent_tasks():
+    observed: list[bool] = []
+
+    async def hold(policy: ExecutionPolicy) -> None:
+        with policy_scope(policy):
+            await asyncio.sleep(0.01)
+            observed.append(current_policy() is policy)
+
+    await asyncio.gather(hold(ExecutionPolicy()), hold(ExecutionPolicy(cwd=Path("/tmp/other"))))
+
+    assert observed == [True, True]
+
+
+# ── Path scopes ───────────────────────────────────────────────
+
+
+def test_scope_violation_read_vs_write(tmp_path):
+    root = tmp_path / "scope"
+    root.mkdir()
+    (root / "out").mkdir()
+    policy = ExecutionPolicy(read_paths=[root], write_paths=[root / "out"])
+
+    with policy_scope(policy):
+        assert scope_violation(root / "doc.md", write=False) is None
+        # Inside the read scope but not the write scope.
+        assert scope_violation(root / "doc.md", write=True) is not None
+        assert scope_violation(root / "out" / "f.txt", write=True) is None
+        assert scope_violation(tmp_path / "elsewhere.md", write=False) is not None
+
+
+def test_scope_violation_symlink_escape(tmp_path):
+    scope = tmp_path / "scope"
+    scope.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("secret")
+    link = scope / "leak"
+    link.symlink_to(outside)
+
+    with policy_scope(ExecutionPolicy(read_paths=[scope])):
+        assert scope_violation(link, write=False) is not None
+
+
+def test_scope_violation_resolves_against_policy_cwd(tmp_path):
+    with policy_scope(ExecutionPolicy(read_paths=[tmp_path], cwd=tmp_path)):
+        assert scope_violation("doc.md", write=False) is None
+    with policy_scope(ExecutionPolicy(read_paths=[tmp_path], cwd=tmp_path.parent)):
+        # "doc.md" resolves under cwd — outside the read scope this time.
+        assert scope_violation("doc.md", write=False) is not None
+
+
+def test_scope_violation_unrestricted_when_none(tmp_path):
+    with policy_scope(ExecutionPolicy()):  # scopes None
+        assert scope_violation(tmp_path / "anywhere.md", write=True) is None
+    assert scope_violation(tmp_path / "anywhere.md", write=False) is None  # no policy
