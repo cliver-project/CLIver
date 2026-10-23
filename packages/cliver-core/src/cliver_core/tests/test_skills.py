@@ -5,13 +5,17 @@ folded descriptions, nested unknown maps, and allowed-tools in both string
 and absent forms.
 """
 
+import asyncio
+import os
 from pathlib import Path
 
 import pytest
 
 from cliver_core.agent import AgentCore
 from cliver_core.bindings import ModelBinding, ModelBindings
-from cliver_core.messages import CLIverMessage
+from cliver_core.messages import CLIverMessage, ToolCall
+from cliver_core.policy import Decision, ExecutionPolicy
+from cliver_core.provider import CLIverResponse
 from cliver_core.skill import (
     Skill,
     SkillError,
@@ -21,6 +25,7 @@ from cliver_core.skill import (
     validate_skill_name,
 )
 from cliver_core.tool import CLIverTool
+from cliver_core.tools import run_shell_command
 
 FIXTURES = Path(__file__).parent / "fixtures" / "skills"
 
@@ -411,3 +416,118 @@ async def test_run_skill_passes_conversation_through():
     messages = captured["messages"]
     assert messages[1:3] == history
     assert messages[-1].content == "next question"
+
+
+# ── run_skill × execution policy ──────────────────────────────
+
+
+def _response() -> CLIverResponse:
+    return CLIverResponse(message=CLIverMessage(role="assistant", content="ok"), usage=None, media=None)
+
+
+async def test_run_skill_pins_cwd_with_agent_policy():
+    manager = SkillManager(sources=[FIXTURES])
+    agent = AgentCore(
+        ModelBindings(llm=ModelBinding.llm(model="mock-model")),
+        builtin_tools=[run_shell_command],
+        skill_manager=manager,
+        execution_policy=ExecutionPolicy(),
+    )
+    pwd = {}
+
+    async def fake_loop(messages, tools, opts, max_iterations):
+        bash = next(t for t in tools if t.name == "Bash")
+        pwd["out"] = await asyncio.to_thread(bash.execute, command="pwd")
+        return _response()
+
+    agent._run_loop = fake_loop
+
+    await agent.run_skill("test-code-review", "review please")
+
+    assert pwd["out"][0]["text"].strip() == str(FIXTURES / "test-code-review")
+
+
+async def test_run_skill_call_site_policy_verbatim(tmp_path):
+    manager = SkillManager(sources=[FIXTURES])
+    agent = AgentCore(
+        ModelBindings(llm=ModelBinding.llm(model="mock-model")),
+        builtin_tools=[run_shell_command],
+        skill_manager=manager,
+        execution_policy=ExecutionPolicy(cwd=tmp_path),  # would pin elsewhere
+    )
+    pwd = {}
+
+    async def fake_loop(messages, tools, opts, max_iterations):
+        bash = next(t for t in tools if t.name == "Bash")
+        pwd["out"] = await asyncio.to_thread(bash.execute, command="pwd")
+        return _response()
+
+    agent._run_loop = fake_loop
+
+    call_site = ExecutionPolicy(cwd=FIXTURES)
+    await agent.run_skill("test-code-review", "review please", execution_policy=call_site)
+
+    assert pwd["out"][0]["text"].strip() == str(FIXTURES)
+
+
+async def test_run_skill_no_policy_pwd_unchanged():
+    manager = SkillManager(sources=[FIXTURES])
+    agent = AgentCore(
+        ModelBindings(llm=ModelBinding.llm(model="mock-model")),
+        builtin_tools=[run_shell_command],
+        skill_manager=manager,
+    )
+    pwd = {}
+
+    async def fake_loop(messages, tools, opts, max_iterations):
+        bash = next(t for t in tools if t.name == "Bash")
+        pwd["out"] = await asyncio.to_thread(bash.execute, command="pwd")
+        return _response()
+
+    agent._run_loop = fake_loop
+
+    await agent.run_skill("test-code-review", "review please")
+
+    assert pwd["out"][0]["text"].strip() == os.getcwd()
+
+
+async def test_run_skill_allowed_tool_still_denied_by_callback():
+    manager = SkillManager(sources=[FIXTURES])
+
+    async def deny(_ctx):
+        return Decision.deny("not trusted")
+
+    agent = AgentCore(
+        ModelBindings(llm=ModelBinding.llm(model="mock-model")),
+        builtin_tools=[_make_tool("WebSearch")],
+        skill_manager=manager,
+        permission_callback=deny,
+    )
+    result = {}
+
+    async def fake_loop(messages, tools, opts, max_iterations):
+        web = next(t for t in tools if t.name == "WebSearch")
+        result["out"] = await agent._execute_tool(ToolCall(id="c1", name="WebSearch", args={}), web)
+        return _response()
+
+    agent._run_loop = fake_loop
+
+    await agent.run_skill("test-greeting", "hello there")
+
+    assert result["out"] == [{"error": "Permission denied: not trusted", "denied": True}]
+
+
+def test_policy_exports_smoke():
+    import cliver_core
+
+    for name in (
+        "Decision",
+        "DecisionAction",
+        "ToolCategory",
+        "ToolCallContext",
+        "PermissionCallback",
+        "EnvSpec",
+        "ExecutionPolicy",
+        "SAFE_ENV_VARS",
+    ):
+        assert hasattr(cliver_core, name), name

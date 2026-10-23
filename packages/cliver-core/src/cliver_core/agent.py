@@ -10,6 +10,7 @@ No langchain dependency. No model fallback. No compression (v1).
 import asyncio
 import logging
 import time
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable
 
 from cliver_core import capabilities
@@ -47,13 +48,6 @@ from cliver_core.tool import CLIverTool, ToolRegistry
 
 if TYPE_CHECKING:
     from cliver_core.mcp import MCPClient
-
-
-def _load_mcp_client():
-    """Lazy import MCPClient — keeps the mcp SDK out of `import cliver_core`."""
-    from cliver_core.mcp import MCPClient
-
-    return MCPClient
 
 
 logger = logging.getLogger(__name__)
@@ -211,6 +205,7 @@ class AgentCore:
         mcp_servers: list[str] | None = None,
         options: dict[str, Any] | None = None,
         max_iterations: int = 50,
+        execution_policy: ExecutionPolicy | None = None,
     ) -> CLIverResponse:
         """Run one skill: pin its instructions, restrict tools, run the loop.
 
@@ -223,6 +218,12 @@ class AgentCore:
         frontmatter narrows the advertised tools to that set for the run —
         a non-empty allowlist matching zero available tools fails fast.
         Every other :meth:`chat` parameter applies unchanged.
+
+        ``execution_policy`` follows the skill's Option A semantics: a
+        call-site policy applies verbatim; otherwise an agent-level policy
+        is reused with ``cwd`` pinned to the skill's directory (so relative
+        paths and bundled scripts resolve inside the skill); no agent
+        policy → no ambient policy at all.
         """
         if isinstance(skill, str):
             manager = self.skill_manager
@@ -267,6 +268,13 @@ class AgentCore:
 
             tool_filter = skill_tool_filter
 
+        if execution_policy is not None:
+            effective_policy: ExecutionPolicy | None = execution_policy
+        elif self.execution_policy is not None:
+            effective_policy = replace(self.execution_policy, cwd=loaded.base_dir)
+        else:
+            effective_policy = None
+
         return await self.chat(
             user_input,
             system_prompt=combined_system,
@@ -277,6 +285,7 @@ class AgentCore:
             tool_filter=tool_filter,
             options=options,
             max_iterations=max_iterations,
+            execution_policy=effective_policy,
         )
 
     @staticmethod

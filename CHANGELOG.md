@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.3.0a3] - 2026-10-23
 
 ### Added
+- **cliver-core: tool permission + execution policy** — two opt-in axes around tool execution.
+  Permission: every tool carries a category (SAFE/ASK — read-only builtins safe, mutating ones
+  ask, MCP `readOnlyHint` maps to safe as a hint only); an async `permission_callback` gates
+  ASK tools before they run, returning `{"error": "Permission denied: …", "denied": true}` to
+  the model through the normal tool-result path. Callback exceptions fail closed; denials
+  share the consecutive cap with errors; `safety_overrides` reclassify tools per AgentCore
+  instance without mutating the shared singletons. Environment: `ExecutionPolicy`
+  (`EnvSpec` allowlist/denylist/inherit, pinned cwd, `read_paths`/`write_paths`) is ambient
+  per `chat()`/`stream()` call (call-site over constructor default) — `Bash`/`Exec` honor env
+  and cwd (the pin overriding Bash's `directory` is logged at INFO), `Read`/`LS`/`Grep`/
+  `Write` enforce scopes with symlinks followed. `run_skill` applies a call-site policy
+  verbatim, else reuses the agent policy with cwd pinned to the skill directory.
+  Exported from `cliver_core` (`Decision`, `ExecutionPolicy`, `EnvSpec`, `SAFE_ENV_VARS`, …).
 - **cliver-core: Agent Skills** — `cliver_core.skill.SkillManager` loads SKILL.md skills
   (agentskills.io spec) from explicit application-supplied sources with a dependency-free
   frontmatter parser (flat scalars, quoted strings, `>`/`|` blocks, nested maps of any depth —

@@ -23,6 +23,16 @@ from cliver_core.messages import (
     CLIverMessageChunk,
     ToolCall,
 )
+from cliver_core.policy import (
+    SAFE_ENV_VARS,
+    Decision,
+    DecisionAction,
+    EnvSpec,
+    ExecutionPolicy,
+    PermissionCallback,
+    ToolCallContext,
+    ToolCategory,
+)
 from cliver_core.skill import Skill, SkillError, SkillManager, SkillNotFoundError
 from cliver_core.tool import CLIverTool, ToolRegistry, tool
 
@@ -45,6 +55,15 @@ __all__ = [
     "SkillError",
     "SkillManager",
     "SkillNotFoundError",
+    # Tool permission + execution policy
+    "Decision",
+    "DecisionAction",
+    "EnvSpec",
+    "ExecutionPolicy",
+    "PermissionCallback",
+    "SAFE_ENV_VARS",
+    "ToolCallContext",
+    "ToolCategory",
     # Ready-made bindings for well-known providers
     "presets",
     # Standalone capability calls (also importable from cliver_core.capabilities)

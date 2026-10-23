@@ -188,6 +188,51 @@ the frontmatter itself is missing. (Anthropic's product-specific extras — rese
 names — are not enforced.) Script execution sandboxes, a model-facing file-read tool, and
 model-driven skill selection are future work.
 
+## Permissions & execution policy
+
+Two independent axes, both opt-in — with neither set, every tool runs exactly as before.
+
+**Permission axis (may this tool run?).** Every tool carries a category: `SAFE` or `ASK`.
+Read-only builtins (`Read`, `LS`, `Grep`, `TodoRead`/`TodoWrite`) are `SAFE`; mutating ones
+(`Write`, `Bash`, `Exec`, `WebFetch`) are `ASK` by default. MCP tools map the spec's
+self-declared `readOnlyHint` annotation to `SAFE` — a hint, never a permission boundary.
+An application-supplied async `permission_callback` is consulted before any `ASK` tool runs:
+
+```python
+from cliver_core import AgentCore, Decision, EnvSpec, ExecutionPolicy, SAFE_ENV_VARS, ToolCategory
+
+
+async def ask_user(ctx) -> Decision:  # ctx: tool_name, args, server, category
+    answer = await my_ui.confirm(f"Run {ctx.tool_name}?")
+    return Decision.allow() if answer else Decision.deny("user said no")
+
+
+agent = AgentCore(
+    bindings,
+    tools=[...],
+    permission_callback=ask_user,  # None → ASK tools run unchecked
+    execution_policy=ExecutionPolicy(  # environment axis, ambient per call
+        env=EnvSpec(mode="allowlist", names=set(SAFE_ENV_VARS)),
+        cwd=project_root,
+        write_paths=[project_root / "src"],
+    ),
+    safety_overrides={"mcp__github__create_issue": ToolCategory.ASK},
+)
+```
+
+A denial never raises: it returns `{"error": "Permission denied: …", "denied": true}` to the
+model through the normal tool-result path. Callback exceptions fail closed. Denials share the
+consecutive cap with errors (5 in a row stops the loop). `safety_overrides` reclassify
+individual tools per AgentCore instance — builtins are shared singletons and never mutated.
+
+**Environment axis (where does it run, what does it see?).** Pass `execution_policy=` to the
+constructor or per `chat()`/`stream()` call (call-site wins). While ambient: `Bash` and `Exec`
+run with the policy env (`allowlist`/`denylist`/inherit) and pinned cwd — `Bash` logs an INFO
+line when the pin overrides its `directory` argument; `Read`/`LS`/`Grep`/`Write` enforce
+`read_paths`/`write_paths` (resolved against the policy cwd, symlinks followed). `run_skill`
+applies a call-site policy verbatim; otherwise an agent-level policy is reused with cwd pinned
+to the skill's directory.
+
 ## License
 
 Apache-2.0
