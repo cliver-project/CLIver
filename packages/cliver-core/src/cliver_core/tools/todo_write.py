@@ -53,6 +53,7 @@ def format_todo_summary(todos: list[dict]) -> str:
 
 @tool(
     name="TodoWrite",
+    safety="safe",
     description=(
         "Creates and manages a structured task list for your current session. "
         "This helps track progress, organize complex tasks, and demonstrate thoroughness.\n\n"

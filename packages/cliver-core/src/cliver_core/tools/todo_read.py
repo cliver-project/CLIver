@@ -6,6 +6,7 @@ from cliver_core.tools.todo_write import format_todo_summary, get_current_todos
 
 @tool(
     name="TodoRead",
+    safety="safe",
     description=(
         "Read the current plan/todo list to check progress. "
         "Returns the full todo list with status of each item. "

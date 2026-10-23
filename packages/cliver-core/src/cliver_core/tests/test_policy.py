@@ -154,3 +154,30 @@ def test_scope_violation_unrestricted_when_none(tmp_path):
     with policy_scope(ExecutionPolicy()):  # scopes None
         assert scope_violation(tmp_path / "anywhere.md", write=True) is None
     assert scope_violation(tmp_path / "anywhere.md", write=False) is None  # no policy
+
+
+# ── Builtin safety flags ──────────────────────────────────────
+
+
+def test_builtin_safety_flags():
+    from cliver_core.tools import (
+        execute_code,
+        grep_search,
+        list_directory,
+        read_file,
+        run_shell_command,
+        todo_read,
+        todo_write,
+        web_fetch,
+        write_file,
+    )
+
+    assert read_file.safety == "safe"
+    assert list_directory.safety == "safe"
+    assert grep_search.safety == "safe"
+    assert todo_read.safety == "safe"  # agent-internal scratchpad
+    assert todo_write.safety == "safe"
+    assert write_file.safety == "mutating"
+    assert run_shell_command.safety == "mutating"
+    assert execute_code.safety == "mutating"
+    assert web_fetch.safety == "mutating"

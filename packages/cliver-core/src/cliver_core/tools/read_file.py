@@ -48,7 +48,11 @@ def _is_sensitive_file(file_path: str) -> bool:
     return bool(_SENSITIVE_RE.search(basename))
 
 
-@tool(name="Read", description="Reads and returns the content of a specified file.")
+@tool(
+    name="Read",
+    description="Reads and returns the content of a specified file.",
+    safety="safe",
+)
 def read_file(
     file_path: str,
     offset: int | None = None,

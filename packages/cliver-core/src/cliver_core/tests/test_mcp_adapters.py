@@ -44,6 +44,7 @@ def _make_server() -> Server:
                         "properties": {"message": {"type": "string"}},
                         "required": ["message"],
                     },
+                    annotations=t.ToolAnnotations(readOnlyHint=True),
                 ),
                 t.Tool(name="loose", inputSchema={"type": "object", "properties": {"q": {}}}),
                 t.Tool(name="boom", description="Always fails", inputSchema={"type": "object", "properties": {}}),
@@ -447,3 +448,14 @@ def test_normalize_schema_preserves_refs_and_copies():
     assert schema["properties"]["raw"] == {"type": "string"}
     assert source["properties"]["raw"] == {}  # the server's dict is untouched
     assert _normalize_schema(None) == {"type": "object", "properties": {}}
+
+
+async def test_readonly_hint_maps_to_safe(server):
+    adapter = _InProcessAdapter("fake", {}, server)
+
+    await adapter.start()
+
+    by_name = {tool.name: tool for tool in adapter.tools}
+    assert by_name["mcp__fake__echo"].safety == "safe"  # readOnlyHint=True (see _make_server)
+    assert by_name["mcp__fake__loose"].safety == "mutating"  # no annotations
+    assert by_name["mcp__fake__boom"].safety == "mutating"

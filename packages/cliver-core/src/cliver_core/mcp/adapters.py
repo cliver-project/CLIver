@@ -233,6 +233,10 @@ class MCPServerAdapter(ABC):
                     description=mcp_tool.description or f"MCP tool: {mcp_tool.name}",
                     parameters=_normalize_schema(mcp_tool.input_schema),
                     execute=functools.partial(self._call_tool, mcp_tool.name),
+                    # Annotations are self-declared hints (MCP spec): they set
+                    # the default category, never a permission boundary.
+                    # (SDK attribute is snake_case read_only_hint.)
+                    safety="safe" if getattr(mcp_tool.annotations, "read_only_hint", None) else "mutating",
                 )
             )
         if len(tools) > _MAX_TOOLS_WARN:

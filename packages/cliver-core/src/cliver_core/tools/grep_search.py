@@ -81,6 +81,7 @@ def _python_search(pattern: str, path: str, glob_pattern: Optional[str], limit: 
 
 @tool(
     name="Grep",
+    safety="safe",
     description=(
         "A powerful search tool for finding patterns in file contents. "
         "Supports full regex syntax (e.g., 'log.*Error', 'function\\\\s+\\\\w+'). "

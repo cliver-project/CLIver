@@ -83,6 +83,9 @@ class CLIverTool(BaseModel):
     long_description: str | None = None  # full docstring, for humans / help
     parameters: dict[str, Any]  # JSON Schema
     execute: Callable[..., list[dict]]
+    # Permission category hint: "safe" tools run without consulting the
+    # permission callback; "mutating" (the fail-closed default) tools ask.
+    safety: str = "mutating"
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -111,6 +114,7 @@ def tool(
     *,
     name: str | None = None,
     description: str = "",
+    safety: str = "mutating",
 ) -> Callable:
     """Decorator: convert a sync or async function into a CLIverTool.
 
@@ -181,6 +185,7 @@ def tool(
             long_description=inspect.getdoc(fn),
             parameters=parameters,
             execute=execute,
+            safety=safety,
         )
 
     return decorator
