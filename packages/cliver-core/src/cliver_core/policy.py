@@ -137,6 +137,17 @@ def current_policy() -> ExecutionPolicy | None:
     return _policy_var.get()
 
 
+def pinned_cwd() -> Path | None:
+    """The ambient policy's pinned cwd, if any.
+
+    File tools resolve relative paths against it so the scope check and the
+    actual access agree — a pinned cwd means relative paths live inside the
+    pin, exactly as they would for a subprocess (Bash/Exec).
+    """
+    policy = current_policy()
+    return policy.cwd if policy is not None else None
+
+
 @contextlib.contextmanager
 def policy_scope(policy: ExecutionPolicy | None):
     """Set the ambient policy for a block; None is a no-op.

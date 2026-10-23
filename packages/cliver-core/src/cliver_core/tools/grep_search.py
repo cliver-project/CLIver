@@ -6,7 +6,7 @@ import re
 import subprocess
 from typing import Optional
 
-from cliver_core.policy import scope_violation
+from cliver_core.policy import pinned_cwd, scope_violation
 from cliver_core.tool import tool
 
 logger = logging.getLogger(__name__)
@@ -108,6 +108,10 @@ def grep_search(
         glob: Glob pattern to filter files (e.g. "*.py", "*.{ts,tsx}").
         limit: Limit output to first N matching lines. Defaults to 100.
     """
+    pin = pinned_cwd()
+    if pin is not None and not os.path.isabs(path):
+        path = str(pin / path)
+
     violation = scope_violation(path, write=False)
     if violation:
         return [{"error": violation}]

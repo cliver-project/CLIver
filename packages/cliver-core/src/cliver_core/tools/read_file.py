@@ -4,7 +4,7 @@ import logging
 import os
 import re
 
-from cliver_core.policy import scope_violation
+from cliver_core.policy import pinned_cwd, scope_violation
 from cliver_core.tool import tool
 
 logger = logging.getLogger(__name__)
@@ -66,6 +66,10 @@ def read_file(
     read more using offset/limit.
     """
     try:
+        pin = pinned_cwd()
+        if pin is not None and not os.path.isabs(file_path):
+            file_path = str(pin / file_path)
+
         violation = scope_violation(file_path, write=False)
         if violation:
             return [{"error": violation}]

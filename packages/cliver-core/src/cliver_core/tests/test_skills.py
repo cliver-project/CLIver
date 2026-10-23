@@ -5,8 +5,6 @@ folded descriptions, nested unknown maps, and allowed-tools in both string
 and absent forms.
 """
 
-import asyncio
-import os
 from pathlib import Path
 
 import pytest
@@ -55,7 +53,7 @@ def _agent(
 def _capture_loop(agent: AgentCore) -> dict:
     captured: dict = {}
 
-    async def fake_run_loop(messages, all_tools, opts, max_iterations):
+    async def fake_run_loop(messages, all_tools, opts, max_iterations, execution_policy=None):
         captured["messages"] = messages
         captured["tools"] = all_tools
         return None
@@ -433,18 +431,19 @@ async def test_run_skill_pins_cwd_with_agent_policy():
         skill_manager=manager,
         execution_policy=ExecutionPolicy(),
     )
-    pwd = {}
+    captured = {}
 
-    async def fake_loop(messages, tools, opts, max_iterations):
-        bash = next(t for t in tools if t.name == "Bash")
-        pwd["out"] = await asyncio.to_thread(bash.execute, command="pwd")
+    async def fake_loop(messages, tools, opts, max_iterations, execution_policy=None):
+        captured["policy"] = execution_policy
         return _response()
 
     agent._run_loop = fake_loop
 
     await agent.run_skill("test-code-review", "review please")
 
-    assert pwd["out"][0]["text"].strip() == str(FIXTURES / "test-code-review")
+    policy = captured["policy"]
+    assert policy is not None
+    assert policy.cwd == FIXTURES / "test-code-review"  # agent policy reused, cwd pinned
 
 
 async def test_run_skill_call_site_policy_verbatim(tmp_path):
@@ -455,11 +454,10 @@ async def test_run_skill_call_site_policy_verbatim(tmp_path):
         skill_manager=manager,
         execution_policy=ExecutionPolicy(cwd=tmp_path),  # would pin elsewhere
     )
-    pwd = {}
+    captured = {}
 
-    async def fake_loop(messages, tools, opts, max_iterations):
-        bash = next(t for t in tools if t.name == "Bash")
-        pwd["out"] = await asyncio.to_thread(bash.execute, command="pwd")
+    async def fake_loop(messages, tools, opts, max_iterations, execution_policy=None):
+        captured["policy"] = execution_policy
         return _response()
 
     agent._run_loop = fake_loop
@@ -467,7 +465,7 @@ async def test_run_skill_call_site_policy_verbatim(tmp_path):
     call_site = ExecutionPolicy(cwd=FIXTURES)
     await agent.run_skill("test-code-review", "review please", execution_policy=call_site)
 
-    assert pwd["out"][0]["text"].strip() == str(FIXTURES)
+    assert captured["policy"] is call_site  # verbatim, not re-pinned
 
 
 async def test_run_skill_no_policy_pwd_unchanged():
@@ -477,18 +475,17 @@ async def test_run_skill_no_policy_pwd_unchanged():
         builtin_tools=[run_shell_command],
         skill_manager=manager,
     )
-    pwd = {}
+    captured = {}
 
-    async def fake_loop(messages, tools, opts, max_iterations):
-        bash = next(t for t in tools if t.name == "Bash")
-        pwd["out"] = await asyncio.to_thread(bash.execute, command="pwd")
+    async def fake_loop(messages, tools, opts, max_iterations, execution_policy=None):
+        captured["policy"] = execution_policy
         return _response()
 
     agent._run_loop = fake_loop
 
     await agent.run_skill("test-code-review", "review please")
 
-    assert pwd["out"][0]["text"].strip() == os.getcwd()
+    assert captured["policy"] is None  # opt-in: no agent policy → nothing ambient
 
 
 async def test_run_skill_allowed_tool_still_denied_by_callback():
@@ -505,7 +502,7 @@ async def test_run_skill_allowed_tool_still_denied_by_callback():
     )
     result = {}
 
-    async def fake_loop(messages, tools, opts, max_iterations):
+    async def fake_loop(messages, tools, opts, max_iterations, execution_policy=None):
         web = next(t for t in tools if t.name == "WebSearch")
         result["out"] = await agent._execute_tool(ToolCall(id="c1", name="WebSearch", args={}), web)
         return _response()

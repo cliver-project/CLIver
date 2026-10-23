@@ -163,7 +163,7 @@ by name.
 from cliver_core import AgentCore, SkillManager
 
 skills = SkillManager(sources=["./skills"])  # routing metadata: skills.list_skills()
-agent = AgentCore(bindings, tools=[...], skill_manager=skills)
+agent = AgentCore(bindings, builtin_tools=[...], skill_manager=skills)
 
 result = await agent.run_skill("Refund", "订单 12345 想退货", conversation=history)
 ```
@@ -209,7 +209,7 @@ async def ask_user(ctx) -> Decision:  # ctx: tool_name, args, server, category
 
 agent = AgentCore(
     bindings,
-    tools=[...],
+    builtin_tools=[...],
     permission_callback=ask_user,  # None → ASK tools run unchecked
     execution_policy=ExecutionPolicy(  # environment axis, ambient per call
         env=EnvSpec(mode="allowlist", names=set(SAFE_ENV_VARS)),
@@ -232,6 +232,12 @@ line when the pin overrides its `directory` argument; `Read`/`LS`/`Grep`/`Write`
 `read_paths`/`write_paths` (resolved against the policy cwd, symlinks followed). `run_skill`
 applies a call-site policy verbatim; otherwise an agent-level policy is reused with cwd pinned
 to the skill's directory.
+
+The two axes are complementary, not a hard sandbox: `read_paths`/`write_paths` bind the file
+tools only — an approved `Bash`/`Exec` call runs as your process user and can touch anything
+that user can, under the filtered env and pinned working directory. Use the permission axis
+(callback, `safety_overrides`) to decide whether shell access is granted at all; the paths are
+a guardrail against accidental access, not an OS-level confinement.
 
 ## License
 

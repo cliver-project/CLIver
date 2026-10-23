@@ -360,20 +360,48 @@ async def test_denial_cap_stops_loop():
 
 
 async def test_chat_execution_policy_flows():
+    """The effective policy is ambient during tool execution (its only
+    consumer) and nowhere else."""
     agent = _policy_agent(execution_policy=ExecutionPolicy())
     seen: list[ExecutionPolicy | None] = []
+    outside: list[ExecutionPolicy | None] = []
 
-    async def fake_loop(messages, tools, options, max_iterations):
+    @tool(name="probe", description="Records the ambient policy.")
+    def probe() -> list[dict]:
         seen.append(current_policy())
-        return CLIverResponse(message=CLIverMessage(role="assistant", content="ok"), usage=None, media=None)
+        return [{"text": "ok"}]
 
-    agent._run_loop = fake_loop
-
-    await agent.chat("hi")  # constructor default applies
     kwarg = ExecutionPolicy(env=EnvSpec(mode="allowlist", names={"PATH"}))
-    await agent.chat("hi", execution_policy=kwarg)  # call-site wins
 
-    assert seen == [agent.execution_policy, kwarg]
+    class _ToolThenTextProvider(_NoToolProvider):
+        protocol = "openai"
+
+        async def chat(self, request: CLIverRequest) -> CLIverResponse:
+            self.calls.append(request)
+            if len(self.calls) % 2 == 1:
+                return CLIverResponse(
+                    message=CLIverMessage(
+                        role="assistant", content=None, tool_calls=[ToolCall(id="c", name="probe", args={})]
+                    ),
+                    usage=None,
+                    media=None,
+                )
+            return CLIverResponse(message=CLIverMessage(role="assistant", content="ok"), usage=None, media=None)
+
+    tool_agent = AgentCore(
+        ModelBindings(llm=ModelBinding.llm(model="mock-model", provider=_ToolThenTextProvider())),
+        builtin_tools=[probe],
+        execution_policy=ExecutionPolicy(),
+    )
+
+    await tool_agent.chat("hi")  # constructor default applies inside tools
+    await tool_agent.chat("hi", execution_policy=kwarg)  # call-site wins
+    outside.append(current_policy())  # not leaked after chat returns
+
+    assert seen[0] is tool_agent.execution_policy
+    assert seen[1] is kwarg
+    assert outside == [None]
+    assert agent.execution_policy is not None  # fixture still constructs with a default
 
 
 # ── Bash/Exec honor the ambient execution policy ──────────────
@@ -522,3 +550,44 @@ def test_symlink_escape_rejected_end_to_end(tmp_path):
         result = read_file.execute(file_path=str(jail / "link.txt"))
 
     assert "outside the allowed read paths" in result[0]["error"]
+
+
+def test_relative_paths_resolve_under_pinned_cwd(tmp_path, monkeypatch):
+    """The scope check and the file access must agree on where a relative
+    path lives: under the pinned cwd, not the process cwd."""
+    jail = tmp_path / "jail"
+    jail.mkdir()
+    (jail / "note.md").write_text("needle here")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)  # process cwd outside the scope
+    policy = ExecutionPolicy(cwd=jail, read_paths=[jail], write_paths=[jail])
+
+    with policy_scope(policy):
+        grep = grep_search.execute(pattern="needle")  # default path="."
+        read = read_file.execute(file_path="note.md")
+        write_file.execute(file_path="out/x.txt", content="data")
+
+    assert "needle here" in grep[0]["text"]
+    assert "needle here" in read[0]["text"]
+    assert (jail / "out" / "x.txt").read_text() == "data"
+    assert not (elsewhere / "out").exists()  # nothing escaped the pin
+
+
+async def test_stream_policy_not_leaked_when_abandoned():
+    """Breaking out of a stream must not leave the policy ambient in the
+    consumer's task (the scope never spans yields)."""
+    from cliver_core.messages import CLIverMessageChunk
+
+    agent = _policy_agent(execution_policy=ExecutionPolicy())
+
+    async def fake_stream_loop(messages, tools, options, max_iterations, execution_policy=None):
+        yield CLIverMessageChunk(content="partial")
+        yield CLIverMessageChunk(content="more")
+
+    agent._run_stream_loop = fake_stream_loop
+
+    async for _chunk in agent.stream("hi", execution_policy=agent.execution_policy):
+        break  # abandon without aclose
+
+    assert current_policy() is None

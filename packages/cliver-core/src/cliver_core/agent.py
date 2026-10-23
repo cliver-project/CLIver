@@ -149,8 +149,9 @@ class AgentCore:
         defaults (``bindings.llm.params``) apply underneath, and the call site
         wins on conflict (presence wins, an explicit ``None`` included).
 
-        ``execution_policy`` is ambient for this call (call-site wins over
-        the constructor default; ``None`` means neither is set).
+        ``execution_policy`` is ambient around tool execution for this call
+        (call-site wins over the constructor default; ``None`` means neither
+        is set).
         """
         messages = self._build_messages(user_input, system_prompt, conversation, media)
         if self.mcp_client:
@@ -159,8 +160,7 @@ class AgentCore:
         opts = {**self.llm.params, **(options or {})}
         effective = execution_policy if execution_policy is not None else self.execution_policy
 
-        with policy_scope(effective):
-            return await self._run_loop(messages, all_tools, opts, max_iterations)
+        return await self._run_loop(messages, all_tools, opts, max_iterations, execution_policy=effective)
 
     async def stream(
         self,
@@ -179,8 +179,9 @@ class AgentCore:
         """Streaming chat.  Yields chunks, executes tools between iterations.
 
         ``options`` merge exactly as in :meth:`chat` — binding defaults under,
-        call-site over.  ``execution_policy`` is ambient for this call,
-        exactly as in :meth:`chat`.
+        call-site over.  ``execution_policy`` is ambient around tool
+        execution, exactly as in :meth:`chat` — the scope never spans yields,
+        so a consumer abandoning the stream leaks nothing.
         """
         messages = self._build_messages(user_input, system_prompt, conversation, media)
         if self.mcp_client:
@@ -189,9 +190,8 @@ class AgentCore:
         opts = {**self.llm.params, **(options or {})}
         effective = execution_policy if execution_policy is not None else self.execution_policy
 
-        with policy_scope(effective):
-            async for chunk in self._run_stream_loop(messages, all_tools, opts, max_iterations):
-                yield chunk
+        async for chunk in self._run_stream_loop(messages, all_tools, opts, max_iterations, execution_policy=effective):
+            yield chunk
 
     async def run_skill(
         self,
@@ -475,6 +475,7 @@ class AgentCore:
         tools: list[CLIverTool],
         options: dict[str, Any],
         max_iterations: int,
+        execution_policy: ExecutionPolicy | None = None,
     ) -> CLIverResponse:
         consecutive_errors = 0
         consecutive_denials = 0
@@ -510,9 +511,13 @@ class AgentCore:
                 return response
 
             messages.append(msg)
-            consecutive_errors, consecutive_denials, stop = await self._execute_tool_calls(
-                messages, msg.tool_calls, consecutive_errors, consecutive_denials, tools
-            )
+            # The policy is ambient around tool execution only — tools are
+            # its sole consumer, and a scope that spans yields (streaming)
+            # would leak into a consumer that abandons the generator.
+            with policy_scope(execution_policy):
+                consecutive_errors, consecutive_denials, stop = await self._execute_tool_calls(
+                    messages, msg.tool_calls, consecutive_errors, consecutive_denials, tools
+                )
             if stop:
                 return CLIverResponse(
                     message=CLIverMessage(
@@ -540,6 +545,7 @@ class AgentCore:
         tools: list[CLIverTool],
         options: dict[str, Any],
         max_iterations: int,
+        execution_policy: ExecutionPolicy | None = None,
     ) -> AsyncIterator[CLIverMessageChunk]:
         import json
 
@@ -615,9 +621,12 @@ class AgentCore:
 
             messages.append(assistant)
 
-            consecutive_errors, consecutive_denials, stop = await self._execute_tool_calls(
-                messages, tool_calls, consecutive_errors, consecutive_denials, tools
-            )
+            # Same scoping rule as the non-streaming loop: ambient around
+            # tool execution only, never across a yield.
+            with policy_scope(execution_policy):
+                consecutive_errors, consecutive_denials, stop = await self._execute_tool_calls(
+                    messages, tool_calls, consecutive_errors, consecutive_denials, tools
+                )
             if stop:
                 yield CLIverMessageChunk(
                     content="Tool calls failed repeatedly. Please check the tool arguments or try a different "

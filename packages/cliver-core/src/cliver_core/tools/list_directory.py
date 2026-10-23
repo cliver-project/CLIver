@@ -5,7 +5,7 @@ import os
 from fnmatch import fnmatch
 from typing import Optional
 
-from cliver_core.policy import scope_violation
+from cliver_core.policy import pinned_cwd, scope_violation
 from cliver_core.tool import tool
 
 logger = logging.getLogger(__name__)
@@ -56,6 +56,10 @@ def list_directory(path: str = ".", ignore: Optional[list[str]] = None) -> list[
         ignore: List of glob patterns to ignore (e.g., ["*.pyc", "__pycache__"]).
     """
     try:
+        pin = pinned_cwd()
+        if pin is not None and not os.path.isabs(path):
+            path = str(pin / path)
+
         violation = scope_violation(path, write=False)
         if violation:
             return [{"error": violation}]

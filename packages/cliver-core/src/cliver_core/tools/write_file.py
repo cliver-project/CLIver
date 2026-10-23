@@ -3,7 +3,7 @@
 import logging
 import os
 
-from cliver_core.policy import scope_violation
+from cliver_core.policy import pinned_cwd, scope_violation
 from cliver_core.tool import tool
 
 logger = logging.getLogger(__name__)
@@ -32,6 +32,10 @@ def write_file(file_path: str, content: str) -> list[dict]:
         content: The content to write to the file.
     """
     try:
+        pin = pinned_cwd()
+        if pin is not None and not os.path.isabs(file_path):
+            file_path = str(pin / file_path)
+
         violation = scope_violation(file_path, write=True)
         if violation:
             return [{"error": violation}]
