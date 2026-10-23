@@ -3,6 +3,7 @@
 import logging
 import os
 
+from cliver_core.policy import scope_violation
 from cliver_core.tool import tool
 
 logger = logging.getLogger(__name__)
@@ -31,6 +32,10 @@ def write_file(file_path: str, content: str) -> list[dict]:
         content: The content to write to the file.
     """
     try:
+        violation = scope_violation(file_path, write=True)
+        if violation:
+            return [{"error": violation}]
+
         # Convert non-string content to JSON (safety check)
         if not isinstance(content, str):
             import json

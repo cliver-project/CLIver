@@ -4,6 +4,7 @@ import logging
 import os
 import re
 
+from cliver_core.policy import scope_violation
 from cliver_core.tool import tool
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,10 @@ def read_file(
     read more using offset/limit.
     """
     try:
+        violation = scope_violation(file_path, write=False)
+        if violation:
+            return [{"error": violation}]
+
         abs_path = os.path.abspath(file_path)
 
         if _is_sensitive_file(abs_path):

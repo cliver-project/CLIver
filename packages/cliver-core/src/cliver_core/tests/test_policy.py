@@ -21,7 +21,7 @@ from cliver_core.policy import (
 )
 from cliver_core.provider import CLIverRequest, CLIverResponse, Provider
 from cliver_core.tool import tool
-from cliver_core.tools import execute_code, read_file, run_shell_command
+from cliver_core.tools import execute_code, grep_search, list_directory, read_file, run_shell_command, write_file
 
 # ── Decisions and categories ──────────────────────────────────
 
@@ -436,3 +436,89 @@ async def test_exec_env_and_cwd(tmp_path, monkeypatch):
     lines = result[0]["text"].strip().splitlines()
     assert lines[0] == str(tmp_path)
     assert lines[1] == "absent"
+
+
+# ── File tools enforce execution-policy scopes ────────────────
+
+
+def test_write_outside_write_paths_rejected(tmp_path):
+    data = tmp_path / "data"
+    data.mkdir()
+    policy = ExecutionPolicy(write_paths=[data])
+
+    with policy_scope(policy):
+        result = write_file.execute(file_path=str(tmp_path / "outside.txt"), content="x")
+
+    assert "outside the allowed write paths" in result[0]["error"]
+    assert not (tmp_path / "outside.txt").exists()
+
+
+def test_write_inside_write_paths(tmp_path):
+    data = tmp_path / "data"
+    data.mkdir()
+    policy = ExecutionPolicy(write_paths=[data])
+
+    with policy_scope(policy):
+        result = write_file.execute(file_path=str(data / "allowed.txt"), content="hello")
+
+    assert "error" not in result[0]
+    assert (data / "allowed.txt").read_text() == "hello"
+
+
+def test_read_outside_read_paths_rejected(tmp_path):
+    inside = tmp_path / "inside"
+    inside.mkdir()
+    target = tmp_path / "plain.txt"
+    target.write_text("s3cret")
+    policy = ExecutionPolicy(read_paths=[inside])
+
+    with policy_scope(policy):
+        result = read_file.execute(file_path=str(target))
+
+    assert "outside the allowed read paths" in result[0]["error"]
+
+
+def test_read_unrestricted_when_none(tmp_path):
+    target = tmp_path / "anywhere.txt"
+    target.write_text("visible")
+    policy = ExecutionPolicy()  # read_paths None → unrestricted
+
+    with policy_scope(policy):
+        result = read_file.execute(file_path=str(target))
+
+    assert "visible" in result[0]["text"]
+
+
+def test_list_directory_and_grep_respect_read_paths(tmp_path):
+    inside = tmp_path / "inside"
+    inside.mkdir()
+    (inside / "note.md").write_text("needle here")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "note.md").write_text("needle there")
+    policy = ExecutionPolicy(read_paths=[inside])
+
+    with policy_scope(policy):
+        ls_out = list_directory.execute(path=str(outside))
+        grep_out = grep_search.execute(pattern="needle", path=str(outside))
+        ls_in = list_directory.execute(path=str(inside))
+        grep_in = grep_search.execute(pattern="needle", path=str(inside))
+
+    assert "outside the allowed read paths" in ls_out[0]["error"]
+    assert "outside the allowed read paths" in grep_out[0]["error"]
+    assert "note.md" in ls_in[0]["text"]
+    assert "needle here" in grep_in[0]["text"]
+
+
+def test_symlink_escape_rejected_end_to_end(tmp_path):
+    jail = tmp_path / "jail"
+    jail.mkdir()
+    victim = tmp_path / "victim.txt"
+    victim.write_text("stolen")
+    (jail / "link.txt").symlink_to(victim)
+    policy = ExecutionPolicy(read_paths=[jail])
+
+    with policy_scope(policy):
+        result = read_file.execute(file_path=str(jail / "link.txt"))
+
+    assert "outside the allowed read paths" in result[0]["error"]

@@ -6,6 +6,7 @@ import re
 import subprocess
 from typing import Optional
 
+from cliver_core.policy import scope_violation
 from cliver_core.tool import tool
 
 logger = logging.getLogger(__name__)
@@ -107,6 +108,10 @@ def grep_search(
         glob: Glob pattern to filter files (e.g. "*.py", "*.{ts,tsx}").
         limit: Limit output to first N matching lines. Defaults to 100.
     """
+    violation = scope_violation(path, write=False)
+    if violation:
+        return [{"error": violation}]
+
     max_results = limit if limit is not None else DEFAULT_MATCH_LIMIT
     search_path = os.path.abspath(path)
 
