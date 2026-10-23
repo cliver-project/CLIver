@@ -1,10 +1,13 @@
 """Built-in run_shell_command tool for executing shell commands."""
 
 import logging
+import os
 import platform
 import subprocess
+from pathlib import Path
 from typing import Optional
 
+from cliver_core.policy import current_policy
 from cliver_core.tool import tool
 from cliver_core.util import _safe_int
 
@@ -50,6 +53,19 @@ def run_shell_command(
     timeout_ms = min(timeout_ms, MAX_TIMEOUT_MS)
     timeout_s = timeout_ms / 1000.0
 
+    # Ambient execution policy (AgentCore chat/stream call): a policy env
+    # replaces the inherited environment; a pinned cwd wins over the
+    # ``directory`` param (logged so the override is never silent).
+    policy = current_policy()
+    env = None
+    run_cwd = directory
+    if policy is not None:
+        env = policy.env.build(os.environ)
+        if policy.cwd is not None:
+            if directory and Path(directory).resolve() != Path(policy.cwd).resolve():
+                logger.info("Bash: execution policy pins cwd to %s, ignoring directory=%s", policy.cwd, directory)
+            run_cwd = str(policy.cwd)
+
     system = platform.system()
     if system == "Windows":
         shell_cmd = ["cmd.exe", "/c", command]
@@ -62,7 +78,8 @@ def run_shell_command(
             capture_output=True,
             text=True,
             timeout=timeout_s,
-            cwd=directory,
+            cwd=run_cwd,
+            env=env,
         )
 
         output_parts = []

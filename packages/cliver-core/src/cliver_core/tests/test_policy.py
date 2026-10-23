@@ -21,7 +21,7 @@ from cliver_core.policy import (
 )
 from cliver_core.provider import CLIverRequest, CLIverResponse, Provider
 from cliver_core.tool import tool
-from cliver_core.tools import read_file, run_shell_command
+from cliver_core.tools import execute_code, read_file, run_shell_command
 
 # ── Decisions and categories ──────────────────────────────────
 
@@ -374,3 +374,65 @@ async def test_chat_execution_policy_flows():
     await agent.chat("hi", execution_policy=kwarg)  # call-site wins
 
     assert seen == [agent.execution_policy, kwarg]
+
+
+# ── Bash/Exec honor the ambient execution policy ──────────────
+
+
+async def test_bash_env_allowlist_scrubs(monkeypatch):
+    monkeypatch.setenv("CLIVER_TEST_SECRET", "hunter2")
+    policy = ExecutionPolicy(env=EnvSpec(mode="allowlist", names=set(SAFE_ENV_VARS)))
+
+    with policy_scope(policy):
+        result = run_shell_command.execute(command="env")
+
+    text = result[0]["text"]
+    assert "CLIVER_TEST_SECRET" not in text
+    assert "PATH" in text  # the allowlist keeps what it names
+
+
+async def test_bash_env_inherited_without_policy(monkeypatch):
+    monkeypatch.setenv("CLIVER_TEST_SECRET", "hunter2")
+
+    result = run_shell_command.execute(command="env")
+
+    assert "CLIVER_TEST_SECRET" in result[0]["text"]
+
+
+async def test_bash_cwd_pinned_and_directory_overridden(tmp_path, caplog):
+    other = tmp_path / "other"
+    other.mkdir()
+    policy = ExecutionPolicy(cwd=tmp_path)
+
+    with caplog.at_level("INFO", logger="cliver_core.tools.run_shell_command"):
+        with policy_scope(policy):
+            result = run_shell_command.execute(command="pwd", directory=str(other))
+
+    assert result[0]["text"].strip() == str(tmp_path)
+    override_logs = [r for r in caplog.records if "pins cwd" in r.getMessage()]
+    assert len(override_logs) == 1
+    assert str(other) in override_logs[0].getMessage()
+
+
+async def test_bash_directory_honored_when_no_cwd_pin(tmp_path):
+    target = tmp_path / "sub"
+    target.mkdir()
+    policy = ExecutionPolicy(cwd=None)
+
+    with policy_scope(policy):
+        result = run_shell_command.execute(command="pwd", directory=str(target))
+
+    assert result[0]["text"].strip() == str(target)
+
+
+async def test_exec_env_and_cwd(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLIVER_TEST_SECRET", "hunter2")
+    policy = ExecutionPolicy(cwd=tmp_path, env=EnvSpec(mode="allowlist", names=set(SAFE_ENV_VARS)))
+    code = "import os; print(os.getcwd()); print(os.environ.get('CLIVER_TEST_SECRET', 'absent'))"
+
+    with policy_scope(policy):
+        result = execute_code.execute(code=code)
+
+    lines = result[0]["text"].strip().splitlines()
+    assert lines[0] == str(tmp_path)
+    assert lines[1] == "absent"

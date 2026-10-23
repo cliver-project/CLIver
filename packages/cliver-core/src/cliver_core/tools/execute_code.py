@@ -12,6 +12,7 @@ import sys
 import tempfile
 from typing import Optional
 
+from cliver_core.policy import current_policy
 from cliver_core.tool import tool
 from cliver_core.util import _safe_int
 
@@ -54,6 +55,17 @@ def execute_code(code: str, timeout: Optional[int] = None) -> list[dict]:
     """
     timeout_s = min(_safe_int(timeout, DEFAULT_TIMEOUT_S), MAX_TIMEOUT_S)
 
+    # Ambient execution policy (AgentCore chat/stream call): the policy env
+    # filters the inherited environment; a pinned cwd replaces the process
+    # cwd. No policy → today's behavior exactly.
+    policy = current_policy()
+    if policy is not None:
+        env = policy.env.build(_build_env())
+        cwd = policy.cwd if policy.cwd is not None else os.getcwd()
+    else:
+        env = _build_env()
+        cwd = os.getcwd()
+
     # Write code to a temp file (avoids shell escaping issues)
     try:
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as f:
@@ -68,8 +80,8 @@ def execute_code(code: str, timeout: Optional[int] = None) -> list[dict]:
             capture_output=True,
             text=True,
             timeout=timeout_s,
-            cwd=os.getcwd(),
-            env=_build_env(),
+            cwd=cwd,
+            env=env,
         )
 
         output_parts = []
