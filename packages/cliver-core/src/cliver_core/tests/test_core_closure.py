@@ -63,6 +63,7 @@ import cliver_core.capabilities.video
 import cliver_core.media_jobs
 import cliver_core.messages
 import cliver_core.presets
+import cliver_core.skill
 import cliver_core.tool
 import cliver_core.media
 import cliver_core.events

@@ -23,6 +23,7 @@ from cliver_core.messages import (
     CLIverMessageChunk,
     ToolCall,
 )
+from cliver_core.skill import Skill, SkillError, SkillManager, SkillNotFoundError
 from cliver_core.tool import CLIverTool, ToolRegistry, tool
 
 __all__ = [
@@ -39,6 +40,11 @@ __all__ = [
     "tool",
     "EventHandler",
     "MediaContent",
+    # Agent Skills (SKILL.md) loading and run_skill support
+    "Skill",
+    "SkillError",
+    "SkillManager",
+    "SkillNotFoundError",
     # Ready-made bindings for well-known providers
     "presets",
     # Standalone capability calls (also importable from cliver_core.capabilities)

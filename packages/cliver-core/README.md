@@ -151,6 +151,43 @@ MCP tools are advertised to the model as `mcp__<server>__<tool>`. Prompts and re
 demand — `list_prompts`, `get_prompt`, `list_resources`, `read_resource` — never registered as
 tools.
 
+## Skills
+
+[Agent Skills](https://agentskills.io/specification): a skill is a directory with a `SKILL.md`
+(frontmatter + instructions) plus optional `scripts/`, `references/`, `assets/`. cliver-core reads
+skills from **explicit sources the application supplies** — a directory of skill directories or a
+single skill directory; nothing is discovered implicitly, and later sources override earlier ones
+by name.
+
+```python
+from cliver_core import AgentCore, SkillManager
+
+skills = SkillManager(sources=["./skills"])  # routing metadata: skills.list_skills()
+agent = AgentCore(bindings, tools=[...], skill_manager=skills)
+
+result = await agent.run_skill("Refund", "订单 12345 想退货", conversation=history)
+```
+
+`run_skill` (name or an already-loaded `Skill` object) appends an activation header — skill
+name and location, so bundled `scripts/` are runnable — plus the skill body to the single
+system message and runs the normal Re-Act loop; a declared `allowed-tools` frontmatter narrows
+the advertised tools to that set — a non-empty allowlist matching zero available tools fails
+fast. Every `chat()` parameter passes through unchanged.
+
+Progressive disclosure: `list_skills()` exposes only routing metadata (name + description —
+`format_skill_list()` renders the catalogue for prompts); the body enters context only when
+`run_skill` activates it; bundled files load on demand (`skill.files`,
+`skill.read_file("references/policy.md")`, path escapes rejected).
+
+The dependency-free frontmatter parser covers the spec's surface plus what cross-agent skills
+(workbuddy, accio, ...) carry — flat scalars, quoted strings, `>` / `|` blocks, and nested maps
+of any depth (unknown keys are kept in `skill.frontmatter` for forward compatibility; no anchors
+or `-` sequences). Validation follows the agentskills.io rules (name
+pattern, 64/1024/500-char limits) as load-time warnings; skills stay loadable unless `name` or
+the frontmatter itself is missing. (Anthropic's product-specific extras — reserved words in
+names — are not enforced.) Script execution sandboxes, a model-facing file-read tool, and
+model-driven skill selection are future work.
+
 ## License
 
 Apache-2.0

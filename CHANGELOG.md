@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.3.0a3] - 2026-10-23
 
+### Added
+- **cliver-core: Agent Skills** — `cliver_core.skill.SkillManager` loads SKILL.md skills
+  (agentskills.io spec) from explicit application-supplied sources with a dependency-free
+  frontmatter parser (flat scalars, quoted strings, `>`/`|` blocks, nested maps of any depth —
+  cross-agent metadata keys like `x-workbuddy:` parse into `skill.frontmatter`) and spec
+  validation as load-time warnings. `AgentCore.run_skill(skill_or_name, message, ...)` appends
+  the skill body to the single system message and runs the Re-Act loop with the skill's
+  `allowed-tools` enforced (failing fast when none are available); every `chat()` parameter
+  passes through. Bundled files are listed (`skill.files`) and readable on demand
+  (`skill.read_file`, path escapes rejected). The activation header carries the skill's
+  location so the model can run bundled scripts through an allowed execution tool. Script
+  execution sandboxes and model-driven skill selection remain future work.
+
 ### Changed
 - **cliver-core: MCP is a base dependency** — the MCP client SDK moved from the optional
   `mcp` extra into the core dependencies (`mcp>=2.3.0,<3.0`). MCP support is first-class:

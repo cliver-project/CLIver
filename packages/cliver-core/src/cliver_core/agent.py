@@ -33,6 +33,7 @@ from cliver_core.provider import (
     EmbeddingsResult,
     RerankItem,
 )
+from cliver_core.skill import Skill, SkillError, SkillManager, SkillNotFoundError
 from cliver_core.tool import CLIverTool, ToolRegistry
 
 if TYPE_CHECKING:
@@ -56,11 +57,12 @@ class AgentCore:
 
     One AgentCore instance per model/provider combination.
     For multiple models, create multiple AgentCore instances
-    (they can share the same ``mcp_client`` and ``builtin_tools``).
+    (they can share the same ``mcp_client``, ``builtin_tools``, and
+    ``skill_manager``).
 
     **Instance state** (bound at construction, reused across calls):
         bindings (``bindings.llm`` = chat model), builtin_tools, mcp_client,
-        on_event, builtin_system_prompt
+        skill_manager, on_event, builtin_system_prompt
 
     **Call state** (passed per chat/stream, varies each turn):
         user_input, system_prompt, conversation, extra_tools, mcp_servers, options
@@ -82,6 +84,7 @@ class AgentCore:
         bindings: ModelBindings,
         builtin_tools: list[CLIverTool] | None = None,
         mcp_client: "MCPClient | None" = None,
+        skill_manager: SkillManager | None = None,
         *,
         on_event: EventHandler | None = None,
         max_consecutive_errors: int = _MAX_CONSECUTIVE_ERRORS,
@@ -100,6 +103,7 @@ class AgentCore:
         self.bindings = bindings
         self.tool_registry = ToolRegistry(builtin_tools or [])
         self.mcp_client = mcp_client
+        self.skill_manager = skill_manager
         self.on_event = on_event
         self.max_consecutive_errors = max_consecutive_errors
         self._builtin_system_prompt = builtin_system_prompt
@@ -163,6 +167,95 @@ class AgentCore:
 
         async for chunk in self._run_stream_loop(messages, all_tools, opts, max_iterations):
             yield chunk
+
+    async def run_skill(
+        self,
+        skill: Skill | str,
+        user_input: str,
+        *,
+        system_prompt: str | None = None,
+        conversation: list[CLIverMessage] | None = None,
+        media: list[MediaContent] | None = None,
+        extra_tools: list[CLIverTool] | None = None,
+        mcp_servers: list[str] | None = None,
+        options: dict[str, Any] | None = None,
+        max_iterations: int = 50,
+    ) -> CLIverResponse:
+        """Run one skill: pin its instructions, restrict tools, run the loop.
+
+        ``skill`` is a skill name (resolved through this agent's
+        :class:`~cliver_core.skill.SkillManager`) or an already-loaded
+        :class:`~cliver_core.skill.Skill` object — a router that picked it
+        from ``list_skills()`` can pass it directly.  The skill body is
+        appended to the single system message (caller ``system_prompt``
+        first, skill instructions after); a declared ``allowed-tools``
+        frontmatter narrows the advertised tools to that set for the run —
+        a non-empty allowlist matching zero available tools fails fast.
+        Every other :meth:`chat` parameter applies unchanged.
+        """
+        if isinstance(skill, str):
+            manager = self.skill_manager
+            if manager is None:
+                raise SkillError(
+                    "no SkillManager configured — pass skill_manager=... to AgentCore to enable run_skill()"
+                )
+            loaded = manager.get_skill(skill)
+            if loaded is None:
+                available = manager.get_skill_names()
+                raise SkillNotFoundError(
+                    f"skill '{skill}' not found. Available skills: {', '.join(available) or '(none)'}"
+                )
+        else:
+            loaded = skill
+
+        skill_prompt = self._format_skill_prompt(loaded)
+        combined_system = "\n\n".join(part for part in (system_prompt, skill_prompt) if part) or None
+
+        tool_filter: Callable[[CLIverTool], bool] | None = None
+        if loaded.allowed_tools is not None:
+            allowed = frozenset(loaded.allowed_tools)
+            if allowed:
+                advertised = await self._gather_tools(extra_tools, mcp_servers, None)
+                names = {t.name for t in advertised}
+                if not (allowed & names):
+                    raise SkillError(
+                        f"skill '{loaded.name}' allows only tools {sorted(allowed)}, none of which are "
+                        f"available (available: {sorted(names)}). Register the tools or connect the "
+                        "MCP servers the skill needs."
+                    )
+                dropped = sorted(allowed - names)
+                if dropped:
+                    self.logger.warning(
+                        "skill '%s' allows tools that are not currently available (dropped for this run): %s",
+                        loaded.name,
+                        ", ".join(dropped),
+                    )
+
+            def skill_tool_filter(candidate: CLIverTool) -> bool:
+                return candidate.name in allowed
+
+            tool_filter = skill_tool_filter
+
+        return await self.chat(
+            user_input,
+            system_prompt=combined_system,
+            conversation=conversation,
+            media=media,
+            extra_tools=extra_tools,
+            mcp_servers=mcp_servers,
+            tool_filter=tool_filter,
+            options=options,
+            max_iterations=max_iterations,
+        )
+
+    @staticmethod
+    def _format_skill_prompt(skill: Skill) -> str:
+        """Frame a skill body for injection (progressive-disclosure level 2).
+
+        The location line is required for skills that bundle scripts: the
+        model cannot run ``scripts/*.py`` without knowing where they live.
+        """
+        return f"# Active skill: {skill.name}\n\nSkill location: {skill.base_dir}\n\n{skill.body}"
 
     # ── Embedded model APIs (bindings-gated) ──────────────────
     #
