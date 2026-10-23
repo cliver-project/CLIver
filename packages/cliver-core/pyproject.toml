@@ -1,6 +1,6 @@
 [project]
 name = "cliver-core"
-version = "0.3.0a2"
+version = "0.3.0a3"
 description = "CLIver — embeddable AgentCore library"
 readme = "README.md"
 license = "Apache-2.0"
@@ -25,31 +25,30 @@ dependencies = [
     "openai>=3.0.0",
     "anthropic>=1.0.0",
     "httpx>=0.28.0",
+    "mcp>=2.3.0,<3.0",
 ]
 
-# Optional integrations.  The chat stack (both SDKs + httpx for the
-# provider-level media/embed/rerank endpoints) is a hard dependency —
-# cliver-core speaks the native SDK message structures directly.
+# The chat stack (both SDKs + httpx for the provider-level media/embed/rerank
+# endpoints) and the MCP client SDK are hard dependencies — cliver-core speaks
+# the native SDK message structures directly, and MCP support is first-class.
 # SDK floors sit at the verified major lines (openai 3.x, anthropic 1.x,
 # httpx 0.28.x — its breaking axis pre-1.0) rather than pinning patch
 # releases: the transports derive each SDK call's typed parameters at
 # import time via signature introspection, so newer releases within the
-# line are picked up automatically.
+# line are picked up automatically.  The mcp floor follows the same rule:
+# the adapters target the 2.3.0-verified API (Client(transport, mode=...),
+# snake_case record attributes, streamable_http_client(http_client=)), and
+# <3 guards the next rename wave.
 # The `cliver.provider_sdks` entry-point group stays reserved for third
 # parties to register brand SDK adapters; cliver-core registers none itself.
 [project.optional-dependencies]
-# Adapters are written against the mcp 2.3.0-verified API (Client(transport,
-# mode=...), snake_case record attributes, streamable_http_client(http_client=));
-# <3 guards the next rename wave.
-mcp = ["mcp>=2.3.0,<3.0"]
-# In-process local models.  These pull torch, so they stay opt-in and out of
-# `all` — an application chooses the backend it needs.
+# In-process local models.  These pull torch, so they stay opt-in —
+# an application chooses the backend it needs.
 #   local-st    sentence-transformers embedding models
 #   local-flag  FlagEmbedding dense embeddings + cross-encoder rerank
 local-st = ["sentence-transformers>=3.0", "huggingface-hub>=0.24.0"]
 local-flag = ["FlagEmbedding>=1.3.0", "huggingface-hub>=0.24.0"]
 local = ["cliver-core[local-st]", "cliver-core[local-flag]"]
-all = ["cliver-core[mcp]"]
 
 [dependency-groups]
 dev = [
@@ -59,9 +58,6 @@ dev = [
     # The HTTP stack the official SDKs ship on; tests mock at that layer
     # (MockTransport) to exercise the SDK parse path.
     "httpx2>=2.0.0",
-    # Keep the MCP SDK installed in dev so the adapter tests actually run
-    # (otherwise they skip via importorskip).
-    "mcp>=2.3.0",
 ]
 
 [project.urls]

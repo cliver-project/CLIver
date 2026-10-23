@@ -1,11 +1,10 @@
-# ruff: noqa: E402 — the SDK guard below must run before the mcp imports.
 """MCP adapters against the real mcp SDK — offline, in-process only.
 
 Two transport shapes are exercised: ``Client(Server instance)`` (the SDK's
 in-process direct dispatcher) and real wire streams over
 ``create_client_server_memory_streams()`` (which pins the negotiated protocol
-version).  No subprocesses and no network.  The MCP SDK is an optional extra,
-so this module skips (via ``importorskip``) when it is not installed.
+version).  No subprocesses and no network.  The MCP SDK is a hard dependency,
+so these tests always run.
 """
 
 from __future__ import annotations
@@ -13,12 +12,9 @@ from __future__ import annotations
 import re
 from contextlib import asynccontextmanager
 
-import pytest
-
-pytest.importorskip("mcp")
-
 import anyio
 import mcp_types as t
+import pytest
 from mcp import StdioServerParameters
 from mcp.server.lowlevel import Server
 from mcp.shared.memory import create_client_server_memory_streams

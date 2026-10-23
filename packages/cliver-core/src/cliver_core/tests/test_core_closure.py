@@ -1,8 +1,10 @@
 """
 Test that cliver_core's import closure sticks to its declared hard deps.
 
-Hard deps (per pyproject): pydantic, openai, anthropic, httpx.  Everything
-else — CLI, gateway, tooling libraries — must not be pulled in by an import.
+Hard deps (per pyproject): pydantic, openai, anthropic, httpx, mcp.  The MCP
+SDK is still blocked below — its import is deferred to ``cliver_core.mcp``
+adapters, so plain ``import cliver_core`` stays light.  Everything else — CLI,
+gateway, tooling libraries — must not be pulled in by an import.
 
 CraftForge pattern: spawn a subprocess with a sys.meta_path finder that raises
 ImportError for any module on the blocklist, then import cliver_core and assert
@@ -71,8 +73,8 @@ import cliver_core.provider.transport
 import cliver_core.provider.transports
 import cliver_core.provider.providers
 import cliver_core.tools
-# NOTE: cliver_core.mcp is intentionally NOT imported here — the MCP SDK
-# lives behind the `cliver-core[mcp]` extra and imports are guarded.
+# NOTE: cliver_core.mcp is intentionally NOT imported here — the MCP SDK is
+# a hard dependency but imported lazily, so `import cliver_core` never loads it.
 print("OK")
 """
 

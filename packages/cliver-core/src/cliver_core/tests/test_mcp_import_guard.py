@@ -1,8 +1,9 @@
 """cliver_core.mcp stays importable — and discovery usable — without the MCP SDK.
 
 Subprocess + ``sys.meta_path`` blocker, mirroring ``test_core_closure.py``:
-the SDK extra is absent in the test process, so ``MCPClient`` must demand it
-with the pinned message while the module import and discovery keep working.
+the SDK is blocked in the test process (a broken install, since mcp is a hard
+dependency), so ``MCPClient`` must fail with the pinned message while the
+module import and discovery keep working.
 """
 
 from __future__ import annotations
@@ -55,9 +56,9 @@ MCPClient({{}})  # an empty config never touches the SDK
 try:
     MCPClient({{"filesystem": {{"transport": "stdio", "command": "npx"}}}})
 except ImportError as exc:
-    assert "cliver-core[mcp]" in str(exc), str(exc)
+    assert "reinstall cliver-core" in str(exc), str(exc)
 else:
-    raise AssertionError("a real config must require the mcp extra")
+    raise AssertionError("a real config must require the mcp SDK")
 
 print("OK")
 """

@@ -1,8 +1,8 @@
 """AgentCore — Re-Act loop with CLIverMessage, Provider, and MCPClient.
 
 MCPClient is imported lazily inside methods so that AgentCore itself has no
-module-level third-party dependencies beyond pydantic. The MCP SDK lives behind
-the `cliver-core[mcp]` extra.
+module-level third-party dependencies beyond pydantic; importing cliver_core
+stays light even though the MCP SDK is a hard dependency.
 
 No langchain dependency. No model fallback. No compression (v1).
 """
@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 
 
 def _load_mcp_client():
-    """Lazy import MCPClient — MCP SDK lives behind `cliver-core[mcp]` extra."""
+    """Lazy import MCPClient — keeps the mcp SDK out of `import cliver_core`."""
     from cliver_core.mcp import MCPClient
 
     return MCPClient

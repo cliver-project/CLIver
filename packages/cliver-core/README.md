@@ -1,15 +1,14 @@
 # cliver-core
 
 The embeddable agent core behind [CLIver](https://github.com/cliver-project/CLIver): a Re-Act loop
-with tool calling, per-purpose model bindings, media capabilities, and optional MCP support.
+with tool calling, per-purpose model bindings, media capabilities, and first-class MCP support.
 
 No CLI, no database, no config files — you pass Python objects in and get messages back.
 
 ## Install
 
 ```bash
-pip install cliver-core          # core library
-pip install "cliver-core[mcp]"   # + MCP client (stdio / streamable HTTP)
+pip install cliver-core          # core library + MCP client (stdio / streamable HTTP)
 pip install "cliver-core[local]" # + in-process local embedding / rerank models
 ```
 

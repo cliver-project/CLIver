@@ -5,6 +5,16 @@ All notable changes to CLIver will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0a3] - 2026-10-23
+
+### Changed
+- **cliver-core: MCP is a base dependency** — the MCP client SDK moved from the optional
+  `mcp` extra into the core dependencies (`mcp>=2.3.0,<3.0`). MCP support is first-class:
+  a plain `pip install cliver-core` now includes the client, and the adapter tests always
+  run instead of skipping when the SDK is absent. The `mcp` and `all` extras are removed
+  (`all` only ever meant "with MCP"); the local-model extras (`local-st`, `local-flag`,
+  `local`) are unchanged.
+
 ## [0.3.0a2] - 2026-10-19
 
 ### Added

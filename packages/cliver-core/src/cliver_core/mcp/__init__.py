@@ -45,7 +45,7 @@ _TOOL_PREFIX = "mcp__"
 
 
 def _adapters():
-    """Lazy import of MCP adapters — guarded behind `cliver-core[mcp]` extra."""
+    """Lazy import of MCP adapters — keeps the mcp SDK out of `import cliver_core`."""
     try:
         from cliver_core.mcp.adapters import MCPServerAdapter, create_adapter
     except ModuleNotFoundError as exc:
@@ -62,7 +62,9 @@ def _adapters():
             "cryptography",
         }
         if exc.name in guarded or (exc.name or "").startswith("mcp."):
-            raise ImportError("MCP support requires the 'mcp' extra: pip install cliver-core[mcp]") from exc
+            raise ImportError(
+                "The 'mcp' package is missing; it is a cliver-core dependency — reinstall cliver-core"
+            ) from exc
         raise
     return MCPServerAdapter, create_adapter
 
