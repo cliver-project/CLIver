@@ -250,17 +250,7 @@ _TOOLSET_CHECKS: dict[str, Callable[[], bool]] = {
 
 _TOOL_CHECKS: dict[str, Callable[[], bool]] = {
     "Browse": lambda: bool(os.environ.get("FIRECRAWL_API_KEY")),
-    "Browser": lambda: _playwright_ready(),
 }
-
-
-def _playwright_ready() -> bool:
-    try:
-        from playwright._impl._driver import compute_driver_executable
-
-        return os.path.isfile(compute_driver_executable())
-    except Exception:
-        return False
 
 
 class ToolRegistry:
