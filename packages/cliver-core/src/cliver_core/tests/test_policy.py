@@ -3,6 +3,10 @@
 import asyncio
 from pathlib import Path
 
+from cliver_core.agent import AgentCore
+from cliver_core.bindings import ModelBinding, ModelBindings
+from cliver_core.events import ToolEventType
+from cliver_core.messages import CLIverMessage, ToolCall
 from cliver_core.policy import (
     SAFE_ENV_VARS,
     Decision,
@@ -15,6 +19,9 @@ from cliver_core.policy import (
     policy_scope,
     scope_violation,
 )
+from cliver_core.provider import CLIverRequest, CLIverResponse, Provider
+from cliver_core.tool import tool
+from cliver_core.tools import read_file, run_shell_command
 
 # ── Decisions and categories ──────────────────────────────────
 
@@ -181,3 +188,189 @@ def test_builtin_safety_flags():
     assert run_shell_command.safety == "mutating"
     assert execute_code.safety == "mutating"
     assert web_fetch.safety == "mutating"
+
+
+# ── AgentCore seam: permission gate and denial semantics ──────
+
+
+class _NoToolProvider(Provider):
+    """Answers with plain text — the permission gate is exercised directly."""
+
+    protocol = "mock"
+    brand = "mock"
+
+    def __init__(self) -> None:
+        super().__init__(api_key="", base_url="")
+        self.calls: list[CLIverRequest] = []
+
+    async def chat(self, request: CLIverRequest) -> CLIverResponse:
+        self.calls.append(request)
+        return CLIverResponse(message=CLIverMessage(role="assistant", content="ok"), usage=None, media=None)
+
+    async def stream(self, request):
+        if False:  # pragma: no cover — not exercised here
+            yield None
+
+
+@tool(name="poke", description="Mutating test tool.")
+def poke(value: str) -> list[dict]:
+    return [{"text": f"poked {value}"}]
+
+
+@tool(name="peek", description="Safe test tool.", safety="safe")
+def peek(value: str) -> list[dict]:
+    return [{"text": f"peeked {value}"}]
+
+
+def _policy_agent(**kwargs) -> AgentCore:
+    return AgentCore(
+        ModelBindings(llm=ModelBinding.llm(model="mock-model", provider=_NoToolProvider())),
+        builtin_tools=[poke, peek],
+        **kwargs,
+    )
+
+
+async def test_deny_returns_denied_result():
+    seen: list[ToolCallContext] = []
+
+    async def deny(ctx: ToolCallContext) -> Decision:
+        seen.append(ctx)
+        return Decision.deny("not allowed here")
+
+    agent = _policy_agent(permission_callback=deny)
+
+    result = await agent._execute_tool(ToolCall(id="c1", name="poke", args={"value": "x"}), poke)
+
+    assert result == [{"error": "Permission denied: not allowed here", "denied": True}]
+    assert [c.tool_name for c in seen] == ["poke"]
+    assert seen[0].category is ToolCategory.ASK
+    assert seen[0].server is None
+    assert seen[0].args == {"value": "x"}
+
+
+async def test_safe_tool_skips_callback():
+    async def deny(ctx: ToolCallContext) -> Decision:  # would deny everything
+        return Decision.deny("no")
+
+    agent = _policy_agent(permission_callback=deny)
+
+    result = await agent._execute_tool(ToolCall(id="c1", name="peek", args={"value": "x"}), peek)
+
+    assert result == [{"text": "peeked x"}]
+
+
+async def test_ask_tool_allowed_runs():
+    async def allow(ctx: ToolCallContext) -> Decision:
+        return Decision.allow()
+
+    agent = _policy_agent(permission_callback=allow)
+
+    result = await agent._execute_tool(ToolCall(id="c1", name="poke", args={"value": "x"}), poke)
+
+    assert result == [{"text": "poked x"}]
+
+
+async def test_no_callback_runs_unchanged():
+    agent = _policy_agent()
+
+    result = await agent._execute_tool(ToolCall(id="c1", name="poke", args={"value": "x"}), poke)
+
+    assert result == [{"text": "poked x"}]
+
+
+async def test_safety_overrides_strict_and_loose():
+    consults: list[str] = []
+
+    async def deny(ctx: ToolCallContext) -> Decision:
+        consults.append(ctx.tool_name)
+        return Decision.deny("no")
+
+    agent = AgentCore(
+        ModelBindings(llm=ModelBinding.llm(model="mock-model", provider=_NoToolProvider())),
+        builtin_tools=[run_shell_command, read_file],
+        permission_callback=deny,
+        safety_overrides={"Bash": ToolCategory.SAFE, "Read": ToolCategory.ASK},
+    )
+
+    # Bash: default mutating, overridden to SAFE — runs, callback never asked.
+    bash = await agent._execute_tool(ToolCall(id="c1", name="Bash", args={"command": "echo ok"}), run_shell_command)
+    assert "ok" in bash[0]["text"]
+    assert consults == []
+
+    # Read: default safe, overridden to ASK — consults and is denied.
+    read = await agent._execute_tool(ToolCall(id="c2", name="Read", args={"file_path": "/etc/hostname"}), read_file)
+    assert read == [{"error": "Permission denied: no", "denied": True}]
+    assert consults == ["Read"]
+
+
+async def test_callback_exception_fails_closed():
+    async def boom(ctx: ToolCallContext) -> Decision:
+        raise RuntimeError("callback crashed")
+
+    agent = _policy_agent(permission_callback=boom)
+
+    result = await agent._execute_tool(ToolCall(id="c1", name="poke", args={"value": "x"}), poke)
+
+    assert result == [{"error": "Permission denied: permission callback failed: callback crashed", "denied": True}]
+
+
+class _AlwaysToolProvider(_NoToolProvider):
+    """Every turn requests ``poke`` — the loop only stops via the denial cap."""
+
+    protocol = "openai"
+    brand = "mock-deny"
+
+    async def chat(self, request: CLIverRequest) -> CLIverResponse:
+        self.calls.append(request)
+        return CLIverResponse(
+            message=CLIverMessage(
+                role="assistant",
+                content=None,
+                tool_calls=[ToolCall(id=f"call_{len(self.calls)}", name="poke", args={"value": "x"})],
+            ),
+            usage=None,
+            media=None,
+        )
+
+
+async def test_denial_cap_stops_loop():
+    async def deny(ctx: ToolCallContext) -> Decision:
+        return Decision.deny("always no")
+
+    events = []
+
+    async def record(event) -> None:
+        events.append(event)
+
+    provider = _AlwaysToolProvider()
+    agent = AgentCore(
+        ModelBindings(llm=ModelBinding.llm(model="mock-model", provider=provider)),
+        builtin_tools=[poke],
+        permission_callback=deny,
+        on_event=record,
+    )
+
+    response = await agent.chat("hi")
+
+    assert "failed repeatedly" in response.message.content
+    assert len(provider.calls) == 5  # five turns, then the loop stopped
+    ends = [e for e in events if e.event is ToolEventType.END]
+    assert len(ends) == 5  # five denials — each through the END-event path
+    assert "Permission denied: always no" in ends[-1].result
+
+
+async def test_chat_execution_policy_flows():
+    agent = _policy_agent(execution_policy=ExecutionPolicy())
+    seen: list[ExecutionPolicy | None] = []
+
+    async def fake_loop(messages, tools, options, max_iterations):
+        seen.append(current_policy())
+        return CLIverResponse(message=CLIverMessage(role="assistant", content="ok"), usage=None, media=None)
+
+    agent._run_loop = fake_loop
+
+    await agent.chat("hi")  # constructor default applies
+    kwarg = ExecutionPolicy(env=EnvSpec(mode="allowlist", names={"PATH"}))
+    await agent.chat("hi", execution_policy=kwarg)  # call-site wins
+
+    assert seen == [agent.execution_policy, kwarg]

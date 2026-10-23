@@ -27,6 +27,15 @@ from cliver_core.messages import (
     ToolCall,
     UsageInfo,
 )
+from cliver_core.policy import (
+    Decision,
+    DecisionAction,
+    ExecutionPolicy,
+    PermissionCallback,
+    ToolCallContext,
+    ToolCategory,
+    policy_scope,
+)
 from cliver_core.provider import (
     CLIverRequest,
     CLIverResponse,
@@ -86,6 +95,9 @@ class AgentCore:
         mcp_client: "MCPClient | None" = None,
         skill_manager: SkillManager | None = None,
         *,
+        permission_callback: PermissionCallback | None = None,
+        execution_policy: ExecutionPolicy | None = None,
+        safety_overrides: dict[str, ToolCategory] | None = None,
         on_event: EventHandler | None = None,
         max_consecutive_errors: int = _MAX_CONSECUTIVE_ERRORS,
         builtin_system_prompt: str | None = None,
@@ -104,6 +116,15 @@ class AgentCore:
         self.tool_registry = ToolRegistry(builtin_tools or [])
         self.mcp_client = mcp_client
         self.skill_manager = skill_manager
+        # Permission axis: ASK-category tools consult ``permission_callback``
+        # (allow/deny) before running; SAFE tools skip it.  Categories come
+        # from ``safety_overrides`` first, then each tool's ``safety`` flag.
+        # Environment axis: ``execution_policy`` is ambient during a chat/
+        # stream call (see ``policy_scope``) so executing tools can apply
+        # env/cwd/scopes without threading it through every signature.
+        self.permission_callback = permission_callback
+        self.execution_policy = execution_policy
+        self.safety_overrides = safety_overrides or {}
         self.on_event = on_event
         self.max_consecutive_errors = max_consecutive_errors
         self._builtin_system_prompt = builtin_system_prompt
@@ -123,6 +144,7 @@ class AgentCore:
         tool_filter: Callable[[CLIverTool], bool] | None = None,
         options: dict[str, Any] | None = None,
         max_iterations: int = 50,
+        execution_policy: ExecutionPolicy | None = None,
     ) -> CLIverResponse:
         """Non-streaming chat.  Returns the final response.
 
@@ -132,14 +154,19 @@ class AgentCore:
         ``options`` are wire request options for the model: the llm binding's
         defaults (``bindings.llm.params``) apply underneath, and the call site
         wins on conflict (presence wins, an explicit ``None`` included).
+
+        ``execution_policy`` is ambient for this call (call-site wins over
+        the constructor default; ``None`` means neither is set).
         """
         messages = self._build_messages(user_input, system_prompt, conversation, media)
         if self.mcp_client:
             await self.mcp_client.start()
         all_tools = await self._gather_tools(extra_tools, mcp_servers, tool_filter)
         opts = {**self.llm.params, **(options or {})}
+        effective = execution_policy if execution_policy is not None else self.execution_policy
 
-        return await self._run_loop(messages, all_tools, opts, max_iterations)
+        with policy_scope(effective):
+            return await self._run_loop(messages, all_tools, opts, max_iterations)
 
     async def stream(
         self,
@@ -153,20 +180,24 @@ class AgentCore:
         tool_filter: Callable[[CLIverTool], bool] | None = None,
         options: dict[str, Any] | None = None,
         max_iterations: int = 50,
+        execution_policy: ExecutionPolicy | None = None,
     ) -> AsyncIterator[CLIverMessageChunk]:
         """Streaming chat.  Yields chunks, executes tools between iterations.
 
         ``options`` merge exactly as in :meth:`chat` — binding defaults under,
-        call-site over.
+        call-site over.  ``execution_policy`` is ambient for this call,
+        exactly as in :meth:`chat`.
         """
         messages = self._build_messages(user_input, system_prompt, conversation, media)
         if self.mcp_client:
             await self.mcp_client.start()
         all_tools = await self._gather_tools(extra_tools, mcp_servers, tool_filter)
         opts = {**self.llm.params, **(options or {})}
+        effective = execution_policy if execution_policy is not None else self.execution_policy
 
-        async for chunk in self._run_stream_loop(messages, all_tools, opts, max_iterations):
-            yield chunk
+        with policy_scope(effective):
+            async for chunk in self._run_stream_loop(messages, all_tools, opts, max_iterations):
+                yield chunk
 
     async def run_skill(
         self,
@@ -437,6 +468,7 @@ class AgentCore:
         max_iterations: int,
     ) -> CLIverResponse:
         consecutive_errors = 0
+        consecutive_denials = 0
         diagnostic_trace: list[dict] = []
         # Built on first use and cached by the binding (lazy by design).
         provider = self.llm.get_provider()
@@ -469,8 +501,8 @@ class AgentCore:
                 return response
 
             messages.append(msg)
-            consecutive_errors, stop = await self._execute_tool_calls(
-                messages, msg.tool_calls, consecutive_errors, tools
+            consecutive_errors, consecutive_denials, stop = await self._execute_tool_calls(
+                messages, msg.tool_calls, consecutive_errors, consecutive_denials, tools
             )
             if stop:
                 return CLIverResponse(
@@ -503,6 +535,7 @@ class AgentCore:
         import json
 
         consecutive_errors = 0
+        consecutive_denials = 0
         diagnostic_trace: list[dict] = []
         # Built on first use and cached by the binding (lazy by design).
         provider = self.llm.get_provider()
@@ -573,7 +606,9 @@ class AgentCore:
 
             messages.append(assistant)
 
-            consecutive_errors, stop = await self._execute_tool_calls(messages, tool_calls, consecutive_errors, tools)
+            consecutive_errors, consecutive_denials, stop = await self._execute_tool_calls(
+                messages, tool_calls, consecutive_errors, consecutive_denials, tools
+            )
             if stop:
                 yield CLIverMessageChunk(
                     content="Tool calls failed repeatedly. Please check the tool arguments or try a different "
@@ -598,15 +633,20 @@ class AgentCore:
         messages: list[CLIverMessage],
         tool_calls: list[ToolCall],
         consecutive_errors: int,
+        consecutive_denials: int,
         tools: list[CLIverTool],
-    ) -> tuple[int, bool]:
+    ) -> tuple[int, int, bool]:
         """Execute a batch of tool calls and append results to messages.
 
         ``tools`` is the exact set this call advertised to the model
         (``_gather_tools`` output) — execution resolves against it, so
         call-time ``extra_tools`` run alongside registry tools.
 
-        Returns (consecutive_errors, should_stop).
+        Denials share the consecutive cap with errors: five in a row of
+        either (or mixed, since each resets the other's streak) stops the
+        loop with the failure response.
+
+        Returns (consecutive_errors, consecutive_denials, should_stop).
         """
         by_name = {t.name: t for t in tools}
         for tc in tool_calls:
@@ -619,14 +659,21 @@ class AgentCore:
                 )
             )
 
-            if self._is_error(result):
+            if self._is_denied(result):
+                consecutive_errors = 0
+                consecutive_denials += 1
+                if consecutive_denials >= self.max_consecutive_errors:
+                    return consecutive_errors, consecutive_denials, True
+            elif self._is_error(result):
+                consecutive_denials = 0
                 consecutive_errors += 1
                 if consecutive_errors >= self.max_consecutive_errors:
-                    return consecutive_errors, True
+                    return consecutive_errors, consecutive_denials, True
             else:
                 consecutive_errors = 0
+                consecutive_denials = 0
 
-        return consecutive_errors, False
+        return consecutive_errors, consecutive_denials, False
 
     # ── Helpers ────────────────────────────────────────────────
 
@@ -697,7 +744,10 @@ class AgentCore:
         )
         start = time.monotonic()
         try:
-            if tc.name.startswith("mcp__"):
+            denial = await self._check_permission(tc, tool)
+            if denial is not None:
+                result = denial
+            elif tc.name.startswith("mcp__"):
                 if not self.mcp_client:
                     result = [{"error": "No MCP client configured"}]
                 else:
@@ -738,12 +788,54 @@ class AgentCore:
         if self.on_event:
             await self.on_event(event)
 
+    def _tool_category(self, name: str, tool: CLIverTool | None) -> ToolCategory:
+        """Resolve a tool's permission category: overrides first, then the
+        tool's ``safety`` flag.  Unknown tools (and unannotated MCP tools)
+        fail closed to ASK."""
+        override = self.safety_overrides.get(name)
+        if override is not None:
+            return override
+        if tool is not None and tool.safety == "safe":
+            return ToolCategory.SAFE
+        return ToolCategory.ASK
+
+    async def _check_permission(self, tc: ToolCall, tool: CLIverTool | None) -> list[dict] | None:
+        """Gate one tool call: ``None`` means it may run, a result list means
+        it is denied.  Callback exceptions fail closed — a broken permission
+        prompt never widens permissions."""
+        if self.permission_callback is None:
+            return None
+        if self._tool_category(tc.name, tool) is not ToolCategory.ASK:
+            return None
+        context = ToolCallContext(
+            tool_name=tc.name,
+            args=tc.args,
+            server=tc.name.split("__")[1] if tc.name.startswith("mcp__") else None,
+            category=ToolCategory.ASK,
+        )
+        try:
+            decision = await self.permission_callback(context)
+        except Exception as e:
+            decision = Decision.deny(f"permission callback failed: {e}")
+        if decision.action is DecisionAction.ALLOW:
+            return None
+        reason = decision.reason or "denied by permission callback"
+        return [{"error": f"Permission denied: {reason}", "denied": True}]
+
     @staticmethod
     def _is_error(result: list[dict]) -> bool:
         """Check if any result dict contains an 'error' key."""
         if not result:
             return False
         return any(isinstance(r, dict) and "error" in r for r in result)
+
+    @staticmethod
+    def _is_denied(result: list[dict]) -> bool:
+        """Check if a result is a permission denial (counted separately from
+        errors: the tool never ran)."""
+        if not result:
+            return False
+        return any(isinstance(r, dict) and r.get("denied") is True for r in result)
 
     @staticmethod
     def _format_tool_result(result: list[dict]) -> str:
