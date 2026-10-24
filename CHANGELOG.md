@@ -31,7 +31,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   passes through. Bundled files are listed (`skill.files`) and readable on demand
   (`skill.read_file`, path escapes rejected). The activation header carries the skill's
   location so the model can run bundled scripts through an allowed execution tool. Script
-  execution sandboxes and model-driven skill selection remain future work.
+  execution sandboxes remain future work.
+- **cliver-core: model-driven skill selection** — with a `SkillManager` configured, `chat()` /
+  `stream()` expose skills through three levels: a system-prompt summary of a curated subset
+  (name + shortened description, `skill_summary_limit` default 10), `FindSkills(query, limit)`
+  to search the full catalogue (an empty query lists every name), and `ActivateSkill(name)` to
+  load a skill's body as a tool result — the same framing as `run_skill`, location included.
+  Activation is per run: one skill at a time, and a declared `allowed-tools` narrows the
+  advertised tools for the remaining iterations (an allowlist matching no available tool fails
+  the activation and leaves the run unchanged). Core stays embedded: the app owns sources via
+  `SkillManager` and may supply `skill_selector(skills, user_input)` to rank the summary
+  (popularity today, encoder / system-1 relevance later) and `skill_search(query, skills)` to
+  replace the default lexical search; both seams accept sync or async callables and default to
+  dependency-free behavior. `run_skill()` disables dispatch for its run (`skill_dispatch=False`);
+  a regular tool named `FindSkills` or `ActivateSkill` raises while dispatch is on (reserved
+  names).
+- **cliver-core: query-scoped candidate guardrail** — skills no longer compete with tools for
+  the same intent. The skill summary now states the precedence rule (use a tool when one can
+  do the task; activate a skill only when no tool can, or when the task needs the skill's
+  specific procedure), and `ActivateSkill`'s description says the same. Two optional,
+  app-owned seams narrow what a call advertises, both accepting sync or async callables:
+  `candidate_selector(tools, skills, user_input)` sees both candidate pools and returns both
+  — the cross-category guardrail, e.g. suppressing a skill a tool already covers — and
+  `tool_selector(tools, user_input)` narrows tools alone. They compose with the per-call
+  `tool_filter` and the existing `skill_selector`; `run_skill()` applies the same pipeline to
+  its allowlist check. Core defaults stay permissive and dependency-free — the filtering
+  policy (lexical, encoder-only, system-1) lives in the application.
 
 ### Changed
 - **cliver-core: builtin tool discovery** — `cliver_core.tools.discover_builtin_tools()` now

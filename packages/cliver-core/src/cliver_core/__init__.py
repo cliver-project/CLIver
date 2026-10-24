@@ -1,7 +1,7 @@
 """cliver-core — the embeddable AgentCore library."""
 
 from cliver_core import presets  # noqa: I001 — submodule, imported as a namespace
-from cliver_core.agent import AgentCore
+from cliver_core.agent import AgentCore, CandidateSelector, ToolSelector
 from cliver_core.bindings import (
     CapabilityNotSupported,
     ModelBinding,
@@ -34,6 +34,7 @@ from cliver_core.policy import (
     ToolCategory,
 )
 from cliver_core.skill import Skill, SkillError, SkillManager, SkillNotFoundError
+from cliver_core.skill_tools import SkillSearch, SkillSelector
 from cliver_core.tool import CLIverTool, ToolRegistry, tool
 
 __all__ = [
@@ -46,15 +47,19 @@ __all__ = [
     "ModelBindings",
     "ToolCall",
     "CLIverTool",
+    "CandidateSelector",
     "ToolRegistry",
+    "ToolSelector",
     "tool",
     "EventHandler",
     "MediaContent",
-    # Agent Skills (SKILL.md) loading and run_skill support
+    # Agent Skills (SKILL.md) loading, run_skill, and model-driven dispatch
     "Skill",
     "SkillError",
     "SkillManager",
     "SkillNotFoundError",
+    "SkillSearch",
+    "SkillSelector",
     # Tool permission + execution policy
     "Decision",
     "DecisionAction",

@@ -41,7 +41,7 @@ async def test_chat_starts_mcp_client_before_gathering_tools():
     agent = _agent(client)
     captured: dict = {}
 
-    async def fake_run_loop(messages, all_tools, opts, max_iterations, execution_policy=None):
+    async def fake_run_loop(messages, all_tools, opts, max_iterations, execution_policy=None, skill_state=None):
         captured["tools"] = all_tools
         return None
 
@@ -57,7 +57,7 @@ async def test_stream_starts_mcp_client_before_gathering_tools():
     agent = _agent(client)
     captured: dict = {}
 
-    async def fake_run_stream(messages, all_tools, opts, max_iterations, execution_policy=None):
+    async def fake_run_stream(messages, all_tools, opts, max_iterations, execution_policy=None, skill_state=None):
         captured["tools"] = all_tools
         return
         yield  # pragma: no cover — makes this an async generator
@@ -74,7 +74,7 @@ async def test_repeated_turns_keep_mcp_tools_advertised():
     agent = _agent(client)
     seen: list[list[str]] = []
 
-    async def fake_run_loop(messages, all_tools, opts, max_iterations, execution_policy=None):
+    async def fake_run_loop(messages, all_tools, opts, max_iterations, execution_policy=None, skill_state=None):
         seen.append([tool.name for tool in all_tools])
         return None
 

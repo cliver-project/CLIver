@@ -411,6 +411,25 @@ def _discover_source(source_path: Path, source: str) -> dict[str, Skill]:
     return skills
 
 
+# ── Display helpers ───────────────────────────────────────────
+
+
+_DESCRIPTION_MAX_CHARS = 120
+
+
+def _shorten_description(description: str) -> str:
+    """Shorten a skill description for prompt/listing use.
+
+    Prefers a sentence boundary within the cap, else hard-truncates.
+    """
+    if len(description) <= _DESCRIPTION_MAX_CHARS:
+        return description
+    dot = description.find(". ")
+    if 0 < dot <= _DESCRIPTION_MAX_CHARS:
+        return description[: dot + 1]
+    return description[: _DESCRIPTION_MAX_CHARS - 3] + "..."
+
+
 # ── SkillManager ──────────────────────────────────────────────
 
 
@@ -463,11 +482,7 @@ class SkillManager:
             return "No skills available."
         lines = [f"Available skills ({len(skills)}):"]
         for skill in skills:
-            desc = skill.description
-            if len(desc) > 120:
-                dot = desc.find(". ")
-                desc = desc[: dot + 1] if 0 < dot <= 120 else desc[:117] + "..."
-            lines.append(f"  - {skill.name}: {desc}")
+            lines.append(f"  - {skill.name}: {_shorten_description(skill.description)}")
         lines.append("\nActivate a skill with run_skill('<name>') to run it.")
         return "\n".join(lines)
 

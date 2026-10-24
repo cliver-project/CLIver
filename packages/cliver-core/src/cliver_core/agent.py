@@ -8,10 +8,11 @@ No langchain dependency. No model fallback. No compression (v1).
 """
 
 import asyncio
+import inspect
 import logging
 import time
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable, Sequence
 
 from cliver_core import capabilities
 from cliver_core.bindings import CapabilityNotSupported, ModelBinding, ModelBindings
@@ -44,6 +45,16 @@ from cliver_core.provider import (
     RerankItem,
 )
 from cliver_core.skill import Skill, SkillError, SkillManager, SkillNotFoundError
+from cliver_core.skill_tools import (
+    SKILL_TOOL_NAMES,
+    SkillRunState,
+    SkillSearch,
+    SkillSelector,
+    format_skill_body,
+    format_skill_catalog,
+    make_activate_skill_tool,
+    make_find_skills_tool,
+)
 from cliver_core.tool import CLIverTool, ToolRegistry
 
 if TYPE_CHECKING:
@@ -53,6 +64,21 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _MAX_CONSECUTIVE_ERRORS = 5
+
+# App seam: narrow the tools advertised for a call to the candidates relevant
+# to the user's query (popularity today, encoder/system-1 relevance later).
+# Returning fewer tools — or none — is the app's policy, never core's.
+ToolSelector = Callable[[Sequence[CLIverTool], str], Sequence[CLIverTool] | Awaitable[Sequence[CLIverTool]]]
+
+# App seam: the cross-category guardrail.  It sees the run's gathered tools
+# and the full skill catalogue, and returns the candidates for this query —
+# e.g. suppressing a skill a tool already covers.  This is the only seam
+# that can enforce tool-over-skill precedence structurally; the policy
+# (lexical, encoder, system-1) stays in the application.
+CandidateSelector = Callable[
+    [Sequence[CLIverTool], Sequence[Skill], str],
+    tuple[Sequence[CLIverTool], Sequence[Skill]] | Awaitable[tuple[Sequence[CLIverTool], Sequence[Skill]]],
+]
 
 
 class AgentCore:
@@ -65,10 +91,12 @@ class AgentCore:
 
     **Instance state** (bound at construction, reused across calls):
         bindings (``bindings.llm`` = chat model), builtin_tools, mcp_client,
-        skill_manager, on_event, builtin_system_prompt
+        skill_manager, skill_selector, skill_search, skill_summary_limit,
+        on_event, builtin_system_prompt
 
     **Call state** (passed per chat/stream, varies each turn):
-        user_input, system_prompt, conversation, extra_tools, mcp_servers, options
+        user_input, system_prompt, conversation, extra_tools, mcp_servers,
+        options, skill_dispatch
 
     ``system_prompt`` (call-time) is appended to ``builtin_system_prompt``
     (construction-time) — the caller only needs to pass persona / extra context.
@@ -89,6 +117,11 @@ class AgentCore:
         mcp_client: "MCPClient | None" = None,
         skill_manager: SkillManager | None = None,
         *,
+        skill_selector: SkillSelector | None = None,
+        skill_search: SkillSearch | None = None,
+        skill_summary_limit: int = 10,
+        tool_selector: ToolSelector | None = None,
+        candidate_selector: CandidateSelector | None = None,
         permission_callback: PermissionCallback | None = None,
         execution_policy: ExecutionPolicy | None = None,
         safety_overrides: dict[str, ToolCategory] | None = None,
@@ -110,6 +143,19 @@ class AgentCore:
         self.tool_registry = ToolRegistry(builtin_tools or [])
         self.mcp_client = mcp_client
         self.skill_manager = skill_manager
+        if skill_summary_limit < 0:
+            raise ValueError("skill_summary_limit must be >= 0")
+        # Skill dispatch (model-driven selection): the app may rank the
+        # prompt summary (``skill_selector``) and replace search
+        # (``skill_search``); both are optional and stay outside core.
+        self.skill_selector = skill_selector
+        self.skill_search = skill_search
+        self.skill_summary_limit = skill_summary_limit
+        # Candidate guardrails: the app may narrow tools alone
+        # (``tool_selector``) or tools and skills together
+        # (``candidate_selector``) for the current query (sync or async).
+        self.tool_selector = tool_selector
+        self.candidate_selector = candidate_selector
         # Permission axis: ASK-category tools consult ``permission_callback``
         # (allow/deny) before running; SAFE tools skip it.  Categories come
         # from ``safety_overrides`` first, then each tool's ``safety`` flag.
@@ -139,6 +185,7 @@ class AgentCore:
         options: dict[str, Any] | None = None,
         max_iterations: int = 50,
         execution_policy: ExecutionPolicy | None = None,
+        skill_dispatch: bool = True,
     ) -> CLIverResponse:
         """Non-streaming chat.  Returns the final response.
 
@@ -152,15 +199,31 @@ class AgentCore:
         ``execution_policy`` is ambient around tool execution for this call
         (call-site wins over the constructor default; ``None`` means neither
         is set).
+
+        ``skill_dispatch`` advertises the skill catalogue, ``FindSkills`` and
+        ``ActivateSkill`` for this call (requires a ``skill_manager``);
+        :meth:`run_skill` turns it off because the skill is already pinned.
         """
-        messages = self._build_messages(user_input, system_prompt, conversation, media)
+        skill_state = self._skill_run_state(skill_dispatch)
         if self.mcp_client:
             await self.mcp_client.start()
-        all_tools = await self._gather_tools(extra_tools, mcp_servers, tool_filter)
+        pool, candidate_skills = await self._candidate_pool(extra_tools, mcp_servers, skill_state, user_input)
+        all_tools = await self._finalize_tools(pool, tool_filter, skill_state, user_input)
+        catalog = await self._skill_catalog_text(skill_state, user_input, candidate_skills)
+        if catalog:
+            system_prompt = "\n\n".join(part for part in (system_prompt, catalog) if part)
+        messages = self._build_messages(user_input, system_prompt, conversation, media)
         opts = {**self.llm.params, **(options or {})}
         effective = execution_policy if execution_policy is not None else self.execution_policy
 
-        return await self._run_loop(messages, all_tools, opts, max_iterations, execution_policy=effective)
+        return await self._run_loop(
+            messages,
+            all_tools,
+            opts,
+            max_iterations,
+            execution_policy=effective,
+            skill_state=skill_state,
+        )
 
     async def stream(
         self,
@@ -175,22 +238,36 @@ class AgentCore:
         options: dict[str, Any] | None = None,
         max_iterations: int = 50,
         execution_policy: ExecutionPolicy | None = None,
+        skill_dispatch: bool = True,
     ) -> AsyncIterator[CLIverMessageChunk]:
         """Streaming chat.  Yields chunks, executes tools between iterations.
 
         ``options`` merge exactly as in :meth:`chat` — binding defaults under,
         call-site over.  ``execution_policy`` is ambient around tool
         execution, exactly as in :meth:`chat` — the scope never spans yields,
-        so a consumer abandoning the stream leaks nothing.
+        so a consumer abandoning the stream leaks nothing.  ``skill_dispatch``
+        matches :meth:`chat`.
         """
-        messages = self._build_messages(user_input, system_prompt, conversation, media)
+        skill_state = self._skill_run_state(skill_dispatch)
         if self.mcp_client:
             await self.mcp_client.start()
-        all_tools = await self._gather_tools(extra_tools, mcp_servers, tool_filter)
+        pool, candidate_skills = await self._candidate_pool(extra_tools, mcp_servers, skill_state, user_input)
+        all_tools = await self._finalize_tools(pool, tool_filter, skill_state, user_input)
+        catalog = await self._skill_catalog_text(skill_state, user_input, candidate_skills)
+        if catalog:
+            system_prompt = "\n\n".join(part for part in (system_prompt, catalog) if part)
+        messages = self._build_messages(user_input, system_prompt, conversation, media)
         opts = {**self.llm.params, **(options or {})}
         effective = execution_policy if execution_policy is not None else self.execution_policy
 
-        async for chunk in self._run_stream_loop(messages, all_tools, opts, max_iterations, execution_policy=effective):
+        async for chunk in self._run_stream_loop(
+            messages,
+            all_tools,
+            opts,
+            max_iterations,
+            execution_policy=effective,
+            skill_state=skill_state,
+        ):
             yield chunk
 
     async def run_skill(
@@ -240,14 +317,15 @@ class AgentCore:
         else:
             loaded = skill
 
-        skill_prompt = self._format_skill_prompt(loaded)
+        skill_prompt = format_skill_body(loaded)
         combined_system = "\n\n".join(part for part in (system_prompt, skill_prompt) if part) or None
 
         tool_filter: Callable[[CLIverTool], bool] | None = None
         if loaded.allowed_tools is not None:
             allowed = frozenset(loaded.allowed_tools)
             if allowed:
-                advertised = await self._gather_tools(extra_tools, mcp_servers, None)
+                pool, _ = await self._candidate_pool(extra_tools, mcp_servers, None, user_input)
+                advertised = await self._finalize_tools(pool, None, None, user_input)
                 names = {t.name for t in advertised}
                 if not (allowed & names):
                     raise SkillError(
@@ -286,16 +364,8 @@ class AgentCore:
             options=options,
             max_iterations=max_iterations,
             execution_policy=effective_policy,
+            skill_dispatch=False,
         )
-
-    @staticmethod
-    def _format_skill_prompt(skill: Skill) -> str:
-        """Frame a skill body for injection (progressive-disclosure level 2).
-
-        The location line is required for skills that bundle scripts: the
-        model cannot run ``scripts/*.py`` without knowing where they live.
-        """
-        return f"# Active skill: {skill.name}\n\nSkill location: {skill.base_dir}\n\n{skill.body}"
 
     # ── Embedded model APIs (bindings-gated) ──────────────────
     #
@@ -476,6 +546,7 @@ class AgentCore:
         options: dict[str, Any],
         max_iterations: int,
         execution_policy: ExecutionPolicy | None = None,
+        skill_state: SkillRunState | None = None,
     ) -> CLIverResponse:
         consecutive_errors = 0
         consecutive_denials = 0
@@ -518,6 +589,7 @@ class AgentCore:
                 consecutive_errors, consecutive_denials, stop = await self._execute_tool_calls(
                     messages, msg.tool_calls, consecutive_errors, consecutive_denials, tools
                 )
+            tools = self._narrow_tools_for_active_skill(tools, skill_state)
             if stop:
                 return CLIverResponse(
                     message=CLIverMessage(
@@ -546,6 +618,7 @@ class AgentCore:
         options: dict[str, Any],
         max_iterations: int,
         execution_policy: ExecutionPolicy | None = None,
+        skill_state: SkillRunState | None = None,
     ) -> AsyncIterator[CLIverMessageChunk]:
         import json
 
@@ -627,6 +700,7 @@ class AgentCore:
                 consecutive_errors, consecutive_denials, stop = await self._execute_tool_calls(
                     messages, tool_calls, consecutive_errors, consecutive_denials, tools
                 )
+            tools = self._narrow_tools_for_active_skill(tools, skill_state)
             if stop:
                 yield CLIverMessageChunk(
                     content="Tool calls failed repeatedly. Please check the tool arguments or try a different "
@@ -645,6 +719,21 @@ class AgentCore:
         )
 
     # ── Tool execution (shared by both loops) ─────────────────
+
+    @staticmethod
+    def _narrow_tools_for_active_skill(tools: list[CLIverTool], skill_state: SkillRunState | None) -> list[CLIverTool]:
+        """Apply a newly activated skill's ``allowed-tools`` to the next iteration.
+
+        Runs once per activation; an absent/empty allowlist changes nothing
+        (same rule as :meth:`run_skill`).
+        """
+        if skill_state is None or skill_state.active is None or skill_state.narrowed:
+            return tools
+        skill_state.narrowed = True
+        allowed = frozenset(skill_state.active.allowed_tools or ())
+        if not allowed:
+            return tools
+        return [tool for tool in tools if tool.name in allowed]
 
     async def _execute_tool_calls(
         self,
@@ -730,19 +819,93 @@ class AgentCore:
             messages.append(CLIverMessage(role="user", content=user_input))
         return messages
 
-    async def _gather_tools(
+    def _skill_run_state(self, enabled: bool) -> SkillRunState | None:
+        """Per-run activation state; None disables skill dispatch entirely."""
+        if not enabled or self.skill_manager is None:
+            return None
+        return SkillRunState()
+
+    async def _skill_catalog_text(
+        self,
+        skill_state: SkillRunState | None,
+        user_input: str,
+        skills: list[Skill] | None = None,
+    ) -> str | None:
+        """Render the system-prompt skill summary for this call.
+
+        ``skills`` is the guardrail's candidate pool; ``None`` means the full
+        catalogue (direct callers).  ``skill_selector`` still runs on top
+        (sync or async); ``total`` is always the full catalogue size.  No
+        manager or no skills → no section.
+        """
+        if skill_state is None or self.skill_manager is None:
+            return None
+        all_skills = self.skill_manager.list_skills()
+        if not all_skills:
+            return None
+        selected = list(skills) if skills is not None else list(all_skills)
+        if self.skill_selector is not None:
+            selected = self.skill_selector(selected, user_input)
+            if inspect.isawaitable(selected):
+                selected = await selected
+            selected = list(selected)
+        elif self.candidate_selector is None:
+            selected = sorted(selected, key=lambda skill: skill.name)
+        return format_skill_catalog(selected[: self.skill_summary_limit], total=len(all_skills))
+
+    async def _candidate_pool(
         self,
         extra: list[CLIverTool] | None,
         mcp_servers: list[str] | None,
-        tool_filter: Callable[[CLIverTool], bool] | None = None,
-    ) -> list[CLIverTool]:
+        skill_state: SkillRunState | None,
+        user_input: str,
+    ) -> tuple[list[CLIverTool], list[Skill]]:
+        """Gather the raw candidates and apply the cross-category guardrail.
+
+        Skills are candidates only while dispatch is on; ``run_skill`` pins
+        its skill, so the selector receives an empty skill list there.
+        """
         tools = list(self.tool_registry.all_tools)
         if self.mcp_client:
             tools.extend(await self.mcp_client.get_tools(servers=mcp_servers or None))
         if extra:
             tools.extend(extra)
+        skills = list(self.skill_manager.list_skills()) if skill_state is not None and self.skill_manager else []
+        if self.candidate_selector is not None:
+            selected = self.candidate_selector(tools, skills, user_input)
+            if inspect.isawaitable(selected):
+                selected = await selected
+            tools, skills = list(selected[0]), list(selected[1])
+        return tools, skills
+
+    async def _finalize_tools(
+        self,
+        tools: list[CLIverTool],
+        tool_filter: Callable[[CLIverTool], bool] | None,
+        skill_state: SkillRunState | None,
+        user_input: str,
+    ) -> list[CLIverTool]:
+        """Apply the tool-only guardrail, the per-call filter, and skill tools."""
+        tools = list(tools)
+        if self.tool_selector is not None:
+            selected = self.tool_selector(tools, user_input)
+            if inspect.isawaitable(selected):
+                selected = await selected
+            tools = list(selected)
         if tool_filter:
             tools = [t for t in tools if tool_filter(t)]
+        # Skill-control tools are infrastructure, appended after the caller's
+        # filter so a tool filter can never orphan one from the other.
+        if skill_state is not None and self.skill_manager is not None:
+            regular_names = {t.name for t in tools}
+            collisions = regular_names & SKILL_TOOL_NAMES
+            if collisions:
+                raise ValueError(
+                    f"tool name(s) {sorted(collisions)} are reserved for skill dispatch — "
+                    "rename the tool or configure no skill_manager"
+                )
+            tools.append(make_find_skills_tool(self.skill_manager, self.skill_search))
+            tools.append(make_activate_skill_tool(self.skill_manager, skill_state, regular_names))
         return tools
 
     async def _execute_tool(self, tc: ToolCall, tool: CLIverTool | None = None) -> list[dict]:

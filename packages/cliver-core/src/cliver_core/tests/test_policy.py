@@ -577,7 +577,7 @@ async def test_stream_policy_not_leaked_when_abandoned():
 
     agent = _policy_agent(execution_policy=ExecutionPolicy())
 
-    async def fake_stream_loop(messages, tools, options, max_iterations, execution_policy=None):
+    async def fake_stream_loop(messages, tools, options, max_iterations, execution_policy=None, skill_state=None):
         yield CLIverMessageChunk(content="partial")
         yield CLIverMessageChunk(content="more")
 

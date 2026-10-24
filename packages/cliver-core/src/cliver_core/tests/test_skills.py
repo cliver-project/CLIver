@@ -53,7 +53,7 @@ def _agent(
 def _capture_loop(agent: AgentCore) -> dict:
     captured: dict = {}
 
-    async def fake_run_loop(messages, all_tools, opts, max_iterations, execution_policy=None):
+    async def fake_run_loop(messages, all_tools, opts, max_iterations, execution_policy=None, skill_state=None):
         captured["messages"] = messages
         captured["tools"] = all_tools
         return None
@@ -292,6 +292,18 @@ def test_format_skill_list_truncates_long_descriptions(tmp_path):
     assert SkillManager(sources=[]).format_skill_list() == "No skills available."
 
 
+def test_shorten_description_uses_sentence_boundary_then_cap():
+    from cliver_core.skill import _shorten_description
+
+    assert _shorten_description("Short description.") == "Short description."
+    assert _shorten_description("First sentence. " + "x" * 200) == "First sentence."
+    assert _shorten_description("y" * 200) == "y" * 117 + "..."
+    # A boundary within the cap is kept (119 chars here).
+    assert _shorten_description("z" * 118 + ". tail") == "z" * 118 + "."
+    # A boundary past the cap is not used.
+    assert _shorten_description("w" * 130 + ". tail") == "w" * 117 + "..."
+
+
 # ── Bundled files ─────────────────────────────────────────────
 
 
@@ -433,7 +445,7 @@ async def test_run_skill_pins_cwd_with_agent_policy():
     )
     captured = {}
 
-    async def fake_loop(messages, tools, opts, max_iterations, execution_policy=None):
+    async def fake_loop(messages, tools, opts, max_iterations, execution_policy=None, skill_state=None):
         captured["policy"] = execution_policy
         return _response()
 
@@ -456,7 +468,7 @@ async def test_run_skill_call_site_policy_verbatim(tmp_path):
     )
     captured = {}
 
-    async def fake_loop(messages, tools, opts, max_iterations, execution_policy=None):
+    async def fake_loop(messages, tools, opts, max_iterations, execution_policy=None, skill_state=None):
         captured["policy"] = execution_policy
         return _response()
 
@@ -477,7 +489,7 @@ async def test_run_skill_no_policy_pwd_unchanged():
     )
     captured = {}
 
-    async def fake_loop(messages, tools, opts, max_iterations, execution_policy=None):
+    async def fake_loop(messages, tools, opts, max_iterations, execution_policy=None, skill_state=None):
         captured["policy"] = execution_policy
         return _response()
 
@@ -502,7 +514,7 @@ async def test_run_skill_allowed_tool_still_denied_by_callback():
     )
     result = {}
 
-    async def fake_loop(messages, tools, opts, max_iterations, execution_policy=None):
+    async def fake_loop(messages, tools, opts, max_iterations, execution_policy=None, skill_state=None):
         web = next(t for t in tools if t.name == "WebSearch")
         result["out"] = await agent._execute_tool(ToolCall(id="c1", name="WebSearch", args={}), web)
         return _response()
