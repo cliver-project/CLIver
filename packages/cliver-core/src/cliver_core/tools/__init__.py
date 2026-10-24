@@ -1,51 +1,44 @@
 """Builtin tools that ship with cliver-core.
 
-Only the 9 already-pure tools are registered here. CLI-coupled tools
-(ask_user_question, cliver_help, create_task, memory, search_sessions,
-web_search, image_generate, skill, browse_web, browser_action) are
-re-derived in later phases.
+Every non-underscore module in this package defines one or more ``CLIverTool``
+objects via ``@tool``; :func:`discover_builtin_tools` imports them and collects
+the tools. Modules prefixed with ``_`` are internal helpers and are skipped.
+
+CLI-coupled tools (ask_user_question, cliver_help, create_task, memory,
+search_sessions, web_search, image_generate, skill, browse_web, browser_action)
+are re-derived in later phases.
 """
 
+from __future__ import annotations
+
+import importlib
+import pkgutil
+
 from cliver_core.tool import CLIverTool
-from cliver_core.tools.execute_code import execute_code
-from cliver_core.tools.grep_search import grep_search
-from cliver_core.tools.list_directory import list_directory
-from cliver_core.tools.read_file import read_file
-from cliver_core.tools.run_shell_command import run_shell_command
-from cliver_core.tools.todo_read import todo_read
-from cliver_core.tools.todo_write import todo_write
-from cliver_core.tools.web_fetch import web_fetch
-from cliver_core.tools.write_file import write_file
+
+
+def _discover(package_name: str, package_path: list[str]) -> list[CLIverTool]:
+    """Import every public module in ``package_path`` and collect its tools."""
+    found: dict[str, CLIverTool] = {}
+    for info in pkgutil.iter_modules(package_path):
+        if info.name.startswith("_"):
+            continue
+        module = importlib.import_module(f"{package_name}.{info.name}")
+        for value in vars(module).values():
+            if not isinstance(value, CLIverTool):
+                continue
+            existing = found.get(value.name)
+            if existing is not None and existing is not value:
+                raise RuntimeError(
+                    f"duplicate builtin tool name {value.name!r} (second definition in {module.__name__})"
+                )
+            found[value.name] = value
+    return [found[name] for name in sorted(found)]
 
 
 def discover_builtin_tools() -> list[CLIverTool]:
-    """Return the registered builtin tools.
-
-    Kept as the canonical entry point so the existing registry call sites
-    continue to work via this package re-export.
-    """
-    return [
-        read_file,
-        write_file,
-        list_directory,
-        grep_search,
-        run_shell_command,
-        execute_code,
-        todo_read,
-        todo_write,
-        web_fetch,
-    ]
+    """Return the builtin tools defined in this package, sorted by name."""
+    return _discover(__name__, __path__)
 
 
-__all__ = [
-    "read_file",
-    "write_file",
-    "list_directory",
-    "grep_search",
-    "run_shell_command",
-    "execute_code",
-    "todo_read",
-    "todo_write",
-    "web_fetch",
-    "discover_builtin_tools",
-]
+__all__ = ["discover_builtin_tools"]

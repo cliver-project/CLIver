@@ -8,6 +8,11 @@ advertised; pinned end-to-end in ``test_chat_roundtrip``).
 
 from __future__ import annotations
 
+import importlib
+import sys
+
+import pytest
+
 from cliver_core.tool import TOOLSETS, CLIverTool, ToolRegistry
 
 
@@ -18,6 +23,60 @@ def _tool(name: str) -> CLIverTool:
         parameters={"type": "object", "properties": {}},
         execute=lambda: [],
     )
+
+
+def _write_tool_module(package, module: str, tool_name: str) -> None:
+    (package / f"{module}.py").write_text(
+        "from cliver_core.tool import tool\n"
+        "\n"
+        "\n"
+        f"@tool(name={tool_name!r}, description='test tool')\n"
+        f"def {module.lstrip('_')}() -> list[dict]:\n"
+        "    return []\n"
+    )
+
+
+def _forget_package(name: str) -> None:
+    for module_name in list(sys.modules):
+        if module_name == name or module_name.startswith(f"{name}."):
+            sys.modules.pop(module_name, None)
+
+
+def test_discovery_scans_every_public_module(tmp_path, monkeypatch) -> None:
+    package = tmp_path / "scanpkg"
+    package.mkdir()
+    (package / "__init__.py").write_text("")
+    _write_tool_module(package, "alpha", "Alpha")
+    _write_tool_module(package, "_helper", "Hidden")
+
+    monkeypatch.syspath_prepend(str(tmp_path))
+    importlib.invalidate_caches()
+    try:
+        from cliver_core.tools import _discover
+
+        found = _discover("scanpkg", [str(package)])
+    finally:
+        _forget_package("scanpkg")
+
+    assert [tool.name for tool in found] == ["Alpha"]
+
+
+def test_discovery_rejects_duplicate_tool_names(tmp_path, monkeypatch) -> None:
+    package = tmp_path / "duppkg"
+    package.mkdir()
+    (package / "__init__.py").write_text("")
+    _write_tool_module(package, "one", "Dup")
+    _write_tool_module(package, "two", "Dup")
+
+    monkeypatch.syspath_prepend(str(tmp_path))
+    importlib.invalidate_caches()
+    try:
+        from cliver_core.tools import _discover
+
+        with pytest.raises(RuntimeError, match="duplicate builtin tool name 'Dup'"):
+            _discover("duppkg", [str(package)])
+    finally:
+        _forget_package("duppkg")
 
 
 def test_directly_registered_tools_bypass_the_toolset_gate() -> None:

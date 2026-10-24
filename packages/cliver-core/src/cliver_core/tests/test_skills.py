@@ -23,7 +23,7 @@ from cliver_core.skill import (
     validate_skill_name,
 )
 from cliver_core.tool import CLIverTool
-from cliver_core.tools import run_shell_command
+from cliver_core.tools.run_shell_command import run_shell_command
 
 FIXTURES = Path(__file__).parent / "fixtures" / "skills"
 

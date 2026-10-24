@@ -21,7 +21,12 @@ from cliver_core.policy import (
 )
 from cliver_core.provider import CLIverRequest, CLIverResponse, Provider
 from cliver_core.tool import tool
-from cliver_core.tools import execute_code, grep_search, list_directory, read_file, run_shell_command, write_file
+from cliver_core.tools.execute_code import execute_code
+from cliver_core.tools.grep_search import grep_search
+from cliver_core.tools.list_directory import list_directory
+from cliver_core.tools.read_file import read_file
+from cliver_core.tools.run_shell_command import run_shell_command
+from cliver_core.tools.write_file import write_file
 
 # ── Decisions and categories ──────────────────────────────────
 
@@ -167,27 +172,18 @@ def test_scope_violation_unrestricted_when_none(tmp_path):
 
 
 def test_builtin_safety_flags():
-    from cliver_core.tools import (
-        execute_code,
-        grep_search,
-        list_directory,
-        read_file,
-        run_shell_command,
-        todo_read,
-        todo_write,
-        web_fetch,
-        write_file,
-    )
+    from cliver_core.tools import discover_builtin_tools
 
-    assert read_file.safety == "safe"
-    assert list_directory.safety == "safe"
-    assert grep_search.safety == "safe"
-    assert todo_read.safety == "safe"  # agent-internal scratchpad
-    assert todo_write.safety == "safe"
-    assert write_file.safety == "mutating"
-    assert run_shell_command.safety == "mutating"
-    assert execute_code.safety == "mutating"
-    assert web_fetch.safety == "mutating"
+    by_name = {tool.name: tool for tool in discover_builtin_tools()}
+    assert by_name["Read"].safety == "safe"
+    assert by_name["LS"].safety == "safe"
+    assert by_name["Grep"].safety == "safe"
+    assert by_name["TodoRead"].safety == "safe"  # agent-internal scratchpad
+    assert by_name["TodoWrite"].safety == "safe"
+    assert by_name["Write"].safety == "mutating"
+    assert by_name["Bash"].safety == "mutating"
+    assert by_name["Exec"].safety == "mutating"
+    assert by_name["WebFetch"].safety == "mutating"
 
 
 # ── AgentCore seam: permission gate and denial semantics ──────
