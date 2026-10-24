@@ -41,7 +41,7 @@ def _format_size(size: int) -> str:
     description=(
         "Lists the names of files and subdirectories directly within a specified directory path. "
         "Can optionally ignore entries matching provided glob patterns. "
-        "Respects .gitignore patterns by default."
+        "Skips entries matching a .gitignore in that directory."
     ),
 )
 def list_directory(path: str = ".", ignore: Optional[list[str]] = None) -> list[dict]:

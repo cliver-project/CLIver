@@ -27,8 +27,8 @@ def write_file(file_path: str, content: str) -> list[dict]:
     There is no length limit on the content.
 
     Args:
-        file_path: The absolute path to the file to write to
-            (e.g., '/home/user/project/file.txt'). Relative paths are not supported.
+        file_path: Path to the file to write to (e.g., '/home/user/project/file.txt').
+            Relative paths are resolved against the working directory.
         content: The content to write to the file.
     """
     try:

@@ -63,7 +63,7 @@ def _save_and_summarize(url: str, content: str, file_path: str) -> str:
         f"Source: {url}\n\n"
         f"Preview (first 30 lines):\n{preview}\n\n"
         f"Use Grep(pattern='...', path='{file_path}') to search, "
-        f"or ReadFile(path='{file_path}', offset=..., limit=...) to read sections."
+        f"or Read(file_path='{file_path}', offset=..., limit=...) to read sections."
     )
 
 
@@ -74,7 +74,7 @@ def _save_and_summarize(url: str, content: str, file_path: str) -> str:
         "For LARGE pages, prefer the save_to_file workflow to avoid flooding the context:\n"
         "  1. WebFetch(url=..., save_to_file='/tmp/page.md') — saves full content to a local file\n"
         "  2. Grep(pattern='...', path='/tmp/page.md') — search the saved file locally\n"
-        "  3. ReadFile(path='/tmp/page.md', offset=..., limit=...) — read specific sections\n\n"
+        "  3. Read(file_path='/tmp/page.md', offset=..., limit=...) — read specific sections\n\n"
         "This keeps large web content out of the conversation and avoids unnecessary round trips.\n\n"
         "Without save_to_file, content is returned directly (truncated to ~20k chars).\n\n"
         "Usage notes:\n"
@@ -93,7 +93,7 @@ def web_fetch(url: str, save_to_file: Optional[str] = None) -> list[dict]:
         url: The URL to fetch content from. Must be a fully-formed valid URL.
         save_to_file: Save the full fetched content to this local file path instead
             of returning it. Returns a short summary and the file path. Use Grep or
-            ReadFile on the saved file to search or read specific sections without
+            Read on the saved file to search or read specific sections without
             loading it all into context.
     """
     try:

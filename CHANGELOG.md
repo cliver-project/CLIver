@@ -34,12 +34,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   execution sandboxes and model-driven skill selection remain future work.
 
 ### Changed
+- **cliver-core: builtin tool discovery** — `cliver_core.tools.discover_builtin_tools()` now
+  scans the package (`pkgutil`) and collects every module-level `CLIverTool` from public
+  modules (underscore-prefixed modules are skipped; duplicate tool names raise). Adding a tool
+  is one new module with `@tool`, no registry edit. The nine tool objects are no longer
+  re-exported from `cliver_core.tools` — import them from their modules
+  (e.g. `cliver_core.tools.read_file`) or go through discovery.
 - **cliver-core: MCP is a base dependency** — the MCP client SDK moved from the optional
   `mcp` extra into the core dependencies (`mcp>=2.3.0,<3.0`). MCP support is first-class:
   a plain `pip install cliver-core` now includes the client, and the adapter tests always
   run instead of skipping when the SDK is absent. The `mcp` and `all` extras are removed
   (`all` only ever meant "with MCP"); the local-model extras (`local-st`, `local-flag`,
   `local`) are unchanged.
+
+### Fixed
+- **cliver-core: builtin tool descriptions** — WebFetch no longer references a nonexistent
+  `ReadFile` tool (now `Read(file_path=...)`, including in its saved-file summary); Bash
+  documents its millisecond `timeout` and `directory`; Exec no longer claims PyYAML is
+  available and documents its seconds-based timeout; Bash and Exec now cross-reference each
+  other (Python code → Exec, shell commands → Bash); TodoWrite documents the todo item shape;
+  Read documents `offset`/`limit` and sensitive-file refusal; Grep/LS wording now matches
+  their actual behavior.
 
 ## [0.3.0a2] - 2026-10-19
 

@@ -51,7 +51,12 @@ def _is_sensitive_file(file_path: str) -> bool:
 
 @tool(
     name="Read",
-    description="Reads and returns the content of a specified file.",
+    description=(
+        "Reads and returns the content of a specified file with line numbers. "
+        "Use offset (a 0-indexed line number) and limit (max lines, "
+        f"default {DEFAULT_MAX_LINES}) to read a slice of large files. "
+        "Sensitive files (e.g. .env, keys, credentials) are refused."
+    ),
     safety="safe",
 )
 def read_file(

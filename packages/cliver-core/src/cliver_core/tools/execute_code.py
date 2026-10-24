@@ -37,12 +37,16 @@ def _build_env() -> dict:
 @tool(
     name="Exec",
     description=(
-        "Execute a Python script in an isolated subprocess and return its output. "
-        "Use this for multi-step data processing, file manipulation, calculations, "
-        "or any task that would otherwise require many sequential tool calls. "
+        "Execute a Python script in a separate subprocess and return its output. "
+        "Use this for any Python code — including short calculations — as well as "
+        "multi-step data processing, file manipulation, or tasks that would otherwise "
+        "require many sequential tool calls. "
+        "Use Bash instead for shell/terminal commands (git, npm, docker, pip, make, ...). "
         "The script runs in the current working directory with full filesystem access. "
         "Print results to stdout -- that's what you'll see. "
-        "Common libraries are available: json, csv, yaml, os, pathlib, re, math, etc."
+        "The standard library is available (json, csv, os, pathlib, re, math, ...) "
+        "plus any third-party packages installed in the environment.\n\n"
+        f"timeout is in seconds (default {DEFAULT_TIMEOUT_S}, max {MAX_TIMEOUT_S})."
     ),
 )
 def execute_code(code: str, timeout: Optional[int] = None) -> list[dict]:

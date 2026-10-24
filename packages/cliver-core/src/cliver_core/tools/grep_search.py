@@ -87,7 +87,7 @@ def _python_search(pattern: str, path: str, glob_pattern: Optional[str], limit: 
         "A powerful search tool for finding patterns in file contents. "
         "Supports full regex syntax (e.g., 'log.*Error', 'function\\\\s+\\\\w+'). "
         "Filter files with glob parameter (e.g., '*.py', '**/*.tsx'). "
-        "Case-insensitive by default. "
+        "Searches are case-insensitive. "
         "Returns matching lines with file paths and line numbers."
     ),
 )

@@ -68,7 +68,8 @@ def format_todo_summary(todos: list[dict]) -> str:
         "- Trivial tasks completable in less than 3 steps\n"
         "- Purely conversational or informational queries\n\n"
         "Each call replaces the entire todo list. Always include all items "
-        "(pending, in_progress, completed) in every call."
+        "(pending, in_progress, completed) in every call. Each item is an object: "
+        '{"id": str, "content": str, "status": "pending" | "in_progress" | "completed"}.'
     ),
 )
 def todo_write(todos: list[dict]) -> list[dict]:
