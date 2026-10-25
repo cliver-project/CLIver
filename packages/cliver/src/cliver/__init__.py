@@ -1,6 +1,5 @@
-"""cliver — Personal AI Lab CLI (scaffold).
+"""cliver — Personal AI Lab CLI.
 
-This package will hold the CLI/TUI in later phases. For now it exists only
-as a uv workspace placeholder so `cliver-core` can resolve its workspace
-siblings. No modules are importable from this package yet.
+The application package layered on ``cliver-core``.  It currently provides
+CLIver's skill discovery conventions; the CLI/TUI lands in later phases.
 """

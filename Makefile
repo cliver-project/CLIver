@@ -10,7 +10,7 @@ init: ## Initialize workspace dev dependencies
 init-local: ## Add the optional in-process local model backends
 	uv sync --all-packages --extra local
 
-test: init ## Run the cliver-core test suite
+test: init ## Run the workspace test suite
 	uv run pytest
 
 dist: ## Build the cliver-core sdist + wheel into dist/

@@ -5,7 +5,7 @@ All notable changes to CLIver will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.3.0a3] - 2026-10-23
+## [0.3.0a3] - 2026-10-25
 
 ### Added
 - **cliver-core: tool permission + execution policy** — two opt-in axes around tool execution.
@@ -63,9 +63,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   escapes are refused, content must be UTF-8 text, and files are capped at 256 KiB. The
   activation result lists the bundled files and says to use `ReadSkillFile` rather than the
   workspace `Read` tool; the tool is advertised only when the skill actually has files and
-  survives `allowed-tools` narrowing, so a skill can allow only `ReadSkillFile` and still read
-  its own references. It grants no general filesystem access — workspace read scopes are
-  untouched. `Skill.read_file(relative_path, max_bytes=...)` gained the optional size cap.
+  survives `allowed-tools` narrowing, so a skill activated via `ActivateSkill` can allow only
+  `ReadSkillFile` and still read its own references. `run_skill()` deliberately adds none of
+  the model-driven skill tools — its cwd is already pinned to the skill directory. The tool
+  grants no general filesystem access — workspace read scopes are untouched.
+  `Skill.read_file(relative_path, max_bytes=...)` gained the optional size cap.
+- **cliver: eight-source skill discovery** — the app package now assembles CLIver's skill
+  sources — the builtin skills shipped with `cliver`, `{config_dir}/skills/`,
+  `~/.agents/skills/`, and project-local `.cliver/`, `.agent/`, `.claude/`, `.gemini/`, and
+  `.qwen/` — into `cliver_core.SkillManager`, later sources overriding earlier ones by name.
+  The pre-split builtin skills were restored; source labels stay app-owned, and cliver-core
+  remains discovery-free.
 
 ### Changed
 - **cliver-core: builtin tool discovery** — `cliver_core.tools.discover_builtin_tools()` now
@@ -80,8 +88,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   run instead of skipping when the SDK is absent. The `mcp` and `all` extras are removed
   (`all` only ever meant "with MCP"); the local-model extras (`local-st`, `local-flag`,
   `local`) are unchanged.
+- **cliver-core: tool registry probe cleanup** — the registry no longer probes for playwright.
+  cliver-core ships no Browser tool and browser availability belongs to the package that ships
+  it; the `browser` toolset gate is unchanged.
+
+### Removed
+- **cliver-core: dead media module** — `cliver_core/media_handler.py` (never exported, imported,
+  or documented; the media pipeline returns `CLIverResponse` and `MediaJob` directly) was
+  removed.
 
 ### Fixed
+- **cliver-core: empty `allowed-tools` in `run_skill()`** — `allowed-tools: []` now behaves
+  like an absent list (no narrowing), matching model-driven activation; previously it installed
+  a filter that advertised zero tools.
+- **cliver-core: permission-denied events** — a denied tool call now emits
+  `ToolEventType.PERMISSION_DENIED` before its `TOOL_END`, so `on_event` monitors observe
+  denials directly.
 - **cliver-core: builtin tool descriptions** — WebFetch no longer references a nonexistent
   `ReadFile` tool (now `Read(file_path=...)`, including in its saved-file summary); Bash
   documents its millisecond `timeout` and `directory`; Exec no longer claims PyYAML is

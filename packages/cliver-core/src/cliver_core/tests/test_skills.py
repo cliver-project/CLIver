@@ -275,25 +275,8 @@ def test_nonexistent_source_is_empty_and_reload_picks_up_new_skills(tmp_path):
     assert manager.get_skill_names() == ["late", "newcomer"]
 
 
-def test_format_skill_list_truncates_long_descriptions(tmp_path):
-    skills_dir = tmp_path / "skills"
-    skills_dir.mkdir()
-    _write_skill(
-        skills_dir,
-        "greet",
-        description="Greets people in many languages. Use when the user says hello or hi in any "
-        "language and wants a greeting back.",
-    )
-
-    listing = SkillManager(sources=[skills_dir]).format_skill_list()
-
-    assert "- greet: Greets people in many languages." in listing
-    assert "run_skill(" in listing
-    assert SkillManager(sources=[]).format_skill_list() == "No skills available."
-
-
 def test_shorten_description_uses_sentence_boundary_then_cap():
-    from cliver_core.skill import _shorten_description
+    from cliver_core.skill_tools import _shorten_description
 
     assert _shorten_description("Short description.") == "Short description."
     assert _shorten_description("First sentence. " + "x" * 200) == "First sentence."
@@ -386,6 +369,22 @@ async def test_run_skill_without_allowed_tools_advertises_everything():
     captured = _capture_loop(agent)
 
     await agent.run_skill("test-code-review", "review please")
+
+    assert sorted(t.name for t in captured["tools"]) == ["Read", "WebSearch"]
+
+
+async def test_run_skill_empty_allowed_tools_advertises_everything(tmp_path):
+    skill_dir = tmp_path / "empty-tools"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: empty-tools\ndescription: No tool restrictions.\nallowed-tools: []\n---\n\n# Empty\n",
+        encoding="utf-8",
+    )
+    manager = SkillManager(sources=[tmp_path])
+    agent = _agent(tools=[_make_tool("WebSearch"), _make_tool("Read")], skill_manager=manager)
+    captured = _capture_loop(agent)
+
+    await agent.run_skill("empty-tools", "do it")
 
     assert sorted(t.name for t in captured["tools"]) == ["Read", "WebSearch"]
 

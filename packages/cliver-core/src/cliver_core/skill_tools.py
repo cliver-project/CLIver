@@ -2,7 +2,9 @@
 
 Progressive disclosure for Agent Skills: a short catalogue in the system
 prompt (which skills exist), ``FindSkills`` to search the full catalogue,
-and ``ActivateSkill`` to load one skill's body as a tool result.
+and ``ActivateSkill`` to load one skill's body as a tool result.  Once a
+skill with bundled files is active, ``ReadSkillFile`` reads that skill's
+own files (confined to its directory) without granting workspace access.
 
 The application owns *which* skills exist (``SkillManager`` sources) and may
 replace the summary ranking (``SkillSelector``) or the search itself
@@ -22,7 +24,7 @@ import inspect
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Sequence
 
-from cliver_core.skill import Skill, SkillError, SkillManager, _shorten_description
+from cliver_core.skill import Skill, SkillError, SkillManager
 from cliver_core.tool import CLIverTool, tool
 
 __all__ = [
@@ -57,6 +59,22 @@ MAX_SEARCH_LIMIT = 20
 # the activation note short even for a skill with many bundled assets.
 MAX_SKILL_FILE_BYTES = 256 * 1024
 MAX_LISTED_SKILL_FILES = 50
+
+_DESCRIPTION_MAX_CHARS = 120
+
+
+def _shorten_description(description: str) -> str:
+    """Shorten a skill description for the prompt catalogue.
+
+    Prefers a sentence boundary within the cap, else hard-truncates.
+    """
+    if len(description) <= _DESCRIPTION_MAX_CHARS:
+        return description
+    dot = description.find(". ")
+    if 0 < dot <= _DESCRIPTION_MAX_CHARS:
+        return description[: dot + 1]
+    return description[: _DESCRIPTION_MAX_CHARS - 3] + "..."
+
 
 # App seams: rank the prompt summary (popularity today, encoder/system-1
 # relevance later) and search the catalogue (semantic retrieval later).

@@ -244,6 +244,27 @@ async def test_deny_returns_denied_result():
     assert seen[0].args == {"value": "x"}
 
 
+async def test_deny_emits_permission_denied_event():
+    async def deny(ctx: ToolCallContext) -> Decision:
+        return Decision.deny("not allowed here")
+
+    events = []
+
+    async def record(event) -> None:
+        events.append(event)
+
+    agent = _policy_agent(permission_callback=deny, on_event=record)
+
+    await agent._execute_tool(ToolCall(id="c1", name="poke", args={"value": "x"}), poke)
+
+    denied = [e for e in events if e.event is ToolEventType.PERMISSION_DENIED]
+    assert len(denied) == 1
+    assert denied[0].tool_name == "poke"
+    assert "not allowed here" in denied[0].error
+    # The call still closes with an END event, so UIs tracking call ids see one completion.
+    assert [e.event for e in events] == [ToolEventType.START, ToolEventType.PERMISSION_DENIED, ToolEventType.END]
+
+
 async def test_safe_tool_skips_callback():
     async def deny(ctx: ToolCallContext) -> Decision:  # would deny everything
         return Decision.deny("no")

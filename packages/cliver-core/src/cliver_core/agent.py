@@ -94,6 +94,8 @@ class AgentCore:
     **Instance state** (bound at construction, reused across calls):
         bindings (``bindings.llm`` = chat model), builtin_tools, mcp_client,
         skill_manager, skill_selector, skill_search, skill_summary_limit,
+        tool_selector, candidate_selector, permission_callback,
+        execution_policy, safety_overrides, max_consecutive_errors,
         on_event, builtin_system_prompt
 
     **Call state** (passed per chat/stream, varies each turn):
@@ -295,8 +297,10 @@ class AgentCore:
         appended to the single system message (caller ``system_prompt``
         first, skill instructions after); a declared ``allowed-tools``
         frontmatter narrows the advertised tools to that set for the run —
-        a non-empty allowlist matching zero available tools fails fast.
-        Every other :meth:`chat` parameter applies unchanged.
+        a non-empty allowlist matching zero available tools fails fast; an
+        absent or empty list leaves tools unchanged.  The other call
+        parameters mirror :meth:`chat` (except ``tool_filter`` and
+        ``skill_dispatch``).
 
         ``execution_policy`` follows the skill's Option A semantics: a
         call-site policy applies verbatim; otherwise an agent-level policy
@@ -323,25 +327,24 @@ class AgentCore:
         combined_system = "\n\n".join(part for part in (system_prompt, skill_prompt) if part) or None
 
         tool_filter: Callable[[CLIverTool], bool] | None = None
-        if loaded.allowed_tools is not None:
-            allowed = frozenset(loaded.allowed_tools)
-            if allowed:
-                pool, _ = await self._candidate_pool(extra_tools, mcp_servers, None, user_input)
-                advertised = await self._finalize_tools(pool, None, None, user_input)
-                names = {t.name for t in advertised}
-                if not (allowed & names):
-                    raise SkillError(
-                        f"skill '{loaded.name}' allows only tools {sorted(allowed)}, none of which are "
-                        f"available (available: {sorted(names)}). Register the tools or connect the "
-                        "MCP servers the skill needs."
-                    )
-                dropped = sorted(allowed - names)
-                if dropped:
-                    self.logger.warning(
-                        "skill '%s' allows tools that are not currently available (dropped for this run): %s",
-                        loaded.name,
-                        ", ".join(dropped),
-                    )
+        allowed = frozenset(loaded.allowed_tools or ())
+        if allowed:
+            pool, _ = await self._candidate_pool(extra_tools, mcp_servers, None, user_input)
+            advertised = await self._finalize_tools(pool, None, None, user_input)
+            names = {t.name for t in advertised}
+            if not (allowed & names):
+                raise SkillError(
+                    f"skill '{loaded.name}' allows only tools {sorted(allowed)}, none of which are "
+                    f"available (available: {sorted(names)}). Register the tools or connect the "
+                    "MCP servers the skill needs."
+                )
+            dropped = sorted(allowed - names)
+            if dropped:
+                self.logger.warning(
+                    "skill '%s' allows tools that are not currently available (dropped for this run): %s",
+                    loaded.name,
+                    ", ".join(dropped),
+                )
 
             def skill_tool_filter(candidate: CLIverTool) -> bool:
                 return candidate.name in allowed
@@ -915,7 +918,8 @@ class AgentCore:
         return tools
 
     async def _execute_tool(self, tc: ToolCall, tool: CLIverTool | None = None) -> list[dict]:
-        """Execute a single tool call. Emits TOOL_START/TOOL_END/TOOL_ERROR events.
+        """Execute a single tool call. Emits TOOL_START, TOOL_PERMISSION_DENIED,
+        TOOL_END, or TOOL_ERROR events.
 
         ``tool`` is the advertised definition for this call (registry or
         ``extra_tools``); the registry lookup is the fallback for a call to a
@@ -933,6 +937,15 @@ class AgentCore:
         try:
             denial = await self._check_permission(tc, tool)
             if denial is not None:
+                await self._emit(
+                    ToolEvent(
+                        event=ToolEventType.PERMISSION_DENIED,
+                        tool_name=tc.name,
+                        tool_call_id=tc.id,
+                        args=tc.args,
+                        error=denial[0]["error"],
+                    )
+                )
                 result = denial
             elif tc.name.startswith("mcp__"):
                 if not self.mcp_client:

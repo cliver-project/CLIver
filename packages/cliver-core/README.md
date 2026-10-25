@@ -81,7 +81,7 @@ image = await generate_image(
 ```
 
 Purposes: image, video, text-to-speech, speech-to-text, embed, rerank. Long generations can return
-a `MediaJob` future via the `submit_*` variants.
+a `MediaJob` future via `AgentCore`'s `submit_*` variants.
 
 ## Local models
 
@@ -172,12 +172,27 @@ result = await agent.run_skill("Refund", "订单 12345 想退货", conversation=
 name and location, so bundled `scripts/` are runnable — plus the skill body to the single
 system message and runs the normal Re-Act loop; a declared `allowed-tools` frontmatter narrows
 the advertised tools to that set — a non-empty allowlist matching zero available tools fails
-fast. Every `chat()` parameter passes through unchanged.
+fast, while an absent or empty list leaves tools unchanged. The other call parameters mirror
+`chat()` (except `tool_filter` and `skill_dispatch`). `run_skill()` adds none of the
+model-driven skill tools (`FindSkills`, `ActivateSkill`, `ReadSkillFile`); an `allowed-tools`
+entry naming one of those is unavailable in this path.
 
 Progressive disclosure: `list_skills()` exposes only routing metadata (name + description —
-`format_skill_list()` renders the catalogue for prompts); the body enters context only when
-`run_skill` activates it; bundled files load on demand (`skill.files`,
-`skill.read_file("references/policy.md")`, path escapes rejected).
+`format_skill_catalog()` renders the catalogue for prompts); the body enters context only when a
+skill is activated; bundled files are listed (`skill.files`) and readable on demand
+(`skill.read_file("references/policy.md")`, path escapes rejected).
+
+With a `SkillManager` configured, `chat()`/`stream()` give the model that catalogue in the system
+prompt (`skill_summary_limit`, default 10), `FindSkills(query, limit)` to search the full
+catalogue, and `ActivateSkill(name)` to load a skill's body as a tool result for the rest of the
+run. Activation is one skill at a time; a declared `allowed-tools` narrows the advertised tools
+for the remaining iterations, and an activated skill that bundles files also gets
+`ReadSkillFile(path)` — confined to that skill's directory (escapes refused, UTF-8 text, 256 KiB
+cap), while workspace files stay on `Read`. Apps may rank the catalogue with
+`skill_selector(skills, user_input)`, replace lexical search with
+`skill_search(query, skills)`, and narrow both candidate pools with
+`candidate_selector(tools, skills, user_input)` / `tool_selector(tools, user_input)`.
+`run_skill()` disables dispatch for its run.
 
 The dependency-free frontmatter parser covers the spec's surface plus what cross-agent skills
 (workbuddy, accio, ...) carry — flat scalars, quoted strings, `>` / `|` blocks, and nested maps
@@ -185,8 +200,7 @@ of any depth (unknown keys are kept in `skill.frontmatter` for forward compatibi
 or `-` sequences). Validation follows the agentskills.io rules (name
 pattern, 64/1024/500-char limits) as load-time warnings; skills stay loadable unless `name` or
 the frontmatter itself is missing. (Anthropic's product-specific extras — reserved words in
-names — are not enforced.) Script execution sandboxes, a model-facing file-read tool, and
-model-driven skill selection are future work.
+names — are not enforced.) Script execution sandboxes remain future work.
 
 ## Permissions & execution policy
 
@@ -221,8 +235,9 @@ agent = AgentCore(
 ```
 
 A denial never raises: it returns `{"error": "Permission denied: …", "denied": true}` to the
-model through the normal tool-result path. Callback exceptions fail closed. Denials share the
-consecutive cap with errors (5 in a row stops the loop). `safety_overrides` reclassify
+model through the normal tool-result path and also emits `ToolEventType.PERMISSION_DENIED`
+through `on_event` before the call's `TOOL_END`. Callback exceptions fail closed. Denials share
+the consecutive cap with errors (5 in a row stops the loop). `safety_overrides` reclassify
 individual tools per AgentCore instance — builtins are shared singletons and never mutated.
 
 **Environment axis (where does it run, what does it see?).** Pass `execution_policy=` to the

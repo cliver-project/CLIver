@@ -9,7 +9,10 @@ members = [
 package = false
 
 [tool.pytest.ini_options]
-testpaths = ["packages/cliver-core/src/cliver_core/tests"]
+testpaths = [
+    "packages/cliver-core/src/cliver_core/tests",
+    "packages/cliver/tests",
+]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 addopts = "-ra"

@@ -11,8 +11,9 @@ single skill directories, and nothing outside a source is ever read.  No
 implicit discovery, no environment conventions; those live in the
 application layer.
 
-Executing skill scripts and a model-facing file-read tool are future work
-(sandbox layer); this module only loads content.
+Executing skill scripts remains future work (sandbox layer); this module
+only loads content.  Model-facing tool bindings — ``ReadSkillFile`` and
+model-driven dispatch — live in :mod:`cliver_core.skill_tools`.
 
 The frontmatter parser is a dependency-free YAML subset — flat scalars,
 quoted strings, ``>`` / ``|`` blocks, and nested maps of any depth (the
@@ -34,6 +35,7 @@ __all__ = [
     "SkillError",
     "SkillManager",
     "SkillNotFoundError",
+    "SkillValidationResult",
     "validate_skill",
     "validate_skill_name",
 ]
@@ -414,25 +416,6 @@ def _discover_source(source_path: Path, source: str) -> dict[str, Skill]:
     return skills
 
 
-# ── Display helpers ───────────────────────────────────────────
-
-
-_DESCRIPTION_MAX_CHARS = 120
-
-
-def _shorten_description(description: str) -> str:
-    """Shorten a skill description for prompt/listing use.
-
-    Prefers a sentence boundary within the cap, else hard-truncates.
-    """
-    if len(description) <= _DESCRIPTION_MAX_CHARS:
-        return description
-    dot = description.find(". ")
-    if 0 < dot <= _DESCRIPTION_MAX_CHARS:
-        return description[: dot + 1]
-    return description[: _DESCRIPTION_MAX_CHARS - 3] + "..."
-
-
 # ── SkillManager ──────────────────────────────────────────────
 
 
@@ -477,17 +460,6 @@ class SkillManager:
     def get_skill_names(self) -> list[str]:
         """All available skill names."""
         return list(self._ensure_loaded())
-
-    def format_skill_list(self) -> str:
-        """Format the catalogue as a compact, model-scannable summary."""
-        skills = self.list_skills()
-        if not skills:
-            return "No skills available."
-        lines = [f"Available skills ({len(skills)}):"]
-        for skill in skills:
-            lines.append(f"  - {skill.name}: {_shorten_description(skill.description)}")
-        lines.append("\nActivate a skill with run_skill('<name>') to run it.")
-        return "\n".join(lines)
 
     def reload(self) -> None:
         """Drop the cache; sources are re-read on next access."""

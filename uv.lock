@@ -613,6 +613,12 @@ wheels = [
 name = "cliver"
 version = "0.3.0a3"
 source = { editable = "packages/cliver" }
+dependencies = [
+    { name = "cliver-core" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "cliver-core", editable = "packages/cliver-core" }]
 
 [[package]]
 name = "cliver-core"
