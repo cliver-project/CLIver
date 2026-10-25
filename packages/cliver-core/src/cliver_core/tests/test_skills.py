@@ -326,6 +326,18 @@ def test_bundled_files_listing_and_reads(tmp_path):
         skill.read_file("references/missing.md")
 
 
+def test_read_file_enforces_max_bytes(tmp_path):
+    skill_dir = tmp_path / "capped"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("---\nname: capped\ndescription: d\n---\n\nBody\n")
+    (skill_dir / "notes.md").write_text("0123456789", encoding="utf-8")
+    skill = SkillManager(sources=[skill_dir]).get_skill("capped")
+
+    assert skill.read_file("notes.md", max_bytes=10) == "0123456789"
+    with pytest.raises(SkillError, match="exceeds 5 bytes"):
+        skill.read_file("notes.md", max_bytes=5)
+
+
 def test_fixture_skills_load():
     manager = SkillManager(sources=[FIXTURES])
 

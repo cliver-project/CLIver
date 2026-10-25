@@ -57,6 +57,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `tool_filter` and the existing `skill_selector`; `run_skill()` applies the same pipeline to
   its allowlist check. Core defaults stay permissive and dependency-free — the filtering
   policy (lexical, encoder-only, system-1) lives in the application.
+- **cliver-core: skill-scoped file reads** — activating a skill that bundles files
+  (`references/`, `scripts/`, `assets/`, ...) now also advertises `ReadSkillFile(path=...)`,
+  confined to the active skill's directory: absolute paths, `../` escapes, and symlink
+  escapes are refused, content must be UTF-8 text, and files are capped at 256 KiB. The
+  activation result lists the bundled files and says to use `ReadSkillFile` rather than the
+  workspace `Read` tool; the tool is advertised only when the skill actually has files and
+  survives `allowed-tools` narrowing, so a skill can allow only `ReadSkillFile` and still read
+  its own references. It grants no general filesystem access — workspace read scopes are
+  untouched. `Skill.read_file(relative_path, max_bytes=...)` gained the optional size cap.
 
 ### Changed
 - **cliver-core: builtin tool discovery** — `cliver_core.tools.discover_builtin_tools()` now

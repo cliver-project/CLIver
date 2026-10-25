@@ -413,10 +413,42 @@ async def test_stream_applies_candidate_selector():
 
 
 class _ActivatingProvider(Provider):
-    """Turn 1 activates ``test-greeting`` (allowlist: WebSearch); turn 2 answers."""
+    """Turn 1 activates a skill (default ``test-greeting``, allowlist: WebSearch); turn 2 answers."""
 
     protocol = "openai"
     brand = "mock-activate"
+    skill_name = "test-greeting"
+
+    def __init__(self, skill_name: str | None = None) -> None:
+        super().__init__(api_key="", base_url="")
+        self.requests: list[CLIverRequest] = []
+        if skill_name is not None:
+            self.skill_name = skill_name
+
+    async def chat(self, request: CLIverRequest) -> CLIverResponse:
+        self.requests.append(request)
+        if len(self.requests) == 1:
+            return CLIverResponse(
+                message=CLIverMessage(
+                    role="assistant",
+                    content=None,
+                    tool_calls=[ToolCall(id="call_1", name="ActivateSkill", args={"name": self.skill_name})],
+                ),
+                usage=None,
+                media=None,
+            )
+        return CLIverResponse(message=CLIverMessage(role="assistant", content="done"), usage=None, media=None)
+
+    async def stream(self, request):  # pragma: no cover — chat test only
+        if False:
+            yield None
+
+
+class _ReadSkillFileProvider(Provider):
+    """Turn 1 activates test-greeting; turn 2 reads a bundled reference file; turn 3 answers."""
+
+    protocol = "openai"
+    brand = "mock-read-skill-file"
 
     def __init__(self) -> None:
         super().__init__(api_key="", base_url="")
@@ -430,6 +462,22 @@ class _ActivatingProvider(Provider):
                     role="assistant",
                     content=None,
                     tool_calls=[ToolCall(id="call_1", name="ActivateSkill", args={"name": "test-greeting"})],
+                ),
+                usage=None,
+                media=None,
+            )
+        if len(self.requests) == 2:
+            return CLIverResponse(
+                message=CLIverMessage(
+                    role="assistant",
+                    content=None,
+                    tool_calls=[
+                        ToolCall(
+                            id="call_2",
+                            name="ReadSkillFile",
+                            args={"path": "references/phrases.md"},
+                        )
+                    ],
                 ),
                 usage=None,
                 media=None,
@@ -490,11 +538,12 @@ async def test_chat_narrows_tools_after_activation():
         "FindSkills",
         "ActivateSkill",
     ]
-    assert [tool.name for tool in provider.requests[1].tools] == ["WebSearch"]
+    assert [tool.name for tool in provider.requests[1].tools] == ["WebSearch", "ReadSkillFile"]
     tool_message = next(m for m in provider.requests[1].messages if m.role == "tool")
     assert tool_message.tool_call_id == "call_1"
     assert tool_message.content.startswith("# Active skill: test-greeting")
     assert f"Skill location: {FIXTURES / 'test-greeting'}" in tool_message.content
+    assert "references/phrases.md" in tool_message.content
 
 
 async def test_stream_narrows_tools_after_activation():
@@ -508,4 +557,45 @@ async def test_stream_narrows_tools_after_activation():
     chunks = [chunk async for chunk in agent.stream("greet me")]
 
     assert "".join(chunk.content or "" for chunk in chunks) == "done"
-    assert [tool.name for tool in provider.requests[1].tools] == ["WebSearch"]
+    assert [tool.name for tool in provider.requests[1].tools] == ["WebSearch", "ReadSkillFile"]
+
+
+async def test_activation_without_bundled_files_does_not_advertise_read_skill_file():
+    provider = _ActivatingProvider(skill_name="test-code-review")
+    agent = AgentCore(
+        ModelBindings(llm=ModelBinding.llm(model="mock-model", provider=provider)),
+        builtin_tools=[_make_tool("Read")],
+        skill_manager=_manager(),
+    )
+
+    await agent.chat("review this")
+
+    assert [tool.name for tool in provider.requests[1].tools] == [
+        "Read",
+        "FindSkills",
+        "ActivateSkill",
+    ]
+
+
+async def test_read_skill_file_reads_a_bundled_file_through_the_agent():
+    provider = _ReadSkillFileProvider()
+    agent = AgentCore(
+        ModelBindings(llm=ModelBinding.llm(model="mock-model", provider=provider)),
+        builtin_tools=[_make_tool("Read"), _make_tool("WebSearch")],
+        skill_manager=_manager(),
+    )
+
+    response = await agent.chat("greet me")
+
+    assert response.message.content == "done"
+    assert [tool.name for tool in provider.requests[1].tools] == ["WebSearch", "ReadSkillFile"]
+    assert [tool.name for tool in provider.requests[2].tools] == ["WebSearch", "ReadSkillFile"]
+    tool_message = next(m for m in provider.requests[2].messages if m.role == "tool" and m.tool_call_id == "call_2")
+    assert "Aloha means hello" in tool_message.content
+
+
+async def test_read_skill_file_name_is_reserved_when_dispatch_is_on():
+    agent = _agent(builtin_tools=[_make_tool("ReadSkillFile")], skill_manager=_manager())
+
+    with pytest.raises(ValueError, match="reserved for skill dispatch"):
+        await agent.chat("hi")

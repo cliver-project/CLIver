@@ -18,6 +18,7 @@ from cliver_core.skill_tools import (
     lexical_skill_search,
     make_activate_skill_tool,
     make_find_skills_tool,
+    make_read_skill_file_tool,
 )
 
 
@@ -267,3 +268,109 @@ def test_activate_skill_empty_allowlist_behaves_like_absent(tmp_path):
 
     assert "error" not in result[0]
     assert state.active.name == "beta"
+
+
+def test_activate_skill_lists_bundled_files_and_the_read_tool(tmp_path):
+    manager = _manager(tmp_path)
+    refs = tmp_path / "skills" / "alpha" / "references"
+    refs.mkdir()
+    (refs / "guide.md").write_text("# Guide\n", encoding="utf-8")
+    state = SkillRunState()
+    tool = make_activate_skill_tool(manager, state, available_tool_names=set())
+
+    text = tool.execute(name="alpha")[0]["text"]
+
+    assert text.startswith(format_skill_body(manager.get_skill("alpha")))
+    assert "ReadSkillFile" in text
+    assert "- references/guide.md" in text
+
+
+def test_activate_skill_caps_the_bundled_file_list(tmp_path, monkeypatch):
+    manager = _manager(tmp_path)
+    alpha = tmp_path / "skills" / "alpha"
+    for index in range(5):
+        (alpha / f"file-{index}.md").write_text(f"{index}\n", encoding="utf-8")
+    monkeypatch.setattr("cliver_core.skill_tools.MAX_LISTED_SKILL_FILES", 3)
+    state = SkillRunState()
+    tool = make_activate_skill_tool(manager, state, available_tool_names=set())
+
+    text = tool.execute(name="alpha")[0]["text"]
+
+    assert "- file-0.md" in text and "- file-2.md" in text
+    assert "- file-3.md" not in text
+    assert "and 2 more" in text
+
+
+def test_activate_skill_with_read_skill_file_in_allowlist_succeeds_when_files_exist(tmp_path):
+    manager = _manager(tmp_path, extra_frontmatter={"alpha": "allowed-tools: ReadSkillFile\n"})
+    (tmp_path / "skills" / "alpha" / "guide.md").write_text("# Guide\n", encoding="utf-8")
+    state = SkillRunState()
+    tool = make_activate_skill_tool(manager, state, available_tool_names=set())
+
+    result = tool.execute(name="alpha")
+
+    assert "error" not in result[0]
+    assert state.active.name == "alpha"
+
+
+# ── ReadSkillFile tool ───────────────────────────────────────
+
+
+def _activate(manager: SkillManager, name: str = "alpha") -> SkillRunState:
+    state = SkillRunState()
+    make_activate_skill_tool(manager, state, available_tool_names=set()).execute(name=name)
+    return state
+
+
+def test_read_skill_file_returns_bundled_text(tmp_path):
+    manager = _manager(tmp_path)
+    refs = tmp_path / "skills" / "alpha" / "references"
+    refs.mkdir()
+    (refs / "guide.md").write_text("# Guide\n\nRead me.\n", encoding="utf-8")
+    state = _activate(manager)
+
+    result = make_read_skill_file_tool(state).execute(path="references/guide.md")
+
+    assert result == [{"text": "# Guide\n\nRead me.\n"}]
+
+
+def test_read_skill_file_requires_an_active_skill():
+    result = make_read_skill_file_tool(SkillRunState()).execute(path="SKILL.md")
+
+    assert "No skill is active" in result[0]["error"]
+
+
+def test_read_skill_file_rejects_paths_outside_the_skill(tmp_path):
+    manager = _manager(tmp_path)
+    outside = tmp_path / "skills" / "outside.md"
+    outside.write_text("secret", encoding="utf-8")
+    tool = make_read_skill_file_tool(_activate(manager))
+
+    relative = tool.execute(path="../outside.md")
+    absolute = tool.execute(path=str(outside))
+
+    assert "escapes the skill directory" in relative[0]["error"]
+    assert "escapes the skill directory" in absolute[0]["error"]
+
+
+def test_read_skill_file_rejects_missing_and_binary_files(tmp_path):
+    manager = _manager(tmp_path)
+    (tmp_path / "skills" / "alpha" / "blob.bin").write_bytes(b"\xff\xfe\x00\x00")
+    tool = make_read_skill_file_tool(_activate(manager))
+
+    missing = tool.execute(path="references/missing.md")
+    binary = tool.execute(path="blob.bin")
+
+    assert "not a file" in missing[0]["error"]
+    assert "UTF-8" in binary[0]["error"]
+
+
+def test_read_skill_file_enforces_the_size_cap(tmp_path, monkeypatch):
+    manager = _manager(tmp_path)
+    (tmp_path / "skills" / "alpha" / "big.md").write_text("x" * 50, encoding="utf-8")
+    monkeypatch.setattr("cliver_core.skill_tools.MAX_SKILL_FILE_BYTES", 10)
+    tool = make_read_skill_file_tool(_activate(manager))
+
+    result = tool.execute(path="big.md")
+
+    assert "exceeds 10 bytes" in result[0]["error"]

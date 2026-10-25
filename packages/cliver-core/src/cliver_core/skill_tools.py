@@ -22,14 +22,17 @@ import inspect
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Sequence
 
-from cliver_core.skill import Skill, SkillManager, _shorten_description
+from cliver_core.skill import Skill, SkillError, SkillManager, _shorten_description
 from cliver_core.tool import CLIverTool, tool
 
 __all__ = [
     "ACTIVATE_SKILL_TOOL",
     "DEFAULT_SEARCH_LIMIT",
     "FIND_SKILLS_TOOL",
+    "MAX_LISTED_SKILL_FILES",
     "MAX_SEARCH_LIMIT",
+    "MAX_SKILL_FILE_BYTES",
+    "READ_SKILL_FILE_TOOL",
     "SKILL_TOOL_NAMES",
     "SkillRunState",
     "SkillSearch",
@@ -39,14 +42,21 @@ __all__ = [
     "lexical_skill_search",
     "make_activate_skill_tool",
     "make_find_skills_tool",
+    "make_read_skill_file_tool",
 ]
 
 FIND_SKILLS_TOOL = "FindSkills"
 ACTIVATE_SKILL_TOOL = "ActivateSkill"
-SKILL_TOOL_NAMES = frozenset({FIND_SKILLS_TOOL, ACTIVATE_SKILL_TOOL})
+READ_SKILL_FILE_TOOL = "ReadSkillFile"
+SKILL_TOOL_NAMES = frozenset({FIND_SKILLS_TOOL, ACTIVATE_SKILL_TOOL, READ_SKILL_FILE_TOOL})
 
 DEFAULT_SEARCH_LIMIT = 5
 MAX_SEARCH_LIMIT = 20
+
+# ReadSkillFile limits: keep one skill file small enough for the prompt and
+# the activation note short even for a skill with many bundled assets.
+MAX_SKILL_FILE_BYTES = 256 * 1024
+MAX_LISTED_SKILL_FILES = 50
 
 # App seams: rank the prompt summary (popularity today, encoder/system-1
 # relevance later) and search the catalogue (semantic retrieval later).
@@ -161,6 +171,30 @@ _ACTIVATE_SKILL_DESCRIPTION = (
     "which tools are available for the rest of the run; only one skill can be active per run."
 )
 
+_READ_SKILL_FILE_DESCRIPTION = (
+    "Read a text file bundled with the active skill (references/, scripts/, assets/, ...). "
+    "The path is relative to the skill directory and cannot escape it. "
+    "Use this for the skill's own files; use Read for workspace files."
+)
+
+
+def _activation_text(skill: Skill) -> str:
+    """Skill body plus its bundled-file list (names only, capped)."""
+    text = format_skill_body(skill)
+    files = skill.files
+    if not files:
+        return text
+    shown = files[:MAX_LISTED_SKILL_FILES]
+    lines = [
+        "",
+        "Bundled files (read with ReadSkillFile, not Read):",
+        *(f"- {path}" for path in shown),
+    ]
+    hidden = len(files) - len(shown)
+    if hidden:
+        lines.append(f"- ... and {hidden} more")
+    return text + "\n" + "\n".join(lines)
+
 
 def make_find_skills_tool(manager: SkillManager, search: SkillSearch | None = None) -> CLIverTool:
     """Build the ``FindSkills`` tool bound to *manager* and an optional search seam."""
@@ -226,15 +260,50 @@ def make_activate_skill_tool(
             available = ", ".join(manager.get_skill_names()) or "(none)"
             return [{"error": f"skill '{name}' not found. Available skills: {available}"}]
         allowed = frozenset(skill.allowed_tools or ())
-        if allowed and not (allowed & available_tool_names):
-            return [
-                {
-                    "error": f"skill '{name}' allows only tools {sorted(allowed)}, none of which "
-                    f"are available (available: {sorted(available_tool_names)}). Register the "
-                    "tools or connect the MCP servers the skill needs."
-                }
-            ]
+        if allowed:
+            # ReadSkillFile is appended by the run for skills with bundled
+            # files, so it counts as available for the allowlist check.
+            available = set(available_tool_names)
+            if skill.files:
+                available.add(READ_SKILL_FILE_TOOL)
+            if not (allowed & available):
+                return [
+                    {
+                        "error": f"skill '{name}' allows only tools {sorted(allowed)}, none of which "
+                        f"are available (available: {sorted(available_tool_names)}). Register the "
+                        "tools or connect the MCP servers the skill needs."
+                    }
+                ]
         state.active = skill
-        return [{"text": format_skill_body(skill)}]
+        return [{"text": _activation_text(skill)}]
 
     return activate_skill
+
+
+def make_read_skill_file_tool(state: SkillRunState) -> CLIverTool:
+    """Build the ``ReadSkillFile`` tool bound to the run's active skill.
+
+    The tool is confined to the active skill's directory: it cannot read
+    workspace files or paths outside the skill, so it grants no general
+    filesystem read access.
+    """
+
+    @tool(name=READ_SKILL_FILE_TOOL, description=_READ_SKILL_FILE_DESCRIPTION, safety="safe")
+    def read_skill_file(path: str) -> list[dict]:
+        """Read a file bundled with the active skill.
+
+        Args:
+            path: Path relative to the skill directory (e.g. references/api.md).
+        """
+        skill = state.active
+        if skill is None:
+            return [{"error": "No skill is active in this run — call ActivateSkill first."}]
+        try:
+            text = skill.read_file(path, max_bytes=MAX_SKILL_FILE_BYTES)
+        except UnicodeDecodeError:
+            return [{"error": f"'{path}' is not a UTF-8 text file"}]
+        except SkillError as exc:
+            return [{"error": str(exc)}]
+        return [{"text": text}]
+
+    return read_skill_file

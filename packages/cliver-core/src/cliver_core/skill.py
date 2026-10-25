@@ -154,11 +154,12 @@ class Skill:
             if p.is_file() and p.name != SKILL_FILENAME
         )
 
-    def read_file(self, relative_path: str) -> str:
+    def read_file(self, relative_path: str, *, max_bytes: int | None = None) -> str:
         """Read one bundled file (``references/``, ``scripts/``, ``assets/``, ...).
 
         The path must stay inside the skill directory — escaping paths
-        (``../``) are rejected.
+        (``../``) are rejected.  ``max_bytes`` caps the file size before
+        reading (``None`` means no cap).
         """
         root = self.base_dir.resolve()
         target = (self.base_dir / relative_path).resolve()
@@ -166,6 +167,8 @@ class Skill:
             raise SkillError(f"{relative_path!r} escapes the skill directory")
         if not target.is_file():
             raise SkillError(f"{relative_path!r} is not a file in skill '{self.name}'")
+        if max_bytes is not None and target.stat().st_size > max_bytes:
+            raise SkillError(f"{relative_path!r} exceeds {max_bytes} bytes in skill '{self.name}'")
         return target.read_text(encoding="utf-8")
 
 

@@ -46,6 +46,7 @@ from cliver_core.provider import (
 )
 from cliver_core.skill import Skill, SkillError, SkillManager, SkillNotFoundError
 from cliver_core.skill_tools import (
+    READ_SKILL_FILE_TOOL,
     SKILL_TOOL_NAMES,
     SkillRunState,
     SkillSearch,
@@ -54,6 +55,7 @@ from cliver_core.skill_tools import (
     format_skill_catalog,
     make_activate_skill_tool,
     make_find_skills_tool,
+    make_read_skill_file_tool,
 )
 from cliver_core.tool import CLIverTool, ToolRegistry
 
@@ -722,18 +724,22 @@ class AgentCore:
 
     @staticmethod
     def _narrow_tools_for_active_skill(tools: list[CLIverTool], skill_state: SkillRunState | None) -> list[CLIverTool]:
-        """Apply a newly activated skill's ``allowed-tools`` to the next iteration.
+        """Apply a newly activated skill to the next iteration's tool list.
 
-        Runs once per activation; an absent/empty allowlist changes nothing
-        (same rule as :meth:`run_skill`).
+        ``allowed-tools`` narrows the regular tools; an absent/empty allowlist
+        changes nothing (same rule as :meth:`run_skill`).  A skill with bundled
+        files also gets ``ReadSkillFile``, which survives narrowing because the
+        skill body may rely on it.  Runs once per activation.
         """
         if skill_state is None or skill_state.active is None or skill_state.narrowed:
             return tools
         skill_state.narrowed = True
         allowed = frozenset(skill_state.active.allowed_tools or ())
-        if not allowed:
-            return tools
-        return [tool for tool in tools if tool.name in allowed]
+        if allowed:
+            tools = [tool for tool in tools if tool.name in allowed]
+        if skill_state.active.files and not any(tool.name == READ_SKILL_FILE_TOOL for tool in tools):
+            tools = [*tools, make_read_skill_file_tool(skill_state)]
+        return tools
 
     async def _execute_tool_calls(
         self,
