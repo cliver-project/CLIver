@@ -2,7 +2,6 @@
 members = [
     "packages/cliver-core",
     "packages/cliver",
-    "packages/cliver-gateway",
 ]
 
 [tool.uv]

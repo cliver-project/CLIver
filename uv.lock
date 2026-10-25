@@ -17,7 +17,6 @@ resolution-markers = [
 members = [
     "cliver",
     "cliver-core",
-    "cliver-gateway",
 ]
 
 [[package]]
@@ -678,11 +677,6 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=1.2.0" },
     { name = "ruff", specifier = ">=0.0.270" },
 ]
-
-[[package]]
-name = "cliver-gateway"
-version = "0.3.0a3"
-source = { editable = "packages/cliver-gateway" }
 
 [[package]]
 name = "cloudpickle"

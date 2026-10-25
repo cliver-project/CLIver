@@ -14,38 +14,30 @@ const navItems = [
     ],
   },
   {
-    label: "Configuration",
-    href: `${base}configuration/`,
-    children: [
-      { label: "Overview", href: `${base}configuration/` },
-      { label: "Providers & Models", href: `${base}configuration/providers/` },
-      { label: "Permissions", href: `${base}configuration/permissions/` },
-    ],
-  },
-  {
     label: "Core Concepts",
     href: `${base}core-concepts/`,
     children: [
       { label: "AgentCore", href: `${base}core-concepts/` },
       { label: "Tools", href: `${base}core-concepts/tools/` },
       { label: "Skills", href: `${base}core-concepts/skills/` },
-      { label: "Memory & Identity", href: `${base}core-concepts/memory/` },
+      { label: "MCP", href: `${base}core-concepts/mcp/` },
+      { label: "Permissions & Policy", href: `${base}core-concepts/policy/` },
+      { label: "Media Capabilities", href: `${base}core-concepts/media/` },
     ],
   },
   {
-    label: "CLI Usage",
+    label: "Models",
+    href: `${base}configuration/`,
+    children: [
+      { label: "Model Bindings", href: `${base}configuration/` },
+      { label: "Providers & Presets", href: `${base}configuration/providers/` },
+    ],
+  },
+  {
+    label: "CLI Application",
     href: `${base}cli/`,
     children: [
-      { label: "Chat & Commands", href: `${base}cli/` },
-      { label: "Sessions", href: `${base}cli/sessions/` },
-    ],
-  },
-  {
-    label: "Gateway",
-    href: `${base}gateway/`,
-    children: [
-      { label: "Overview", href: `${base}gateway/` },
-      { label: "Admin Portal", href: `${base}gateway/admin/` },
+      { label: "Overview", href: `${base}cli/` },
     ],
   },
   {

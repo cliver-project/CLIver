@@ -25,34 +25,27 @@ export default defineConfig({
           ],
         },
         {
-          label: "Configuration",
-          items: [
-            { label: "Overview", slug: "configuration" },
-            { label: "Providers & Models", slug: "configuration/providers" },
-            { label: "Permissions", slug: "configuration/permissions" },
-          ],
-        },
-        {
           label: "Core Concepts",
           items: [
             { label: "AgentCore", slug: "core-concepts" },
             { label: "Tools", slug: "core-concepts/tools" },
             { label: "Skills", slug: "core-concepts/skills" },
-            { label: "Memory & Identity", slug: "core-concepts/memory" },
+            { label: "MCP", slug: "core-concepts/mcp" },
+            { label: "Permissions & Policy", slug: "core-concepts/policy" },
+            { label: "Media Capabilities", slug: "core-concepts/media" },
           ],
         },
         {
-          label: "CLI Usage",
+          label: "Models",
           items: [
-            { label: "Chat & Commands", slug: "cli" },
-            { label: "Sessions", slug: "cli/sessions" },
+            { label: "Model Bindings", slug: "configuration" },
+            { label: "Providers & Presets", slug: "configuration/providers" },
           ],
         },
         {
-          label: "Gateway",
+          label: "CLI Application",
           items: [
-            { label: "Overview", slug: "gateway" },
-            { label: "Admin Portal", slug: "gateway/admin" },
+            { label: "Overview", slug: "cli" },
           ],
         },
         {

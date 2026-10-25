@@ -9,7 +9,7 @@ directory, and read/write path scopes.
 Deliberately opt-in: with no policy configured, behavior is exactly today's
 (everything allowed, env inherited).  Security is supplied explicitly —
 "explicit, not smart".  The application supplies the callback (CLI prompts,
-gateway task config); this module only defines the shapes and the ambient
+application task config); this module only defines the shapes and the ambient
 per-call context.
 """
 

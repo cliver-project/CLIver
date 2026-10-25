@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[5]
-_PACKAGES = ("cliver-core", "cliver", "cliver-gateway")
+_PACKAGES = ("cliver-core", "cliver")
 
 
 def test_workspace_packages_share_one_version() -> None:

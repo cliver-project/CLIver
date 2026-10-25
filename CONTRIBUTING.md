@@ -119,67 +119,43 @@ This runs:
 Understanding the codebase structure will help you locate relevant files and understand the architecture.
 
 ```
-src/cliver/
-├── agent_profile.py         # User agent profiles and configurations
-├── builtin_tools.py         # Built-in tool definitions
-├── cli.py                   # Main CLI entry point (Click commands)
-├── config.py                # Configuration management and defaults
-├── permissions.py           # Permission system for tool execution
-├── skill_manager.py         # Skill loading and activation
-├── session_manager.py       # Conversation session management
-├── tool_registry.py         # Tool registry and discovery
-├── constants.py             # Project-wide constants
-├── cost_tracker.py          # LLM cost tracking utilities
-├── db.py                    # Database management
-│
-├── commands/                # CLI subcommand implementations
-│
-├── gateway/                 # Gateway daemon and platform adapters
-│   ├── telegram_adapter.py
-│   ├── discord_adapter.py
-│   └── ...
-│
-├── llm/                     # LLM provider integrations
-│   ├── openai_provider.py
-│   ├── ollama_provider.py
-│   ├── deepseek_provider.py
-│   └── ...
-│
-├── tools/                   # Individual tool implementations
-│   ├── bash_tool.py
-│   ├── python_tool.py
-│   └── ...
-│
-└── cli_*.py                 # CLI support modules for specific features
-    ├── cli_llm_call.py
-    ├── cli_tool_progress.py
-    └── ...
+packages/cliver-core/        # Embeddable agent library (published to PyPI)
+└── src/cliver_core/
+    ├── agent.py             # AgentCore: chat(), stream(), run_skill()
+    ├── bindings.py          # ModelBindings / ModelBinding
+    ├── presets.py           # Live-verified provider bindings
+    ├── provider/            # OpenAI + Anthropic protocol engines, media pipeline
+    ├── tool.py              # CLIverTool, ToolRegistry, @tool
+    ├── tools/               # Nine builtin tools (discovered by scanning)
+    ├── skill.py             # SKILL.md parsing + SkillManager
+    ├── skill_tools.py       # FindSkills / ActivateSkill / ReadSkillFile
+    ├── mcp/                 # MCP client, discovery, adapters
+    ├── policy.py            # Decision, ExecutionPolicy, scopes
+    ├── capabilities/        # image / video / tts / asr / embed / rerank APIs
+    ├── local/               # Optional in-process embed/rerank backends
+    └── tests/               # Core test suite
 
-tests/                       # Test suite
-├── test_*.py                # Unit tests
-└── ...
+packages/cliver/             # CLI application built on cliver-core
+├── src/cliver/
+│   ├── paths.py             # Config-directory resolution
+│   └── skills/              # Eight-source discovery + four builtin skills
+└── tests/                   # App test suite
 
-docs/                        # Documentation (mkdocs-material)
-├── index.md
-├── permissions.md
-└── ...
-
-mkdocs.yml                   # Documentation configuration
+website/                     # Documentation site (Astro 5 + Starlight)
 Makefile                     # Build and development targets
-pyproject.toml               # Project metadata and dependencies
+pyproject.toml               # uv workspace + shared tooling config
 ```
 
 ### Key Modules
 
-- **agent_profile.py**: Stores user agent profiles, preferences, and session history
-- **builtin_tools.py**: Defines built-in tools available to the agent
-- **cli.py**: Main entry point with Click command decorators
-- **config.py**: Configuration loading, validation, and provider setup
-- **permissions.py**: Permission checking before tool execution
-- **skill_manager.py**: Dynamic skill loading and registration
-- **session_manager.py**: Manages conversation sessions and context
-- **gateway/**: Platform adapters for Telegram, Discord, Slack, etc.
-- **llm/**: Provider-specific LLM implementations
+- **agent.py**: The Re-Act loop with tool calling, skill dispatch, MCP, and events
+- **bindings.py**: Per-purpose model bindings (chat, image, video, TTS, ASR, embed, rerank)
+- **presets.py**: Live-verified provider presets (DeepSeek, GLM, MiniMax, Seedance, …)
+- **provider/**: OpenAI and Anthropic protocol engines plus the media pipeline
+- **tool.py / tools/**: Tool abstraction, registry, and the nine builtin tools
+- **skill.py / skill_tools.py**: Skill parsing, model-driven discovery, and activation
+- **policy.py**: Opt-in permission gates and execution scopes
+- **packages/cliver/src/cliver/skills/**: The CLI's eight-source skill discovery
 
 ## Testing
 
@@ -188,62 +164,53 @@ pyproject.toml               # Project metadata and dependencies
 make test
 ```
 
-### Run Tests with Coverage
-```bash
-uv run pytest --cov
-```
-
 ### Run a Specific Test File
 ```bash
-uv run pytest tests/test_cli.py
+uv run pytest packages/cliver-core/src/cliver_core/tests/test_agent.py
 ```
 
 ### Run Tests Matching a Pattern
 ```bash
-uv run pytest tests/ -k "test_permission"
+uv run pytest -k "test_permission"
 ```
 
 ### Writing Tests
 
-- Place tests in the `tests/` directory
+- Core tests live in `packages/cliver-core/src/cliver_core/tests/`; app tests in
+  `packages/cliver/tests/`
 - Use descriptive test names starting with `test_`
 - Use pytest fixtures for setup/teardown
 - Mock external dependencies (LLM calls, filesystem operations)
 - Aim for good coverage of critical paths
 - Test both happy paths and error cases
 
-### Test Coverage
-
-Generate a coverage report:
-```bash
-uv run pytest --cov=src/cliver --cov-report=html
-```
-
-This creates an HTML report in `htmlcov/index.html`.
-
 ## Documentation
 
-CLIver uses **mkdocs-material** for documentation. Contributions to documentation are welcome!
+CLIver uses **Astro 5 + Starlight** for the documentation website. Contributions to
+documentation are welcome!
 
 ### Serve Documentation Locally
 ```bash
-make docs-serve
+cd website
+npm install
+npm run dev
 ```
 
-This builds and serves the documentation at `http://localhost:8000`.
+This serves the documentation at `http://localhost:4321`.
 
 ### Build Documentation
 ```bash
-make docs-build
+cd website
+npm run build
 ```
 
-This generates a static site in the `site/` directory.
+This generates a static site in `website/dist/`.
 
 ### Documentation Files
 
-- Documentation files are in the `docs/` directory
-- Use Markdown format (.md)
-- Follow the existing structure and navigation
+- Documentation lives in `website/src/content/docs/`
+- Use MDX format
+- Follow the existing structure and navigation defined in `website/astro.config.mjs`
 - Include examples where appropriate
 
 ## Reporting Issues

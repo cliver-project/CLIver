@@ -8,11 +8,12 @@ No CLI, no database, no config files — you pass Python objects in and get mess
 ## Install
 
 ```bash
-pip install cliver-core          # core library + MCP client (stdio / streamable HTTP)
-pip install "cliver-core[local]" # + in-process local embedding / rerank models
+pip install cliver-core==0.3.0a3          # core library + MCP client (stdio / streamable HTTP)
+pip install "cliver-core[local]==0.3.0a3" # + in-process local embedding / rerank models
 ```
 
-Python 3.10+.
+The project is on pre-releases, so pin the exact version (an exact pin selects the pre-release
+without `--pre`). Python 3.10+.
 
 ## Quick start
 

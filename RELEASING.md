@@ -1,8 +1,8 @@
 # Releasing cliver-core
 
-Only `cliver-core` is published today. `cliver` and `cliver-gateway` stay unpublished until
-their migration is complete, but **all three packages share one version** — a test
-(`test_versions_aligned.py`) fails if they diverge.
+Only `cliver-core` is published today. The `cliver` CLI application stays unpublished, but
+**both packages share one version** — a test (`test_versions_aligned.py`) fails if they
+diverge.
 
 ## One-time setup: trusted publishers
 
@@ -22,18 +22,18 @@ manual approval before a publish in the repository settings.
 
 ## Version rule
 
-All three packages in `packages/*/pyproject.toml` must carry the exact same version. The release
-tag is `v` + that version, e.g. `v0.3.0a1`. The release workflow refuses to build if the tag and
-the `cliver-core` version disagree.
+Both packages in `packages/*/pyproject.toml` must carry the exact same version. The release
+tag is `v` + that version, e.g. `v0.3.0a3`. The release workflow refuses to build if the tag
+and the `cliver-core` version disagree.
 
-Because `0.3.0a1` is a pre-release, downstream projects should pin it exactly:
-`pip install cliver-core==0.3.0a1`. The exact pin selects the pre-release without `--pre`;
+Because `0.3.0a3` is a pre-release, downstream projects should pin it exactly:
+`pip install cliver-core==0.3.0a3`. The exact pin selects the pre-release without `--pre`;
 using `--pre` also allows pre-release versions of transitive dependencies (it can pull an
 unrelated dev build), so prefer the exact pin.
 
 ## Release steps
 
-1. Bump the version in all three `packages/*/pyproject.toml` files.
+1. Bump the version in both `packages/*/pyproject.toml` files.
 2. Refresh the lockfile: `uv lock`.
 3. `make format && make lint && make test`.
 4. `make dist` — builds `dist/cliver_core-<version>-py3-none-any.whl` and the sdist.
@@ -48,8 +48,8 @@ unrelated dev build), so prefer the exact pin.
 6. Commit the version bump, then tag and push:
 
    ```bash
-   git tag v0.3.0a1
-   git push origin v0.3.0a1
+   git tag v0.3.0a3
+   git push origin v0.3.0a3
    ```
 
 7. The `Release` workflow runs the tests, builds, verifies the tag, and publishes directly to

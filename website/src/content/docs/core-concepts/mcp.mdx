@@ -1,0 +1,47 @@
+---
+title: MCP
+---
+
+`cliver-core` includes an MCP client that supports **stdio** and **streamable HTTP** servers.
+Connect a client to an `AgentCore` and its tools become available to the model.
+
+```python
+from cliver_core import AgentCore
+from cliver_core.mcp import MCPClient
+
+client = MCPClient.from_discovery()
+agent = AgentCore(bindings, builtin_tools=[...], mcp_client=client)
+```
+
+## Discovery
+
+`MCPClient.from_discovery()` reads CLIver-local MCP configuration — `~/.cliver/mcp.json`,
+project `.cliver/mcp.json`, and drop-in configuration files. Pass `extra=` to add servers
+programmatically.
+
+Call `agent.chat(..., mcp_servers=["server-name"])` to advertise only a subset for one call.
+The client starts lazily (and idempotently) before tools are gathered, so the first turn
+already sees MCP tools.
+
+## Tool Naming
+
+MCP tools are advertised as `mcp__<server>__<tool>`. They share the same execution path as
+builtin tools — including permission categories and events. A server's self-declared
+`readOnlyHint` annotation maps to the `SAFE` category; it is a hint, never a permission
+boundary. Override individual tools with `safety_overrides=`.
+
+## Prompts and Resources
+
+MCP prompts and resources are read **on demand** — never registered as model tools and never
+listed at startup:
+
+```python
+prompts = await client.list_prompts()
+messages = await client.get_prompt("server-name", "args-prompt", {"city": "Paris"})
+
+resources = await client.list_resources()
+contents = await client.read_resource("server-name", "demo://document")
+```
+
+This keeps the core a pure reader: cataloguing, formatting, caps, and whether to send MCP
+content to the model are application concerns.

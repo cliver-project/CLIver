@@ -1,0 +1,74 @@
+---
+title: Media Capabilities
+---
+
+Every model purpose — image, video, text-to-speech, speech-to-text, embed, and rerank — has its
+own binding in `ModelBindings`. Capabilities work standalone, with or without `AgentCore`.
+
+## Standalone Calls
+
+```python
+from cliver_core import ModelBinding
+from cliver_core.capabilities import embed, generate_image
+
+vectors = await embed(
+    texts=["hello", "world"],
+    binding=ModelBinding.embed(model="text-embedding-3-small", api_key="...", base_url="..."),
+)
+
+image = await generate_image(
+    prompt="a red panda on a skateboard",
+    binding=ModelBinding.image(model="gpt-image-1", api_key="...", base_url="..."),
+)
+```
+
+The capability functions are `generate_image`, `generate_video`, `text_to_speech`,
+`transcribe_audio`, `embed`, and `rerank`.
+
+## Through AgentCore
+
+Bind the purpose and call the matching method — `image()`, `video()`, `tts()`, `asr()`,
+`embed()`, or `rerank()`. Long-running generation also has `submit_*` variants that return a
+`MediaJob`:
+
+```python
+from cliver_core import AgentCore, ModelBindings
+
+agent = AgentCore(
+    ModelBindings(
+        llm=...,
+        video=...,
+    )
+)
+
+job = agent.submit_video("A hummingbird hovering over a flower")
+response = await job.result(timeout=600)
+```
+
+## The Media Pipeline
+
+Protocol providers share one media pipeline: bindings describe the endpoint (base URL,
+protocol, and explicit `path=` where a vendor deviates), and the provider handles request
+building, payload parsing, and asynchronous task polling. `generate_media(...)` on a provider
+is public: pass `purpose=`, and `path=` for custom purposes, plus an optional
+`MediaOutputHandler` to take over output handling.
+
+## Local Models
+
+Embedding and rerank can run in-process with the optional local backends:
+
+```python
+from cliver_core.capabilities import embed
+from cliver_core.local import LocalEmbeddingProvider, local_embed
+
+embedder = LocalEmbeddingProvider(
+    model="BAAI/bge-base-zh-v1.5",
+    backend="sentence-transformers",  # required; never inferred
+)
+vectors = await embed(texts=["hello"], binding=local_embed(provider=embedder))
+
+await embedder.close()
+```
+
+A local provider owns one loaded model and is meant to be long-lived: create it once, share it,
+and close it at shutdown. There is no process-global model cache.

@@ -1,42 +1,72 @@
 <div align="center">
   <img src="https://github.com/cliver-project/CLIver/blob/main/website/public/icon.png?raw=true" alt="CLIver" width="120"/>
   <h1>CLIver</h1>
-  <p><strong>Personal AI Lab</strong> — Experimenting with AI agents in your terminal, as a Python library, or as a gateway service.</p>
+  <p><strong>Personal AI Lab</strong> — experimenting with AI agents from the terminal or as an embeddable Python library.</p>
 </div>
 
 ---
 
-CLIver is an **AI Agent research and experimentation project**. It provides the building blocks to explore agent architectures — Re-Act loops, tool calling, skill activation, memory systems, and multi-agent orchestration — through a terminal CLI and an admin web UI.
+CLIver is an **AI agent research and experimentation project** built from two packages:
 
-**A lab, not a product.** CLIver is designed for tinkering. Swap models mid-conversation. Test how different system prompts change behavior. Add custom skills and tools to see what sticks.
+- **`cliver-core`** — the embeddable engine: a Re-Act loop with tool calling, provider engines
+  for the OpenAI and Anthropic protocols, per-purpose model bindings (chat, image, video, TTS,
+  ASR, embed, rerank), nine built-in tools, Agent Skills, MCP, and opt-in permission and
+  execution-policy axes. No CLI, database, or config files — Python objects in, messages out.
+- **`cliver`** — the CLI application built on `cliver-core`. The application package currently
+  provides CLIver's config-path and skill-discovery conventions; the executable and TUI are
+  still being built, so `cliver-core` is the usable surface today.
 
-**Full-stack agent experimentation.** Run interactively in the terminal, embed `AgentCore` as a Python library in your own experiments, or deploy as a gateway service with cron scheduling and messaging platform adapters.
+**A lab, not a product.** CLIver is designed for tinkering. Swap models mid-conversation. Test
+how different system prompts change behavior. Add custom skills and tools to see what sticks.
 
 ## Quick Start
 
+Install the core library (the project is currently on pre-releases — pin the exact version):
+
 ```bash
-pip install cliver
-
-# Configure your LLM provider
-cliver provider add --name deepseek --type openai \
-  --api-url https://api.deepseek.com --api-key "DEEPSEEK_API_KEY"
-
-# Configure a model
-cliver model add -n deepseek-v4-flash --provider deepseek
-
-# Start experimenting
-cliver "What can you help me with?"
+pip install cliver-core==0.3.0a3
 ```
+
+```python
+import asyncio
+
+from cliver_core import AgentCore, ModelBindings, presets
+
+
+async def main():
+    agent = AgentCore(ModelBindings(llm=presets.deepseek(api_key="...")))
+    response = await agent.chat("Summarize the Re-Act pattern in one sentence.")
+    print(response.message.content)
+    await agent.aclose()
+
+
+asyncio.run(main())
+```
+
+See the [cliver-core README](packages/cliver-core/README.md) for tools, skills, MCP, media
+capabilities, and the full API.
 
 ## Built-in Capabilities
 
-- **Model-agnostic** — OpenAI + Anthropic protocols, any provider, switch on the fly
-- **Built-in tools** — file I/O, shell, web search, browser, memory, todo tracking, image generation
-- **Skills system** — LLM-activated domain expertise following the Agent Skills spec
-- **Permission control** — default, auto-edit, and YOLO modes with per-tool overrides
-- **Persistent memory** — remembers preferences and context across sessions
-- **Gateway mode** — daemon with cron scheduling, admin web UI, and messaging platform adapters
-- **Embeddable API** — `AgentCore.chat()` and `.stream()` for your own Python experiments
+- **Model-agnostic** — OpenAI and Anthropic protocols, live-verified presets, any compatible
+  endpoint
+- **Built-in tools** — file I/O, shell, code execution, grep, directory listing, todo tracking,
+  and web fetch
+- **Skills system** — Agent Skills loading plus model-driven `FindSkills` / `ActivateSkill` /
+  `ReadSkillFile`
+- **MCP support** — stdio and streamable HTTP clients with CLIver-style discovery
+- **Permission and execution policy** — opt-in SAFE/ASK gates and env/cwd/path scopes
+- **Media capabilities** — image, video, text-to-speech, speech-to-text, embedding, and rerank
+- **Embeddable API** — `AgentCore.chat()`, `.stream()`, and `.run_skill()` with no CLI
+  dependencies
+
+## Repository Layout
+
+```
+packages/cliver-core/   # embeddable library (published)
+packages/cliver/        # CLI application built on cliver-core
+website/                # documentation site (Astro + Starlight)
+```
 
 ## Documentation
 
@@ -49,12 +79,12 @@ git clone https://github.com/cliver-project/CLIver.git
 cd CLIver
 
 make init     # Set up dev environment
-make test     # Run tests
+make test     # Run the workspace test suite
 make lint     # Lint and format check
 make format   # Auto-fix lint/format issues
+make dist     # Build the cliver-core sdist + wheel
 
-make docs-serve  # Start docs website (hot reload)
-make docs-build  # Build docs to static files
+cd website && npm install && npm run dev   # Docs dev server at localhost:4321
 ```
 
 ## License

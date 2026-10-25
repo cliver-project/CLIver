@@ -1,0 +1,69 @@
+---
+title: Permissions & Policy
+---
+
+Tool policy has two independent axes, both **opt-in**. With neither configured, every tool
+runs exactly as it would without policy.
+
+## Permission Axis: May This Tool Run?
+
+Every tool carries a category: `SAFE` or `ASK`. Read-only builtins (`Read`, `LS`, `Grep`,
+`TodoRead`, `TodoWrite`) are `SAFE`; mutating ones (`Write`, `Bash`, `Exec`, `WebFetch`) are
+`ASK` by default.
+
+An application-supplied async callback decides `ASK` tools:
+
+```python
+from cliver_core import AgentCore, Decision, ToolCategory
+
+
+async def ask_user(ctx) -> Decision:  # ctx: tool_name, args, server, category
+    answer = await my_ui.confirm(f"Run {ctx.tool_name}?")
+    return Decision.allow() if answer else Decision.deny("user said no")
+
+
+agent = AgentCore(
+    bindings,
+    permission_callback=ask_user,  # None → ASK tools run unchecked
+    safety_overrides={"mcp__github__create_issue": ToolCategory.ASK},
+)
+```
+
+A denial never raises: it returns an error result to the model through the normal tool-result
+path and emits `tool.permission_denied` through `on_event` before the call's `tool.end`.
+Callback exceptions fail closed. Denials share the consecutive-error cap with errors
+(5 in a row stops the loop). `safety_overrides` reclassifies tools for one agent instance —
+builtin tools are shared and never mutated.
+
+## Environment Axis: Where Does It Run?
+
+`ExecutionPolicy` controls what a running tool may touch:
+
+```python
+from pathlib import Path
+
+from cliver_core import EnvSpec, ExecutionPolicy, SAFE_ENV_VARS
+
+policy = ExecutionPolicy(
+    env=EnvSpec(mode="allowlist", names=set(SAFE_ENV_VARS)),
+    cwd=Path("project"),
+    read_paths=[Path("project")],
+    write_paths=[Path("project/src")],
+)
+```
+
+While the policy is ambient:
+
+- `Bash` and `Exec` receive the constructed environment and pinned working directory.
+- `Read`, `LS`, `Grep`, and `Write` enforce `read_paths` / `write_paths`, resolving relative
+  paths against the policy cwd and following symlinks before comparison.
+
+Pass the policy to the constructor or per `chat()`/`stream()` call — the call site wins.
+
+## A Guardrail, Not a Sandbox
+
+The two axes are complementary. Path scopes bind only the file tools; an approved
+`Bash`/`Exec` call runs as your process user and can touch anything that user can, under the
+filtered environment and pinned directory. Use the permission axis to decide whether shell
+access is granted at all; path scopes are a guardrail against accidental access, not OS-level
+confinement.

@@ -5,34 +5,49 @@ title: Installation
 ## Requirements
 
 - **Python 3.10+**
-- An API key for at least one LLM provider
+- An API key for at least one LLM provider (or a local endpoint)
 
-## Install via pip
+## Install cliver-core
+
+The project is on pre-releases, so pin the exact version — an exact pin selects the pre-release
+without `--pre`:
 
 ```bash
-pip install cliver
+pip install cliver-core==0.3.0a3
 ```
 
-## Install with Optional Dependencies
+The core package includes the MCP client (stdio and streamable HTTP).
+
+## Optional local models
+
+In-process embedding and rerank backends pull torch, so they are opt-in:
 
 ```bash
-# Gateway mode (cron scheduler, admin portal)
-pip install cliver[gateway]
-
-# Platform adapters
-pip install cliver[slack]      # Slack bot
-
-# Everything
-pip install cliver[all]
+pip install "cliver-core[local-st]==0.3.0a3"     # sentence-transformers embeddings
+pip install "cliver-core[local-flag]==0.3.0a3"   # FlagEmbedding embeddings + rerank
+pip install "cliver-core[local]==0.3.0a3"        # both
 ```
 
 ## Verify Installation
 
 ```bash
-cliver --version
-cliver --help
+python -c "from cliver_core import AgentCore; print(AgentCore)"
+```
+
+## Work on the workspace
+
+The repository is a uv workspace with two packages: `cliver-core` and the `cliver` CLI
+application.
+
+```bash
+git clone https://github.com/cliver-project/CLIver.git
+cd CLIver
+
+make init          # venv + workspace dependencies
+make init-local    # + optional local model backends
+make test          # run both packages' tests
 ```
 
 ## Next Steps
 
-[Configure a provider](/configuration/providers/) to connect CLIver to your LLM of choice.
+[Configure model bindings](/configuration/) to connect `cliver-core` to your LLM of choice.

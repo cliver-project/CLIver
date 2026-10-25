@@ -1,56 +1,59 @@
 ---
-title: Configuration Overview
+title: Model Bindings
 ---
 
-CLIver reads its configuration from `~/.cliver/config.yaml`. The config covers providers, models, permissions, and runtime behavior.
+`cliver-core` has no config files. Every model is a `ModelBinding`; `ModelBindings` groups them
+by purpose. The only required purpose is `llm` — the chat/stream model.
 
-## Config File Location
+```python
+from cliver_core import ModelBindings, ModelBinding, presets
 
-```
-~/.cliver/
-├── config.yaml          # Main configuration
-├── identity.md          # Agent profile (name, role, preferences)
-├── memory.md            # Persistent knowledge
-├── skills/              # User-global skills
-├── tasks/               # Task definitions
-└── audit_logs/          # Token usage logs
-```
-
-## Secret Resolution
-
-API keys are resolved through three layers:
-
-1. **KeyStore** — encrypted secrets stored in CLIver's database
-2. **Environment variable** — all-uppercase names resolve from `os.environ`
-3. **Literal** — used as-is if no match above
-
-```yaml
-api_key: deepseek           # 1. Looks up "deepseek" in KeyStore
-api_key: DEEPSEEK_API_KEY   # 2. Falls back to env var
-api_key: sk-abc123          # 3. Used literally
+bindings = ModelBindings(
+    llm=presets.deepseek(api_key="..."),
+    image=ModelBinding.image(
+        model="image-01",
+        api_key="...",
+        base_url="https://api.example.com/v1",
+    ),
+)
 ```
 
-Manage keys with:
+## Purpose Factories
 
-```bash
-cliver keys add deepseek    # Store encrypted in KeyStore
-cliver keys list            # List stored key names
+| Factory | Purpose |
+|---------|---------|
+| `ModelBinding.llm(...)` | Chat and streaming |
+| `ModelBinding.image(...)` | Image generation |
+| `ModelBinding.video(...)` | Video generation |
+| `ModelBinding.tts(...)` | Text-to-speech |
+| `ModelBinding.asr(...)` | Speech-to-text |
+| `ModelBinding.embed(...)` | Embeddings |
+| `ModelBinding.rerank(...)` | Reranking |
+
+All factories share the same endpoint fields: `model`, `api_key`, `base_url`, `protocol`
+(`"openai"` by default, or `"anthropic"`), `provider_name`, and `provider` (supply an existing
+provider instance). Media factories also accept `path=` to override the endpoint path.
+
+With an exact `provider_name` registry hit, the default `base_url` comes from the registry. With
+no recognized brand, `base_url` is required — there is no implicit endpoint. Anthropic-protocol
+endpoints must set `protocol="anthropic"`.
+
+## Default Request Options
+
+Keyword arguments beyond the shared fields become the binding's default call options. Per-call
+`options=` in `chat()`/`stream()` overlay them — the call site wins on conflict.
+
+```python
+llm = ModelBinding.llm(
+    model="deepseek-v4-flash",
+    api_key="...",
+    provider_name="deepseek",
+    temperature=0.2,
+    max_tokens=4096,
+)
 ```
 
-## Minimal Config
+## Lifecycle
 
-A working config needs one provider and one model:
-
-```yaml
-providers:
-  deepseek:
-    type: openai
-    api_url: https://api.deepseek.com
-    api_key: DEEPSEEK_API_KEY
-
-models:
-  text:
-    deepseek-chat:
-      provider: deepseek
-      model: deepseek-chat
-```
+A binding builds its provider lazily and reuses it. `await bindings.aclose()` closes providers
+the bindings built; a provider you supplied yourself stays open.

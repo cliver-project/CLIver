@@ -15,8 +15,8 @@ const base = import.meta.env.BASE_URL;
       <span class="hero-gradient-text">CLIver</span>
     </h1>
     <p style="font-size:1.25rem;color:var(--sl-color-gray-2);max-width:600px;margin:0 auto 2rem;line-height:1.6;">
-      A Personal AI Lab — experimenting with AI agents in your terminal,
-      as a Python library, or as a gateway service.
+      A Personal AI Lab — an embeddable Python agent engine,
+      with a CLI application in progress.
     </p>
     <div style="display:flex;gap:1rem;justify-content:center;flex-wrap:wrap;">
       <a
@@ -59,8 +59,8 @@ const base = import.meta.env.BASE_URL;
       <div class="feature-icon">🛠️</div>
       <h3>Built-in Tools</h3>
       <p>
-        File I/O, shell execution, web search, todo tracking, memory, browser
-        automation, image generation, and more. All governed by a permission system.
+        Nine tools for file I/O, shell execution, code, web fetching, and todo
+        tracking — all sharing one permission and event pipeline.
       </p>
     </div>
 
@@ -75,38 +75,35 @@ const base = import.meta.env.BASE_URL;
 
     <div class="feature-card">
       <div class="feature-icon">🔐</div>
-      <h3>Permission Control</h3>
+      <h3>Opt-in Policy</h3>
       <p>
-        Three modes — default (confirm), auto-edit, and YOLO — with per-tool
-        overrides. You control what the agent can do, every step of the way.
+        SAFE/ASK permission gates with an application-supplied callback, plus
+        execution scopes for environment, working directory, and paths.
       </p>
     </div>
 
     <div class="feature-card">
       <div class="feature-icon">⚡</div>
-      <h3>Gateway Mode</h3>
+      <h3>MCP Support</h3>
       <p>
-        Run CLIver as a daemon with cron scheduling, an admin web portal, and
-        platform adapters for Slack and other messaging services.
+        Connect stdio and streamable HTTP servers. MCP tools share the same
+        execution path as builtin tools; prompts and resources are read on demand.
       </p>
     </div>
   </div>
 
   <div style="background:var(--sl-color-gray-7);border:1px solid var(--sl-color-hairline);border-radius:0.75rem;padding:2rem;margin-bottom:2rem;">
     <h2 style="margin-top:0;">Quick Start</h2>
-    <p style="color:var(--sl-color-gray-3);margin-bottom:1.5rem;">Get up and running in three commands.</p>
+    <p style="color:var(--sl-color-gray-3);margin-bottom:1.5rem;">Install the core library and run your first agent.</p>
 
-    <pre style="background:var(--sl-color-black);padding:1.5rem;border-radius:0.5rem;overflow-x:auto;"><code># Install
-pip install cliver
+    <pre style="background:var(--sl-color-black);padding:1.5rem;border-radius:0.5rem;overflow-x:auto;"><code>pip install cliver-core==0.3.0a3
 
-# Add a provider
-cliver provider add --name deepseek --type openai \
-  --api-url https://api.deepseek.com --api-key "$DEEPSEEK_API_KEY"
+python - &lt;&lt;'PY'
+import asyncio
+from cliver_core import AgentCore, ModelBindings, presets
 
-# Add a model under that provider
-cliver model add -n deepseek-chat -p deepseek
-
-# Start chatting
-cliver "What time is it in Beijing and London?"</code></pre>
+agent = AgentCore(ModelBindings(llm=presets.deepseek()))
+print(asyncio.run(agent.chat("Hello!")).message.content)
+PY</code></pre>
   </div>
 </StarlightPage>

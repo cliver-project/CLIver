@@ -2,33 +2,39 @@
 title: AgentCore Python API
 ---
 
-AgentCore is the embeddable engine behind CLIver. Use it to integrate agent capabilities into your own Python applications.
+`AgentCore` is the embeddable engine behind CLIver. Import it from `cliver_core` and drive it
+with `chat()`, `stream()`, or `run_skill()`.
 
 ## Quick Example
 
 ```python
 import asyncio
-from cliver.agent_factory import create_agent_core
-from cliver.config import ConfigManager
+
+from cliver_core import AgentCore, ModelBindings, presets
+from cliver_core.tools import discover_builtin_tools
+
 
 async def main():
-    config = ConfigManager()
-    model = config.get_llm_model()
-
-    agent = create_agent_core(model_config=model)
+    agent = AgentCore(
+        ModelBindings(llm=presets.deepseek(api_key="...")),
+        builtin_tools=discover_builtin_tools(),
+    )
 
     async for chunk in agent.stream("Analyze sales.csv"):
         if chunk.content:
             print(chunk.content, end="", flush=True)
 
+    await agent.aclose()
+
+
 asyncio.run(main())
 ```
 
-## API Methods
+## Methods
 
-### `agent.chat(user_input, **kwargs) → CLIverResponse`
+### `await agent.chat(user_input, **options) → CLIverResponse`
 
-Non-streaming chat. Returns the final response with content, tool calls, and token usage.
+Non-streaming chat. Returns the final response with its message, usage, and any media.
 
 ```python
 response = await agent.chat(
@@ -37,55 +43,63 @@ response = await agent.chat(
     conversation=previous_messages,
     max_iterations=30,
 )
-print(response.message.text)
+print(response.message.content)
 ```
 
-### `agent.stream(user_input, **kwargs) → AsyncIterator[CLIverMessageChunk]`
+### `agent.stream(user_input, **options) → AsyncIterator[CLIverMessageChunk]`
 
-Streaming chat. Yields content deltas and tool call chunks as they arrive.
+Streaming chat. Yields content deltas and tool-call chunks as they arrive.
 
 ```python
 async for chunk in agent.stream("Write a README"):
     if chunk.content:
         print(chunk.content, end="", flush=True)
-    elif chunk.tool_call_chunks:
-        print(f"\n[Calling tools...]")
+    if chunk.tool_call_chunks:
+        print("\n[Calling tools...]")
 ```
 
-### `agent.generate(prompt, **kwargs) → CLIverResponse`
+### `await agent.run_skill(name, user_input, **options) → CLIverResponse`
 
-Generate media — image, audio, or video:
+Runs the Re-Act loop with a skill pinned — see [Skills](/core-concepts/skills/).
 
-```python
-# Generate an image
-result = await agent.generate("A sunset over mountains", media_type="image")
+### Media Methods
 
-# Generate audio
-result = await agent.generate("A jazz piano melody", media_type="audio")
-```
+`image()`, `video()`, `tts()`, `asr()`, `embed()`, and `rerank()` call the bound models directly.
+Their `submit_*` variants return a `MediaJob` whose `result()` resolves when generation finishes.
 
-## Common Parameters (chat/stream)
+## Common Parameters
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `user_input` | `str` | The user's message |
-| `system_prompt` | `str \| None` | Additional persona/context (appended to builtin prompt) |
-| `conversation` | `list[CLIverMessage]` | Previous messages for multi-turn context |
-| `extra_tools` | `list[CLIverTool]` | Additional tools for this call only |
-| `mcp_servers` | `list[str]` | MCP server names to activate for this call |
-| `tool_filter` | `Callable[[CLIverTool], bool] \| None` | Predicate to filter tools (builtin + MCP + extras) |
-| `max_iterations` | `int` | Max Re-Act loop iterations (default: 50) |
+| Parameter | Description |
+|-----------|-------------|
+| `system_prompt` | Additional system content for this call |
+| `conversation` | Previous messages for multi-turn context |
+| `media` | Images/audio/video attached to the user message |
+| `extra_tools` | Additional tools for this call only |
+| `mcp_servers` | MCP server names to advertise for this call |
+| `tool_filter` | Predicate to filter advertised tools |
+| `options` | Wire request options (override binding defaults) |
+| `max_iterations` | Max Re-Act iterations (default: 50) |
+| `execution_policy` | Per-call execution policy |
+| `skill_dispatch` | Advertise skill dispatch tools (default: on) |
 
 ## Event Handling
 
-Monitor tool execution and inference in real time:
+Pass `on_event=` to observe inference and tool lifecycle events:
 
 ```python
+from cliver_core.events import ToolEventType
+
+
 async def on_event(event):
-    if event.type == "tool_start":
+    if getattr(event, "event", None) == ToolEventType.START:
         print(f"Running: {event.tool_name}")
-    elif event.type == "tool_end":
+    elif getattr(event, "event", None) == ToolEventType.END:
         print(f"Done: {event.tool_name} ({event.duration_ms}ms)")
 
-agent = create_agent_core(model_config=model, on_event=on_event)
+
+agent = AgentCore(bindings, on_event=on_event)
 ```
+
+Events cover inference (`inference.started`, `inference.first_token`, `inference.chunk`,
+`inference.tool_call`, `inference.completed`, `inference.error`) and tool execution
+(`tool.start`, `tool.end`, `tool.error`, `tool.permission_denied`).

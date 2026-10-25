@@ -2,59 +2,78 @@
 title: Skills
 ---
 
-Skills extend CLIver's capabilities through structured `SKILL.md` files. They follow the [Agent Skills specification](https://agentskills.io) and are activated by the LLM based on task context.
+Skills extend the agent's capabilities through structured `SKILL.md` directories. They follow
+the [Agent Skills specification](https://agentskills.io/specification) and can be loaded
+explicitly or selected by the model.
 
-## How Skills Work
+## Skill Format
 
-A skill is a markdown file with YAML frontmatter:
+A skill is a directory with a `SKILL.md` (YAML frontmatter + instructions) plus optional
+`scripts/`, `references/`, and `assets/` directories.
 
 ```markdown
 ---
-name: my-skill
-description: What this skill helps with
+name: refund-policy
+description: Handle customer refund requests using the policy handbook.
 ---
 
-# Skill Body
+# Refund Policy
 
 Instructions and context for the LLM when this skill is active.
 ```
 
-When the agent encounters a task matching a skill's description, it calls the `skill` tool to load the skill's body into context. The skill's body becomes part of the system prompt for the duration of the task.
+## Explicit Sources
 
-## Built-in Skills
+`cliver-core` discovers nothing implicitly. The application supplies skill sources — a
+directory of skill directories, or a single skill directory. Later sources override earlier
+ones by name.
 
-Built-in skills:
+```python
+from cliver_core import AgentCore, SkillManager
 
-| Skill | Purpose |
-|-------|---------|
-| `brainstorm` | Collaborative design dialogue before implementation |
-| `write-plan` | Detailed step-by-step implementation planning |
-| `execute-plan` | Systematic plan execution with verification checkpoints |
-| `wbs-planner` | Work breakdown structure for complex projects |
-
-## Skill Discovery Order
-
-Skills are discovered from multiple locations (higher overrides lower):
-
-1. **Built-in** — shipped with CLIver (`src/cliver/skills/`)
-2. **User-global** — `~/.cliver/skills/` and `~/.agents/skills/`
-3. **Project-local** — `.cliver/skills/`, `.agent/skills/`, `.claude/skills/`, `.gemini/skills/`
-
-## Creating a Skill
-
-Create a `SKILL.md` file in any discovery directory:
-
-```bash
-mkdir -p ~/.cliver/skills/my-domain
-cat > ~/.cliver/skills/my-domain/SKILL.md <<'EOF'
----
-name: my-domain
-description: Expert knowledge about my specific domain
----
-
-You are an expert in my domain. When answering questions:
-1. Consider the specific constraints of our environment
-2. Prefer approach X over approach Y
-3. Reference our internal conventions at docs/internal/conventions.md
-EOF
+skills = SkillManager(sources=["./skills", "./team-skills"])
+agent = AgentCore(bindings, builtin_tools=[...], skill_manager=skills)
 ```
+
+`list_skills()` returns routing metadata only (name + description) — progressive disclosure
+keeps skill bodies out of context until activation.
+
+## Running a Skill Explicitly
+
+`run_skill(name, user_input, conversation=...)` appends an activation header (skill name and
+location, so bundled scripts are runnable) and the skill body to the single system message,
+then runs the normal Re-Act loop.
+
+```python
+result = await agent.run_skill("refund-policy", "Customer 12345 wants a refund", conversation=history)
+```
+
+A declared `allowed-tools` frontmatter narrows the advertised tools for that run. A non-empty
+allowlist that matches zero available tools fails fast; an absent or empty list leaves tools
+unchanged. `run_skill()` deliberately adds none of the model-driven skill tools below — the
+skill is already pinned.
+
+## Model-Driven Selection
+
+With a `SkillManager` configured, `chat()` and `stream()`:
+
+- put a short catalogue (name + description) in the system prompt (`skill_summary_limit=10`
+  by default),
+- advertise `FindSkills(query, limit)` to search the full catalogue,
+- advertise `ActivateSkill(name)` to load a skill's body as a tool result for the rest of the
+  run.
+
+Activation is one skill at a time. An activated skill that bundles files also gets
+`ReadSkillFile(path)` — confined to that skill's directory (path escapes refused, UTF-8 text,
+256 KiB cap). Workspace files stay on `Read`.
+
+Applications can tune selection without touching the core: `skill_selector` ranks the prompt
+catalogue, `skill_search` replaces lexical search, and `candidate_selector` /
+`tool_selector` narrow the candidate pools for a query.
+
+## Skills in the CLI Application
+
+The `cliver` application supplies eight skill sources: builtin skills, `{config_dir}/skills`,
+`~/.agents/skills`, and project-local `.cliver`, `.agent`, `.claude`, `.gemini`, and `.qwen`
+directories. It also ships four builtin skills — `brainstorm`, `write-plan`, `execute-plan`,
+and `wbs-planner`.

@@ -1,105 +1,61 @@
 ---
-title: Providers & Models
+title: Providers & Presets
 ---
 
-CLIver supports two API protocols: **OpenAI-compatible** and **Anthropic**. Providers define API endpoints and credentials. Models reference a provider and specify which model to call.
+`cliver-core` speaks two wire protocols:
 
-## Provider Types
+| Protocol | Used by |
+|----------|---------|
+| `openai` | OpenAI-compatible chat, images, embeddings, and rerank endpoints |
+| `anthropic` | Anthropic Messages endpoints |
 
-| Type | Protocol | Example Providers |
-|------|----------|-------------------|
-| `openai` | OpenAI Chat Completions | DeepSeek, MiniMax, Ollama, vLLM |
-| `anthropic` | Anthropic Messages | DeepSeek-Anthropic, MiniMax-Anthropic |
+A provider class is selected by an exact `provider_name` registry hit plus the protocol. Vendors
+that speak a compatible protocol need no brand entry at all — pass `base_url` and the protocol
+explicitly.
 
-## Configuring Providers
+## Presets
 
-```yaml
-providers:
-  deepseek:
-    type: openai
-    api_url: https://api.deepseek.com
-    api_key: DEEPSEEK_API_KEY
+`cliver_core.presets` provides ready-made, live-verified bindings:
 
-  minimax:
-    type: openai
-    api_url: https://api.minimaxi.com/v1
-    api_key: MINIMAX_API_KEY
+| Preset | Purpose | Protocol |
+|--------|---------|----------|
+| `deepseek()` | Chat | OpenAI |
+| `deepseek_anthropic()` | Chat | Anthropic |
+| `minimax_anthropic()` | Chat | Anthropic |
+| `glm()` | Chat | OpenAI |
+| `glm_anthropic()` | Chat | Anthropic |
+| `minimax_image()` | Image | Anthropic leaf |
+| `minimax_tts()` | Text-to-speech | Anthropic leaf |
+| `minimax_asr()` | Speech-to-text | Anthropic leaf |
+| `seedance()` | Video | OpenAI |
+
+```python
+from cliver_core import AgentCore, ModelBindings, presets
+
+agent = AgentCore(ModelBindings(llm=presets.deepseek()))
 ```
 
-## Configuring Models
+Each factory returns a **fresh** binding. An explicit `api_key=` wins; otherwise the brand's
+conventional environment variable is read at call time — `DEEPSEEK_API_KEY`,
+`MINIMAX_API_KEY`, `GLM_API_KEY` (or `ZHIPUAI_API_KEY`), and `SEEDANCE_API_KEY`. Every preset
+also accepts `base_url=` and `**params` defaults.
 
-Models reference a provider and specify the API-facing model name:
+Media presets pin their endpoint path explicitly on the binding (`minimax_image` →
+`/image_generation`, `minimax_tts` → `/t2a_v2`, `minimax_asr` → `/speech_to_text`,
+`seedance` → `/contents/generations/tasks`). Pass `path=None` to defer to the brand map or
+supply another path to override.
 
-```yaml
-models:
-  text:
-    deepseek-chat:
-      provider: deepseek
-      model: deepseek-chat
+## Custom Endpoints
 
-    deepseek-reasoner:
-      provider: deepseek
-      model: deepseek-reasoner
+```python
+from cliver_core import ModelBinding
 
-    minimax-2.7:
-      provider: minimax
-      model: MiniMax-M2.7
+llm = ModelBinding.llm(
+    model="my-model",
+    api_key="...",
+    base_url="http://localhost:11434/v1",
+)
 ```
 
-## Image Models
-
-Models with `category: image` can be used for image generation:
-
-```yaml
-models:
-  image:
-    minimax-image:
-      provider: minimax
-      model: image-01
-```
-
-The provider must support image generation (e.g., `api_url` points to an image-capable endpoint, or a per-model `api_url` override is set).
-
-## Model Options
-
-Fine-tune behavior per model:
-
-```yaml
-models:
-  text:
-    deepseek-chat:
-      provider: deepseek
-      model: deepseek-chat
-      options:
-        temperature: 0.7
-        max_tokens: 4096
-```
-
-## Rate Limiting
-
-Control request frequency per provider:
-
-```yaml
-providers:
-  deepseek:
-    type: openai
-    api_url: https://api.deepseek.com
-    api_key: DEEPSEEK_API_KEY
-    rate_limit:
-      requests: 1500
-      period: 5h
-      margin: 0.1
-```
-
-## Switching Models
-
-```bash
-# List configured models
-cliver model list
-
-# Use a specific model for one query
-cliver -m deepseek-chat "Explain quantum computing"
-
-# Change default model
-cliver model default deepseek-reasoner
-```
+Because no `provider_name` matches, the OpenAI-protocol class is used with the exact
+`base_url` you give.

@@ -2,15 +2,31 @@
 title: Introduction
 ---
 
-CLIver is a **Personal AI Lab** for AI agent research and experimentation. It connects to any LLM provider, comes with built-in tools, and can be used interactively, embedded as a Python library, or deployed as a gateway service.
+CLIver is a **Personal AI Lab** — a two-package project for AI agent research and experimentation.
+
+- **`cliver-core`** — the embeddable engine: a Re-Act loop with tool calling, OpenAI and
+  Anthropic protocol providers, per-purpose model bindings, nine builtin tools, Agent Skills,
+  MCP, and opt-in permission and execution-policy axes. No CLI, database, or config files —
+  Python objects in, messages out.
+- **`cliver`** — the CLI application built on `cliver-core`. The application package currently
+  provides CLIver's config-directory and skill-discovery conventions; the interactive CLI/TUI
+  is being built in later phases.
 
 ## Highlights
 
-**Model freedom.** You choose the model. CLIver speaks both OpenAI and Anthropic protocols, and connects to any compatible endpoint — cloud providers like DeepSeek and MiniMax, or local ones like Ollama and vLLM.
+**Model freedom.** You choose the model. `cliver-core` speaks both OpenAI and Anthropic
+protocols and connects to any compatible endpoint — cloud providers like DeepSeek, GLM, and
+MiniMax, or local ones like Ollama and vLLM. Live-verified presets for several brands ship in
+`cliver_core.presets`.
 
-**Open architecture.** CLIver is designed to be extended — add custom tools, skills, and knowledge bases. The skill system follows the Agent Skills specification, and the tool registry makes it easy to plug in new capabilities without touching the core engine.
+**Open architecture.** Add custom tools with the `@tool` decorator, load Agent Skills from
+explicit source directories, and connect any MCP server over stdio or streamable HTTP. The
+core stays embeddable — app-specific behavior lives outside it.
 
-**Safe by default.** Every tool execution goes through a permission system. You can auto-approve file edits, require confirmation for shell commands, or run fully hands-off.
+**Explicit policy.** Tool permissions are opt-in: a SAFE/ASK gate with an
+application-supplied callback, plus an execution policy that controls subprocess environment,
+working directory, and read/write path scopes. With no policy configured, nothing changes.
 
-**Embeddable by design.** `AgentCore` is the engine behind the CLI. It's a standalone Python API with no CLI dependencies — use it in your own scripts and applications.
-
+**Embeddable by design.** `AgentCore` has zero CLI dependencies. Construct it with
+`ModelBindings` and use `chat()`, `stream()`, or `run_skill()` from your own scripts and
+applications.

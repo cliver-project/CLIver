@@ -2,11 +2,9 @@
 title: AgentCore
 ---
 
-AgentCore is the reasoning engine at the heart of CLIver. It's a self-contained Python class that implements the **Re-Act loop** — the cycle of sending messages to an LLM, executing tools, and continuing until a final response is ready.
-
-## Why It Matters
-
-AgentCore has **zero CLI dependencies**. It takes config dicts and returns message objects. This means you can embed it directly into your own Python applications, web services, or automation scripts.
+`AgentCore` is the reasoning engine at the heart of CLIver. It implements the **Re-Act loop** —
+send messages to an LLM, execute tools, feed results back, and continue until a final response
+is ready.
 
 ## The Re-Act Loop
 
@@ -14,39 +12,65 @@ AgentCore has **zero CLI dependencies**. It takes config dicts and returns messa
 1. Receive user input
 2. Build messages (system prompt + conversation history + user input)
 3. Send to LLM
-4. If LLM returns a tool call → execute tool → go to step 3
-5. If LLM returns text → done, return response
+4. If the LLM returns a tool call → execute tools → go to step 3
+5. If the LLM returns text → done, return the response
 ```
 
-The loop runs up to 50 iterations by default, with a safety limit of 5 consecutive tool errors before stopping.
+The loop runs up to 50 iterations by default, with a safety limit of 5 consecutive tool errors
+before stopping.
 
-## Using AgentCore in Python
+## Quick Example
 
 ```python
-from cliver.agent_factory import create_agent_core
-from cliver.config import ConfigManager
+import asyncio
 
-# Load config (auto-loads from ~/.cliver)
-config = ConfigManager()
-model = config.get_llm_model()
+from cliver_core import AgentCore, ModelBindings, presets
+from cliver_core.tools import discover_builtin_tools
 
-# Create agent — tools, MCP, and identity are derived automatically
-agent = create_agent_core(model_config=model)
 
-# Chat (non-streaming)
-response = await agent.chat("What's the weather in Tokyo?")
-print(response.message.text)
+async def main():
+    agent = AgentCore(
+        ModelBindings(llm=presets.deepseek(api_key="...")),
+        builtin_tools=discover_builtin_tools(),
+    )
+    response = await agent.chat("List the files in this directory.")
+    print(response.message.content)
+    await agent.aclose()
 
-# Stream (real-time output)
-async for chunk in agent.stream("Write a poem about code"):
-    if chunk.content:
-        print(chunk.content, end="", flush=True)
+
+asyncio.run(main())
 ```
 
 ## Key Properties
 
-- **Minimal construction.** Just a `ModelConfig` — tools, MCP client, and agent identity are derived from the config directory automatically.
-- **Stateless instance, stateful calls.** One AgentCore instance per model. Conversation context is passed per call — safe for concurrent use.
-- **Tool gathering is lazy.** Builtin tools are registered at construction. Extra tools, MCP servers, and tool filtering are resolved at call time via `chat()`/`stream()`.
-- **Events are observable.** Pass an `on_event` handler to monitor tool calls, errors, and inference in real time.
-- **Media generation.** Call `agent.generate(prompt, media_type="image")` to produce images, audio, or video via the provider's generation endpoint.
+- **Embeddable.** `AgentCore` has zero CLI dependencies — it takes Python objects and returns
+  message objects.
+- **Stateless instance, stateful calls.** Conversation context is passed per call
+  (`conversation=`), so one instance is safe for concurrent chats.
+- **Bindings, not config files.** Every model purpose — chat, image, video, TTS, ASR, embed,
+  rerank — lives in `ModelBindings`.
+- **Lazy call-time resolution.** Extra tools, MCP servers, tool filters, and skill dispatch are
+  resolved per `chat()`/`stream()` call.
+- **Observable.** Pass `on_event=` to receive inference and tool lifecycle events, including
+  `tool.start`, `tool.end`, `tool.error`, and `tool.permission_denied`.
+
+## Calling the Agent
+
+`chat()` returns the final `CLIverResponse`; `stream()` yields `CLIverMessageChunk` objects as
+content arrives. Both accept the same per-call options:
+
+| Parameter | Description |
+|-----------|-------------|
+| `user_input` | The user's message |
+| `system_prompt` | Additional system content for this call |
+| `conversation` | Previous messages for multi-turn context |
+| `media` | Images/audio/video attached to the user message |
+| `extra_tools` | Additional tools for this call only |
+| `mcp_servers` | MCP server names to advertise for this call |
+| `tool_filter` | Predicate that narrows the advertised tool set |
+| `options` | Wire request options; call site overrides binding defaults |
+| `max_iterations` | Max Re-Act iterations (default 50) |
+| `execution_policy` | Ambient tool-execution policy for this call |
+| `skill_dispatch` | Advertise the skill catalogue and dispatch tools (default on) |
+
+When finished, call `await agent.aclose()` to close providers the agent built.
