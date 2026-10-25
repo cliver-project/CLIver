@@ -24,7 +24,7 @@ how different system prompts change behavior. Add custom skills and tools to see
 Install the core library (the project is currently on pre-releases — pin the exact version):
 
 ```bash
-pip install cliver-core==0.3.0a4
+pip install cliver-core==0.3.0a5
 ```
 
 ### As a library

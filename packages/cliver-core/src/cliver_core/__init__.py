@@ -23,6 +23,18 @@ from cliver_core.messages import (
     CLIverMessageChunk,
     ToolCall,
 )
+from cliver_core.pipeline import (
+    FailurePolicy,
+    InputBuilder,
+    PipelineContext,
+    PipelineResult,
+    PipelineStep,
+    SkillPipeline,
+    StepOutput,
+    StepResult,
+    StepRunResult,
+    StepRunner,
+)
 from cliver_core.policy import (
     SAFE_ENV_VARS,
     Decision,
@@ -60,6 +72,17 @@ __all__ = [
     "SkillNotFoundError",
     "SkillSearch",
     "SkillSelector",
+    # Deterministic skill pipelines (sub-agent style)
+    "FailurePolicy",
+    "InputBuilder",
+    "PipelineContext",
+    "PipelineResult",
+    "PipelineStep",
+    "SkillPipeline",
+    "StepOutput",
+    "StepResult",
+    "StepRunResult",
+    "StepRunner",
     # Tool permission + execution policy
     "Decision",
     "DecisionAction",

@@ -1,6 +1,6 @@
 [project]
 name = "cliver-core"
-version = "0.3.0a4"
+version = "0.3.0a5"
 description = "CLIver — embeddable AgentCore library"
 readme = "README.md"
 license = "Apache-2.0"

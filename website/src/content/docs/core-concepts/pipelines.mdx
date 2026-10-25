@@ -1,0 +1,112 @@
+---
+title: Pipelines
+---
+
+`SkillPipeline` runs an ordered list of **skill steps sequentially, each in its own fresh
+context** — the deterministic, sub-agent-style primitive for non-coding workflows. The caller
+defines the steps; no LLM decides the sequence. A synthesis step is an ordinary final step whose
+input builder reads the earlier outputs.
+
+## Basic Example
+
+A business idea becomes a market, competitor, and economics report:
+
+```python
+from cliver_core import AgentCore, PipelineStep, SkillPipeline
+
+skills_steps = [
+    PipelineStep(name="market", skill="market-analysis"),
+    PipelineStep(name="competitors", skill="competitor-scan"),
+    PipelineStep(
+        name="economics",
+        skill="unit-economics",
+        input_builder=lambda ctx: f"{ctx.input}\n\nMarket findings:\n{ctx.result('market').content}",
+    ),
+    PipelineStep(
+        name="report",
+        skill="report-writing",
+        input_builder=lambda ctx: "\n\n".join(
+            f"## {r.name}\n{r.content}" for r in ctx.results
+        ) + f"\n\n## Idea\n{ctx.input}",
+    ),
+]
+
+pipeline = SkillPipeline(skills_steps, agent=agent)
+result = await pipeline.run("A subscription box for office plants")
+print(result.ok, result.final.content)
+```
+
+Each step calls `AgentCore.run_skill()` on the same agent — one fresh Re-Act run per step, so
+earlier steps' conversation and tool noise never enter a later step's context. The pipeline
+itself holds only step definitions, so one pipeline can be run concurrently.
+
+## Steps
+
+| Field | Meaning |
+| --- | --- |
+| `name` | Required, unique within the pipeline. |
+| `skill` | Skill name or a loaded `Skill`. Runs via `run_skill()`. |
+| `prompt` | Raw step instructions appended to the single system message — extra instructions alongside a skill, or the whole instruction when no skill is given. |
+| `input_builder` | Composes this step's user input from the `PipelineContext`. Sync or async. Defaults to the pipeline input. |
+| `runner` | Overrides the default runner for this step. |
+| `on_failure` | `FailurePolicy.STOP` (default) or `FailurePolicy.CONTINUE`. |
+
+A step needs a `skill` or a `prompt`.
+
+### Context and Results
+
+`PipelineContext` carries the original `input` and the ordered results of the steps before the
+current one:
+
+```python
+ctx.input          # the string passed to pipeline.run(...)
+ctx.results        # tuple[StepResult, ...]
+ctx.result("market")   # StepResult | None
+ctx.previous           # the immediately preceding StepResult | None
+```
+
+Each `StepResult` exposes `name`, `content`, optional `metadata`, `usage` (when the provider
+reports it), and `error`. `PipelineResult` adds `.final` (the last executed result) and `.ok`
+(true only when every step ran and none failed).
+
+### Failure Policy
+
+```python
+from cliver_core import FailurePolicy, PipelineStep
+
+PipelineStep(name="optional-scan", skill="competitor-scan", on_failure=FailurePolicy.CONTINUE)
+```
+
+With `STOP`, the first failed step halts the run (`PipelineResult.stopped` is true) and later
+steps do not run. With `CONTINUE`, the error is recorded on the result and the next step runs —
+it can branch on `ctx.result("optional-scan").error` in its input builder.
+
+## Custom Runners
+
+A runner signature is `(step, step_input, context, emit)`. Inject one to use a different
+`AgentCore` instance — a different model, tool set, or skill set — for that step:
+
+```python
+async def cheap_runner(step, step_input, context, emit):
+    return await cheap_agent.run_skill(step.skill, step_input, on_event=emit)
+```
+
+Forward the `emit` handler so the step's `ToolEvent`s reach the pipeline's listener. Runners may
+return `StepOutput` (content plus `metadata` and `usage`), a `CLIverResponse`, or a plain string.
+Pass `agent=None` to `SkillPipeline(...)` only when every step injects its own runner.
+
+## Events
+
+`SkillPipeline(..., on_event=handler)` receives pipeline lifecycle events plus every forwarded
+tool event:
+
+- `pipeline.start` — `{"step_count": 4}`
+- `pipeline.step_start` — `step_name`, `step_index`
+- `pipeline.step_end` — `{"content_chars", "usage"}`, `duration_ms`
+- `pipeline.step_error` — `error`, `duration_ms`
+- `pipeline.end` — `{"ok", "stopped", "steps_run"}`, `duration_ms`
+
+Cancelling the task emits `pipeline.end` with `{"cancelled": true, "steps_run": N}` and
+re-raises `CancelledError`. To observe a step's tool events, per-call `on_event` handlers are
+also available directly on `chat()`, `stream()`, and `run_skill()` — the pipeline passes its
+`emit` through as the step's call-site handler.

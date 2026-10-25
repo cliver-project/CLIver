@@ -190,6 +190,7 @@ class AgentCore:
         max_iterations: int = 50,
         execution_policy: ExecutionPolicy | None = None,
         skill_dispatch: bool = True,
+        on_event: EventHandler | None = None,
     ) -> CLIverResponse:
         """Non-streaming chat.  Returns the final response.
 
@@ -207,6 +208,10 @@ class AgentCore:
         ``skill_dispatch`` advertises the skill catalogue, ``FindSkills`` and
         ``ActivateSkill`` for this call (requires a ``skill_manager``);
         :meth:`run_skill` turns it off because the skill is already pinned.
+
+        ``on_event`` is a call-site event handler; it runs after the
+        instance handler and receives the same tool events.  Nothing is
+        stored on the agent, so concurrent calls can each observe their own.
         """
         skill_state = self._skill_run_state(skill_dispatch)
         if self.mcp_client:
@@ -227,6 +232,7 @@ class AgentCore:
             max_iterations,
             execution_policy=effective,
             skill_state=skill_state,
+            **_on_event_kwargs(on_event),
         )
 
     async def stream(
@@ -243,6 +249,7 @@ class AgentCore:
         max_iterations: int = 50,
         execution_policy: ExecutionPolicy | None = None,
         skill_dispatch: bool = True,
+        on_event: EventHandler | None = None,
     ) -> AsyncIterator[CLIverMessageChunk]:
         """Streaming chat.  Yields chunks, executes tools between iterations.
 
@@ -250,7 +257,7 @@ class AgentCore:
         call-site over.  ``execution_policy`` is ambient around tool
         execution, exactly as in :meth:`chat` — the scope never spans yields,
         so a consumer abandoning the stream leaks nothing.  ``skill_dispatch``
-        matches :meth:`chat`.
+        and ``on_event`` match :meth:`chat`.
         """
         skill_state = self._skill_run_state(skill_dispatch)
         if self.mcp_client:
@@ -271,6 +278,7 @@ class AgentCore:
             max_iterations,
             execution_policy=effective,
             skill_state=skill_state,
+            **_on_event_kwargs(on_event),
         ):
             yield chunk
 
@@ -287,6 +295,7 @@ class AgentCore:
         options: dict[str, Any] | None = None,
         max_iterations: int = 50,
         execution_policy: ExecutionPolicy | None = None,
+        on_event: EventHandler | None = None,
     ) -> CLIverResponse:
         """Run one skill: pin its instructions, restrict tools, run the loop.
 
@@ -370,6 +379,7 @@ class AgentCore:
             max_iterations=max_iterations,
             execution_policy=effective_policy,
             skill_dispatch=False,
+            **_on_event_kwargs(on_event),
         )
 
     # ── Embedded model APIs (bindings-gated) ──────────────────
@@ -552,6 +562,7 @@ class AgentCore:
         max_iterations: int,
         execution_policy: ExecutionPolicy | None = None,
         skill_state: SkillRunState | None = None,
+        on_event: EventHandler | None = None,
     ) -> CLIverResponse:
         consecutive_errors = 0
         consecutive_denials = 0
@@ -592,7 +603,12 @@ class AgentCore:
             # would leak into a consumer that abandons the generator.
             with policy_scope(execution_policy):
                 consecutive_errors, consecutive_denials, stop = await self._execute_tool_calls(
-                    messages, msg.tool_calls, consecutive_errors, consecutive_denials, tools
+                    messages,
+                    msg.tool_calls,
+                    consecutive_errors,
+                    consecutive_denials,
+                    tools,
+                    **_on_event_kwargs(on_event),
                 )
             tools = self._narrow_tools_for_active_skill(tools, skill_state)
             if stop:
@@ -624,6 +640,7 @@ class AgentCore:
         max_iterations: int,
         execution_policy: ExecutionPolicy | None = None,
         skill_state: SkillRunState | None = None,
+        on_event: EventHandler | None = None,
     ) -> AsyncIterator[CLIverMessageChunk]:
         import json
 
@@ -703,7 +720,12 @@ class AgentCore:
             # tool execution only, never across a yield.
             with policy_scope(execution_policy):
                 consecutive_errors, consecutive_denials, stop = await self._execute_tool_calls(
-                    messages, tool_calls, consecutive_errors, consecutive_denials, tools
+                    messages,
+                    tool_calls,
+                    consecutive_errors,
+                    consecutive_denials,
+                    tools,
+                    **_on_event_kwargs(on_event),
                 )
             tools = self._narrow_tools_for_active_skill(tools, skill_state)
             if stop:
@@ -751,6 +773,8 @@ class AgentCore:
         consecutive_errors: int,
         consecutive_denials: int,
         tools: list[CLIverTool],
+        *,
+        on_event: EventHandler | None = None,
     ) -> tuple[int, int, bool]:
         """Execute a batch of tool calls and append results to messages.
 
@@ -766,7 +790,7 @@ class AgentCore:
         """
         by_name = {t.name: t for t in tools}
         for tc in tool_calls:
-            result = await self._execute_tool(tc, by_name.get(tc.name))
+            result = await self._execute_tool(tc, by_name.get(tc.name), **_on_event_kwargs(on_event))
             messages.append(
                 CLIverMessage(
                     role="tool",
@@ -917,13 +941,20 @@ class AgentCore:
             tools.append(make_activate_skill_tool(self.skill_manager, skill_state, regular_names))
         return tools
 
-    async def _execute_tool(self, tc: ToolCall, tool: CLIverTool | None = None) -> list[dict]:
+    async def _execute_tool(
+        self,
+        tc: ToolCall,
+        tool: CLIverTool | None = None,
+        *,
+        on_event: EventHandler | None = None,
+    ) -> list[dict]:
         """Execute a single tool call. Emits TOOL_START, TOOL_PERMISSION_DENIED,
         TOOL_END, or TOOL_ERROR events.
 
         ``tool`` is the advertised definition for this call (registry or
         ``extra_tools``); the registry lookup is the fallback for a call to a
-        registered-but-unadvertised builtin.
+        registered-but-unadvertised builtin.  ``on_event`` is the call-site
+        handler (see :meth:`chat`).
         """
         await self._emit(
             ToolEvent(
@@ -931,7 +962,8 @@ class AgentCore:
                 tool_name=tc.name,
                 tool_call_id=tc.id,
                 args=tc.args,
-            )
+            ),
+            on_event,
         )
         start = time.monotonic()
         try:
@@ -944,7 +976,8 @@ class AgentCore:
                         tool_call_id=tc.id,
                         args=tc.args,
                         error=denial[0]["error"],
-                    )
+                    ),
+                    on_event,
                 )
                 result = denial
             elif tc.name.startswith("mcp__"):
@@ -967,7 +1000,8 @@ class AgentCore:
                     tool_call_id=tc.id,
                     result=_truncate(self._format_tool_result(result), 500),
                     duration_ms=duration,
-                )
+                ),
+                on_event,
             )
             return result
         except Exception as e:
@@ -980,13 +1014,16 @@ class AgentCore:
                     tool_call_id=tc.id,
                     error=str(e),
                     duration_ms=duration,
-                )
+                ),
+                on_event,
             )
             return [{"error": str(e)}]
 
-    async def _emit(self, event: ToolEvent) -> None:
+    async def _emit(self, event: ToolEvent, on_event: EventHandler | None = None) -> None:
         if self.on_event:
             await self.on_event(event)
+        if on_event:
+            await on_event(event)
 
     def _tool_category(self, name: str, tool: CLIverTool | None) -> ToolCategory:
         """Resolve a tool's permission category: overrides first, then the
@@ -1055,6 +1092,15 @@ class AgentCore:
         import json
 
         return json.dumps(result, ensure_ascii=False, default=str)
+
+
+def _on_event_kwargs(on_event: EventHandler | None) -> dict[str, EventHandler]:
+    """Forward a call-site handler only when one was given.
+
+    Keeps the default call path unchanged, so overrides of the internal
+    loop methods that predate per-call handlers keep working.
+    """
+    return {"on_event": on_event} if on_event is not None else {}
 
 
 def _truncate(text: str, max_len: int) -> str:

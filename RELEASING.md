@@ -23,11 +23,11 @@ manual approval before a publish in the repository settings.
 ## Version rule
 
 Both packages in `packages/*/pyproject.toml` must carry the exact same version. The release
-tag is `v` + that version, e.g. `v0.3.0a4`. The release workflow refuses to build if the tag
+tag is `v` + that version, e.g. `v0.3.0a5`. The release workflow refuses to build if the tag
 and the `cliver-core` version disagree.
 
-Because `0.3.0a4` is a pre-release, downstream projects should pin it exactly:
-`pip install cliver-core==0.3.0a4`. The exact pin selects the pre-release without `--pre`;
+Because `0.3.0a5` is a pre-release, downstream projects should pin it exactly:
+`pip install cliver-core==0.3.0a5`. The exact pin selects the pre-release without `--pre`;
 using `--pre` also allows pre-release versions of transitive dependencies (it can pull an
 unrelated dev build), so prefer the exact pin.
 
@@ -48,8 +48,8 @@ unrelated dev build), so prefer the exact pin.
 6. Commit the version bump, then tag and push:
 
    ```bash
-   git tag v0.3.0a4
-   git push origin v0.3.0a4
+   git tag v0.3.0a5
+   git push origin v0.3.0a5
    ```
 
 7. The `Release` workflow runs the tests, builds, verifies the tag, and publishes directly to

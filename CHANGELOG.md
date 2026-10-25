@@ -5,6 +5,24 @@ All notable changes to CLIver will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0a5] - 2026-10-25
+
+### Added
+- **cliver-core: deterministic skill pipelines** — `SkillPipeline` runs an ordered list of
+  `PipelineStep`s sequentially, each in its own fresh context (a skill via `run_skill()`, a raw
+  prompt via `chat()`). The caller defines the steps; no LLM decides the sequence. Each step's
+  input is composed from the original input and prior results (`input_builder`, sync or async),
+  results expose `content`, optional `metadata`, `usage`, and `error`, and failures stop the
+  pipeline by default or continue per step (`FailurePolicy`). A synthesis step is an ordinary
+  final step that reads the earlier outputs. Per-step `runner`s may use different `AgentCore`
+  instances, models, tools, or skill sets; `AgentCore` stays stateless. The pipeline emits
+  `PipelineEvent`s (`pipeline.start`, `pipeline.step_start`, `pipeline.step_end`,
+  `pipeline.step_error`, `pipeline.end`) and forwards each step's `ToolEvent`s; cancellation
+  emits `pipeline.end` with `{"cancelled": true}` and re-raises. Exported from `cliver_core`.
+- **cliver-core: per-call event handlers** — `chat()`, `stream()`, and `run_skill()` accept an
+  `on_event` handler that runs after the instance handler and receives the same tool events,
+  so a caller (such as a pipeline step) can observe a run without mutating the agent.
+
 ## [0.3.0a4] - 2026-10-25
 
 ### Added

@@ -610,7 +610,7 @@ wheels = [
 
 [[package]]
 name = "cliver"
-version = "0.3.0a4"
+version = "0.3.0a5"
 source = { editable = "packages/cliver" }
 dependencies = [
     { name = "cliver-core" },
@@ -625,7 +625,7 @@ requires-dist = [
 
 [[package]]
 name = "cliver-core"
-version = "0.3.0a4"
+version = "0.3.0a5"
 source = { editable = "packages/cliver-core" }
 dependencies = [
     { name = "anthropic" },

@@ -30,6 +30,7 @@ export default defineConfig({
             { label: "AgentCore", slug: "core-concepts" },
             { label: "Tools", slug: "core-concepts/tools" },
             { label: "Skills", slug: "core-concepts/skills" },
+            { label: "Pipelines", slug: "core-concepts/pipelines" },
             { label: "MCP", slug: "core-concepts/mcp" },
             { label: "Permissions & Policy", slug: "core-concepts/policy" },
             { label: "Media Capabilities", slug: "core-concepts/media" },

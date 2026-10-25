@@ -60,4 +60,34 @@ class ToolEvent(BaseModel):
     timestamp: float = Field(default_factory=time.monotonic)
 
 
-EventHandler = Callable[[InferenceEvent | ToolEvent], Awaitable[None]]
+class PipelineEventType(str, Enum):
+    """Events fired during a SkillPipeline run (by ``cliver_core.pipeline``)."""
+
+    START = "pipeline.start"
+    STEP_START = "pipeline.step_start"
+    STEP_END = "pipeline.step_end"
+    STEP_ERROR = "pipeline.step_error"
+    END = "pipeline.end"
+
+
+class PipelineEvent(BaseModel):
+    """An event from the pipeline / step lifecycle.
+
+    Tool events raised inside a step are forwarded unchanged as
+    :class:`ToolEvent`; this model covers the pipeline's own lifecycle.
+    """
+
+    event: PipelineEventType
+    step_name: str | None = None
+    step_index: int | None = None
+    data: dict[str, Any] | None = None
+    #   START:      {"step_count": 3}
+    #   STEP_END:   {"content_chars": 1200, "usage": {...}}
+    #   END:        {"ok": true, "stopped": false, "steps_run": 3}
+    #   END (cancel): {"cancelled": true, "steps_run": 1}
+    error: str | None = None  # STEP_ERROR: error message
+    duration_ms: float | None = None
+    timestamp: float = Field(default_factory=time.monotonic)
+
+
+EventHandler = Callable[[InferenceEvent | ToolEvent | PipelineEvent], Awaitable[None]]

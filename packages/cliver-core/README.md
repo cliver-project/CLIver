@@ -8,8 +8,8 @@ No CLI, no database, no config files — you pass Python objects in and get mess
 ## Install
 
 ```bash
-pip install cliver-core==0.3.0a4          # core library + MCP client (stdio / streamable HTTP)
-pip install "cliver-core[local]==0.3.0a4" # + in-process local embedding / rerank models
+pip install cliver-core==0.3.0a5          # core library + MCP client (stdio / streamable HTTP)
+pip install "cliver-core[local]==0.3.0a5" # + in-process local embedding / rerank models
 ```
 
 The project is on pre-releases, so pin the exact version (an exact pin selects the pre-release
@@ -202,6 +202,67 @@ or `-` sequences). Validation follows the agentskills.io rules (name
 pattern, 64/1024/500-char limits) as load-time warnings; skills stay loadable unless `name` or
 the frontmatter itself is missing. (Anthropic's product-specific extras — reserved words in
 names — are not enforced.) Script execution sandboxes remain future work.
+
+## Pipelines
+
+`SkillPipeline` runs an ordered list of steps sequentially, each in its own fresh context. The
+caller defines the order — no LLM decides it. A step runs a skill (via `run_skill()`) or a raw
+prompt (via `chat()`); its input is composed from the original input and the prior results. A
+synthesis step is an ordinary final step that reads the earlier outputs.
+
+```python
+from cliver_core import PipelineStep, SkillPipeline
+
+
+async def log(event) -> None:
+    print(event.event, getattr(event, "step_name", None))
+
+
+pipeline = SkillPipeline(
+    [
+        PipelineStep(name="market", skill="market-analysis"),
+        PipelineStep(name="competitors", skill="competitor-scan"),
+        PipelineStep(
+            name="economics",
+            skill="unit-economics",
+            input_builder=lambda ctx: f"{ctx.input}\n\nMarket:\n{ctx.result('market').content}",
+        ),
+        PipelineStep(
+            name="report",
+            skill="report-writing",
+            input_builder=lambda ctx: (
+                "\n\n".join(f"## {r.name}\n{r.content}" for r in ctx.results) + f"\n\n## Idea\n{ctx.input}"
+            ),
+        ),
+    ],
+    agent=agent,
+    on_event=log,  # pipeline lifecycle + forwarded tool events
+)
+
+result = await pipeline.run("A subscription box for office plants")
+print(result.ok, result.final.content)
+```
+
+- **Results** — `PipelineResult.results` is an ordered tuple of `StepResult`s
+  (`name`, `content`, optional `metadata`, `usage`, `error`); `.final` is the last result and
+  `.ok` is true only when every step ran and none failed.
+- **Input builders** — `PipelineContext` carries the original `input` and prior `results`
+  (`ctx.result(name)`, `ctx.previous`). Builders may be sync or async. The default input is the
+  pipeline input.
+- **Step prompts** — `PipelineStep.prompt` is raw step instructions appended to the single
+  system message (as extra instructions alongside a skill, or as the whole instruction when no
+  skill is given).
+- **Failure policy** — `on_failure=FailurePolicy.STOP` (default) stops at the first failed step
+  and sets `PipelineResult.stopped`; `FailurePolicy.CONTINUE` records the error and runs the
+  next step. Later steps can inspect `ctx.result(name).error`.
+- **Runners** — a step may inject a `runner(step, step_input, context, emit)` to use a different
+  `AgentCore` instance, model, tools, or skill set; pass `on_event=emit` so its tool events are
+  forwarded. Custom runners may return `StepOutput` (content + metadata + usage),
+  `CLIverResponse`, or a plain string.
+- **Events** — the pipeline emits `PipelineEvent`s (`pipeline.start`, `pipeline.step_start`,
+  `pipeline.step_end`, `pipeline.step_error`, `pipeline.end`) and forwards each step's
+  `ToolEvent`s. Cancelling the task emits `pipeline.end` with `{"cancelled": true}` and
+  re-raises `CancelledError`.
 
 ## Permissions & execution policy
 
