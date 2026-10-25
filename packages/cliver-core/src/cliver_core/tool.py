@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
-import os
 from pathlib import Path
 from typing import Any, Callable, Optional, get_args, get_origin
 
@@ -227,38 +226,12 @@ def _first_line(text: str) -> str:
 
 # ── Tool Registry ──────────────────────────────────────────────
 
-# Toolset definitions: toolset_name → set of tool names
-TOOLSETS: dict[str, set[str]] = {
-    "core": {"Read", "Write", "LS", "Grep", "Bash", "Exec", "ImageGenerate"},
-    "memory": {"MemoryRead", "MemoryWrite", "Identity", "SearchSessions"},
-    "automation": {"Skill", "TodoRead", "TodoWrite", "CliverHelp"},
-    "web": {"WebFetch", "WebSearch", "Browse"},
-    "browser": {"Browser"},
-}
-
-_ALWAYS_ENABLED = {"core", "memory", "automation"}
-
-# Every tool name that belongs to a toolset — a name outside this set was
-# registered directly (``register`` / ``builtin_tools=``) and is not gated
-# by the toolset enablement (an explicit registration is the enablement).
-_TOOLSET_TOOL_NAMES: frozenset[str] = frozenset().union(*TOOLSETS.values())
-
-_TOOLSET_CHECKS: dict[str, Callable[[], bool]] = {
-    "web": lambda: True,
-    "browser": lambda: False,  # opt-in via config
-}
-
-_TOOL_CHECKS: dict[str, Callable[[], bool]] = {
-    "Browse": lambda: bool(os.environ.get("FIRECRAWL_API_KEY")),
-}
-
 
 class ToolRegistry:
-    """Registry for builtin CLIverTools, filtered by toolset and environment."""
+    """Registry for builtin CLIverTools — registration is enablement."""
 
     def __init__(self, tools: list[CLIverTool] | None = None):
         self._by_name: dict[str, CLIverTool] = {}
-        self._enabled_names: set[str] = set()
         if tools:
             for t in tools:
                 self._by_name[t.name] = t
@@ -270,50 +243,10 @@ class ToolRegistry:
         for t in tools:
             self._by_name[t.name] = t
 
-    def _resolve_enabled(self, enabled_toolsets: list[str] | None = None) -> set[str]:
-        """Determine which toolsets are enabled from config or environment."""
-        if enabled_toolsets is not None:
-            enabled = set(enabled_toolsets) | _ALWAYS_ENABLED
-        else:
-            enabled = set(_ALWAYS_ENABLED)
-            for ts, check in _TOOLSET_CHECKS.items():
-                try:
-                    if check():
-                        enabled.add(ts)
-                except Exception:
-                    pass
-
-        names: set[str] = set()
-        for ts in enabled:
-            if ts in TOOLSETS:
-                names.update(TOOLSETS[ts])
-
-        # Apply per-tool environment checks
-        for name in list(names):
-            check = _TOOL_CHECKS.get(name)
-            if check and not check():
-                names.discard(name)
-
-        return names
-
-    def configure(self, enabled_toolsets: list[str] | None = None) -> None:
-        """Re-compute which tools are enabled based on toolsets."""
-        self._enabled_names = self._resolve_enabled(enabled_toolsets)
-
     @property
     def all_tools(self) -> list[CLIverTool]:
-        """Get enabled tools (to send to LLM).
-
-        Toolset tools follow the enabled-toolset gate; a tool whose name is in
-        no toolset was registered directly (``register`` / ``builtin_tools=``)
-        and is always advertised — the toolset filter only governs builtins.
-        """
-        if not self._enabled_names:
-            self.configure()
-        return sorted(
-            (t for name, t in self._by_name.items() if name in self._enabled_names or name not in _TOOLSET_TOOL_NAMES),
-            key=lambda t: t.name,
-        )
+        """Get registered tools (to send to LLM), sorted by name."""
+        return sorted(self._by_name.values(), key=lambda t: t.name)
 
     def get(self, name: str) -> CLIverTool | None:
         return self._by_name.get(name)

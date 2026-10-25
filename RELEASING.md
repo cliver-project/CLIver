@@ -23,11 +23,11 @@ manual approval before a publish in the repository settings.
 ## Version rule
 
 Both packages in `packages/*/pyproject.toml` must carry the exact same version. The release
-tag is `v` + that version, e.g. `v0.3.0a3`. The release workflow refuses to build if the tag
+tag is `v` + that version, e.g. `v0.3.0a4`. The release workflow refuses to build if the tag
 and the `cliver-core` version disagree.
 
-Because `0.3.0a3` is a pre-release, downstream projects should pin it exactly:
-`pip install cliver-core==0.3.0a3`. The exact pin selects the pre-release without `--pre`;
+Because `0.3.0a4` is a pre-release, downstream projects should pin it exactly:
+`pip install cliver-core==0.3.0a4`. The exact pin selects the pre-release without `--pre`;
 using `--pre` also allows pre-release versions of transitive dependencies (it can pull an
 unrelated dev build), so prefer the exact pin.
 
@@ -48,8 +48,8 @@ unrelated dev build), so prefer the exact pin.
 6. Commit the version bump, then tag and push:
 
    ```bash
-   git tag v0.3.0a3
-   git push origin v0.3.0a3
+   git tag v0.3.0a4
+   git push origin v0.3.0a4
    ```
 
 7. The `Release` workflow runs the tests, builds, verifies the tag, and publishes directly to
@@ -62,6 +62,6 @@ unrelated dev build), so prefer the exact pin.
 - Re-running a release for an already-published version is safe: PyPI ignores identical files.
   It never allows re-uploading a file with changed contents, so a broken release needs a new
   version.
-- If a release turns out to be broken after publishing, bump the pre-release (`0.3.0a2`,
-  `0.3.0a3`, …) and release again.
+- If a release turns out to be broken after publishing, bump the pre-release (`0.3.0a5`, …)
+  and release again.
 - No `PYPI_TOKEN` secret is used or required.

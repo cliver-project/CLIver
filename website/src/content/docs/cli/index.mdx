@@ -2,9 +2,56 @@
 title: CLI Application
 ---
 
-`cliver` is the CLI application layered on `cliver-core`. The application package currently
-provides CLIver's config-directory and skill-discovery conventions; the interactive CLI/TUI is
-being built in later phases. Until then, use `cliver-core` directly from Python.
+`cliver` is the CLI application layered on `cliver-core`. It provides CLIver's config-directory
+and skill-discovery conventions, and runs one agent task per invocation. An interactive TUI is
+not built yet.
+
+The CLI is not published to PyPI; run it from a repository checkout after `make init`.
+
+## Usage
+
+```bash
+# endpoint and model come from flags or CLIVER_* variables
+export CLIVER_MODEL=deepseek-v4-flash
+export CLIVER_PROVIDER=deepseek
+export DEEPSEEK_API_KEY=...
+
+uv run cliver "Summarize the last three commits as release notes."
+
+# approve mutating tool calls (Write, Bash, ...) without prompting
+uv run cliver --yes "Read packages/cliver-core/pyproject.toml and list its dependencies."
+
+# run an explicit skill; --cwd selects the project root for skill discovery
+uv run cliver --skill live-check --cwd ~/projects/demo "Run the live check."
+```
+
+Safe tools (`Read`, `LS`, `Grep`, `TodoRead`, `TodoWrite`) run without approval. ASK tools
+(`Write`, `Bash`, `Exec`, `WebFetch`) go through the SAFE/ASK gate: the CLI prompts on an
+interactive terminal and denies them in a non-interactive session unless `--yes` is passed.
+
+Piped stdin works as the prompt:
+
+```bash
+git diff | uv run cliver --yes "Review this diff for correctness problems."
+```
+
+### Configuration
+
+| Setting | Flag | Environment |
+|---|---|---|
+| Model | `--model`, `-m` | `CLIVER_MODEL` |
+| Known provider brand | `--provider` | `CLIVER_PROVIDER` |
+| Any compatible endpoint | `--base-url` | `CLIVER_BASE_URL` |
+| Wire protocol | `--protocol` (`openai` / `anthropic`) | `CLIVER_PROTOCOL` |
+| API key | — | `CLIVER_API_KEY`, else the brand's variable |
+
+The brand's conventional key (`DEEPSEEK_API_KEY`, `MINIMAX_API_KEY`, `GLM_API_KEY`, …) is
+used when `CLIVER_API_KEY` is unset. `{config_dir}/.env` is loaded at startup without
+overriding variables already in the process environment, so `~/.cliver/.env` is a convenient
+place for keys.
+
+Use `--provider` for a brand with a default endpoint, or `--base-url` for anything else
+(Ollama, vLLM, a gateway). `--max-iterations` bounds the Re-Act loop (default 50).
 
 ## Config Directory
 

@@ -12,9 +12,9 @@ CLIver is an **AI agent research and experimentation project** built from two pa
   for the OpenAI and Anthropic protocols, per-purpose model bindings (chat, image, video, TTS,
   ASR, embed, rerank), nine built-in tools, Agent Skills, MCP, and opt-in permission and
   execution-policy axes. No CLI, database, or config files — Python objects in, messages out.
-- **`cliver`** — the CLI application built on `cliver-core`. The application package currently
-  provides CLIver's config-path and skill-discovery conventions; the executable and TUI are
-  still being built, so `cliver-core` is the usable surface today.
+- **`cliver`** — the CLI application built on `cliver-core`: config-path and skill-discovery
+  conventions plus a one-shot `cliver` command with interactive tool approval. An interactive
+  TUI is not built yet.
 
 **A lab, not a product.** CLIver is designed for tinkering. Swap models mid-conversation. Test
 how different system prompts change behavior. Add custom skills and tools to see what sticks.
@@ -24,8 +24,10 @@ how different system prompts change behavior. Add custom skills and tools to see
 Install the core library (the project is currently on pre-releases — pin the exact version):
 
 ```bash
-pip install cliver-core==0.3.0a3
+pip install cliver-core==0.3.0a4
 ```
+
+### As a library
 
 ```python
 import asyncio
@@ -45,6 +47,23 @@ asyncio.run(main())
 
 See the [cliver-core README](packages/cliver-core/README.md) for tools, skills, MCP, media
 capabilities, and the full API.
+
+### From the terminal
+
+The `cliver` CLI lives in this repository (not on PyPI yet) and runs one task per invocation:
+
+```bash
+export CLIVER_MODEL=deepseek-v4-flash
+export CLIVER_PROVIDER=deepseek        # or CLIVER_BASE_URL for any compatible endpoint
+export DEEPSEEK_API_KEY=...            # or CLIVER_API_KEY
+
+uv run cliver --yes "Read pyproject.toml and summarize the dependencies."
+```
+
+`--yes` approves ASK tools without prompting; without it, safe tools still run and each ASK
+tool asks on the terminal (non-interactive runs deny them). `--skill NAME` runs a skill
+explicitly, `--cwd DIR` selects the project root for skill discovery, and `{config_dir}/.env`
+is loaded automatically.
 
 ## Built-in Capabilities
 

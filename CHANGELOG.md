@@ -5,6 +5,31 @@ All notable changes to CLIver will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0a4] - 2026-10-25
+
+### Added
+- **cliver: one-shot CLI application** — `cliver` now ships an executable one-shot command on
+  top of the core. It wires the eight skill sources and nine builtin tools, gates mutating
+  tools through a SAFE/ASK permission callback (`--yes` approves, an interactive terminal
+  prompts, non-interactive runs deny with a hint), reports tool activity on stderr, and reads
+  the endpoint from `--model` / `CLIVER_MODEL`, `--provider` / `CLIVER_PROVIDER` (or
+  `--base-url` / `CLIVER_BASE_URL`), `--protocol`, and `--api-key` / `CLIVER_API_KEY`.
+  `--skill` runs a skill explicitly, `--cwd` selects the project root, piped stdin works as
+  the prompt, and `{config_dir}/.env` is loaded without overriding the process environment.
+  Both packages now share one version, guarded by `test_versions_aligned.py`.
+
+### Changed
+- **cliver-core: toolset gating removed** — `ToolRegistry` now advertises exactly the tools
+  that were registered. The stale `TOOLSETS` table (it still named ten tools that no longer
+  exist, plus a Firecrawl environment check), `ToolRegistry.configure()`, and the
+  `enabled_toolsets` parameter are gone. Tool selection is the application's decision: pass
+  `builtin_tools=discover_builtin_tools()` or a narrowed list.
+
+### Fixed
+- **cliver: brand API key fallback** — the CLI reads a known provider's conventional key
+  variable (`DEEPSEEK_API_KEY`, `MINIMAX_API_KEY`, `GLM_API_KEY`, …) when `CLIVER_API_KEY` is
+  unset, so a key in `~/.cliver/.env` works without extra wiring.
+
 ## [0.3.0a3] - 2026-10-25
 
 ### Added

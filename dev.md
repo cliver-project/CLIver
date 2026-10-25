@@ -19,6 +19,7 @@ make lint          # ruff check + format check
 make format        # auto-fix lint/format issues
 
 uv run pytest      # run all tests directly
+uv run cliver "..."  # run the one-shot CLI (CLIVER_MODEL + provider/key)
 ```
 
 ## Architecture
@@ -40,6 +41,8 @@ packages/cliver-core/src/cliver_core/
 └── tests/
 
 packages/cliver/src/cliver/
+├── app.py              # app wiring: env config, tools, skills, permission gate
+├── cli.py              # one-shot `cliver` command
 ├── paths.py            # config-directory resolution
 └── skills/             # eight-source discovery + four builtin skills
 ```
