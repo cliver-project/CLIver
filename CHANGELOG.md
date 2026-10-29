@@ -5,6 +5,36 @@ All notable changes to CLIver will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **cliver-core: `inference.completed` carries usage** — every completed inference event now
+  includes the call's usage under `data["usage"]` (`UsageInfo` dump, or `None` when the vendor
+  reported none), for both `chat()` and `stream()` on the OpenAI and Anthropic protocols.
+  Per-call metering therefore works from events alone, across multi-iteration Re-Act runs.
+- **cliver-core: `CLIverResponse.usage_total`** — the sum of every model call in the run,
+  intermediate tool-requesting iterations included. `response.usage` keeps its existing
+  meaning: the final model call's usage.
+- **cliver-core: `ModelBinding.on_event` / `create_provider(on_event=...)`** — the provider a
+  binding builds can be given an inference-event subscriber at construction, so events are
+  reachable without supplying a pre-built provider. Combining `provider=` with a
+  binding-level `on_event` raises a configuration error (the supplied instance keeps its own).
+- **cliver-core: `ProviderError`** — provider boundaries now raise one error type with the
+  vendor's exception preserved as `__cause__` and a best-effort `retryable` flag (rate limits,
+  timeouts, connection failures, and 5xx responses are retryable). `inference.error` reports
+  it in `data["retryable"]`. AgentCore re-raises it unchanged. Exported from `cliver_core`
+  and `cliver_core.errors`.
+
+### Changed
+- **cliver-core: sync event handlers** — `EventHandler` accepts sync and async callables; a
+  sync handler runs inline. Handler exceptions still propagate unchanged (a raise on
+  `inference.started` happens before the transport call).
+
+### Fixed
+- **cliver-core: streamed responses stage usage before the terminal event** — the streaming
+  terminal chunk's usage is retained locally, so `inference.completed` for a stream carries
+  the same usage as the chunk it summarizes.
+
 ## [0.3.0a5] - 2026-10-25
 
 ### Added

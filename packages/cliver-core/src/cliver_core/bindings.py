@@ -49,6 +49,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from cliver_core.errors import CapabilityNotSupported
+from cliver_core.events import EventHandler
 from cliver_core.provider import Provider
 from cliver_core.provider.providers import create_provider
 from cliver_core.util import drop_none
@@ -101,6 +102,11 @@ class ModelBinding:
     protocol: str = "openai"
     provider_name: str | None = None
     path: str | None = None
+    on_event: EventHandler | None = field(default=None, repr=False, compare=False)
+    # Subscriber for the provider this binding builds (sync or async).
+    # Applied at construction, so inference events fire before/after every
+    # request the binding's provider makes.  With ``provider=`` the supplied
+    # instance keeps its own handler — configure it there instead.
     purpose: str | None = field(default=None, compare=False)
     params: dict[str, Any] = field(default_factory=dict)
     _built: Provider | None = field(default=None, init=False, repr=False, compare=False)
@@ -118,6 +124,7 @@ class ModelBinding:
         provider_name: str | None = None,
         provider: Provider | None = None,
         path: str | None = None,
+        on_event: EventHandler | None = None,
         **params: Any,
     ) -> ModelBinding:
         """Chat/stream-purpose binding — the LLM handle for ``AgentCore``.
@@ -130,6 +137,11 @@ class ModelBinding:
         explicitly (the default protocol selects the OpenAI-protocol class);
         with no recognized ``provider_name`` there is no default endpoint, so
         ``base_url`` is required.
+
+        ``on_event`` subscribes to inference events from the provider this
+        binding builds — the same surface as passing ``on_event=`` to the
+        provider constructor.  It applies only to a provider the binding
+        builds; a supplied ``provider=`` keeps its own handler.
         """
         if path is not None:
             raise TypeError(
@@ -143,6 +155,7 @@ class ModelBinding:
             base_url=base_url,
             protocol=protocol,
             provider_name=provider_name,
+            on_event=on_event,
             purpose="llm",
             params=dict(params),
         )
@@ -336,8 +349,20 @@ class ModelBinding:
     # ── Provider handle ───────────────────────────────────────
 
     def get_provider(self) -> Provider:
-        """The provider for this binding — the supplied one, or built once and reused."""
+        """The provider for this binding — the supplied one, or built once and reused.
+
+        ``on_event`` is applied when the binding builds the provider.  A
+        caller-supplied ``provider=`` is used as-is; its own ``on_event``
+        (set at construction) is the subscription surface, so combining
+        ``provider=`` with a binding-level ``on_event`` is a configuration
+        error rather than a silently ignored handler.
+        """
         if self.provider is not None:
+            if self.on_event is not None:
+                raise ValueError(
+                    "ModelBinding.on_event applies only to a provider the binding builds; "
+                    "with provider=..., pass on_event to that provider's constructor instead."
+                )
             return self.provider
         if self._built is None:
             self._built = create_provider(
@@ -345,6 +370,7 @@ class ModelBinding:
                 base_url=self.base_url,
                 protocol=self.protocol,
                 provider_name=self.provider_name,
+                on_event=self.on_event,
             )
         return self._built
 

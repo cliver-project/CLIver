@@ -35,6 +35,9 @@ asyncio.run(main())
 ### `await agent.chat(user_input, **options) → CLIverResponse`
 
 Non-streaming chat. Returns the final response with its message, usage, and any media.
+`response.usage` is the **final model call's** usage. `response.usage_total` is the sum across
+every Re-Act iteration — the intermediate calls that requested tools included — so a whole run
+can be metered without recomputing it from events. Both are `None` when no call reported usage.
 
 ```python
 response = await agent.chat(
@@ -48,7 +51,10 @@ print(response.message.content)
 
 ### `agent.stream(user_input, **options) → AsyncIterator[CLIverMessageChunk]`
 
-Streaming chat. Yields content deltas and tool-call chunks as they arrive.
+Streaming chat. Yields content deltas and tool-call chunks as they arrive. The final
+`__llm_trace__` chunk carries the run's diagnostic trace; each iteration entry includes that
+call's `usage`. Streaming has no response object — call `chat()` when a run total
+(`usage_total`) is needed.
 
 ```python
 async for chunk in agent.stream("Write a README"):
@@ -82,9 +88,24 @@ Their `submit_*` variants return a `MediaJob` whose `result()` resolves when gen
 | `execution_policy` | Per-call execution policy |
 | `skill_dispatch` | Advertise skill dispatch tools (default: on) |
 
+For plain request → response use, note the single-shot contract: with `max_iterations=1`,
+`skill_dispatch=False`, and no tools, the call makes **exactly one** provider request — no
+skill catalogue is injected, no extra round trip happens, and AgentCore adds no follow-up
+message. That is the cheapest shape for a JSON-mode style call:
+
+```python
+response = await agent.chat(
+    prompt,
+    options={"response_format": {"type": "json_object"}},
+    max_iterations=1,
+    skill_dispatch=False,
+)
+```
+
 ## Event Handling
 
-Pass `on_event=` to observe inference and tool lifecycle events:
+Pass `on_event=` to observe inference and tool lifecycle events. Handlers may be sync or
+async — a sync handler runs inline:
 
 ```python
 from cliver_core.events import ToolEventType
@@ -100,6 +121,32 @@ async def on_event(event):
 agent = AgentCore(bindings, on_event=on_event)
 ```
 
+Handlers can also be attached where the provider is defined, so they travel with every call
+that uses it:
+
+```python
+bindings = ModelBindings(
+    llm=ModelBinding.llm(model="deepseek-chat", api_key="...", base_url="...", on_event=on_event)
+)
+```
+
 Events cover inference (`inference.started`, `inference.first_token`, `inference.chunk`,
 `inference.tool_call`, `inference.completed`, `inference.error`) and tool execution
-(`tool.start`, `tool.end`, `tool.error`, `tool.permission_denied`).
+(`tool.start`, `tool.end`, `tool.error`, `tool.permission_denied`). Each `inference.completed`
+event carries that call's usage in `data["usage"]`, so per-call metering works even for runs
+with several Re-Act iterations.
+
+**Handler exceptions are a contract, not an accident.** They propagate unchanged — AgentCore
+never catches or wraps them — and a raise on `inference.started` happens before the transport
+call, so a budget guard can abort a request before it is sent:
+
+```python
+def budget_guard(event):
+    if event.event.value == "inference.started" and over_budget():
+        raise BudgetExceeded()   # no request leaves the process
+```
+
+**Provider failures** raise `cliver_core.errors.ProviderError` from the provider boundary,
+with the vendor's exception kept as `__cause__` and `retryable` set for rate limits, timeouts,
+connection failures, and 5xx responses (`inference.error` reports it in `data["retryable"]`).
+AgentCore re-raises it unchanged, so callers map it into their own error taxonomy.

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable, Union
 
 from pydantic import BaseModel, Field
 
-from cliver_core.errors import CapabilityNotSupported
+from cliver_core.errors import CapabilityNotSupported, ProviderError
 from cliver_core.media import (
     MediaContent,
     MediaType,
@@ -23,6 +23,30 @@ if TYPE_CHECKING:
     from cliver_core.provider.transport import BrandSDK
 
 logger = logging.getLogger(__name__)
+
+#: HTTP statuses that conventionally mean "try again later".
+_RETRYABLE_STATUS = frozenset({408, 409, 425, 429})
+#: Class-name markers for SDK failures without a usable status code.
+_RETRYABLE_NAME_MARKERS = (
+    "ratelimit",
+    "timeout",
+    "connect",
+    "internalserver",
+    "serviceunavailable",
+    "overloaded",
+    "unavailable",
+)
+
+
+def _is_retryable_error(exc: BaseException) -> bool:
+    """Best-effort retryability classification for vendor exceptions."""
+    status = getattr(exc, "status_code", None)
+    if status is None:
+        status = getattr(exc, "status", None)
+    if isinstance(status, int):
+        return status in _RETRYABLE_STATUS or status >= 500
+    name = type(exc).__name__.lower()
+    return any(marker in name for marker in _RETRYABLE_NAME_MARKERS)
 
 
 def _stream_requested(value: Any) -> bool:
@@ -58,6 +82,12 @@ class CLIverResponse(BaseModel):
     media: list[MediaContent] | None = None
     # Generated or returned media files (images, audio, video).
     usage: UsageInfo | None = None
+    # The final model call's usage.  AgentCore keeps this meaning unchanged;
+    # a Re-Act run's aggregate lives on ``usage_total`` instead.
+    usage_total: UsageInfo | None = None
+    # Sum of every model call in the run that produced this response —
+    # intermediate tool-requesting iterations included.  ``None`` when no
+    # call reported usage.
     request_info: dict[str, Any] | None = None
     # Diagnostics echo of the request that produced this response
     # (model, provider, options, system_prompt, messages, tools) —
@@ -167,6 +197,41 @@ class Provider(ABC):
         close their transport); the default is a no-op.
         """
         return
+
+    # ── Transport I/O ───────────────────────────────────────
+
+    async def _transport_chat(self, body: dict[str, Any]) -> dict[str, Any]:
+        """Send one chat request, translating transport failures to ``ProviderError``.
+
+        Vendor exceptions keep the original as ``__cause__`` so callers can
+        inspect the SDK error while mapping on ``retryable`` alone.  An
+        already-translated :class:`ProviderError` passes through unchanged.
+        """
+        if self.transport is None:
+            raise ProviderError(f"{self.provider_name()} has no transport")
+        try:
+            return await self.transport.chat(body)
+        except ProviderError:
+            raise
+        except Exception as exc:
+            raise ProviderError(str(exc), retryable=_is_retryable_error(exc)) from exc
+
+    async def _transport_stream(self, body: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
+        """Iterate the transport stream, translating failures to ``ProviderError``.
+
+        Only the transport's own iteration is wrapped — exceptions raised by
+        the consumer's loop body (e.g. an event handler) never pass through
+        this generator's handler.
+        """
+        if self.transport is None:
+            raise ProviderError(f"{self.provider_name()} has no transport")
+        try:
+            async for data in self.transport.stream(body):
+                yield data
+        except ProviderError:
+            raise
+        except Exception as exc:
+            raise ProviderError(str(exc), retryable=_is_retryable_error(exc)) from exc
 
     # ── Media generation (transport-backed, shared across providers) ──
 

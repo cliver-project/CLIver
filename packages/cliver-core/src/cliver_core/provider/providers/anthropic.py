@@ -20,7 +20,8 @@ import time
 from typing import Any, AsyncIterator
 from uuid import uuid4
 
-from cliver_core.events import EventHandler, InferenceEvent, InferenceEventType
+from cliver_core.errors import ProviderError
+from cliver_core.events import EventHandler, InferenceEvent, InferenceEventType, dispatch_event
 from cliver_core.messages import (
     CLIverMessage,
     CLIverMessageChunk,
@@ -385,26 +386,30 @@ class AnthropicProvider(Provider):
         native_tools = [self.tool_to_native(t) for t in tools] if tools else None
         body, reverse = self._prepare_request(request.model, messages, native_tools, options)
         try:
-            data = await self.transport.chat(body)
-        except Exception as e:
+            data = await self._transport_chat(body)
+        except ProviderError as exc:
             await self._emit(
                 InferenceEvent(
                     event=InferenceEventType.ERROR,
                     model=request.model,
                     provider=self.protocol,
                     request_id=request_id,
-                    data={"error": str(e)},
+                    data={"error": str(exc), "retryable": exc.retryable},
                 )
             )
             raise
 
+        usage = self._usage_from_raw(data.get("usage"))
         await self._emit(
             InferenceEvent(
                 event=InferenceEventType.COMPLETED,
                 model=request.model,
                 provider=self.protocol,
                 request_id=request_id,
-                data={"total_latency_ms": (time.monotonic() - start) * 1000},
+                data={
+                    "total_latency_ms": (time.monotonic() - start) * 1000,
+                    "usage": usage.model_dump() if usage else None,
+                },
             )
         )
 
@@ -450,18 +455,20 @@ class AnthropicProvider(Provider):
         native_tools = [self.tool_to_native(t) for t in tools] if tools else None
         body, reverse = self._prepare_request(request.model, messages, native_tools, options)
         saw_final = False
+        completed_usage: UsageInfo | None = None
         try:
-            async for data in self.transport.stream(body):
+            async for data in self._transport_stream(body):
                 if "__cliver_final__" in data:
                     # Terminal event — the SDK-aggregated native assistant
                     # message.  Consumed before protocol mapping; it never
                     # reaches _chunk_from_event.
                     final = data["__cliver_final__"]
                     saw_final = True
+                    completed_usage = self._usage_from_raw(final.get("usage"))
                     yield self.on_chunk(
                         CLIverMessageChunk(
                             native=_restore_tool_use_names(final["message"], reverse),
-                            usage=self._usage_from_raw(final.get("usage")),
+                            usage=completed_usage,
                         )
                     )
                     continue
@@ -505,13 +512,16 @@ class AnthropicProvider(Provider):
                     "without the terminal __cliver_final__ event"
                 )
         except Exception as e:
+            data: dict[str, Any] = {"error": str(e)}
+            if isinstance(e, ProviderError):
+                data["retryable"] = e.retryable
             await self._emit(
                 InferenceEvent(
                     event=InferenceEventType.ERROR,
                     model=request.model,
                     provider=self.protocol,
                     request_id=request_id,
-                    data={"error": str(e)},
+                    data=data,
                 )
             )
             raise
@@ -522,10 +532,12 @@ class AnthropicProvider(Provider):
                 model=request.model,
                 provider=self.protocol,
                 request_id=request_id,
-                data={"total_latency_ms": (time.monotonic() - start) * 1000},
+                data={
+                    "total_latency_ms": (time.monotonic() - start) * 1000,
+                    "usage": completed_usage.model_dump() if completed_usage else None,
+                },
             )
         )
 
     async def _emit(self, event: InferenceEvent) -> None:
-        if self.on_event:
-            await self.on_event(event)
+        await dispatch_event(self.on_event, event)

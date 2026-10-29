@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 
+from cliver_core.events import EventHandler
 from cliver_core.provider import Provider
 
 # ── Lazy imports for individual providers ────────────────────
@@ -166,6 +167,7 @@ def create_provider(
     provider_name: str | None = None,
     user_agent: str | None = None,
     logger: "logging.Logger | None" = None,
+    on_event: EventHandler | None = None,
 ) -> Provider:
     """Create a Provider instance.
 
@@ -198,6 +200,8 @@ def create_provider(
         user_agent: Optional User-Agent header.
         logger: Optional logger for this provider.  When provided, all log
             output from the provider is routed through this logger.
+        on_event: Optional inference-event subscriber (sync or async) for
+            the constructed provider.
 
     Returns:
         A Provider instance ready to use.
@@ -230,4 +234,12 @@ def create_provider(
             + f" carry a built-in default endpoint: {known}"
         )
 
-    return cls(api_key=api_key, base_url=url, user_agent=user_agent, logger=logger)
+    kwargs: dict[str, object] = {
+        "api_key": api_key,
+        "base_url": url,
+        "user_agent": user_agent,
+        "logger": logger,
+    }
+    if on_event is not None:
+        kwargs["on_event"] = on_event
+    return cls(**kwargs)

@@ -7,7 +7,7 @@ raise :class:`CapabilityNotSupported`, and ``bindings`` imports ``provider``
 
 from __future__ import annotations
 
-__all__ = ["CapabilityNotSupported"]
+__all__ = ["CapabilityNotSupported", "ProviderError"]
 
 
 class CapabilityNotSupported(Exception):
@@ -19,3 +19,20 @@ class CapabilityNotSupported(Exception):
     * the bound provider/brand does not implement the purpose (e.g. image
       generation on Anthropic, TTS on MiniMax).
     """
+
+
+class ProviderError(Exception):
+    """A model-provider failure — HTTP, SDK, connection, or timeout.
+
+    Protocol providers raise this at their transport boundary with the
+    vendor's exception preserved as ``__cause__``.  ``retryable`` is a
+    best-effort classification (rate limits, timeouts, connection failures,
+    and 5xx responses are retryable); consumers may map it into their own
+    error taxonomy.  AgentCore re-raises it unchanged.
+    """
+
+    retryable: bool = False
+
+    def __init__(self, message: str, *, retryable: bool = False) -> None:
+        super().__init__(message)
+        self.retryable = retryable

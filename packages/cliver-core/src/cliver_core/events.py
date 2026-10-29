@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import time
 from enum import Enum
 from typing import Any, Awaitable, Callable
@@ -90,4 +91,24 @@ class PipelineEvent(BaseModel):
     timestamp: float = Field(default_factory=time.monotonic)
 
 
-EventHandler = Callable[[InferenceEvent | ToolEvent | PipelineEvent], Awaitable[None]]
+#: An event subscriber.  Sync and async callables are both accepted; a sync
+#: handler runs inline.  Handler exceptions are a **contract**: they are not
+#: swallowed.  A raise from ``provider.chat()`` / ``provider.stream()``
+#: propagates unchanged (and a raise on ``inference.started`` happens before
+#: the transport call); AgentCore does not catch or wrap it either.
+EventHandler = Callable[
+    [InferenceEvent | ToolEvent | PipelineEvent],
+    Awaitable[None] | None,
+]
+
+
+async def dispatch_event(
+    handler: EventHandler | None,
+    event: InferenceEvent | ToolEvent | PipelineEvent,
+) -> None:
+    """Invoke *handler* with *event* — sync or async, exceptions unchanged."""
+    if handler is None:
+        return
+    result = handler(event)
+    if inspect.isawaitable(result):
+        await result

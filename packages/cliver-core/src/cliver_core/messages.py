@@ -286,6 +286,14 @@ class UsageInfo(BaseModel):
     output_tokens: int
     cache_read_input_tokens: int | None = None
 
+    @property
+    def total_tokens(self) -> int:
+        """Billable input + output tokens.
+
+        Cache reads are a subset of ``input_tokens``, not additional tokens.
+        """
+        return self.input_tokens + self.output_tokens
+
 
 class CLIverMessageChunk(BaseModel):
     """Streaming chunk — yielded during Provider.stream().

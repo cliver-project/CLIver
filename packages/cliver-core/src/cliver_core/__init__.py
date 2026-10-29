@@ -15,6 +15,7 @@ from cliver_core.capabilities import (
     text_to_speech,
     transcribe_audio,
 )
+from cliver_core.errors import ProviderError
 from cliver_core.events import EventHandler
 from cliver_core.media import MediaContent
 from cliver_core.media_jobs import MediaJob
@@ -22,6 +23,7 @@ from cliver_core.messages import (
     CLIverMessage,
     CLIverMessageChunk,
     ToolCall,
+    UsageInfo,
 )
 from cliver_core.pipeline import (
     FailurePolicy,
@@ -57,7 +59,9 @@ __all__ = [
     "MediaJob",
     "ModelBinding",
     "ModelBindings",
+    "ProviderError",
     "ToolCall",
+    "UsageInfo",
     "CLIverTool",
     "CandidateSelector",
     "ToolRegistry",

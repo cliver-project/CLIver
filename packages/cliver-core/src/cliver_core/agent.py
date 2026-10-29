@@ -20,6 +20,7 @@ from cliver_core.events import (
     EventHandler,
     ToolEvent,
     ToolEventType,
+    dispatch_event,
 )
 from cliver_core.media import MediaContent
 from cliver_core.media_jobs import MediaJob
@@ -193,6 +194,12 @@ class AgentCore:
         on_event: EventHandler | None = None,
     ) -> CLIverResponse:
         """Non-streaming chat.  Returns the final response.
+
+        ``response.usage`` is the final model call's usage, unchanged from
+        earlier releases.  ``response.usage_total`` is the sum across every
+        Re-Act iteration, including the intermediate calls that requested
+        tools, so callers can meter a whole run without recomputing it from
+        events.
 
         ``media`` is attached to the user message as content blocks
         (images as data URLs, audio/video as text placeholders).
@@ -567,6 +574,7 @@ class AgentCore:
         consecutive_errors = 0
         consecutive_denials = 0
         diagnostic_trace: list[dict] = []
+        total_usage: UsageInfo | None = None
         # Built on first use and cached by the binding (lazy by design).
         provider = self.llm.get_provider()
 
@@ -579,6 +587,7 @@ class AgentCore:
             )
 
             response = await provider.chat(request)
+            total_usage = _merge_usage(total_usage, response.usage)
             msg = response.message
 
             # Collect diagnostic data for this Re-Act iteration
@@ -595,7 +604,7 @@ class AgentCore:
 
             if not msg.tool_calls:
                 msg.trace = diagnostic_trace
-                return response
+                return response.model_copy(update={"usage_total": total_usage})
 
             messages.append(msg)
             # The policy is ambient around tool execution only — tools are
@@ -620,6 +629,7 @@ class AgentCore:
                         trace=diagnostic_trace,
                     ),
                     usage=response.usage,
+                    usage_total=total_usage,
                 )
 
         return CLIverResponse(
@@ -627,7 +637,8 @@ class AgentCore:
                 role="assistant",
                 content="Reached maximum iterations without a final answer.",
                 trace=diagnostic_trace,
-            )
+            ),
+            usage_total=total_usage,
         )
 
     # ── Re-Act Loop (streaming) ───────────────────────────────
@@ -1020,10 +1031,8 @@ class AgentCore:
             return [{"error": str(e)}]
 
     async def _emit(self, event: ToolEvent, on_event: EventHandler | None = None) -> None:
-        if self.on_event:
-            await self.on_event(event)
-        if on_event:
-            await on_event(event)
+        await dispatch_event(self.on_event, event)
+        await dispatch_event(on_event, event)
 
     def _tool_category(self, name: str, tool: CLIverTool | None) -> ToolCategory:
         """Resolve a tool's permission category: overrides first, then the
@@ -1092,6 +1101,36 @@ class AgentCore:
         import json
 
         return json.dumps(result, ensure_ascii=False, default=str)
+
+
+def _merge_usage(total: UsageInfo | None, usage: UsageInfo | None) -> UsageInfo | None:
+    """Add one model call's usage to a run total.
+
+    ``None`` usage means the provider did not report it, so it contributes
+    nothing. Cache-read counts are summed across the calls that reported
+    them: a known count is never erased by a call that omitted it.
+    """
+    if usage is None:
+        return total
+    if total is None:
+        return usage
+    return UsageInfo(
+        input_tokens=total.input_tokens + usage.input_tokens,
+        output_tokens=total.output_tokens + usage.output_tokens,
+        cache_read_input_tokens=_merge_optional(
+            total.cache_read_input_tokens,
+            usage.cache_read_input_tokens,
+        ),
+    )
+
+
+def _merge_optional(left: int | None, right: int | None) -> int | None:
+    """Sum two optional counts; ``None`` means "not reported"."""
+    if left is None:
+        return right
+    if right is None:
+        return left
+    return left + right
 
 
 def _on_event_kwargs(on_event: EventHandler | None) -> dict[str, EventHandler]:

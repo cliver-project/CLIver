@@ -22,7 +22,14 @@ from enum import Enum
 from typing import Any, Awaitable, Callable, Sequence
 
 from cliver_core.agent import AgentCore
-from cliver_core.events import EventHandler, InferenceEvent, PipelineEvent, PipelineEventType, ToolEvent
+from cliver_core.events import (
+    EventHandler,
+    InferenceEvent,
+    PipelineEvent,
+    PipelineEventType,
+    ToolEvent,
+    dispatch_event,
+)
 from cliver_core.messages import UsageInfo
 from cliver_core.provider import CLIverResponse
 from cliver_core.skill import Skill
@@ -275,8 +282,7 @@ class SkillPipeline:
         return await self.agent.chat(step_input, system_prompt=step.prompt, on_event=emit)
 
     async def _emit(self, event: InferenceEvent | ToolEvent | PipelineEvent) -> None:
-        if self.on_event:
-            await self.on_event(event)
+        await dispatch_event(self.on_event, event)
 
 
 def _as_step_result(name: str, output: StepRunResult) -> StepResult:
