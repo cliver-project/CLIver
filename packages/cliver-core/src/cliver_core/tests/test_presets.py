@@ -13,9 +13,12 @@ import pytest
 from cliver_core import presets
 from cliver_core.bindings import ModelBindings
 from cliver_core.provider.providers import API_KEY_ENV
+from cliver_core.provider.providers.dashscope import DashScopeProvider
 from cliver_core.provider.providers.deepseek import DeepSeekAnthropicProvider, DeepSeekOpenAIProvider
 from cliver_core.provider.providers.glm import GLMAnthropicProvider, GLMProvider
 from cliver_core.provider.providers.minimax import MiniMaxAnthropicProvider
+from cliver_core.provider.providers.qwen import QwenProvider
+from cliver_core.provider.providers.qwen_image import QwenImageProvider
 from cliver_core.provider.providers.seedance import SeedanceProvider
 
 # factory, purpose, protocol, brand, default model, provider class, default base_url
@@ -100,6 +103,33 @@ CASES = [
         "doubao-seedance-2-5-260628",
         SeedanceProvider,
         "https://ark.cn-beijing.volces.com/api/v3",
+    ),
+    (
+        presets.qwen,
+        "llm",
+        "openai",
+        "qwen",
+        "qwen-plus",
+        QwenProvider,
+        "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    ),
+    (
+        presets.dashscope_image,
+        "image",
+        "openai",
+        "dashscope",
+        "wanx2.1-t2i-turbo",
+        DashScopeProvider,
+        "https://dashscope.aliyuncs.com/api/v1",
+    ),
+    (
+        presets.qwen_image,
+        "image",
+        "openai",
+        "qwen-image",
+        "qwen-image-3.0",
+        QwenImageProvider,
+        "https://dashscope.aliyuncs.com/api/v1",
     ),
 ]
 
@@ -271,6 +301,9 @@ async def test_seedance_preset_resolves_the_ark_task_endpoint() -> None:
 
 def test_all_presets_are_exported() -> None:
     assert set(presets.__all__) == {
+        "dashscope_background",
+        "dashscope_image",
+        "dashscope_video",
         "deepseek",
         "deepseek_anthropic",
         "glm",
@@ -279,6 +312,8 @@ def test_all_presets_are_exported() -> None:
         "minimax_asr",
         "minimax_image",
         "minimax_tts",
+        "qwen",
+        "qwen_image",
         "seedance",
     }
     import cliver_core

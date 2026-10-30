@@ -415,6 +415,30 @@ class Provider(ABC):
         """
         return raw
 
+    async def _prepare_media_body(self, body: dict[str, Any], purpose: str, *, model: str) -> dict[str, Any]:
+        """Rewrite one media request body before it is POSTed (default: unchanged).
+
+        Async so a brand can upload local bytes to vendor storage first
+        (DashScope accepts reference images only as public or ``oss://``
+        URLs, never as data URIs).  *body* is the freshly built request dict;
+        return the dict to send.  The default is **inert** — the body is
+        returned unchanged — so one-shot vendors stay byte-identical.
+        """
+        return body
+
+    def _media_request_headers(self, purpose: str, body: dict[str, Any]) -> dict[str, str]:
+        """Extra per-request headers for one media create POST (default: none).
+
+        A brand hook for vendors that take a media request option as an HTTP
+        header (DashScope's ``X-DashScope-Async``).  *body* is the body that
+        will be POSTed — after :meth:`_prepare_media_body` rewrote it — so a
+        brand can key headers off its final content (e.g. the OSS resolver
+        flag only when an ``oss://`` URL is present).  Headers returned here
+        reach the transport through :meth:`_post_media`, on top of its own
+        defaults; the default adds nothing, keeping other vendors unchanged.
+        """
+        return {}
+
     def _resolve_media_gen_url(self, purpose: str, override: str | None = None) -> str | None:
         """Resolve the URL for a media generation endpoint.
 
@@ -636,8 +660,14 @@ class Provider(ABC):
 
         resolved_binary = purpose in self._BINARY_MEDIA_PURPOSES if binary is None else binary
         body = self._build_media_gen_body(prompt, model, purpose, media=media, **options)
+        # Async brands may need pre-POST work (e.g. uploading local reference
+        # bytes to vendor storage); the default hook returns the body as-is.
+        body = await self._prepare_media_body(body, purpose, model=model)
+        # Per-request headers ride the transport on top of its own defaults;
+        # the default hook returns none, so other vendors POST unchanged.
+        headers = self._media_request_headers(purpose, body)
 
-        raw = await self._post_media(url, body, binary=resolved_binary)
+        raw = await self._post_media(url, body, binary=resolved_binary, headers=headers or None)
         # Async vendors (create → task id → poll) resolve their job object
         # here; the default hook is a passthrough, so one-shot vendors are
         # byte-identical.  Safe to consume options: the body above got a copy.

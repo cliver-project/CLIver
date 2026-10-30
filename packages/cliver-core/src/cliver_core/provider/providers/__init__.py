@@ -18,6 +18,18 @@ registry is a curated, live-verified shortlist (default endpoints,
 convention API-key env vars, verified wire quirks).  New wire protocols
 arrive out-of-tree via the ``cliver.provider_sdks`` entry-point group;
 private quirks via subclassing a provider and overriding its hooks.
+
+**Brand admission rule.**  A brand entry must earn its place with either
+*behavior* — a live-verified wire deviation (request body, headers,
+polling, auth, response shape, parameter filtering) — or *identity* a
+preset depends on (a default endpoint plus the conventional API-key
+variable, so presets, the empty-key diagnostic, and provider events name
+the right brand).  A pure endpoint + key pair with neither belongs in a
+preset's explicit ``base_url``; aliases are never added.  A third body
+shape within one brand family becomes its own brand class (as
+``qwen-image`` did), never another ``model.startswith(...)`` branch.
+Registry length is not a goal: it stays a curated shortlist, never a
+coverage claim.
 """
 
 from __future__ import annotations
@@ -88,6 +100,24 @@ def _get_seedance_provider():
     return SeedanceProvider
 
 
+def _get_dashscope_provider():
+    from cliver_core.provider.providers.dashscope import DashScopeProvider
+
+    return DashScopeProvider
+
+
+def _get_qwen_provider():
+    from cliver_core.provider.providers.qwen import QwenProvider
+
+    return QwenProvider
+
+
+def _get_qwen_image_provider():
+    from cliver_core.provider.providers.qwen_image import QwenImageProvider
+
+    return QwenImageProvider
+
+
 # brand key → protocol → provider class factory.  Every brand entry is
 # protocol-locked; a brand without an entry for the requested protocol
 # falls back to the protocol-default class in ``resolve_provider_class``
@@ -105,6 +135,13 @@ _BRAND_PROTOCOL_FACTORIES: dict[str, dict[str, "callable"]] = {
     # Seedance (Volcano Engine Ark): OpenAI-compatible chat + async-task
     # video; media beyond video reports unsupported.
     "seedance": {"openai": _get_seedance_provider},
+    # DashScope (Alibaba Model Studio / Bailian): native async media tasks
+    # on /api/v1 (chat is the separate OpenAI-compatible "qwen" brand).
+    "dashscope": {"openai": _get_dashscope_provider},
+    # Qwen chat on DashScope's OpenAI-compatible endpoint.
+    "qwen": {"openai": _get_qwen_provider},
+    # Qwen-Image: synchronous reference-aware image generation on /api/v1.
+    "qwen-image": {"openai": _get_qwen_image_provider},
 }
 
 # brand key → conventional API-key environment variables (first set wins).
@@ -117,6 +154,9 @@ API_KEY_ENV: dict[str, tuple[str, ...]] = {
     "openai": ("OPENAI_API_KEY",),
     "anthropic": ("ANTHROPIC_API_KEY",),
     "seedance": ("SEEDANCE_API_KEY",),
+    "dashscope": ("DASHSCOPE_API_KEY",),
+    "qwen": ("DASHSCOPE_API_KEY",),
+    "qwen-image": ("DASHSCOPE_API_KEY",),
 }
 
 # ── Brand selection ──────────────────────────────────────────

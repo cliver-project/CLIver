@@ -45,6 +45,9 @@ from cliver_core.bindings import ModelBinding
 from cliver_core.provider.providers import API_KEY_ENV
 
 __all__ = [
+    "dashscope_background",
+    "dashscope_image",
+    "dashscope_video",
     "deepseek",
     "deepseek_anthropic",
     "glm",
@@ -53,6 +56,8 @@ __all__ = [
     "minimax_asr",
     "minimax_image",
     "minimax_tts",
+    "qwen",
+    "qwen_image",
     "seedance",
 ]
 
@@ -139,6 +144,58 @@ def glm_anthropic(
         base_url=base_url,
         protocol="anthropic",
         provider_name="glm",
+        **params,
+    )
+
+
+def qwen(*, api_key: str | None = None, model: str = "qwen-plus", base_url: str = "", **params: Any) -> ModelBinding:
+    """Qwen chat over DashScope's OpenAI-compatible endpoint.
+
+    Keys are region-bound: a key from another region (e.g. Singapore) needs
+    an explicit ``base_url`` override.
+    """
+    return ModelBinding.llm(
+        model=model,
+        api_key=_api_key(api_key, "qwen"),
+        base_url=base_url,
+        protocol="openai",
+        provider_name="qwen",
+        **params,
+    )
+
+
+def qwen_image(
+    *,
+    api_key: str | None = None,
+    model: str = "qwen-image-3.0",
+    base_url: str = "",
+    path: str | None = "/services/aigc/multimodal-generation/generation",
+    **params: Any,
+) -> ModelBinding:
+    """Qwen-Image generation — reference-aware and synchronous.
+
+    The endpoint path (``/services/aigc/multimodal-generation/generation``)
+    is pinned explicitly on the binding (``path=None`` defers to the
+    provider's brand map).  The prompt is the instruction and each
+    ``media`` image is a reference shown to the model (qwen-image-3.0
+    accepts 1–3; the prompt can address them as "image 1", "image 2", …).
+    Local bytes (base64 / ``data:``) pass straight through — this wire
+    accepts them directly, no upload — and public ``http(s)`` URLs pass
+    through.  Options (``size``, ``n``, ``negative_prompt``,
+    ``prompt_extend``, ``seed`` …) ride ``parameters``; sizes may be
+    written either ``x`` or ``*`` separated.  The result is returned in the
+    same request (no task polling).
+
+    Keys are region-bound: a key from another region needs an explicit
+    ``base_url`` override.
+    """
+    return ModelBinding.image(
+        model=model,
+        api_key=_api_key(api_key, "qwen-image"),
+        base_url=base_url,
+        protocol="openai",
+        provider_name="qwen-image",
+        path=path,
         **params,
     )
 
@@ -260,5 +317,109 @@ def seedance(
         protocol="openai",
         provider_name="seedance",
         path=path,
+        **params,
+    )
+
+
+def dashscope_image(
+    *,
+    api_key: str | None = None,
+    model: str = "wanx2.1-t2i-turbo",
+    base_url: str = "",
+    path: str | None = "/services/aigc/text2image/image-synthesis",
+    **params: Any,
+) -> ModelBinding:
+    """DashScope text-to-image — the endpoint path
+    (``/services/aigc/text2image/image-synthesis``) is pinned explicitly on
+    the binding (``path=None`` defers to the provider's brand map).
+
+    Generation is asynchronous: the create call answers a task id and the
+    provider polls until the image is ready.  Default params carry DashScope
+    request fields (``size`` written either ``x`` or ``*`` separated, ``n``,
+    ``negative_prompt``, ``prompt_extend``, ``seed``, …) plus the poll knobs
+    ``poll_interval`` (seconds between task reads, default 3) and
+    ``poll_timeout`` (seconds to wait for the result, default 600; ``None``
+    waits without a deadline).  ``media=[...]`` reference images are ignored
+    by plain text-to-image models.
+    """
+    return ModelBinding.image(
+        model=model,
+        api_key=_api_key(api_key, "dashscope"),
+        base_url=base_url,
+        protocol="openai",
+        provider_name="dashscope",
+        path=path,
+        **params,
+    )
+
+
+def dashscope_background(
+    *,
+    api_key: str | None = None,
+    model: str = "wanx-background-generation-v2",
+    base_url: str = "",
+    path: str | None = "/services/aigc/background-generation/generation",
+    model_version: str = "v3",
+    n: int | None = 1,
+    **params: Any,
+) -> ModelBinding:
+    """DashScope product background generation — the endpoint path
+    (``/services/aigc/background-generation/generation``) is pinned
+    explicitly on the binding (``path=None`` defers to the provider's brand
+    map, which serves text-to-image).
+
+    The prompt becomes the scene instruction (``input.ref_prompt``); the
+    first ``media`` image is the product photo (``input.base_image_url``),
+    a second is a style reference (``input.ref_image_url``).  Local bytes
+    (base64 / ``data:``) are uploaded to DashScope temporary storage and
+    sent as ``oss://`` URLs automatically — public ``http(s)`` URLs pass
+    through.  ``model_version="v3"`` and ``n=1`` are the documented
+    defaults; more parameters (``ref_prompt_weight``, ``noise_level``, …)
+    ride the request's ``parameters``.  Poll knobs as on
+    :func:`dashscope_image`.
+    """
+    return ModelBinding.image(
+        model=model,
+        api_key=_api_key(api_key, "dashscope"),
+        base_url=base_url,
+        protocol="openai",
+        provider_name="dashscope",
+        path=path,
+        n=n,
+        model_version=model_version,
+        **params,
+    )
+
+
+def dashscope_video(
+    *,
+    api_key: str | None = None,
+    model: str = "wanx2.1-t2v-turbo",
+    base_url: str = "",
+    path: str | None = "/services/aigc/video-generation/video-synthesis",
+    duration: int | None = 5,
+    size: str | None = "1280*720",
+    **params: Any,
+) -> ModelBinding:
+    """DashScope text/image-to-video — the endpoint path
+    (``/services/aigc/video-generation/video-synthesis``) is pinned
+    explicitly on the binding (``path=None`` defers to the provider's brand
+    map).
+
+    The prompt is the motion/scene instruction (``input.prompt``); the first
+    ``media`` image is the start frame (``input.img_url``, local bytes are
+    uploaded to ``oss://`` automatically).  Defaults: ``duration=5``
+    seconds and ``size="1280*720"`` (``x`` is accepted too).  Poll knobs as
+    on :func:`dashscope_image`.
+    """
+    return ModelBinding.video(
+        model=model,
+        api_key=_api_key(api_key, "dashscope"),
+        base_url=base_url,
+        protocol="openai",
+        provider_name="dashscope",
+        path=path,
+        duration=duration,
+        size=size,
         **params,
     )

@@ -43,6 +43,30 @@ def test_seedance_registry_matrix_and_default_urls() -> None:
     assert resolve_provider_class(provider_name="seedance", protocol="anthropic") is AnthropicProvider
 
 
+def test_dashscope_and_qwen_registry_matrix() -> None:
+    from cliver_core.provider.providers.anthropic import AnthropicProvider
+    from cliver_core.provider.providers.dashscope import DashScopeProvider
+    from cliver_core.provider.providers.qwen import QwenProvider
+    from cliver_core.provider.providers.qwen_image import QwenImageProvider
+
+    # native media tasks (openai-protocol leaf); the anthropic combo takes
+    # the documented protocol-default fallback
+    assert resolve_provider_class(provider_name="dashscope", protocol="openai") is DashScopeProvider
+    assert DashScopeProvider.default_base_url == "https://dashscope.aliyuncs.com/api/v1"
+    assert DashScopeProvider.provider_name() == "dashscope"
+    assert resolve_provider_class(provider_name="dashscope", protocol="anthropic") is AnthropicProvider
+
+    # chat rides the sibling OpenAI-compatible endpoint, a separate brand
+    assert resolve_provider_class(provider_name="qwen", protocol="openai") is QwenProvider
+    assert QwenProvider.default_base_url == "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    assert QwenProvider.provider_name() == "qwen"
+
+    # reference-aware image generation is its own brand on the native API root
+    assert resolve_provider_class(provider_name="qwen-image", protocol="openai") is QwenImageProvider
+    assert QwenImageProvider.default_base_url == "https://dashscope.aliyuncs.com/api/v1"
+    assert QwenImageProvider.provider_name() == "qwen-image"
+
+
 def test_deepseek_registry_matrix() -> None:
     from cliver_core.provider.providers.deepseek import DeepSeekAnthropicProvider, DeepSeekOpenAIProvider
 
