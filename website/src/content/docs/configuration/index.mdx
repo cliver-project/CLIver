@@ -41,7 +41,8 @@ endpoints must set `protocol="anthropic"`.
 ## Default Request Options
 
 Keyword arguments beyond the shared fields become the binding's default call options. Per-call
-`options=` in `chat()`/`stream()` overlay them — the call site wins on conflict.
+`options=` in `chat()`/`stream()` overlay them — the call site wins on conflict. When failover
+switches bindings, the new binding's defaults apply to its calls.
 
 ```python
 llm = ModelBinding.llm(
@@ -52,6 +53,27 @@ llm = ModelBinding.llm(
     max_tokens=4096,
 )
 ```
+
+## Same-Purpose Failover
+
+Each purpose also accepts an ordered list. The first element is the primary — `bindings.llm` is
+still that single binding, so existing code is unchanged — and the rest are fallbacks used when a
+**retryable** provider failure occurs (rate limit, timeout, connection failure, 5xx):
+
+```python
+bindings = ModelBindings(
+    llm=[presets.deepseek(api_key="..."), presets.glm(api_key="...")],
+    image=[presets.qwen_image(api_key="..."), presets.dashscope_image(api_key="...")],
+)
+```
+
+- Failover never crosses purposes: an `image` fallback is never used for chat.
+- Non-retryable failures (for example a 400) are raised or returned immediately; they do not try
+  another binding.
+- Chat is sticky once it switches: later Re-Act iterations keep using the binding that worked.
+  Streaming switches only before it has emitted a chunk; a mid-stream failure is raised.
+- When every binding fails, media capabilities return the last friendly failure response and
+  embed / rerank raise the last error.
 
 ## Lifecycle
 

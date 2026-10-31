@@ -20,7 +20,7 @@ import pytest
 from cliver_core import capabilities
 from cliver_core.bindings import ModelBinding
 from cliver_core.capabilities._base import coerce_media
-from cliver_core.errors import CapabilityNotSupported
+from cliver_core.errors import CapabilityNotSupported, ProviderError
 from cliver_core.media import MediaType
 from cliver_core.messages import CLIverMessage
 from cliver_core.provider import CLIverRequest, CLIverResponse, EmbeddingsResult, Provider
@@ -1173,3 +1173,49 @@ async def test_await_hook_failure_lands_in_the_friendly_response() -> None:
 
     assert response.media is None
     assert "openai image generation failed: task exploded" in response.message.content
+
+
+@pytest.mark.asyncio
+async def test_failure_response_carries_the_error_retryability() -> None:
+    """The friendly failure keeps the swallowed error's retryable flag, so
+    AgentCore can fail over to the next same-purpose binding."""
+
+    class _RateLimitedOpenAI(OpenAIProvider):
+        async def _await_media_result(self, raw, purpose, url, options):
+            raise ProviderError("rate limited", retryable=True)
+
+    class _RejectedOpenAI(OpenAIProvider):
+        async def _await_media_result(self, raw, purpose, url, options):
+            raise RuntimeError("bad prompt")
+
+    retryable = await _RateLimitedOpenAI(
+        api_key="k", base_url="https://api.example/v1", transport=_RecordingTransport()
+    ).image("p", "m")
+    assert retryable.media is None
+    assert retryable.retryable is True
+
+    rejected = await _RejectedOpenAI(
+        api_key="k", base_url="https://api.example/v1", transport=_RecordingTransport()
+    ).image("p", "m")
+    assert rejected.media is None
+    assert rejected.retryable is False
+
+
+@pytest.mark.asyncio
+async def test_failure_response_classifies_vendor_sdk_errors() -> None:
+    """Raw SDK exceptions (not our ProviderError) use the same retry classifier
+    as the chat transport boundary — a vendor 429 must still fail over."""
+
+    class _VendorRateLimit(Exception):
+        status_code = 429
+
+    class _Vendor429OpenAI(OpenAIProvider):
+        async def _post_media(self, url, body, *, files=None, binary=False, headers=None):
+            raise _VendorRateLimit("rate limited")
+
+    response = await _Vendor429OpenAI(
+        api_key="k", base_url="https://api.example/v1", transport=_RecordingTransport()
+    ).image("p", "m")
+
+    assert response.media is None
+    assert response.retryable is True

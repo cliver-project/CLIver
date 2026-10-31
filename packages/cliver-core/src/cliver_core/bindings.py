@@ -41,12 +41,27 @@ parameters of its purpose and folds them into ``params``::
                                        #   the binding carries the model name, the
                                        #   cached provider, and the size/n defaults
     await agent.aclose()               # closes providers the bindings built
+
+A purpose may mount a list of bindings instead of one.  The first element is
+the primary — ``bindings.llm`` still returns that single binding, so existing
+code is unaffected — and the rest are ordered same-purpose fallbacks AgentCore
+uses when a retryable provider failure (rate limit, timeout, 5xx) occurs::
+
+    bindings = ModelBindings(
+        llm=[primary_llm, backup_llm],
+        image=[primary_image, backup_image],
+    )
+    bindings.llm               # the primary binding — a single handle
+    bindings.get_all("llm")    # [primary_llm, backup_llm] — primary first
+
+Failover never crosses purposes: an ``image`` fallback is never used for chat,
+and purpose validation applies to every element of a list.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Sequence
 
 from cliver_core.errors import CapabilityNotSupported
 from cliver_core.events import EventHandler
@@ -388,19 +403,51 @@ class ModelBindings:
     ``llm`` is the chat/stream model and is required by ``AgentCore``; the
     remaining fields are optional — an unbound purpose reports "not supported"
     from AgentCore's embedded model APIs.
+
+    Each purpose accepts one :class:`ModelBinding` (unchanged) or an ordered
+    sequence whose first element becomes the primary.  After construction the
+    attribute itself always holds the primary ``ModelBinding``; the remaining
+    elements are same-purpose fallbacks exposed by :meth:`get_all`.
     """
 
-    llm: ModelBinding | None = None
-    embed: ModelBinding | None = None
-    rerank: ModelBinding | None = None
-    image: ModelBinding | None = None
-    audio: ModelBinding | None = None
-    video: ModelBinding | None = None
-    tts: ModelBinding | None = None
-    asr: ModelBinding | None = None
+    llm: ModelBinding | Sequence[ModelBinding] | None = None
+    embed: ModelBinding | Sequence[ModelBinding] | None = None
+    rerank: ModelBinding | Sequence[ModelBinding] | None = None
+    image: ModelBinding | Sequence[ModelBinding] | None = None
+    audio: ModelBinding | Sequence[ModelBinding] | None = None
+    video: ModelBinding | Sequence[ModelBinding] | None = None
+    tts: ModelBinding | Sequence[ModelBinding] | None = None
+    asr: ModelBinding | Sequence[ModelBinding] | None = None
+
+    #: Same-purpose fallbacks, keyed by purpose (empty for single mounts).
+    _fallbacks: dict[str, list[ModelBinding]] = field(default_factory=dict, init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        """Normalize list mounts: primary in the field, extras in ``_fallbacks``."""
+        fallbacks: dict[str, list[ModelBinding]] = {}
+        for purpose in PURPOSES:
+            mount = getattr(self, purpose)
+            if mount is None or isinstance(mount, ModelBinding):
+                continue
+            if not isinstance(mount, (list, tuple)):
+                raise TypeError(
+                    f"bindings.{purpose} must be a ModelBinding, a list of "
+                    f"ModelBindings, or None (got {type(mount).__name__})"
+                )
+            if not mount:
+                raise ValueError(f"bindings.{purpose} needs at least one binding when given a list")
+            for binding in mount:
+                if not isinstance(binding, ModelBinding):
+                    raise TypeError(
+                        f"bindings.{purpose} list entries must be ModelBindings (got {type(binding).__name__})"
+                    )
+            setattr(self, purpose, mount[0])
+            if len(mount) > 1:
+                fallbacks[purpose] = list(mount[1:])
+        self._fallbacks = fallbacks
 
     def get(self, purpose: str) -> ModelBinding | None:
-        """Return the binding for *purpose* (a :data:`PURPOSES` member), or None.
+        """Return the primary binding for *purpose* (a :data:`PURPOSES` member), or None.
 
         Fails fast when the mounted binding was created for a different
         purpose (e.g. a ``ModelBinding.image(...)`` in ``bindings.embed``).
@@ -409,13 +456,33 @@ class ModelBindings:
         if purpose not in PURPOSES:
             raise ValueError(f"Unknown purpose '{purpose}'. Supported: {list(PURPOSES)}")
         binding = getattr(self, purpose)
-        if binding is not None and binding.purpose is not None and binding.purpose != purpose:
+        if binding is not None:
+            self._check_purpose(purpose, binding)
+        return binding
+
+    def get_all(self, purpose: str) -> list[ModelBinding]:
+        """Every binding mounted for *purpose*, primary first, then fallbacks.
+
+        An unbound purpose returns ``[]``.  The same purpose validation as
+        :meth:`get` applies to every element, so a fallback created for a
+        different purpose is rejected rather than silently used.
+        """
+        primary = self.get(purpose)
+        if primary is None:
+            return []
+        group = [primary, *self._fallbacks.get(purpose, [])]
+        for binding in group[1:]:
+            self._check_purpose(purpose, binding)
+        return group
+
+    @staticmethod
+    def _check_purpose(purpose: str, binding: ModelBinding) -> None:
+        if binding.purpose is not None and binding.purpose != purpose:
             if {binding.purpose, purpose} != {"audio", "tts"}:  # legacy alias pair
                 raise ValueError(
                     f"bindings.{purpose} holds a '{binding.purpose}' binding — "
                     f"mount it in bindings.{binding.purpose} instead."
                 )
-        return binding
 
     def bound_purposes(self) -> list[str]:
         """Purposes that have a model bound."""
@@ -424,5 +491,5 @@ class ModelBindings:
     async def aclose(self) -> None:
         """Close providers built by these bindings — caller-supplied ones stay open."""
         for purpose in self.bound_purposes():
-            binding: ModelBinding = getattr(self, purpose)
-            await binding.aclose()
+            for binding in self.get_all(purpose):
+                await binding.aclose()

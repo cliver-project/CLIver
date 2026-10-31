@@ -4,7 +4,9 @@ MCPClient is imported lazily inside methods so that AgentCore itself has no
 module-level third-party dependencies beyond pydantic; importing cliver_core
 stays light even though the MCP SDK is a hard dependency.
 
-No langchain dependency. No model fallback. No compression (v1).
+No langchain dependency. No compression (v1).  Failover never crosses
+purposes: a retryable provider failure moves to the next binding mounted for
+the same purpose.
 """
 
 import asyncio
@@ -16,6 +18,7 @@ from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable, Seque
 
 from cliver_core import capabilities
 from cliver_core.bindings import CapabilityNotSupported, ModelBinding, ModelBindings
+from cliver_core.errors import ProviderError
 from cliver_core.events import (
     EventHandler,
     ToolEvent,
@@ -110,9 +113,11 @@ class AgentCore:
     chat/stream, and the remaining purposes (embed, rerank, image, tts, ...)
     back the embedded model APIs below.  An unbound non-llm purpose raises
     :class:`CapabilityNotSupported` — "not supported".  ``self.llm`` is the
-    chat :class:`~cliver_core.bindings.ModelBinding`; its provider is built on
-    first use, so read the provider via ``self.llm.get_provider()`` (its
-    ``.provider`` attribute stays ``None`` until then).
+    primary chat :class:`~cliver_core.bindings.ModelBinding`; its provider is
+    built on first use, so read the provider via ``self.llm.get_provider()``
+    (its ``.provider`` attribute stays ``None`` until then).  A purpose may
+    mount several bindings; a retryable provider failure hands the call to
+    the next binding of the same purpose (see :meth:`ModelBindings.get_all`).
     """
 
     def __init__(
@@ -136,14 +141,16 @@ class AgentCore:
         logger: logging.Logger | None = None,
     ):
         # Every model purpose lives in ``bindings`` — chat included: the
-        # Re-Act loop's provider + model come from ``bindings.llm``.
-        llm = bindings.get("llm") if bindings is not None else None
-        if llm is None:
+        # Re-Act loop's provider + model come from ``bindings.llm``.  A list
+        # mount keeps its first element as the primary; the rest are
+        # same-purpose fallbacks used on retryable failures.
+        llm_bindings = bindings.get_all("llm") if bindings is not None else []
+        if not llm_bindings:
             raise ValueError(
                 "AgentCore requires an LLM binding — set bindings.llm "
                 "(ModelBinding.llm(model='...', api_key='...', base_url='...')) for chat/stream."
             )
-        self.llm = llm
+        self.llm = llm_bindings[0]
         self.bindings = bindings
         self.tool_registry = ToolRegistry(builtin_tools or [])
         self.mcp_client = mcp_client
@@ -204,9 +211,11 @@ class AgentCore:
         ``media`` is attached to the user message as content blocks
         (images as data URLs, audio/video as text placeholders).
 
-        ``options`` are wire request options for the model: the llm binding's
-        defaults (``bindings.llm.params``) apply underneath, and the call site
-        wins on conflict (presence wins, an explicit ``None`` included).
+        ``options`` are wire request options for the model: the active llm
+        binding's defaults (``binding.params``) apply underneath, and the call
+        site wins on conflict (presence wins, an explicit ``None`` included).
+        After a failover switch, the new binding's defaults apply to its
+        calls.
 
         ``execution_policy`` is ambient around tool execution for this call
         (call-site wins over the constructor default; ``None`` means neither
@@ -229,7 +238,7 @@ class AgentCore:
         if catalog:
             system_prompt = "\n\n".join(part for part in (system_prompt, catalog) if part)
         messages = self._build_messages(user_input, system_prompt, conversation, media)
-        opts = {**self.llm.params, **(options or {})}
+        opts = options or {}
         effective = execution_policy if execution_policy is not None else self.execution_policy
 
         return await self._run_loop(
@@ -275,7 +284,7 @@ class AgentCore:
         if catalog:
             system_prompt = "\n\n".join(part for part in (system_prompt, catalog) if part)
         messages = self._build_messages(user_input, system_prompt, conversation, media)
-        opts = {**self.llm.params, **(options or {})}
+        opts = options or {}
         effective = execution_policy if execution_policy is not None else self.execution_policy
 
         async for chunk in self._run_stream_loop(
@@ -408,13 +417,20 @@ class AgentCore:
         output_dir: str | None = None,
         **options,
     ) -> CLIverResponse:
-        """Generate an image with the bound image model → ``capabilities.generate_image``."""
-        return await capabilities.generate_image(
-            prompt=prompt,
-            binding=self._require_binding("image"),
-            media=media,
-            output_dir=output_dir,
-            **options,
+        """Generate an image with the bound image model → ``capabilities.generate_image``.
+
+        With several image bindings, a retryable failure (rate limit,
+        timeout, 5xx) moves to the next binding of the same purpose.
+        """
+        return await self._media_with_failover(
+            "image",
+            lambda binding: capabilities.generate_image(
+                prompt=prompt,
+                binding=binding,
+                media=media,
+                output_dir=output_dir,
+                **options,
+            ),
         )
 
     def submit_image(self, prompt: str, **kwargs) -> MediaJob:
@@ -429,13 +445,20 @@ class AgentCore:
         output_dir: str | None = None,
         **options,
     ) -> CLIverResponse:
-        """Generate a video with the bound video model → ``capabilities.generate_video``."""
-        return await capabilities.generate_video(
-            prompt=prompt,
-            binding=self._require_binding("video"),
-            media=media,
-            output_dir=output_dir,
-            **options,
+        """Generate a video with the bound video model → ``capabilities.generate_video``.
+
+        With several video bindings, a retryable failure (rate limit,
+        timeout, 5xx) moves to the next binding of the same purpose.
+        """
+        return await self._media_with_failover(
+            "video",
+            lambda binding: capabilities.generate_video(
+                prompt=prompt,
+                binding=binding,
+                media=media,
+                output_dir=output_dir,
+                **options,
+            ),
         )
 
     def submit_video(self, prompt: str, **kwargs) -> MediaJob:
@@ -443,12 +466,19 @@ class AgentCore:
         return self._submit("video", lambda: self.video(prompt, **kwargs))
 
     async def tts(self, prompt: str, *, output_dir: str | None = None, **options) -> CLIverResponse:
-        """Synthesize speech from *prompt* with the bound TTS model → ``capabilities.text_to_speech``."""
-        return await capabilities.text_to_speech(
-            text=prompt,
-            binding=self._require_binding("tts"),
-            output_dir=output_dir,
-            **options,
+        """Synthesize speech from *prompt* with the bound TTS model → ``capabilities.text_to_speech``.
+
+        With several ``tts`` bindings, a retryable failure moves to the next
+        binding of the same purpose.
+        """
+        return await self._media_with_failover(
+            "tts",
+            lambda binding: capabilities.text_to_speech(
+                text=prompt,
+                binding=binding,
+                output_dir=output_dir,
+                **options,
+            ),
         )
 
     def submit_tts(self, prompt: str, **kwargs) -> MediaJob:
@@ -457,11 +487,14 @@ class AgentCore:
 
     async def audio(self, prompt: str, *, output_dir: str | None = None, **options) -> CLIverResponse:
         """Legacy alias of :meth:`tts` (uses the ``audio`` binding)."""
-        return await capabilities.text_to_speech(
-            text=prompt,
-            binding=self._require_binding("audio"),
-            output_dir=output_dir,
-            **options,
+        return await self._media_with_failover(
+            "audio",
+            lambda binding: capabilities.text_to_speech(
+                text=prompt,
+                binding=binding,
+                output_dir=output_dir,
+                **options,
+            ),
         )
 
     def submit_audio(self, prompt: str, **kwargs) -> MediaJob:
@@ -478,13 +511,18 @@ class AgentCore:
         """Transcribe *audio* with the bound ASR model → ``capabilities.transcribe_audio``.
 
         *audio* may be a :class:`MediaContent`, raw ``bytes`` (assumed WAV),
-        or a file path / URL.  ``language=None`` leaves any binding default in place.
+        or a file path / URL.  ``language=None`` leaves any binding default in
+        place.  With several ``asr`` bindings, a retryable failure moves to
+        the next binding of the same purpose.
         """
-        return await capabilities.transcribe_audio(
-            audio=audio,
-            binding=self._require_binding("asr"),
-            language=language,
-            **options,
+        return await self._media_with_failover(
+            "asr",
+            lambda binding: capabilities.transcribe_audio(
+                audio=audio,
+                binding=binding,
+                language=language,
+                **options,
+            ),
         )
 
     def submit_asr(self, audio: MediaContent | bytes | str, **kwargs) -> MediaJob:
@@ -501,35 +539,93 @@ class AgentCore:
     ) -> list[RerankItem]:
         """Rerank *documents* against *query* with the bound rerank model → ``capabilities.rerank``.
 
-        ``top_k=None`` leaves any binding default in place.
+        ``top_k=None`` leaves any binding default in place.  With several
+        ``rerank`` bindings, a retryable provider failure moves to the next
+        binding of the same purpose.
         """
-        return await capabilities.rerank(
-            query=query,
-            documents=documents,
-            binding=self._require_binding("rerank"),
-            top_k=top_k,
-            **options,
+        return await self._typed_with_failover(
+            "rerank",
+            lambda binding: capabilities.rerank(
+                query=query,
+                documents=documents,
+                binding=binding,
+                top_k=top_k,
+                **options,
+            ),
         )
 
     async def embed(self, texts: str | list[str], **options) -> EmbeddingsResult:
-        """Embed *texts* with the bound embedding model → ``capabilities.embed``."""
-        return await capabilities.embed(
-            texts=texts,
-            binding=self._require_binding("embed"),
-            **options,
+        """Embed *texts* with the bound embedding model → ``capabilities.embed``.
+
+        With several ``embed`` bindings, a retryable provider failure moves to
+        the next binding of the same purpose.
+        """
+        return await self._typed_with_failover(
+            "embed",
+            lambda binding: capabilities.embed(
+                texts=texts,
+                binding=binding,
+                **options,
+            ),
         )
 
     # ── Embedded API plumbing ─────────────────────────────────
 
-    def _require_binding(self, purpose: str) -> ModelBinding:
-        binding = self.bindings.get(purpose)
-        if binding is None:
+    def _bindings_for(self, purpose: str) -> list[ModelBinding]:
+        """Every binding for *purpose* (primary first) or fail with the binding hint."""
+        bindings = self.bindings.get_all(purpose)
+        if not bindings:
             example = "tts" if purpose == "audio" else purpose  # 'audio' is a legacy alias of tts
             raise CapabilityNotSupported(
                 f"No model bound for '{purpose}' — set bindings.{purpose} "
                 f"(e.g. ModelBinding.{example}(model='...', api_key='...', base_url='...')) to enable it."
             )
-        return binding
+        return bindings
+
+    def _require_binding(self, purpose: str) -> ModelBinding:
+        return self._bindings_for(purpose)[0]
+
+    async def _media_with_failover(
+        self,
+        purpose: str,
+        call: Callable[[ModelBinding], Awaitable[CLIverResponse]],
+    ) -> CLIverResponse:
+        """Run a media capability across *purpose*'s bindings, primary first.
+
+        Media failures are friendly ``CLIverResponse`` objects (``media`` is
+        empty) carrying the swallowed error's ``retryable`` flag, so only a
+        retryable failure advances to the next binding.  When every binding
+        fails, the last response is returned — the same result a single
+        binding gives today.
+        """
+        bindings = self._bindings_for(purpose)
+        last = len(bindings) - 1
+        for index, binding in enumerate(bindings):
+            response = await call(binding)
+            if response.media or not response.retryable or index == last:
+                return response
+        raise AssertionError("unreachable")  # pragma: no cover
+
+    async def _typed_with_failover(
+        self,
+        purpose: str,
+        call: Callable[[ModelBinding], Awaitable[Any]],
+    ) -> Any:
+        """Run a typed capability across *purpose*'s bindings, primary first.
+
+        Typed capabilities (embed / rerank) raise instead of returning a
+        failure response: only a retryable :class:`ProviderError` advances to
+        the next binding, and the last error propagates when all fail.
+        """
+        bindings = self._bindings_for(purpose)
+        last = len(bindings) - 1
+        for index, binding in enumerate(bindings):
+            try:
+                return await call(binding)
+            except ProviderError as exc:
+                if not exc.retryable or index == last:
+                    raise
+        raise AssertionError("unreachable")  # pragma: no cover
 
     def _submit(self, purpose: str, factory: Callable[[], Awaitable[Any]]) -> MediaJob:
         """Schedule *factory* as a background job and return its handle.
@@ -575,18 +671,31 @@ class AgentCore:
         consecutive_denials = 0
         diagnostic_trace: list[dict] = []
         total_usage: UsageInfo | None = None
-        # Built on first use and cached by the binding (lazy by design).
-        provider = self.llm.get_provider()
+        # Ordered llm candidates — primary first, then same-purpose fallbacks.
+        # ``active`` is sticky for this run: after a switch, later iterations
+        # keep using the binding that worked.  Providers are built lazily and
+        # cached by their binding.
+        candidates = self.bindings.get_all("llm")
+        active = 0
 
         for _iteration in range(max_iterations):
-            request = CLIverRequest(
-                messages=messages,
-                tools=tools or None,
-                model=self.llm.model,
-                options=options,
-            )
-
-            response = await provider.chat(request)
+            while True:
+                binding = candidates[active]
+                provider = binding.get_provider()
+                request = CLIverRequest(
+                    messages=messages,
+                    tools=tools or None,
+                    model=binding.model,
+                    options={**binding.params, **options},
+                )
+                try:
+                    response = await provider.chat(request)
+                except ProviderError as exc:
+                    if exc.retryable and active + 1 < len(candidates):
+                        active += 1
+                        continue
+                    raise
+                break
             total_usage = _merge_usage(total_usage, response.usage)
             msg = response.message
 
@@ -594,7 +703,7 @@ class AgentCore:
             diagnostic_trace.append(
                 {
                     "iteration": _iteration,
-                    "model": self.llm.model,
+                    "model": binding.model,
                     "provider": provider.provider_name(),
                     "request": response.request_info,
                     "response": msg.native,
@@ -658,32 +767,47 @@ class AgentCore:
         consecutive_errors = 0
         consecutive_denials = 0
         diagnostic_trace: list[dict] = []
-        # Built on first use and cached by the binding (lazy by design).
-        provider = self.llm.get_provider()
+        # Same sticky same-purpose failover as the non-streaming loop.  A
+        # stream may switch bindings only before it has yielded a chunk for
+        # this iteration — once bytes reached the consumer, a retry would
+        # duplicate output.
+        candidates = self.bindings.get_all("llm")
+        active = 0
 
         for _iteration in range(max_iterations):
-            request = CLIverRequest(
-                messages=messages,
-                tools=tools or None,
-                model=self.llm.model,
-                options=options,
-            )
+            while True:
+                binding = candidates[active]
+                provider = binding.get_provider()
+                request = CLIverRequest(
+                    messages=messages,
+                    tools=tools or None,
+                    model=binding.model,
+                    options={**binding.params, **options},
+                )
 
-            final_native: dict[str, Any] | None = None
-            final_usage: UsageInfo | None = None
-
-            async for raw in provider.stream(request):
-                if raw.native is not None:
-                    # Terminal chunk — the SDK-aggregated native assistant
-                    # message; consumed here, not forwarded.
-                    final_native = raw.native
-                    final_usage = raw.usage
-                    continue
-                if raw.content or raw.vendor_ext:
-                    yield CLIverMessageChunk(
-                        content=raw.content,
-                        vendor_ext=raw.vendor_ext,
-                    )
+                final_native: dict[str, Any] | None = None
+                final_usage: UsageInfo | None = None
+                emitted = False
+                try:
+                    async for raw in provider.stream(request):
+                        if raw.native is not None:
+                            # Terminal chunk — the SDK-aggregated native assistant
+                            # message; consumed here, not forwarded.
+                            final_native = raw.native
+                            final_usage = raw.usage
+                            continue
+                        if raw.content or raw.vendor_ext:
+                            emitted = True
+                            yield CLIverMessageChunk(
+                                content=raw.content,
+                                vendor_ext=raw.vendor_ext,
+                            )
+                except ProviderError as exc:
+                    if exc.retryable and not emitted and active + 1 < len(candidates):
+                        active += 1
+                        continue
+                    raise
+                break
 
             if final_native is None:
                 raise RuntimeError("Provider stream ended without a final native message")
@@ -699,7 +823,7 @@ class AgentCore:
             diagnostic_trace.append(
                 {
                     "iteration": _iteration,
-                    "model": self.llm.model,
+                    "model": binding.model,
                     "provider": provider.provider_name(),
                     "request": {
                         "model": request.model,

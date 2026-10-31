@@ -92,6 +92,11 @@ class CLIverResponse(BaseModel):
     # Diagnostics echo of the request that produced this response
     # (model, provider, options, system_prompt, messages, tools) —
     # AgentCore collects it into the Re-Act trace.
+    retryable: bool | None = None
+    # Set on media failure responses only: whether the swallowed failure is
+    # worth retrying (rate limit, timeout, connection, 5xx).  AgentCore uses
+    # it to fail over to the next binding of the same purpose; ``None`` on
+    # success.
 
 
 #: ``generate_media(output_handler=...)`` — a sync or async callable that turns
@@ -806,13 +811,22 @@ class Provider(ABC):
         )
 
     def _media_failure_response(self, purpose: str, error: Any) -> CLIverResponse:
-        """Friendly failure response for a media call that reached the wire."""
+        """Friendly failure response for a media call that reached the wire.
+
+        ``retryable`` keeps the swallowed error's classification, so a
+        caller (AgentCore) can retry the call on another same-purpose
+        binding instead of only showing the message.  Our own ProviderError
+        already carries a classification; raw vendor/SDK exceptions use the
+        same best-effort classifier as the chat transport boundary.
+        """
         label = self._UNSUPPORTED_MEDIA_LABELS.get(purpose, purpose)
+        retryable = error.retryable if isinstance(error, ProviderError) else _is_retryable_error(error)
         return CLIverResponse(
             message=CLIverMessage(
                 role="assistant",
                 content=f"{self.provider_name()} {label} generation failed: {error}",
             ),
+            retryable=retryable,
         )
 
     async def image(
@@ -921,7 +935,10 @@ class Provider(ABC):
     async def _post_json_endpoint(self, path: str, body: dict, *, label: str, timeout: float = 120.0) -> dict:
         """POST JSON to ``base_url + path`` and return the parsed response.
 
-        Raises RuntimeError on transport errors or non-2xx responses.
+        Non-2xx responses raise :class:`ProviderError` with the status-derived
+        ``retryable`` flag (429 / 5xx retryable) — it is a ``RuntimeError``,
+        so callers that caught the previous exception type keep working.
+        Transport-level exceptions propagate unchanged.
         """
         if not self.base_url:
             raise RuntimeError(f"{self.provider_name()} has no base_url configured for {label}")
@@ -931,8 +948,9 @@ class Provider(ABC):
         async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(url, json=body, headers=self._build_media_gen_headers())
         if not resp.is_success:
-            raise RuntimeError(
-                f"{self.provider_name()} {label} request failed (HTTP {resp.status_code}): {resp.text[:1000]}"
+            raise ProviderError(
+                f"{self.provider_name()} {label} request failed (HTTP {resp.status_code}): {resp.text[:1000]}",
+                retryable=_is_retryable_error(resp),
             )
         return resp.json()
 
@@ -952,7 +970,7 @@ class Provider(ABC):
         brand map → standard protocol default, ``/rerank`` for OpenAI-style
         wire).  Override for brands that differ.  Raises
         :class:`CapabilityNotSupported` when the protocol has no rerank path;
-        RuntimeError on transport or API errors.
+        :class:`ProviderError` on non-2xx responses.
         """
         path = self.media_path("rerank", options.pop("path", None))
         if path is None:
@@ -990,7 +1008,7 @@ class Provider(ABC):
         standard protocol default, ``/embeddings`` for OpenAI-style wire).
         Override for brands that differ.  Raises
         :class:`CapabilityNotSupported` when the protocol has no embeddings
-        path; RuntimeError on transport or API errors.
+        path; :class:`ProviderError` on non-2xx responses.
         """
         path = self.media_path("embed", options.pop("path", None))
         if path is None:

@@ -456,3 +456,79 @@ async def test_transcribe_audio_works_out_of_the_box_on_the_minimax_brand(monkey
     assert call["files"] == {"file": ("audio.wav", b"RIFF....", "audio/wav")}
     assert response.message.content == "the quick brown fox"
     await binding.aclose()
+
+
+# ── HTTP error contract on the shared JSON endpoints ───────────
+
+
+class _HttpStatusProvider(Provider):
+    """Concrete provider exercising the shared ``_post_json_endpoint`` path."""
+
+    protocol = "openai"
+    brand = "mock-http-status"
+
+    def __init__(self) -> None:
+        super().__init__(api_key="k", base_url="https://api.example/v1")
+
+    async def chat(self, request):  # pragma: no cover
+        raise NotImplementedError
+
+    async def stream(self, request):  # pragma: no cover
+        if False:
+            yield None
+
+
+class _FakeResponse:
+    def __init__(self, status_code: int) -> None:
+        self.status_code = status_code
+        self.is_success = 200 <= status_code < 300
+        self.text = f"status {status_code}"
+
+    def json(self) -> dict:
+        return {}
+
+
+class _FakeAsyncClient:
+    def __init__(self, status_code: int) -> None:
+        self.status_code = status_code
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc) -> bool:
+        return False
+
+    async def post(self, url, json=None, headers=None):
+        return _FakeResponse(self.status_code)
+
+
+def _patch_httpx(monkeypatch, status_code: int) -> None:
+    import httpx
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **kwargs: _FakeAsyncClient(status_code))
+
+
+@pytest.mark.asyncio
+async def test_embed_http_rate_limit_raises_a_retryable_provider_error(monkeypatch) -> None:
+    from cliver_core.provider import ProviderError
+
+    _patch_httpx(monkeypatch, 429)
+
+    with pytest.raises(ProviderError) as info:
+        await _HttpStatusProvider().embed(["hello"], model="m")
+
+    assert info.value.retryable is True
+    # ProviderError is a RuntimeError, so existing handlers keep catching it.
+    assert isinstance(info.value, RuntimeError)
+
+
+@pytest.mark.asyncio
+async def test_embed_http_client_error_is_not_retryable(monkeypatch) -> None:
+    from cliver_core.provider import ProviderError
+
+    _patch_httpx(monkeypatch, 400)
+
+    with pytest.raises(ProviderError) as info:
+        await _HttpStatusProvider().embed(["hello"], model="m")
+
+    assert info.value.retryable is False
