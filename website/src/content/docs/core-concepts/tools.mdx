@@ -80,6 +80,12 @@ rejected with an error result **before the permission check**. It never runs and
 still not a sandbox for the tool body itself; that is the job of
 [permissions and policy](/core-concepts/policy/).
 
+## Selecting Tools
+
+When an application advertises many tools, a `candidate_selector` narrows the pool per user
+input before the request is built. A built-in implementation ranks tools and skills with a
+System One decision model — see [System One](/core-concepts/system-one/#selecting-tools-and-skills).
+
 ## MCP Tools
 
 MCP tools are advertised as `mcp__<server>__<tool>` and share the same execution path as builtin

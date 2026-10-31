@@ -1,0 +1,213 @@
+---
+title: System One
+---
+
+A System One model is a decision model: it reads a `state` plus typed `questions` and returns
+structured predictions — probabilities, labels, scores — never generated text. It is built for
+fast, cheap software judgements (which tool fits? is this request complex? does answering need
+a tool?) rather than conversation.
+
+`cliver-core` talks to the Jev-compatible `/v1/systemone` wire through
+`ModelBinding.system_one(...)`. Aliyun Bailian, TypeSafe's hosted Jev, and the local `laya`
+model all mount the same way.
+
+## Typed Questions
+
+Three question types exist; each answer carries its own fields.
+
+| Question | Criteria | Answer |
+|----------|----------|--------|
+| `Choice(instructions, criteria={label: description})` | one entry per option | `choice` (highest-probability label) plus `probabilities` |
+| `Score(instructions, criteria=[levels])` | ordered levels, ascending | `score` (probability-weighted expected level) plus `probabilities` |
+| `Noul(instructions)` | a single judgement | `noul` — P(true) |
+
+```python
+from cliver_core import AgentCore, ModelBindings, presets
+from cliver_core.system_one import Choice, Noul, Score
+
+bindings = ModelBindings(
+    llm=presets.deepseek(),
+    system_one=presets.bailian_system_one(workspace_id="ws-..."),
+)
+
+agent = AgentCore(bindings)
+result = await agent.system_one(
+    "The user asks: what changed in the last commit?",
+    {
+        "best_tool": Choice(
+            instructions="Which tool best completes the request?",
+            criteria={
+                "read_file": "read the contents of a file",
+                "run_shell": "run a shell command such as git",
+                "fetch_url": "download a web page",
+            },
+        ),
+        "complexity": Score(
+            instructions="How complex is the request?",
+            criteria=["trivial", "moderate", "complex"],
+        ),
+        "needs_tool": Noul(instructions="Does answering require calling a tool?"),
+    },
+)
+
+result.answers["best_tool"].choice        # the highest-probability label, e.g. "run_shell"
+result.answers["needs_tool"].noul         # P(true), 0.0–1.0
+result.request_id, result.usage
+
+await agent.aclose()
+```
+
+The call runs on `bindings.system_one`. Per-call options (`timeout=`, `path=`, vendor knobs)
+overlay the binding's defaults; with several `system_one` bindings, a retryable provider failure
+moves to the next binding of the same purpose.
+
+## HTTP Presets
+
+```python
+from cliver_core import presets
+
+# Aliyun Bailian — key from DASHSCOPE_API_KEY
+bailian = presets.bailian_system_one(
+    workspace_id="ws-...",
+    region="cn-beijing",            # or "ap-southeast-1"
+    model="decision-model-preview",
+)
+
+# TypeSafe Jev — key from TYPESAFE_API_KEY
+jev = presets.typesafe_system_one(model="jev-latest")
+```
+
+Bailian builds the endpoint from the workspace id
+(`https://{workspace_id}.{region}.maas.aliyuncs.com/compatible-mode`) and pins `/v1/systemone`.
+Both presets accept `base_url=` to override it, for example when a gateway fronts the endpoint.
+
+For any other Jev-compatible endpoint, use the factory directly:
+
+```python
+from cliver_core import ModelBinding
+
+system_one = ModelBinding.system_one(
+    model="my-decision-model",
+    api_key="...",
+    base_url="https://decisions.example.com/compatible-mode",
+)
+```
+
+## Local laya
+
+`laya` runs the same decision model in-process. Install the optional extra and mount a local
+provider — the D28 lifecycle rules apply: explicit backend, long-lived provider, no global cache.
+
+```bash
+pip install "cliver-core[local-laya]"
+```
+
+```python
+from cliver_core import AgentCore, ModelBindings
+from cliver_core.local import LocalSystemOneProvider, local_system_one
+
+provider = LocalSystemOneProvider(
+    model="multilingual",      # english | multilingual | typed-decisions (aliases: ml, en, typed)
+    backend="laya",
+    device="auto",
+    max_length=512,
+)
+bindings = ModelBindings(llm=..., system_one=local_system_one(provider=provider))
+
+agent = AgentCore(bindings)
+# ...
+await provider.close()
+```
+
+Pinned checkpoints resolve through the shared local-model resolver, so `revision=`,
+`cache_dir=`, and `local_files_only=` behave like the other local models, and weights download
+from Hugging Face on first use. `model="auto"` lets laya route each request to the best loaded
+checkpoint; it downloads laya's bundle itself and therefore rejects `cache_dir=` /
+`local_files_only=` — use `HF_HUB_CACHE` / `HF_HUB_OFFLINE` instead. `dtype` is rejected (laya
+chooses precision); the token limit is `max_length=` on the provider or `max_len=` per call.
+
+## Selecting Tools and Skills
+
+Sending every tool and skill to the main model is expensive and dilutes its attention.
+`SystemOneSelector` asks the decision model which candidates fit the user's request, then
+advertises only the best ones. It is the `candidate_selector` guardrail:
+
+```python
+from cliver_core.system_one.selector import SystemOneSelector
+
+selector = SystemOneSelector(
+    binding=bindings.system_one,
+    min_tools=20,           # activate tool selection only above 20 tools
+    min_skills=20,          # the same threshold for skills, applied per category
+    top_k_tools=10,
+    top_k_skills=5,
+)
+agent = AgentCore(bindings, candidate_selector=selector)
+```
+
+Each category activates independently, and only when its candidate count exceeds the threshold.
+Below the threshold every candidate passes through unchanged. The selection itself has two
+stages:
+
+1. **Wide pass** — candidates are chunked (`chunk_size=20`; local laya degrades past roughly 20
+   options) and each chunk gets one `Choice` over short summaries. Scores merge by probability.
+2. **Close read** — the top `shortlist=12` candidates get one `Choice` over full details plus
+   one `Noul` per candidate ("would using this help?"). Candidates below `fit_threshold=0.3` are
+   dropped.
+
+The selector is **fail-open**: any provider error, timeout, or malformed answer keeps the
+original candidates. It never adds candidates and never reorders the ones it keeps — the result
+follows the caller's order. The close read's `Choice` ranks the survivors; its per-candidate
+`Noul` is only the relevance gate (`fit_threshold=`). Set `close_read=False` to trade accuracy
+for one request per chunk; `shortlist=` must cover the larger of `top_k_tools` / `top_k_skills`
+and stay at most 15, since the close read sends up to 16 questions per request.
+
+The close read sharpens hosted decision models. A local `laya` model ranks more reliably from
+the wide pass — its full-detail `Choice` is noisy and its `Noul` gate saturates near 1.0 — so
+the CLI defaults the close read off for a local System One model and on for HTTP ones; see
+`CLIVER_SELECTOR_CLOSE_READ` below.
+
+`select_tools(tools, query)` and `select_skills(skills, query)` are also usable directly as
+`tool_selector` / `skill_selector` — those surfaces skip the activation thresholds.
+
+## Configuration in the CLI
+
+`cliver` builds the System One binding and the selector from environment variables (usually
+`~/.cliver/.env`). `CLIVER_SYSTEM_ONE_MODEL` is required whenever anything else is set.
+
+| Setting | Environment | Values |
+|---|---|---|
+| Decision model | `CLIVER_SYSTEM_ONE_MODEL` | e.g. `decision-model-preview`, `jev-latest`, `multilingual` |
+| Provider | `CLIVER_SYSTEM_ONE_PROVIDER` | `bailian`, `typesafe`, `laya`; omit for a custom endpoint |
+| Custom endpoint | `CLIVER_SYSTEM_ONE_BASE_URL` | any Jev-compatible `/v1/systemone` base |
+| API key | `CLIVER_SYSTEM_ONE_API_KEY` | else `DASHSCOPE_API_KEY` / `TYPESAFE_API_KEY` |
+| Bailian workspace | `CLIVER_SYSTEM_ONE_WORKSPACE_ID` | required for `bailian` unless `BASE_URL` is set |
+| Bailian region | `CLIVER_SYSTEM_ONE_REGION` | `cn-beijing` (default), `ap-southeast-1` |
+| laya device / token limit | `CLIVER_SYSTEM_ONE_DEVICE`, `CLIVER_SYSTEM_ONE_MAX_LEN` | `auto` (default) / integer |
+
+Tool selection is opt-in and only runs when a System One model is also configured. The switch
+alone logs a warning and stays off.
+
+| Setting | Environment | Default |
+|---|---|---|
+| Enable selection | `CLIVER_SELECTOR` | off |
+| Activation thresholds | `CLIVER_SELECTOR_MIN_TOOLS`, `CLIVER_SELECTOR_MIN_SKILLS` | 20 |
+| Keep at most | `CLIVER_SELECTOR_TOP_K_TOOLS`, `CLIVER_SELECTOR_TOP_K_SKILLS` | 10 / 5 |
+| Wide-pass chunk size | `CLIVER_SELECTOR_CHUNK_SIZE` | 20 |
+| Close-read shortlist | `CLIVER_SELECTOR_SHORTLIST` | 12 |
+| Run the close read | `CLIVER_SELECTOR_CLOSE_READ` | on (off for local laya) |
+| Fit threshold | `CLIVER_SELECTOR_FIT_THRESHOLD` | 0.3 |
+| Request timeout (seconds) | `CLIVER_SELECTOR_TIMEOUT` | the binding's default |
+
+```bash
+export CLIVER_SYSTEM_ONE_MODEL=decision-model-preview
+export CLIVER_SYSTEM_ONE_PROVIDER=bailian
+export CLIVER_SYSTEM_ONE_WORKSPACE_ID=ws-...
+export CLIVER_SELECTOR=on
+export CLIVER_SELECTOR_MIN_TOOLS=15
+
+uv run cliver --yes "Find every TODO comment under src and list the file paths."
+```
+
+The CLI closes the local laya provider it created when the run ends; the binding never closes a
+caller-supplied provider.

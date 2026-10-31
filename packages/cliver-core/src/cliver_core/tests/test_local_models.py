@@ -637,7 +637,7 @@ async def test_agent_core_routes_embed_to_the_local_provider_without_closing_it(
 # ── Import guard ────────────────────────────────────────────
 
 
-BLOCKED = frozenset({"torch", "transformers", "sentence_transformers", "FlagEmbedding", "huggingface_hub"})
+BLOCKED = frozenset({"torch", "transformers", "sentence_transformers", "FlagEmbedding", "huggingface_hub", "laya"})
 
 _IMPORT_GUARD_SCRIPT = f"""
 import asyncio

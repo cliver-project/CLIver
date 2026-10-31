@@ -73,6 +73,11 @@ Runs the Re-Act loop with a skill pinned — see [Skills](/core-concepts/skills/
 `image()`, `video()`, `tts()`, `asr()`, `embed()`, and `rerank()` call the bound models directly.
 Their `submit_*` variants return a `MediaJob` whose `result()` resolves when generation finishes.
 
+### `await agent.system_one(state, questions, **options) → SystemOneResult`
+
+Calls the bound System One decision model: `state` plus typed `questions` in, probabilities out.
+See [System One](/core-concepts/system-one/).
+
 ### `await agent.aclose()`
 
 Cancels and drains the media jobs the agent started, then closes the providers its bindings

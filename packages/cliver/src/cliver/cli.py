@@ -15,6 +15,8 @@ from cliver.app import (
     load_environment,
     make_event_logger,
     make_permission_callback,
+    selector_from_env,
+    system_one_binding_from_env,
 )
 
 __all__ = ["build_parser", "main"]
@@ -68,24 +70,32 @@ def main(argv: list[str] | None = None) -> int:
         base_url=args.base_url,
         protocol=args.protocol,
     )
+    system_one_binding = system_one_binding_from_env()
     agent = build_agent(
         binding,
         cwd=Path.cwd(),
         permission_callback=make_permission_callback(assume_yes=args.yes),
         on_event=make_event_logger(),
+        system_one_binding=system_one_binding,
+        candidate_selector=selector_from_env(system_one_binding),
     )
 
-    response = asyncio.run(_run(agent, prompt, args.skill, args.max_iterations))
+    response = asyncio.run(_run(agent, prompt, args.skill, args.max_iterations, system_one_binding))
     content = response.message.content or ""
     if content:
         print(content)
     return 0
 
 
-async def _run(agent, prompt: str, skill: str | None, max_iterations: int):
+async def _run(agent, prompt: str, skill: str | None, max_iterations: int, system_one_binding=None):
     try:
         if skill:
             return await agent.run_skill(skill, prompt, max_iterations=max_iterations)
         return await agent.chat(prompt, max_iterations=max_iterations)
     finally:
         await agent.aclose()
+        # A local System One model (laya) is caller-supplied, so the binding
+        # never closes it — the CLI owns that provider and releases it here.
+        provider = None if system_one_binding is None else system_one_binding.provider
+        if provider is not None and hasattr(provider, "close"):
+            await provider.close()

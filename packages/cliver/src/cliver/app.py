@@ -14,9 +14,11 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TextIO
 
-from cliver_core import AgentCore, Decision, ModelBinding, ModelBindings, ToolCallContext
+from cliver_core import AgentCore, Decision, ModelBinding, ModelBindings, ToolCallContext, presets
 from cliver_core.events import InferenceEvent, InferenceEventType, ToolEvent, ToolEventType
+from cliver_core.local import LocalSystemOneProvider, local_system_one
 from cliver_core.provider.providers import API_KEY_ENV
+from cliver_core.system_one.selector import SystemOneSelector
 from cliver_core.tools import discover_builtin_tools
 from dotenv import load_dotenv
 
@@ -29,6 +31,8 @@ __all__ = [
     "load_environment",
     "make_event_logger",
     "make_permission_callback",
+    "selector_from_env",
+    "system_one_binding_from_env",
 ]
 
 
@@ -87,6 +91,119 @@ def llm_binding_from_env(
     )
 
 
+def system_one_binding_from_env(env: Mapping[str, str] | None = None) -> ModelBinding | None:
+    """Build the System One decision binding from ``CLIVER_SYSTEM_ONE_*``.
+
+    Returns ``None`` when no System One model is configured.  ``PROVIDER`` is
+    ``bailian`` (needs ``WORKSPACE_ID``; ``REGION`` defaults to
+    ``cn-beijing``), ``typesafe``, or ``laya`` (a local checkpoint, default
+    backend ``laya``; ``DEVICE`` and ``MAX_LEN`` tune it).  A custom HTTP
+    endpoint using the shared ``/v1/systemone`` wire sets ``BASE_URL`` and
+    leaves ``PROVIDER`` unset.
+
+    The key is ``CLIVER_SYSTEM_ONE_API_KEY`` or the provider's conventional
+    variable (``DASHSCOPE_API_KEY`` / ``TYPESAFE_API_KEY``).
+    """
+    values = os.environ if env is None else env
+    model = values.get("CLIVER_SYSTEM_ONE_MODEL", "").strip()
+    provider = values.get("CLIVER_SYSTEM_ONE_PROVIDER", "").strip().lower()
+    base_url = values.get("CLIVER_SYSTEM_ONE_BASE_URL", "").strip()
+    if not model and not provider and not base_url:
+        return None
+    if not model:
+        raise ValueError("CLIVER_SYSTEM_ONE_MODEL is required when a System One provider or endpoint is configured.")
+
+    if provider == "laya":
+        max_len_raw = values.get("CLIVER_SYSTEM_ONE_MAX_LEN", "").strip()
+        provider_obj = LocalSystemOneProvider(
+            model=model,
+            backend="laya",
+            device=values.get("CLIVER_SYSTEM_ONE_DEVICE", "").strip() or "auto",
+            max_length=_env_int(values, "CLIVER_SYSTEM_ONE_MAX_LEN", 0, minimum=1) if max_len_raw else None,
+        )
+        return local_system_one(provider=provider_obj)
+
+    if provider == "bailian":
+        workspace_id = values.get("CLIVER_SYSTEM_ONE_WORKSPACE_ID", "").strip()
+        if not workspace_id and not base_url:
+            raise ValueError("bailian requires CLIVER_SYSTEM_ONE_WORKSPACE_ID (or CLIVER_SYSTEM_ONE_BASE_URL).")
+        return presets.bailian_system_one(
+            workspace_id=workspace_id,
+            api_key=_system_one_api_key(values, "dashscope"),
+            model=model,
+            region=values.get("CLIVER_SYSTEM_ONE_REGION", "").strip() or "cn-beijing",
+            base_url=base_url,
+        )
+
+    if provider == "typesafe":
+        return presets.typesafe_system_one(
+            api_key=_system_one_api_key(values, "typesafe"),
+            model=model,
+            base_url=base_url,
+        )
+
+    if provider:
+        raise ValueError(
+            f"unknown System One provider {provider!r}: use bailian, typesafe, or laya "
+            "(a custom endpoint sets CLIVER_SYSTEM_ONE_BASE_URL and leaves the provider unset)."
+        )
+    if not base_url:
+        raise ValueError(
+            "a System One endpoint is required: set CLIVER_SYSTEM_ONE_PROVIDER "
+            "(bailian/typesafe/laya) or CLIVER_SYSTEM_ONE_BASE_URL."
+        )
+    return ModelBinding.system_one(
+        model=model,
+        api_key=_system_one_api_key(values, None) or "",
+        base_url=base_url,
+    )
+
+
+def selector_from_env(
+    system_one_binding: ModelBinding | None,
+    env: Mapping[str, str] | None = None,
+) -> SystemOneSelector | None:
+    """Build the candidate selector when ``CLIVER_SELECTOR`` is on.
+
+    Selection activates per category only when the candidate count exceeds
+    ``CLIVER_SELECTOR_MIN_TOOLS`` / ``CLIVER_SELECTOR_MIN_SKILLS``.  The
+    switch alone is not enough: without a configured System One model the
+    selector stays off (with a warning), because the main model receives
+    every candidate as before.
+
+    The close read defaults on for hosted decision models and off for a
+    local model (laya), whose wide pass ranks more reliably than its
+    full-detail answers; ``CLIVER_SELECTOR_CLOSE_READ`` overrides either.
+    """
+    values = os.environ if env is None else env
+    if not _env_bool(values, "CLIVER_SELECTOR", False):
+        return None
+    if system_one_binding is None:
+        print(
+            "warning: CLIVER_SELECTOR is on but no System One model is configured; "
+            "set CLIVER_SYSTEM_ONE_MODEL (and CLIVER_SYSTEM_ONE_PROVIDER) to enable selection.",
+            file=sys.stderr,
+        )
+        return None
+
+    timeout_raw = values.get("CLIVER_SELECTOR_TIMEOUT", "").strip()
+    return SystemOneSelector(
+        binding=system_one_binding,
+        min_tools=_env_int(values, "CLIVER_SELECTOR_MIN_TOOLS", 20),
+        min_skills=_env_int(values, "CLIVER_SELECTOR_MIN_SKILLS", 20),
+        top_k_tools=_env_int(values, "CLIVER_SELECTOR_TOP_K_TOOLS", 10, minimum=1),
+        top_k_skills=_env_int(values, "CLIVER_SELECTOR_TOP_K_SKILLS", 5, minimum=1),
+        chunk_size=_env_int(values, "CLIVER_SELECTOR_CHUNK_SIZE", 20, minimum=1),
+        shortlist=_env_int(values, "CLIVER_SELECTOR_SHORTLIST", 12, minimum=1),
+        # The close read sharpens hosted models (Bailian/Jev) but a local laya
+        # model ranks better from the wide pass: its full-detail Choice is
+        # noisy and its Noul gate saturates.  Explicit env still wins.
+        close_read=_env_bool(values, "CLIVER_SELECTOR_CLOSE_READ", system_one_binding.protocol != "local"),
+        fit_threshold=_env_float(values, "CLIVER_SELECTOR_FIT_THRESHOLD", 0.3),
+        timeout=_env_positive_float(values, "CLIVER_SELECTOR_TIMEOUT") if timeout_raw else None,
+    )
+
+
 def build_agent(
     binding: ModelBinding,
     *,
@@ -95,16 +212,86 @@ def build_agent(
     home: Path | None = None,
     permission_callback=None,
     on_event=None,
+    system_one_binding: ModelBinding | None = None,
+    candidate_selector=None,
 ) -> AgentCore:
     """Build an ``AgentCore`` with CLIver's tools, skills, and identity."""
     working_dir = Path.cwd() if cwd is None else Path(cwd)
+    mounts: dict[str, ModelBinding] = {"llm": binding}
+    if system_one_binding is not None:
+        mounts["system_one"] = system_one_binding
     return AgentCore(
-        ModelBindings(llm=binding),
+        ModelBindings(**mounts),
         builtin_tools=discover_builtin_tools(),
         skill_manager=create_skill_manager(config_dir=config_dir, cwd=working_dir, home=home),
         permission_callback=permission_callback,
+        candidate_selector=candidate_selector,
         on_event=on_event,
         builtin_system_prompt=_system_prompt(working_dir),
+    )
+
+
+# ── Environment helpers ─────────────────────────────────────
+
+
+def _env_int(values: Mapping[str, str], name: str, default: int, *, minimum: int = 0) -> int:
+    raw = values.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        number = int(raw.strip())
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer (got {raw!r}).") from exc
+    if number < minimum:
+        raise ValueError(f"{name} must be >= {minimum} (got {number}).")
+    return number
+
+
+def _env_float(values: Mapping[str, str], name: str, default: float) -> float:
+    raw = values.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return float(raw.strip())
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a number (got {raw!r}).") from exc
+
+
+def _env_positive_float(values: Mapping[str, str], name: str) -> float | None:
+    raw = values.get(name)
+    if raw is None or not raw.strip():
+        return None
+    try:
+        number = float(raw.strip())
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a number (got {raw!r}).") from exc
+    if number <= 0:
+        raise ValueError(f"{name} must be positive (got {number}).")
+    return number
+
+
+def _env_bool(values: Mapping[str, str], name: str, default: bool) -> bool:
+    raw = values.get(name)
+    if raw is None or not raw.strip():
+        return default
+    lowered = raw.strip().lower()
+    if lowered in {"1", "true", "yes", "on"}:
+        return True
+    if lowered in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean (got {raw!r}).")
+
+
+def _system_one_api_key(values: Mapping[str, str], brand: str | None) -> str | None:
+    """Explicit key first, then the provider's conventional variable."""
+    explicit = values.get("CLIVER_SYSTEM_ONE_API_KEY")
+    if explicit is not None:
+        return explicit
+    if brand is None:
+        return None
+    return next(
+        (values[name] for name in API_KEY_ENV.get(brand, ()) if values.get(name)),
+        None,
     )
 
 

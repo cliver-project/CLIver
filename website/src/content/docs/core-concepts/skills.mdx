@@ -70,7 +70,9 @@ Activation is one skill at a time. An activated skill that bundles files also ge
 
 Applications can tune selection without touching the core: `skill_selector` ranks the prompt
 catalogue, `skill_search` replaces lexical search, and `candidate_selector` /
-`tool_selector` narrow the candidate pools for a query.
+`tool_selector` narrow the candidate pools for a query. When the catalogue is large, the
+[System One selector](/core-concepts/system-one/#selecting-tools-and-skills) ranks both tools
+and skills and only advertises the best fits.
 
 ## Skills in the CLI Application
 

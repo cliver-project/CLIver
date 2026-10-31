@@ -14,8 +14,8 @@ The API surface is intentionally small and explicit:
 
 * the model id and backend are parameters, never inferred from a model name;
 * options are limited to generic inference knobs (``dim``, ``normalize``,
-  ``batch_size``, ``top_k``); query/document semantics and instruction prefixes
-  belong to the application;
+  ``batch_size``, ``top_k``, ``max_len``); query/document semantics and
+  instruction prefixes belong to the application;
 * ``chat`` / ``stream`` are unsupported and raise
   :class:`~cliver_core.errors.CapabilityNotSupported`.
 
@@ -33,12 +33,14 @@ import numbers
 import os
 import threading
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from typing import Any
 
 from cliver_core.errors import CapabilityNotSupported
 from cliver_core.local.backends import (
+    DecisionBackend,
     EmbeddingBackend,
+    LoadedDecision,
     LoadedEmbedding,
     LoadedRerank,
     LoadSpec,
@@ -55,8 +57,14 @@ from cliver_core.local.errors import (
 from cliver_core.local.info import LocalModelInfo
 from cliver_core.messages import CLIverMessageChunk
 from cliver_core.provider import CLIverRequest, CLIverResponse, EmbeddingsResult, Provider, RerankItem
+from cliver_core.system_one import Noul, Question, SystemOneResult, parse_result
 
-__all__ = ["LocalEmbeddingProvider", "LocalProvider", "LocalRerankProvider"]
+__all__ = [
+    "LocalEmbeddingProvider",
+    "LocalProvider",
+    "LocalRerankProvider",
+    "LocalSystemOneProvider",
+]
 
 _LOAD_TIME_OPTIONS = frozenset(
     {
@@ -183,6 +191,13 @@ def _parse_rerank_options(options: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _parse_system_one_options(options: dict[str, Any]) -> int | None:
+    allowed = frozenset({"max_len"})
+    for key in options:
+        _reject_option(key, allowed=allowed, purpose="system one")
+    return _as_optional_positive_int(options.get("max_len"), "max_len")
+
+
 # ── Result helpers ─────────────────────────────────────────────
 
 
@@ -271,8 +286,8 @@ class LocalProvider(Provider):
         super().__init__(api_key="", base_url="", logger=logger)
         if self._backend_protocol is None:
             raise TypeError(
-                "LocalProvider is a base class; use LocalEmbeddingProvider or LocalRerankProvider "
-                "(or subclass LocalProvider for a new local purpose)"
+                "LocalProvider is a base class; use LocalEmbeddingProvider, LocalRerankProvider or "
+                "LocalSystemOneProvider (or subclass LocalProvider for a new local purpose)"
             )
         self.model = _require_model(model)
         self.backend = _resolve_backend_value(backend)
@@ -293,7 +308,7 @@ class LocalProvider(Provider):
         self._state_lock = threading.Lock()
         self._load_lock = threading.Lock()
         self._inference_lock = threading.Lock()
-        self._loaded: LoadedEmbedding | LoadedRerank | None = None
+        self._loaded: LoadedDecision | LoadedEmbedding | LoadedRerank | None = None
         self._closed = False
         self._load_seconds: float | None = None
 
@@ -358,7 +373,7 @@ class LocalProvider(Provider):
 
     # ── Internal load/inference plumbing ──────────────────────
 
-    def _load(self) -> LoadedEmbedding | LoadedRerank:
+    def _load(self) -> LoadedDecision | LoadedEmbedding | LoadedRerank:
         with self._state_lock:
             if self._closed:
                 raise LocalProviderClosedError(f"local provider for {self.model!r} is closed; create a new provider")
@@ -452,7 +467,8 @@ class LocalProvider(Provider):
         if model != self.model:
             raise LocalConfigurationError(
                 f"binding model {model!r} does not match the local provider's model {self.model!r}; "
-                "build the binding with the provider's model (local_embed/local_rerank do this automatically)"
+                "build the binding with the provider's model (the local_* binding factories do this "
+                "automatically)"
             )
 
     # ── Unsupported provider surface ──────────────────────────
@@ -467,13 +483,13 @@ class LocalProvider(Provider):
 
     # ── Subclass hooks ────────────────────────────────────────
 
-    def _load_backend(self, spec: LoadSpec) -> LoadedEmbedding | LoadedRerank:
+    def _load_backend(self, spec: LoadSpec) -> LoadedDecision | LoadedEmbedding | LoadedRerank:
         raise NotImplementedError
 
-    def _unload_backend(self, loaded: LoadedEmbedding | LoadedRerank) -> None:
+    def _unload_backend(self, loaded: LoadedDecision | LoadedEmbedding | LoadedRerank) -> None:
         raise NotImplementedError
 
-    def _warmup(self, loaded: LoadedEmbedding | LoadedRerank) -> None:
+    def _warmup(self, loaded: LoadedDecision | LoadedEmbedding | LoadedRerank) -> None:
         raise NotImplementedError
 
 
@@ -600,3 +616,56 @@ class LocalRerankProvider(LocalProvider):
         # deterministic regardless of the backend's ordering.
         items.sort(key=lambda item: item.relevance_score, reverse=True)
         return items[:top_k] if top_k is not None else items
+
+
+class LocalSystemOneProvider(LocalProvider):
+    """System One decision provider backed by one in-process model.
+
+    ``model`` names the backend's checkpoint — for ``laya`` that is a
+    checkpoint name (``multilingual``, ``english``, ``typed-decisions``), a
+    Hugging Face repository id, or a local fine-tune directory.  The backend
+    resolves its own precision; ``max_length`` is the default token budget
+    for the state, overridable per call with ``max_len``.
+    """
+
+    _backend_protocol = DecisionBackend
+    _capability = "system one"
+
+    def _load_backend(self, spec: LoadSpec) -> LoadedDecision:
+        return self.backend.load_decision(spec)
+
+    def _unload_backend(self, loaded: LoadedDecision) -> None:
+        self.backend.unload_decision(loaded)
+
+    def _warmup(self, loaded: LoadedDecision) -> None:
+        questions = {"warmup": Noul(instructions="Is this a warmup request?").to_wire()}
+        self._run_inference(
+            lambda current: self.backend.predict(current, "warmup", questions, max_length=self.max_length)
+        )
+
+    async def system_one(
+        self,
+        *,
+        state: Any,
+        questions: Mapping[str, Question],
+        model: str,
+        **options: Any,
+    ) -> SystemOneResult:
+        """Answer typed questions without generating text.
+
+        ``questions`` are the same typed questions the HTTP system-one
+        providers take; the payload is parsed by the shared wire parser.
+        """
+        self._check_model(model)
+        max_len = _parse_system_one_options(options)
+        if not questions:
+            return SystemOneResult(answers={})
+
+        wire = {name: question.to_wire() for name, question in questions.items()}
+        await asyncio.to_thread(self._load)
+        effective_max_len = max_len if max_len is not None else self.max_length
+        payload = await asyncio.to_thread(
+            self._run_inference,
+            lambda current: self.backend.predict(current, state, wire, max_length=effective_max_len),
+        )
+        return parse_result(payload)

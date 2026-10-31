@@ -15,7 +15,7 @@ import logging
 import math
 import time
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable, Sequence
+from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable, Mapping, Sequence
 
 from cliver_core import capabilities
 from cliver_core.bindings import CapabilityNotSupported, ModelBinding, ModelBindings
@@ -63,6 +63,7 @@ from cliver_core.skill_tools import (
     make_find_skills_tool,
     make_read_skill_file_tool,
 )
+from cliver_core.system_one import Question, SystemOneResult
 from cliver_core.tool import CLIverTool, ToolRegistry
 
 if TYPE_CHECKING:
@@ -638,6 +639,32 @@ class AgentCore:
                 texts=texts,
                 binding=binding,
                 **options,
+            ),
+        )
+
+    async def system_one(
+        self,
+        state: Any,
+        questions: Mapping[str, Question],
+        **options,
+    ) -> SystemOneResult:
+        """Predict structured answers for *questions* about *state*.
+
+        A System One model reads the state plus typed questions and returns
+        probabilities — a ``Choice``, a ``Score``, or a ``Noul`` (P(true)) —
+        never generated text.  The call runs on ``bindings.system_one``;
+        ``**options`` (``path``, ``timeout``, vendor knobs) override the
+        binding's default call options.  With several ``system_one`` bindings,
+        a retryable provider failure moves to the next binding of the same
+        purpose.
+        """
+        return await self._typed_with_failover(
+            "system_one",
+            lambda binding: binding.get_provider().system_one(
+                state=state,
+                questions=questions,
+                model=binding.model,
+                **{**binding.call_defaults(), **options},
             ),
         )
 

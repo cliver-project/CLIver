@@ -31,6 +31,7 @@ export default defineConfig({
             { label: "Concurrency & Lifecycle", slug: "core-concepts/concurrency" },
             { label: "Tools", slug: "core-concepts/tools" },
             { label: "Skills", slug: "core-concepts/skills" },
+            { label: "System One", slug: "core-concepts/system-one" },
             { label: "Pipelines", slug: "core-concepts/pipelines" },
             { label: "MCP", slug: "core-concepts/mcp" },
             { label: "Permissions & Policy", slug: "core-concepts/policy" },

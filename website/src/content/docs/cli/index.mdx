@@ -53,6 +53,13 @@ place for keys.
 Use `--provider` for a brand with a default endpoint, or `--base-url` for anything else
 (Ollama, vLLM, a gateway). `--max-iterations` bounds the Re-Act loop (default 50).
 
+## System One and Tool Selection
+
+A System One decision model is configured through `CLIVER_SYSTEM_ONE_*` variables, and
+`CLIVER_SELECTOR=on` turns on decision-model ranking of tools and skills. Both are disabled by
+default; selection also requires a configured System One model. The variables and tuning knobs
+are documented under [System One](/core-concepts/system-one/#configuration-in-the-cli).
+
 ## Config Directory
 
 The application resolves its config directory in this order:

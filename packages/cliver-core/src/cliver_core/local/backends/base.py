@@ -21,8 +21,10 @@ from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
 __all__ = [
+    "DecisionBackend",
     "EmbeddingBackend",
     "LoadSpec",
+    "LoadedDecision",
     "LoadedEmbedding",
     "LoadedRerank",
     "RerankBackend",
@@ -74,6 +76,18 @@ class LoadedRerank:
     max_length: int | None
 
 
+@dataclass
+class LoadedDecision:
+    """Opaque decision-model handle plus resolved metadata."""
+
+    handle: Any
+    resolved_model: str
+    revision: str | None
+    device: str
+    dtype: str
+    max_length: int | None
+
+
 @runtime_checkable
 class EmbeddingBackend(Protocol):
     """Loads a model and turns texts into raw (unnormalized) vectors.
@@ -89,6 +103,32 @@ class EmbeddingBackend(Protocol):
     def embed(self, loaded: LoadedEmbedding, texts: list[str], *, batch_size: int) -> list[list[float]]: ...
 
     def unload_embedding(self, loaded: LoadedEmbedding) -> None: ...
+
+
+@runtime_checkable
+class DecisionBackend(Protocol):
+    """Loads a System One model and returns Jev-shaped prediction payloads.
+
+    ``predict`` receives the same ``state`` and wire-format ``questions`` an
+    HTTP system-one endpoint receives, and returns the response payload; the
+    provider normalizes it with the shared wire parser.  ``max_length`` is
+    the token budget for the state when the backend supports one.
+    """
+
+    name: str
+
+    def load_decision(self, spec: LoadSpec) -> LoadedDecision: ...
+
+    def predict(
+        self,
+        loaded: LoadedDecision,
+        state: Any,
+        questions: dict[str, Any],
+        *,
+        max_length: int | None,
+    ) -> dict[str, Any]: ...
+
+    def unload_decision(self, loaded: LoadedDecision) -> None: ...
 
 
 @runtime_checkable

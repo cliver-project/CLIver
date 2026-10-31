@@ -157,6 +157,8 @@ API_KEY_ENV: dict[str, tuple[str, ...]] = {
     "dashscope": ("DASHSCOPE_API_KEY",),
     "qwen": ("DASHSCOPE_API_KEY",),
     "qwen-image": ("DASHSCOPE_API_KEY",),
+    # Not a chat/media brand: the System One presets read this variable.
+    "typesafe": ("TYPESAFE_API_KEY",),
 }
 
 # ── Brand selection ──────────────────────────────────────────

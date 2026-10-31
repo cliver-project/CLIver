@@ -639,11 +639,15 @@ dependencies = [
 local = [
     { name = "flagembedding" },
     { name = "huggingface-hub" },
+    { name = "laya" },
     { name = "sentence-transformers" },
 ]
 local-flag = [
     { name = "flagembedding" },
     { name = "huggingface-hub" },
+]
+local-laya = [
+    { name = "laya" },
 ]
 local-st = [
     { name = "huggingface-hub" },
@@ -662,17 +666,19 @@ dev = [
 requires-dist = [
     { name = "anthropic", specifier = ">=1.0.0" },
     { name = "cliver-core", extras = ["local-flag"], marker = "extra == 'local'" },
+    { name = "cliver-core", extras = ["local-laya"], marker = "extra == 'local'" },
     { name = "cliver-core", extras = ["local-st"], marker = "extra == 'local'" },
     { name = "flagembedding", marker = "extra == 'local-flag'", specifier = ">=1.3.0" },
     { name = "httpx", specifier = ">=0.28.0" },
     { name = "huggingface-hub", marker = "extra == 'local-flag'", specifier = ">=0.24.0" },
     { name = "huggingface-hub", marker = "extra == 'local-st'", specifier = ">=0.24.0" },
+    { name = "laya", marker = "extra == 'local-laya'", specifier = ">=0.4.0" },
     { name = "mcp", specifier = ">=2.3.0,<3.0" },
     { name = "openai", specifier = ">=3.0.0" },
     { name = "pydantic", specifier = ">=2.0.0" },
     { name = "sentence-transformers", marker = "extra == 'local-st'", specifier = ">=3.0" },
 ]
-provides-extras = ["local-st", "local-flag", "local"]
+provides-extras = ["local-st", "local-flag", "local-laya", "local"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1432,6 +1438,24 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/19/74/a633ee74eb36c44aa6d1095e7cc5569bebf04342ee146178e2d36600708b/jsonschema_specifications-2025.9.1.tar.gz", hash = "sha256:b540987f239e745613c7a9176f3edb72b832a4ac465cf02712288397832b5e8d", size = 32855, upload-time = "2025-09-08T01:34:59.186Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/41/45/1a4ed80516f02155c51f51e8cedb3c1902296743db0bbc66608a0db2814f/jsonschema_specifications-2025.9.1-py3-none-any.whl", hash = "sha256:98802fee3a11ee76ecaca44429fda8a41bff98b00a0f2838151b113f210cc6fe", size = 18437, upload-time = "2025-09-08T01:34:57.871Z" },
+]
+
+[[package]]
+name = "laya"
+version = "0.4.19"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "huggingface-hub" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
+    { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "safetensors" },
+    { name = "torch" },
+    { name = "transformers" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5f/ec/1cb489990a19e0a14f0d051efe72ced660c3e2ffb1dc945aeb0a787ce492/laya-0.4.19.tar.gz", hash = "sha256:362bc8ce89c5d32232cf0b51993afede6a7590e01c912c62f23d4792e957648b", size = 1390017, upload-time = "2026-10-31T07:46:24.159Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ab/5b/02ed9185eed59d514de5f111a23acf74d891f53f33f9e51cad20faa59eff/laya-0.4.19-py3-none-any.whl", hash = "sha256:885e0d2a48d4493834ac2ebc8542fa2b94a689d79c0f35dd788e61aa7088de19", size = 461640, upload-time = "2026-10-31T07:46:22.598Z" },
 ]
 
 [[package]]

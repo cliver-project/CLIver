@@ -301,6 +301,7 @@ async def test_seedance_preset_resolves_the_ark_task_endpoint() -> None:
 
 def test_all_presets_are_exported() -> None:
     assert set(presets.__all__) == {
+        "bailian_system_one",
         "dashscope_background",
         "dashscope_image",
         "dashscope_video",
@@ -315,6 +316,7 @@ def test_all_presets_are_exported() -> None:
         "qwen",
         "qwen_image",
         "seedance",
+        "typesafe_system_one",
     }
     import cliver_core
 

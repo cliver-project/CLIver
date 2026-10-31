@@ -68,10 +68,12 @@ from cliver_core.errors import CapabilityNotSupported
 from cliver_core.events import EventHandler
 from cliver_core.provider import Provider
 from cliver_core.provider.providers import create_provider
+from cliver_core.provider.providers.system_one import SystemOneProvider
 from cliver_core.util import drop_none
 
-#: Purposes AgentCore can bind models for — ``llm`` is the chat/stream model.
-PURPOSES = ("llm", "embed", "rerank", "image", "audio", "video", "tts", "asr")
+#: Purposes AgentCore can bind models for — ``llm`` is the chat/stream model
+#: and ``system_one`` a decision model for structured predictions.
+PURPOSES = ("llm", "embed", "rerank", "image", "audio", "video", "tts", "asr", "system_one")
 
 # Re-exported for backward compatibility — the exception now lives in
 # :mod:`cliver_core.errors` because the provider layer raises it too.
@@ -117,6 +119,10 @@ class ModelBinding:
     base_url: str = ""
     protocol: str = "openai"
     provider_name: str | None = None
+    provider_class: type[Provider] | None = None
+    # Explicit provider class for purposes whose wire is not one of the
+    # registry protocols (``system_one``).  When set, ``create_provider``
+    # builds this class and a ``default_base_url`` on it applies.
     path: str | None = None
     on_event: EventHandler | None = field(default=None, repr=False, compare=False)
     # Subscriber for the provider this binding builds (sync or async).
@@ -353,6 +359,50 @@ class ModelBinding:
             params={**drop_none(top_k=top_k), **params},
         )
 
+    @classmethod
+    def system_one(
+        cls,
+        *,
+        model: str,
+        api_key: str = "",
+        base_url: str = "",
+        provider: Provider | None = None,
+        path: str | None = None,
+        protocol: str = "system-one",
+        provider_class: type[Provider] | None = None,
+        on_event: EventHandler | None = None,
+        **params: Any,
+    ) -> ModelBinding:
+        """System One decision-model binding — predictions, never text.
+
+        The built provider speaks the shared ``/v1/systemone`` HTTP wire
+        (Jev, Aliyun Bailian, ``laya-serve``), so the binding needs only
+        ``base_url`` and ``api_key`` — no brand registry entry.  Bailian's
+        base URL ends in ``/compatible-mode`` (the workspace id is part of
+        the hostname); the preset factories in :mod:`cliver_core.presets`
+        build those URLs for you.  A local ``laya`` backend is mounted with
+        ``cliver_core.local.local_system_one``, which supplies
+        ``protocol="local"`` and its provider object.
+
+        ``provider_class`` defaults to the shared HTTP wire class for
+        ``protocol="system-one"``; other protocols expect a supplied
+        ``provider`` and select no class of their own.
+        """
+        if provider_class is None and protocol == "system-one":
+            provider_class = SystemOneProvider
+        return cls(
+            model=model,
+            provider=provider,
+            api_key=api_key,
+            base_url=base_url,
+            protocol=protocol,
+            provider_class=provider_class,
+            path=path,
+            on_event=on_event,
+            purpose="system_one",
+            params=dict(params),
+        )
+
     # ── Call parameters ───────────────────────────────────────
 
     def call_defaults(self) -> dict[str, Any]:
@@ -415,6 +465,7 @@ class ModelBinding:
                 api_key=self.api_key,
                 base_url=self.base_url,
                 protocol=self.protocol,
+                provider_class=self.provider_class,
                 provider_name=self.provider_name,
                 on_event=self.on_event,
             )
@@ -455,6 +506,7 @@ class ModelBindings:
     video: ModelBinding | Sequence[ModelBinding] | None = None
     tts: ModelBinding | Sequence[ModelBinding] | None = None
     asr: ModelBinding | Sequence[ModelBinding] | None = None
+    system_one: ModelBinding | Sequence[ModelBinding] | None = None
 
     #: Same-purpose fallbacks, keyed by purpose (empty for single mounts).
     _fallbacks: dict[str, list[ModelBinding]] = field(default_factory=dict, init=False, repr=False, compare=False)

@@ -45,6 +45,7 @@ from cliver_core.bindings import ModelBinding
 from cliver_core.provider.providers import API_KEY_ENV
 
 __all__ = [
+    "bailian_system_one",
     "dashscope_background",
     "dashscope_image",
     "dashscope_video",
@@ -59,6 +60,7 @@ __all__ = [
     "qwen",
     "qwen_image",
     "seedance",
+    "typesafe_system_one",
 ]
 
 
@@ -421,5 +423,59 @@ def dashscope_video(
         path=path,
         duration=duration,
         size=size,
+        **params,
+    )
+
+
+def bailian_system_one(
+    *,
+    workspace_id: str,
+    api_key: str | None = None,
+    model: str = "decision-model-preview",
+    region: str = "cn-beijing",
+    base_url: str = "",
+    path: str | None = "/v1/systemone",
+    **params: Any,
+) -> ModelBinding:
+    """Aliyun Bailian decision model — the Jev-compatible System One wire.
+
+    The workspace id is part of the hostname, so the endpoint is
+    ``https://{workspace_id}.{region}.maas.aliyuncs.com/compatible-mode``
+    and the provider appends ``/v1/systemone``.  Supported regions:
+    ``cn-beijing`` and ``ap-southeast-1`` (Singapore).  The key comes from
+    ``DASHSCOPE_API_KEY`` unless passed explicitly.
+
+    The endpoint path is pinned explicitly on the binding (``path=None``
+    defers to the provider's default).  ``**params`` become default call
+    options (e.g. ``timeout=5``).
+    """
+    return ModelBinding.system_one(
+        model=model,
+        api_key=_api_key(api_key, "dashscope"),
+        base_url=base_url or f"https://{workspace_id}.{region}.maas.aliyuncs.com/compatible-mode",
+        path=path,
+        **params,
+    )
+
+
+def typesafe_system_one(
+    *,
+    api_key: str | None = None,
+    model: str = "jev-latest",
+    base_url: str = "",
+    path: str | None = "/v1/systemone",
+    **params: Any,
+) -> ModelBinding:
+    """TypeSafe Jev — the hosted System One decision model.
+
+    The key comes from ``TYPESAFE_API_KEY`` unless passed explicitly.  The
+    endpoint path is pinned explicitly on the binding (``path=None`` defers
+    to the provider's default).  ``**params`` become default call options.
+    """
+    return ModelBinding.system_one(
+        model=model,
+        api_key=_api_key(api_key, "typesafe"),
+        base_url=base_url or "https://api.typesafe.ai",
+        path=path,
         **params,
     )

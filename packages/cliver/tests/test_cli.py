@@ -41,7 +41,44 @@ class InteractiveStdin(io.StringIO):
 def patch_agent(monkeypatch, fake: FakeAgent) -> None:
     monkeypatch.setattr(cli, "load_environment", lambda *args, **kwargs: None)
     monkeypatch.setattr(cli, "llm_binding_from_env", lambda **kwargs: object())
+    # Never read the developer's ambient System One / selector settings.
+    monkeypatch.setattr(cli, "system_one_binding_from_env", lambda: None)
+    monkeypatch.setattr(cli, "selector_from_env", lambda binding: None)
     monkeypatch.setattr(cli, "build_agent", lambda binding, **kwargs: fake)
+
+
+class FakeLocalProvider:
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+def test_main_wires_system_one_and_closes_the_local_provider(monkeypatch):
+    fake = FakeAgent()
+    provider = FakeLocalProvider()
+    system_one = SimpleNamespace(provider=provider)
+    selector = object()
+    captured: dict = {}
+
+    monkeypatch.setattr(cli, "load_environment", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "llm_binding_from_env", lambda **kwargs: object())
+    monkeypatch.setattr(cli, "system_one_binding_from_env", lambda: system_one)
+    monkeypatch.setattr(cli, "selector_from_env", lambda binding: selector)
+
+    def build_agent(binding, **kwargs):
+        captured.update(kwargs)
+        return fake
+
+    monkeypatch.setattr(cli, "build_agent", build_agent)
+
+    assert cli.main(["hello", "--yes"]) == 0
+
+    assert captured["system_one_binding"] is system_one
+    assert captured["candidate_selector"] is selector
+    assert provider.closed is True
+    assert fake.closed is True
 
 
 def test_main_prints_chat_response(monkeypatch, capsys):

@@ -1,11 +1,13 @@
 """Backend registry.
 
-Two built-in backend names are resolved lazily:
+Three built-in backend names are resolved lazily:
 
 * ``sentence-transformers`` — generic Hugging Face embedding models via
   ``sentence_transformers.SentenceTransformer`` (embedding only);
 * ``flag-embedding`` — FlagEmbedding's ``BGEM3FlagModel`` (embedding) and
-  ``FlagReranker`` (rerank).
+  ``FlagReranker`` (rerank);
+* ``laya`` — System One decision models (``english`` / ``multilingual`` /
+  ``typed-decisions`` checkpoints, or any local fine-tune).
 
 Nothing here imports the backing libraries.  ``resolve_backend`` imports the
 module named in :data:`_BUILTIN` only when the name is requested, and those
@@ -22,7 +24,9 @@ import importlib
 from typing import Any
 
 from cliver_core.local.backends.base import (
+    DecisionBackend,
     EmbeddingBackend,
+    LoadedDecision,
     LoadedEmbedding,
     LoadedRerank,
     LoadSpec,
@@ -31,8 +35,10 @@ from cliver_core.local.backends.base import (
 from cliver_core.local.errors import LocalBackendNotSupportedError, LocalConfigurationError
 
 __all__ = [
+    "DecisionBackend",
     "EmbeddingBackend",
     "LoadSpec",
+    "LoadedDecision",
     "LoadedEmbedding",
     "LoadedRerank",
     "RerankBackend",
@@ -43,6 +49,7 @@ __all__ = [
 _BUILTIN: dict[str, tuple[str, str]] = {
     "sentence-transformers": ("cliver_core.local.backends.sentence_transformers", "SentenceTransformerBackend"),
     "flag-embedding": ("cliver_core.local.backends.flag_embedding", "FlagEmbeddingBackend"),
+    "laya": ("cliver_core.local.backends.laya", "LayaBackend"),
 }
 
 _REGISTERED: dict[str, Any] = {}

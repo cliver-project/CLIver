@@ -4,7 +4,7 @@ import base64
 import inspect
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable, Union
+from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable, Mapping, Union
 
 from pydantic import BaseModel, Field
 
@@ -21,6 +21,7 @@ from cliver_core.tool import CLIverTool
 
 if TYPE_CHECKING:
     from cliver_core.provider.transport import BrandSDK
+    from cliver_core.system_one import Question, SystemOneResult
 
 logger = logging.getLogger(__name__)
 
@@ -929,6 +930,25 @@ class Provider(ABC):
         do not apply here.
         """
         return await self.generate_media(media, model=model, purpose="asr", media=media, language=language, **options)
+
+    # ── System One (structured prediction, shared across providers) ────
+
+    async def system_one(
+        self,
+        *,
+        state: Any,
+        questions: Mapping[str, "Question"],
+        model: str,
+        **options: Any,
+    ) -> "SystemOneResult":
+        """Predict structured answers for *questions* about *state*.
+
+        A System One model returns probabilities (choice / score / noul),
+        never generated text.  The default reports the capability
+        unsupported; :class:`~cliver_core.provider.providers.system_one.SystemOneProvider`
+        speaks the shared ``/v1/systemone`` HTTP wire.
+        """
+        raise CapabilityNotSupported(f"{self.provider_name()} does not support system one predictions")
 
     # ── Rerank / embeddings (generic HTTP, shared across providers) ────
 

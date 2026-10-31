@@ -4,7 +4,7 @@ The factories here mirror the remote per-purpose factories on
 :class:`~cliver_core.bindings.ModelBinding`, but take a **provider object**
 instead of endpoint settings.  A local provider is long-lived and owns its
 loaded model; the binding only carries it, the model id, and generic call
-defaults (``dim`` / ``normalize`` / ``batch_size`` / ``top_k``).
+defaults (``dim`` / ``normalize`` / ``batch_size`` / ``top_k`` / ``max_len``).
 
 Because the provider is caller-supplied, ``ModelBinding.aclose()`` never closes
 it — the application owns the provider lifecycle::
@@ -29,6 +29,7 @@ from cliver_core.bindings import ModelBinding
 from cliver_core.local.providers import (
     LocalEmbeddingProvider,
     LocalRerankProvider,
+    LocalSystemOneProvider,
     _as_bool,
     _as_optional_non_negative_int,
     _as_optional_positive_int,
@@ -36,7 +37,7 @@ from cliver_core.local.providers import (
 )
 from cliver_core.util import drop_none
 
-__all__ = ["local_embed", "local_rerank"]
+__all__ = ["local_embed", "local_rerank", "local_system_one"]
 
 
 def _require_embedding_provider(provider: object) -> LocalEmbeddingProvider:
@@ -53,6 +54,15 @@ def _require_rerank_provider(provider: object) -> LocalRerankProvider:
         raise TypeError(
             "local_rerank() requires a LocalRerankProvider; "
             "construct one with LocalRerankProvider(model=..., backend=...)"
+        )
+    return provider
+
+
+def _require_system_one_provider(provider: object) -> LocalSystemOneProvider:
+    if not isinstance(provider, LocalSystemOneProvider):
+        raise TypeError(
+            "local_system_one() requires a LocalSystemOneProvider; "
+            "construct one with LocalSystemOneProvider(model=..., backend=...)"
         )
     return provider
 
@@ -113,4 +123,27 @@ def local_rerank(
         top_k=_as_optional_non_negative_int(top_k, "top_k"),
         normalize=_as_bool(normalize, "normalize"),
         batch_size=_as_positive_int(batch_size, "batch_size"),
+    )
+
+
+def local_system_one(
+    *,
+    provider: LocalSystemOneProvider,
+    max_len: int | None = None,
+) -> ModelBinding:
+    """Build a System One decision binding around a local provider.
+
+    Args:
+        provider: The long-lived :class:`LocalSystemOneProvider` that owns the
+            loaded model.  The binding never closes it.
+        max_len: Default token budget for the state (positive integer).  The
+            call site may override it; when unset the provider's
+            ``max_length`` applies.
+    """
+    provider = _require_system_one_provider(provider)
+    return ModelBinding.system_one(
+        model=provider.model,
+        provider=provider,
+        protocol="local",
+        **drop_none(max_len=_as_optional_positive_int(max_len, "max_len")),
     )
