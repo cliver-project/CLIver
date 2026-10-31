@@ -29,6 +29,8 @@ streamable-http servers need ``url`` (``headers`` optional).  Optional per
 server: ``enabled`` (``false`` excludes it, with a problem explaining why),
 ``timeout`` (per-call read timeout, seconds), ``startup_timeout`` (connect
 bound; default 60 s stdio / 30 s remote, explicit ``null`` disables),
+``session_pool_size`` (streamable-http only: max concurrent pooled tool
+calls; absent or ``0`` keeps every call ephemeral),
 ``mode`` (``auto`` default; ``legacy`` skips the 2026-07-28 probe),
 ``enabled_tools``/``disabled_tools`` (tool-name filters — every tool schema
 goes to the model).  Strings expand ``${VAR}`` and ``${VAR:-default}`` from
@@ -253,6 +255,15 @@ def _normalize_entry(
             return None
         if headers:
             config["headers"] = headers
+
+    if "session_pool_size" in raw:
+        value = raw["session_pool_size"]
+        if transport != "streamable-http":
+            problem("invalid-entry", "'session_pool_size' is supported for streamable-http only; ignored")
+        elif isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            config["session_pool_size"] = value
+        else:
+            problem("invalid-entry", "'session_pool_size' must be a non-negative integer; ignored")
 
     for key in ("timeout", "startup_timeout"):
         if key in raw:

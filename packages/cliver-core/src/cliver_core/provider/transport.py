@@ -44,8 +44,10 @@ class BrandSDK(Protocol):
 
     Convention: every transport class provides ``label``,
     ``supported_protocols`` and a ``create(*, api_key, base_url, protocol,
-    user_agent, use_bearer_auth)`` classmethod.  ``create`` may take extra
-    keyword arguments (tests use them).
+    user_agent, use_bearer_auth)`` classmethod.  ``create`` may accept the
+    optional ``timeout`` and ``max_retries`` keywords for SDK-client tuning
+    (forwarded only when the binding sets them) and extra keyword arguments
+    of its own (tests use them).
 
     The interface is deliberately primitive — body dicts in, payload dicts
     out — so adapters stay trivial and no intermediate message types creep in

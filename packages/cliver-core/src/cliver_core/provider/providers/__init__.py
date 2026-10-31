@@ -38,6 +38,7 @@ import logging
 
 from cliver_core.events import EventHandler
 from cliver_core.provider import Provider
+from cliver_core.util import validate_client_options
 
 # ── Lazy imports for individual providers ────────────────────
 # Each provider module defines a protocol-provider subclass
@@ -210,6 +211,8 @@ def create_provider(
     user_agent: str | None = None,
     logger: "logging.Logger | None" = None,
     on_event: EventHandler | None = None,
+    client_timeout: float | None = None,
+    client_max_retries: int | None = None,
 ) -> Provider:
     """Create a Provider instance.
 
@@ -244,14 +247,22 @@ def create_provider(
             output from the provider is routed through this logger.
         on_event: Optional inference-event subscriber (sync or async) for
             the constructed provider.
+        client_timeout: SDK-client request timeout in seconds.  ``None``
+            keeps the SDK default.  Only accepted by providers with a
+            builtin SDK transport (``supports_client_options``).
+        client_max_retries: SDK-client retry count.  ``None`` keeps the SDK
+            default.
 
     Returns:
         A Provider instance ready to use.
 
     Raises:
-        ValueError: No explicit *base_url* and no applicable default endpoint.
+        ValueError: No explicit *base_url* and no applicable default endpoint,
+            invalid client options, or client options on a provider class
+            without an SDK transport.
     """
     api_key = api_key or ""
+    client_timeout, client_max_retries = validate_client_options(client_timeout, client_max_retries)
     brand = (provider_name or "").strip().lower()
 
     if provider_class is not None:
@@ -284,4 +295,14 @@ def create_provider(
     }
     if on_event is not None:
         kwargs["on_event"] = on_event
+    if client_timeout is not None or client_max_retries is not None:
+        if not getattr(cls, "supports_client_options", False):
+            raise ValueError(
+                f"client_timeout/client_max_retries are not supported by {cls.__name__}; "
+                "they apply only to providers that build an SDK client (OpenAI/Anthropic protocol providers)."
+            )
+        if client_timeout is not None:
+            kwargs["client_timeout"] = client_timeout
+        if client_max_retries is not None:
+            kwargs["client_max_retries"] = client_max_retries
     return cls(**kwargs)

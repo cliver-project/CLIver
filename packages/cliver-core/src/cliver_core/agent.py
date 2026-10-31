@@ -14,12 +14,12 @@ import inspect
 import logging
 import math
 import time
-from dataclasses import replace
-from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable, Mapping, Sequence
+from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable, Mapping, Sequence, TypeVar
 
 from cliver_core import capabilities
 from cliver_core.bindings import CapabilityNotSupported, ModelBinding, ModelBindings
-from cliver_core.errors import ProviderError
+from cliver_core.errors import ProviderError, RunTimeoutError
 from cliver_core.events import (
     EventHandler,
     ToolEvent,
@@ -49,6 +49,7 @@ from cliver_core.provider import (
     EmbeddingsResult,
     RerankItem,
 )
+from cliver_core.run_ids import resolve_run_id
 from cliver_core.run_state import ToolRunState, tool_run_state_scope
 from cliver_core.skill import Skill, SkillError, SkillManager, SkillNotFoundError
 from cliver_core.skill_tools import (
@@ -63,7 +64,18 @@ from cliver_core.skill_tools import (
     make_find_skills_tool,
     make_read_skill_file_tool,
 )
+from cliver_core.structured import (
+    STRUCTURED_MODES,
+    StructuredMode,
+    StructuredOutputError,
+    StructuredResponse,
+    corrective_message,
+    parse_structured,
+    protocol_options,
+    schema_instruction,
+)
 from cliver_core.system_one import Question, SystemOneResult
+from cliver_core.timeouts import timeout_after
 from cliver_core.tool import CLIverTool, ToolRegistry
 
 if TYPE_CHECKING:
@@ -73,6 +85,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _MAX_CONSECUTIVE_ERRORS = 5
+
+_T = TypeVar("_T")
 
 
 class _Unset:
@@ -87,13 +101,26 @@ class _Unset:
 _UNSET = _Unset()
 
 
-def _validate_tool_timeout(value: float | None) -> float | None:
-    """Normalize a tool timeout: ``None`` (no timeout) or positive seconds."""
+def _validate_timeout(name: str, value: float | None) -> float | None:
+    """Normalize a timeout: ``None`` (no timeout) or positive finite seconds."""
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
-        raise ValueError("tool_timeout must be a positive number of seconds or None")
+        raise ValueError(f"{name} must be a positive number of seconds or None")
     return float(value)
+
+
+@dataclass
+class _PreparedRun:
+    """Per-call preamble output shared by ``chat()`` and ``stream()``."""
+
+    messages: list[CLIverMessage]
+    tools: list[CLIverTool]
+    options: dict[str, Any]
+    execution_policy: ExecutionPolicy | None
+    parallel_tool_calls: bool
+    tool_timeout: float | None
+    skill_state: SkillRunState | None
 
 
 # App seam: narrow the tools advertised for a call to the candidates relevant
@@ -125,11 +152,13 @@ class AgentCore:
         skill_manager, skill_selector, skill_search, skill_summary_limit,
         tool_selector, candidate_selector, permission_callback,
         execution_policy, safety_overrides, max_consecutive_errors,
-        parallel_tool_calls, tool_timeout, on_event, builtin_system_prompt
+        parallel_tool_calls, tool_timeout, run_timeout, on_event,
+        builtin_system_prompt
 
     **Call state** (passed per chat/stream, varies each turn):
         user_input, system_prompt, conversation, extra_tools, mcp_servers,
-        options, skill_dispatch, parallel_tool_calls, tool_timeout
+        options, skill_dispatch, parallel_tool_calls, tool_timeout,
+        run_timeout, run_id
 
     ``system_prompt`` (call-time) is appended to ``builtin_system_prompt``
     (construction-time) — the caller only needs to pass persona / extra context.
@@ -164,6 +193,7 @@ class AgentCore:
         max_consecutive_errors: int = _MAX_CONSECUTIVE_ERRORS,
         parallel_tool_calls: bool = False,
         tool_timeout: float | None = None,
+        run_timeout: float | None = None,
         builtin_system_prompt: str | None = None,
         logger: logging.Logger | None = None,
     ):
@@ -206,10 +236,11 @@ class AgentCore:
         self.safety_overrides = safety_overrides or {}
         self.on_event = on_event
         self.max_consecutive_errors = max_consecutive_errors
-        # Tool execution defaults: sequential unless asked, and no timeout
-        # unless set.  Both have per-call overrides on chat()/stream().
+        # Execution defaults: tools sequential unless asked, no per-tool or
+        # run-level deadline unless set.  All three have per-call overrides.
         self.parallel_tool_calls = parallel_tool_calls
-        self.tool_timeout = _validate_tool_timeout(tool_timeout)
+        self.tool_timeout = _validate_timeout("tool_timeout", tool_timeout)
+        self.run_timeout = _validate_timeout("run_timeout", run_timeout)
         self._builtin_system_prompt = builtin_system_prompt
         self.logger = logger or logging.getLogger(__name__)
         # Lifecycle: a closed agent rejects every public entry point.  The
@@ -238,8 +269,10 @@ class AgentCore:
         execution_policy: ExecutionPolicy | None = None,
         parallel_tool_calls: bool | None = None,
         tool_timeout: float | None | _Unset = _UNSET,
+        run_timeout: float | None | _Unset = _UNSET,
         skill_dispatch: bool = True,
         on_event: EventHandler | None = None,
+        run_id: str | None = None,
     ) -> CLIverResponse:
         """Non-streaming chat.  Returns the final response.
 
@@ -273,6 +306,15 @@ class AgentCore:
         result plus a ``tool.error`` event; the permission prompt is never
         timed.
 
+        ``run_timeout`` is the whole run's wall-clock budget in seconds —
+        it covers the preamble (skill preload, MCP start, selection, message
+        building), every model call, every tool batch, and failover.  Omit
+        it to inherit the constructor default, pass ``None`` to disable it
+        for this call.  Expiry raises :class:`~cliver_core.errors.RunTimeoutError`;
+        caller cancellation still raises ``CancelledError``.  A synchronous
+        tool already running in a worker thread cannot be killed — the run
+        ends and the thread finishes in the background.
+
         ``skill_dispatch`` advertises the skill catalogue, ``FindSkills`` and
         ``ActivateSkill`` for this call (requires a ``skill_manager``);
         :meth:`run_skill` turns it off because the skill is already pinned.
@@ -280,32 +322,80 @@ class AgentCore:
         ``on_event`` is a call-site event handler; it runs after the
         instance handler and receives the same tool events.  Nothing is
         stored on the agent, so concurrent calls can each observe their own.
+
+        ``run_id`` correlates the whole run: the response, every inference
+        event, every tool event, and the terminal stream chunks share it.
+        Omitted → generated once (32-hex); supplied → must be a non-empty
+        string.  ``request_id`` stays the per-model-call id.
         """
         self._ensure_open()
-        await self._preload_skills()
-        effective_parallel = self.parallel_tool_calls if parallel_tool_calls is None else parallel_tool_calls
-        effective_timeout = self.tool_timeout if tool_timeout is _UNSET else _validate_tool_timeout(tool_timeout)
-        skill_state = self._skill_run_state(skill_dispatch)
-        if self.mcp_client:
-            await self.mcp_client.start()
-        pool, candidate_skills = await self._candidate_pool(extra_tools, mcp_servers, skill_state, user_input)
-        all_tools = await self._finalize_tools(pool, tool_filter, skill_state, user_input)
-        catalog = await self._skill_catalog_text(skill_state, user_input, candidate_skills)
-        if catalog:
-            system_prompt = "\n\n".join(part for part in (system_prompt, catalog) if part)
-        messages = self._build_messages(user_input, system_prompt, conversation, media)
-        opts = options or {}
-        effective = execution_policy if execution_policy is not None else self.execution_policy
+        run_id = resolve_run_id(run_id)
+        timeout = self._effective_run_timeout(run_timeout)
+        return await self._with_run_deadline(
+            self._chat_impl(
+                user_input,
+                system_prompt=system_prompt,
+                conversation=conversation,
+                media=media,
+                extra_tools=extra_tools,
+                mcp_servers=mcp_servers,
+                tool_filter=tool_filter,
+                options=options,
+                max_iterations=max_iterations,
+                execution_policy=execution_policy,
+                parallel_tool_calls=parallel_tool_calls,
+                tool_timeout=tool_timeout,
+                skill_dispatch=skill_dispatch,
+                on_event=on_event,
+                run_id=run_id,
+            ),
+            timeout,
+            run_id,
+        )
 
+    async def _chat_impl(
+        self,
+        user_input: str,
+        *,
+        system_prompt: str | None = None,
+        conversation: list[CLIverMessage] | None = None,
+        media: list[MediaContent] | None = None,
+        extra_tools: list[CLIverTool] | None = None,
+        mcp_servers: list[str] | None = None,
+        tool_filter: Callable[[CLIverTool], bool] | None = None,
+        options: dict[str, Any] | None = None,
+        max_iterations: int = 50,
+        execution_policy: ExecutionPolicy | None = None,
+        parallel_tool_calls: bool | None = None,
+        tool_timeout: float | None | _Unset = _UNSET,
+        skill_dispatch: bool = True,
+        on_event: EventHandler | None = None,
+        run_id: str | None = None,
+    ) -> CLIverResponse:
+        prepared = await self._prepare_run(
+            user_input,
+            system_prompt=system_prompt,
+            conversation=conversation,
+            media=media,
+            extra_tools=extra_tools,
+            mcp_servers=mcp_servers,
+            tool_filter=tool_filter,
+            options=options,
+            execution_policy=execution_policy,
+            parallel_tool_calls=parallel_tool_calls,
+            tool_timeout=tool_timeout,
+            skill_dispatch=skill_dispatch,
+        )
         return await self._run_loop(
-            messages,
-            all_tools,
-            opts,
+            prepared.messages,
+            prepared.tools,
+            prepared.options,
             max_iterations,
-            execution_policy=effective,
-            parallel_tool_calls=effective_parallel,
-            tool_timeout=effective_timeout,
-            skill_state=skill_state,
+            execution_policy=prepared.execution_policy,
+            parallel_tool_calls=prepared.parallel_tool_calls,
+            tool_timeout=prepared.tool_timeout,
+            skill_state=prepared.skill_state,
+            run_id=run_id,
             **_on_event_kwargs(on_event),
         )
 
@@ -324,8 +414,10 @@ class AgentCore:
         execution_policy: ExecutionPolicy | None = None,
         parallel_tool_calls: bool | None = None,
         tool_timeout: float | None | _Unset = _UNSET,
+        run_timeout: float | None | _Unset = _UNSET,
         skill_dispatch: bool = True,
         on_event: EventHandler | None = None,
+        run_id: str | None = None,
     ) -> AsyncIterator[CLIverMessageChunk]:
         """Streaming chat.  Yields chunks, executes tools between iterations.
 
@@ -333,37 +425,280 @@ class AgentCore:
         call-site over.  ``execution_policy`` is ambient around tool
         execution, exactly as in :meth:`chat` — the scope never spans yields,
         so a consumer abandoning the stream leaks nothing.
-        ``parallel_tool_calls``, ``tool_timeout``, ``skill_dispatch`` and
-        ``on_event`` match :meth:`chat`.
+        ``parallel_tool_calls``, ``tool_timeout``, ``run_timeout``,
+        ``skill_dispatch`` and ``on_event`` match :meth:`chat`.  ``run_id``
+        follows :meth:`chat`'s contract, with one streaming nuance: ordinary
+        delta chunks leave it unset; the terminal ``__llm_trace__`` and
+        stop/iteration-limit chunks carry it.  Validation runs on the first
+        pull, like the rest of the generator body.
+
+        The run deadline starts at the first pull; no timer spans a yield.
+        Each pull is bounded by the remaining budget, so time a consumer
+        spends parked between pulls counts toward the wall clock.  On
+        expiry the inner generators are closed and ``RunTimeoutError`` is
+        raised.
         """
         self._ensure_open()
-        await self._preload_skills()
-        effective_parallel = self.parallel_tool_calls if parallel_tool_calls is None else parallel_tool_calls
-        effective_timeout = self.tool_timeout if tool_timeout is _UNSET else _validate_tool_timeout(tool_timeout)
-        skill_state = self._skill_run_state(skill_dispatch)
-        if self.mcp_client:
-            await self.mcp_client.start()
-        pool, candidate_skills = await self._candidate_pool(extra_tools, mcp_servers, skill_state, user_input)
-        all_tools = await self._finalize_tools(pool, tool_filter, skill_state, user_input)
-        catalog = await self._skill_catalog_text(skill_state, user_input, candidate_skills)
-        if catalog:
-            system_prompt = "\n\n".join(part for part in (system_prompt, catalog) if part)
-        messages = self._build_messages(user_input, system_prompt, conversation, media)
-        opts = options or {}
-        effective = execution_policy if execution_policy is not None else self.execution_policy
+        run_id = resolve_run_id(run_id)
+        timeout = self._effective_run_timeout(run_timeout)
+        inner = self._stream_impl(
+            user_input,
+            system_prompt=system_prompt,
+            conversation=conversation,
+            media=media,
+            extra_tools=extra_tools,
+            mcp_servers=mcp_servers,
+            tool_filter=tool_filter,
+            options=options,
+            max_iterations=max_iterations,
+            execution_policy=execution_policy,
+            parallel_tool_calls=parallel_tool_calls,
+            tool_timeout=tool_timeout,
+            skill_dispatch=skill_dispatch,
+            on_event=on_event,
+            run_id=run_id,
+        )
+        try:
+            if timeout is None:
+                async for chunk in inner:
+                    yield chunk
+                return
 
-        async for chunk in self._run_stream_loop(
-            messages,
-            all_tools,
-            opts,
+            loop = asyncio.get_running_loop()
+            deadline_at = loop.time() + timeout
+            while True:
+                remaining = deadline_at - loop.time()
+                if remaining <= 0:
+                    raise RunTimeoutError(timeout, run_id)
+                try:
+                    async with timeout_after(remaining, error_factory=lambda: RunTimeoutError(timeout, run_id)):
+                        chunk = await anext(inner)
+                except StopAsyncIteration:
+                    return
+                yield chunk
+        finally:
+            await inner.aclose()
+
+    async def _stream_impl(
+        self,
+        user_input: str,
+        *,
+        system_prompt: str | None = None,
+        conversation: list[CLIverMessage] | None = None,
+        media: list[MediaContent] | None = None,
+        extra_tools: list[CLIverTool] | None = None,
+        mcp_servers: list[str] | None = None,
+        tool_filter: Callable[[CLIverTool], bool] | None = None,
+        options: dict[str, Any] | None = None,
+        max_iterations: int = 50,
+        execution_policy: ExecutionPolicy | None = None,
+        parallel_tool_calls: bool | None = None,
+        tool_timeout: float | None | _Unset = _UNSET,
+        skill_dispatch: bool = True,
+        on_event: EventHandler | None = None,
+        run_id: str | None = None,
+    ) -> AsyncIterator[CLIverMessageChunk]:
+        prepared = await self._prepare_run(
+            user_input,
+            system_prompt=system_prompt,
+            conversation=conversation,
+            media=media,
+            extra_tools=extra_tools,
+            mcp_servers=mcp_servers,
+            tool_filter=tool_filter,
+            options=options,
+            execution_policy=execution_policy,
+            parallel_tool_calls=parallel_tool_calls,
+            tool_timeout=tool_timeout,
+            skill_dispatch=skill_dispatch,
+        )
+        iterator = self._run_stream_loop(
+            prepared.messages,
+            prepared.tools,
+            prepared.options,
             max_iterations,
-            execution_policy=effective,
-            parallel_tool_calls=effective_parallel,
-            tool_timeout=effective_timeout,
-            skill_state=skill_state,
+            execution_policy=prepared.execution_policy,
+            parallel_tool_calls=prepared.parallel_tool_calls,
+            tool_timeout=prepared.tool_timeout,
+            skill_state=prepared.skill_state,
+            run_id=run_id,
             **_on_event_kwargs(on_event),
-        ):
-            yield chunk
+        )
+        try:
+            async for chunk in iterator:
+                yield chunk
+        finally:
+            await iterator.aclose()
+
+    async def chat_structured(
+        self,
+        user_input: str,
+        *,
+        schema: Any,
+        mode: StructuredMode = "auto",
+        retries: int = 1,
+        system_prompt: str | None = None,
+        conversation: list[CLIverMessage] | None = None,
+        media: list[MediaContent] | None = None,
+        extra_tools: list[CLIverTool] | None = None,
+        mcp_servers: list[str] | None = None,
+        tool_filter: Callable[[CLIverTool], bool] | None = None,
+        options: dict[str, Any] | None = None,
+        max_iterations: int = 50,
+        execution_policy: ExecutionPolicy | None = None,
+        parallel_tool_calls: bool | None = None,
+        tool_timeout: float | None | _Unset = _UNSET,
+        run_timeout: float | None | _Unset = _UNSET,
+        skill_dispatch: bool = True,
+        on_event: EventHandler | None = None,
+        run_id: str | None = None,
+    ) -> StructuredResponse:
+        """Chat whose final answer must conform to *schema*.
+
+        ``schema`` is a pydantic model class (the value comes back validated)
+        or a JSON-Schema dict (the value is the parsed dict).  A schema
+        instruction is always appended to the single system message — the
+        model is asked for one bare JSON object — and ``mode`` adds the
+        protocol's wire option on top:
+
+        * ``auto`` — the broadest option: OpenAI-protocol ``response_format
+          = {"type": "json_object"}``; Anthropic-protocol ``output_config``
+          with the JSON schema.
+        * ``json_schema`` — the strict schema option where the protocol has
+          one (OpenAI ``json_schema`` block, Anthropic ``output_config``).
+        * ``json_object`` — JSON mode only; prompt fallback on Anthropic.
+        * ``prompt`` — no wire option at all: instruction and validation only.
+
+        Options the caller sets in ``options`` always win over the mapping.
+        The protocol is read from the primary ``llm`` binding — if fallbacks
+        speak a different protocol, pass ``mode="prompt"`` or explicit
+        options.  The wire mapping is protocol-level; no brand branches.
+
+        A failed parse/validation retries up to ``retries`` more times: the
+        retry conversation carries the original user turn (media included)
+        and the bad assistant answer, followed by a corrective user turn.
+        The caller's ``conversation`` list is never mutated.  ``usage_total``
+        sums every attempt; ``run_id`` is generated once and shared by every
+        attempt's events.  ``run_timeout`` bounds the whole structured run —
+        retries on one clock — not each attempt.  When every attempt fails,
+        :class:`StructuredOutputError` carries the diagnostics.
+
+        Every other parameter matches :meth:`chat`.
+        """
+        self._ensure_open()
+        if mode not in STRUCTURED_MODES:
+            raise ValueError(f"mode must be one of {list(STRUCTURED_MODES)}, got {mode!r}")
+        if isinstance(retries, bool) or not isinstance(retries, int) or retries < 0:
+            raise ValueError("retries must be a non-negative integer")
+        run_id = resolve_run_id(run_id)
+        timeout = self._effective_run_timeout(run_timeout)
+        return await self._with_run_deadline(
+            self._chat_structured_impl(
+                user_input,
+                schema=schema,
+                mode=mode,
+                retries=retries,
+                system_prompt=system_prompt,
+                conversation=conversation,
+                media=media,
+                extra_tools=extra_tools,
+                mcp_servers=mcp_servers,
+                tool_filter=tool_filter,
+                options=options,
+                max_iterations=max_iterations,
+                execution_policy=execution_policy,
+                parallel_tool_calls=parallel_tool_calls,
+                tool_timeout=tool_timeout,
+                skill_dispatch=skill_dispatch,
+                on_event=on_event,
+                run_id=run_id,
+            ),
+            timeout,
+            run_id,
+        )
+
+    async def _chat_structured_impl(
+        self,
+        user_input: str,
+        *,
+        schema: Any,
+        mode: StructuredMode,
+        retries: int,
+        system_prompt: str | None,
+        conversation: list[CLIverMessage] | None,
+        media: list[MediaContent] | None,
+        extra_tools: list[CLIverTool] | None,
+        mcp_servers: list[str] | None,
+        tool_filter: Callable[[CLIverTool], bool] | None,
+        options: dict[str, Any] | None,
+        max_iterations: int,
+        execution_policy: ExecutionPolicy | None,
+        parallel_tool_calls: bool | None,
+        tool_timeout: float | None | _Unset,
+        skill_dispatch: bool,
+        on_event: EventHandler | None,
+        run_id: str,
+    ) -> StructuredResponse:
+        instructed_system = "\n\n".join(part for part in (system_prompt, schema_instruction(schema)) if part)
+        attempt_options = protocol_options(self.llm.protocol, schema=schema, mode=mode, options=options)
+        # The original user turn, media embedded — reused when a retry has to
+        # replay it into the conversation.  Built once; chat() builds its own
+        # copy for the attempt that sends it directly.
+        original_user = self._build_messages(user_input, None, None, media)[-1]
+        history: list[CLIverMessage] = list(conversation or [])
+        next_input = user_input
+        next_media = media
+        usage_total: UsageInfo | None = None
+        last_content: str | None = None
+        for attempt in range(1, retries + 2):
+            response = await self.chat(
+                next_input,
+                system_prompt=instructed_system,
+                conversation=history,
+                media=next_media,
+                extra_tools=extra_tools,
+                mcp_servers=mcp_servers,
+                tool_filter=tool_filter,
+                options=attempt_options,
+                max_iterations=max_iterations,
+                execution_policy=execution_policy,
+                parallel_tool_calls=parallel_tool_calls,
+                tool_timeout=tool_timeout,
+                run_timeout=None,  # the structured run owns the clock
+                skill_dispatch=skill_dispatch,
+                on_event=on_event,
+                run_id=run_id,
+            )
+            usage_total = _merge_usage(usage_total, response.usage_total)
+            content = response.message.content if isinstance(response.message.content, str) else None
+            last_content = content
+            try:
+                value = parse_structured(content, schema)
+            except ValueError as exc:
+                last_error = str(exc)
+                if attempt == retries + 1:
+                    raise StructuredOutputError(
+                        f"Structured output failed after {attempt} attempt(s): {last_error}",
+                        attempts=attempt,
+                        last_error=last_error,
+                        raw_content=last_content,
+                        run_id=run_id,
+                        response=response,
+                    ) from exc
+                # Replay the sent turns into the history for the next attempt.
+                history.append(original_user if attempt == 1 else CLIverMessage(role="user", content=next_input))
+                history.append(CLIverMessage(role="assistant", content=content or ""))
+                next_input = corrective_message(last_error)
+                next_media = None
+                continue
+            return StructuredResponse(
+                value=value,
+                response=response,
+                attempts=attempt,
+                usage_total=usage_total,
+                run_id=run_id,
+            )
+        raise AssertionError("unreachable — every loop path returns or raises")  # pragma: no cover
 
     async def run_skill(
         self,
@@ -380,7 +715,9 @@ class AgentCore:
         execution_policy: ExecutionPolicy | None = None,
         parallel_tool_calls: bool | None = None,
         tool_timeout: float | None | _Unset = _UNSET,
+        run_timeout: float | None | _Unset = _UNSET,
         on_event: EventHandler | None = None,
+        run_id: str | None = None,
     ) -> CLIverResponse:
         """Run one skill: pin its instructions, restrict tools, run the loop.
 
@@ -401,8 +738,57 @@ class AgentCore:
         is reused with ``cwd`` pinned to the skill's directory (so relative
         paths and bundled scripts resolve inside the skill); no agent
         policy → no ambient policy at all.
+
+        ``run_id`` is resolved once here and forwarded to the inner
+        :meth:`chat`, so the whole skill run — preamble included — shares one
+        id.
+
+        ``run_timeout`` bounds the whole skill run — skill loading,
+        allowlist preflight and the delegated chat — on one clock; the inner
+        :meth:`chat` inherits that deadline instead of starting its own.
         """
         self._ensure_open()
+        run_id = resolve_run_id(run_id)
+        timeout = self._effective_run_timeout(run_timeout)
+        return await self._with_run_deadline(
+            self._run_skill_impl(
+                skill,
+                user_input,
+                system_prompt=system_prompt,
+                conversation=conversation,
+                media=media,
+                extra_tools=extra_tools,
+                mcp_servers=mcp_servers,
+                options=options,
+                max_iterations=max_iterations,
+                execution_policy=execution_policy,
+                parallel_tool_calls=parallel_tool_calls,
+                tool_timeout=tool_timeout,
+                on_event=on_event,
+                run_id=run_id,
+            ),
+            timeout,
+            run_id,
+        )
+
+    async def _run_skill_impl(
+        self,
+        skill: Skill | str,
+        user_input: str,
+        *,
+        system_prompt: str | None = None,
+        conversation: list[CLIverMessage] | None = None,
+        media: list[MediaContent] | None = None,
+        extra_tools: list[CLIverTool] | None = None,
+        mcp_servers: list[str] | None = None,
+        options: dict[str, Any] | None = None,
+        max_iterations: int = 50,
+        execution_policy: ExecutionPolicy | None = None,
+        parallel_tool_calls: bool | None = None,
+        tool_timeout: float | None | _Unset = _UNSET,
+        on_event: EventHandler | None = None,
+        run_id: str | None = None,
+    ) -> CLIverResponse:
         await self._preload_skills()
         if isinstance(skill, str):
             manager = self.skill_manager
@@ -467,7 +853,9 @@ class AgentCore:
             execution_policy=effective_policy,
             parallel_tool_calls=parallel_tool_calls,
             tool_timeout=tool_timeout,
+            run_timeout=None,
             skill_dispatch=False,
+            run_id=run_id,
             **_on_event_kwargs(on_event),
         )
 
@@ -658,15 +1046,17 @@ class AgentCore:
         a retryable provider failure moves to the next binding of the same
         purpose.
         """
-        return await self._typed_with_failover(
-            "system_one",
-            lambda binding: binding.get_provider().system_one(
-                state=state,
-                questions=questions,
-                model=binding.model,
-                **{**binding.call_defaults(), **options},
-            ),
-        )
+
+        async def call(binding: ModelBinding) -> Any:
+            async with binding.lease_provider() as provider:
+                return await provider.system_one(
+                    state=state,
+                    questions=questions,
+                    model=binding.model,
+                    **{**binding.call_defaults(), **options},
+                )
+
+        return await self._typed_with_failover("system_one", call)
 
     # ── Embedded API plumbing ─────────────────────────────────
 
@@ -750,6 +1140,19 @@ class AgentCore:
 
     # ── Lifecycle ─────────────────────────────────────────────
 
+    async def arefresh_credentials(self) -> None:
+        """Rotate the credentials of every binding on this agent.
+
+        Delegates to :meth:`ModelBindings.arefresh` — primary and fallback
+        bindings across every purpose.  Rotation is explicit: nothing refreshes
+        automatically on a 401; the application decides when (TTL timer, or
+        catch :class:`ProviderError` and call this).  In-flight calls finish on
+        the provider they captured; replaced providers close at
+        :meth:`aclose`.
+        """
+        self._ensure_open()
+        await self.bindings.arefresh()
+
     async def aclose(self) -> None:
         """Release resources — close the providers the bindings built.
 
@@ -787,6 +1190,65 @@ class AgentCore:
         if self.skill_manager is not None:
             await self.skill_manager.apreload()
 
+    async def _prepare_run(
+        self,
+        user_input: str,
+        *,
+        system_prompt: str | None,
+        conversation: list[CLIverMessage] | None,
+        media: list[MediaContent] | None,
+        extra_tools: list[CLIverTool] | None,
+        mcp_servers: list[str] | None,
+        tool_filter: Callable[[CLIverTool], bool] | None,
+        options: dict[str, Any] | None,
+        execution_policy: ExecutionPolicy | None,
+        parallel_tool_calls: bool | None,
+        tool_timeout: float | None | _Unset,
+        skill_dispatch: bool,
+    ) -> _PreparedRun:
+        """The per-call preamble shared by ``chat()`` and ``stream()``.
+
+        Runs inside the run deadline, so skill preloading, MCP startup,
+        candidate selection, and message building are all bounded.
+        """
+        await self._preload_skills()
+        effective_parallel = self.parallel_tool_calls if parallel_tool_calls is None else parallel_tool_calls
+        effective_timeout = (
+            self.tool_timeout if tool_timeout is _UNSET else _validate_timeout("tool_timeout", tool_timeout)
+        )
+        skill_state = self._skill_run_state(skill_dispatch)
+        if self.mcp_client:
+            await self.mcp_client.start()
+        pool, candidate_skills = await self._candidate_pool(extra_tools, mcp_servers, skill_state, user_input)
+        all_tools = await self._finalize_tools(pool, tool_filter, skill_state, user_input)
+        catalog = await self._skill_catalog_text(skill_state, user_input, candidate_skills)
+        if catalog:
+            system_prompt = "\n\n".join(part for part in (system_prompt, catalog) if part)
+        messages = self._build_messages(user_input, system_prompt, conversation, media)
+        effective = execution_policy if execution_policy is not None else self.execution_policy
+        return _PreparedRun(
+            messages=messages,
+            tools=all_tools,
+            options=options or {},
+            execution_policy=effective,
+            parallel_tool_calls=effective_parallel,
+            tool_timeout=effective_timeout,
+            skill_state=skill_state,
+        )
+
+    def _effective_run_timeout(self, run_timeout: float | None | _Unset) -> float | None:
+        """Per-call override for the run deadline (``_UNSET`` inherits)."""
+        if run_timeout is _UNSET:
+            return self.run_timeout
+        return _validate_timeout("run_timeout", run_timeout)
+
+    async def _with_run_deadline(self, awaitable: Awaitable[_T], timeout: float | None, run_id: str) -> _T:
+        """Await *awaitable* under the run's wall-clock budget."""
+        if timeout is None:
+            return await awaitable
+        async with timeout_after(timeout, error_factory=lambda: RunTimeoutError(timeout, run_id)):
+            return await awaitable
+
     # ── Re-Act Loop (non-streaming) ───────────────────────────
 
     async def _run_loop(
@@ -800,6 +1262,7 @@ class AgentCore:
         tool_timeout: float | None = None,
         skill_state: SkillRunState | None = None,
         on_event: EventHandler | None = None,
+        run_id: str | None = None,
     ) -> CLIverResponse:
         consecutive_errors = 0
         consecutive_denials = 0
@@ -817,15 +1280,18 @@ class AgentCore:
         for _iteration in range(max_iterations):
             while True:
                 binding = candidates[active]
-                provider = binding.get_provider()
                 request = CLIverRequest(
                     messages=messages,
                     tools=tools or None,
                     model=binding.model,
                     options={**binding.params, **options},
+                    run_id=run_id,
                 )
                 try:
-                    response = await provider.chat(request)
+                    # The lease keeps a rotated-out provider open for exactly
+                    # the duration of this model call.
+                    async with binding.lease_provider() as provider:
+                        response = await provider.chat(request)
                 except ProviderError as exc:
                     if exc.retryable and active + 1 < len(candidates):
                         active += 1
@@ -849,7 +1315,7 @@ class AgentCore:
 
             if not msg.tool_calls:
                 msg.trace = diagnostic_trace
-                return response.model_copy(update={"usage_total": total_usage})
+                return response.model_copy(update={"usage_total": total_usage, "run_id": run_id})
 
             messages.append(msg)
             # The policy is ambient around tool execution only — tools are
@@ -865,6 +1331,7 @@ class AgentCore:
                     tools,
                     parallel=parallel_tool_calls,
                     tool_timeout=tool_timeout,
+                    run_id=run_id,
                     **_on_event_kwargs(on_event),
                 )
             tools = self._narrow_tools_for_active_skill(tools, skill_state)
@@ -878,6 +1345,7 @@ class AgentCore:
                     ),
                     usage=response.usage,
                     usage_total=total_usage,
+                    run_id=run_id,
                 )
 
         return CLIverResponse(
@@ -887,6 +1355,7 @@ class AgentCore:
                 trace=diagnostic_trace,
             ),
             usage_total=total_usage,
+            run_id=run_id,
         )
 
     # ── Re-Act Loop (streaming) ───────────────────────────────
@@ -902,6 +1371,7 @@ class AgentCore:
         tool_timeout: float | None = None,
         skill_state: SkillRunState | None = None,
         on_event: EventHandler | None = None,
+        run_id: str | None = None,
     ) -> AsyncIterator[CLIverMessageChunk]:
         import json
 
@@ -919,36 +1389,50 @@ class AgentCore:
         for _iteration in range(max_iterations):
             while True:
                 binding = candidates[active]
-                provider = binding.get_provider()
                 request = CLIverRequest(
                     messages=messages,
                     tools=tools or None,
                     model=binding.model,
                     options={**binding.params, **options},
+                    run_id=run_id,
                 )
 
                 final_native: dict[str, Any] | None = None
                 final_usage: UsageInfo | None = None
                 emitted = False
-                try:
-                    async for raw in provider.stream(request):
-                        if raw.native is not None:
-                            # Terminal chunk — the SDK-aggregated native assistant
-                            # message; consumed here, not forwarded.
-                            final_native = raw.native
-                            final_usage = raw.usage
+                stream_iter: AsyncIterator[CLIverMessageChunk] | None = None
+                # The lease spans the whole pull sequence, yields included:
+                # the provider (and its HTTP stream) is in use until the
+                # iterator is closed, even while the consumer is parked.
+                async with binding.lease_provider() as provider:
+                    try:
+                        stream_iter = provider.stream(request)
+                        async for raw in stream_iter:
+                            if raw.native is not None:
+                                # Terminal chunk — the SDK-aggregated native assistant
+                                # message; consumed here, not forwarded.
+                                final_native = raw.native
+                                final_usage = raw.usage
+                                continue
+                            if raw.content or raw.vendor_ext:
+                                emitted = True
+                                yield CLIverMessageChunk(
+                                    content=raw.content,
+                                    vendor_ext=raw.vendor_ext,
+                                )
+                    except ProviderError as exc:
+                        if exc.retryable and not emitted and active + 1 < len(candidates):
+                            active += 1
                             continue
-                        if raw.content or raw.vendor_ext:
-                            emitted = True
-                            yield CLIverMessageChunk(
-                                content=raw.content,
-                                vendor_ext=raw.vendor_ext,
-                            )
-                except ProviderError as exc:
-                    if exc.retryable and not emitted and active + 1 < len(candidates):
-                        active += 1
-                        continue
-                    raise
+                        raise
+                    finally:
+                        # Close the provider iterator on every path — normal end,
+                        # failover, run deadline, or consumer abandonment — so the
+                        # underlying HTTP stream is released before unwinding.
+                        if stream_iter is not None:
+                            aclose = getattr(stream_iter, "aclose", None)
+                            if aclose is not None:
+                                await aclose()
                 break
 
             if final_native is None:
@@ -987,6 +1471,7 @@ class AgentCore:
             if not tool_calls:
                 # Final answer — emit trace as a sentinel chunk
                 yield CLIverMessageChunk(
+                    run_id=run_id,
                     vendor_ext={"__llm_trace__": json.dumps(diagnostic_trace)},
                 )
                 return
@@ -1003,23 +1488,30 @@ class AgentCore:
                     consecutive_errors,
                     consecutive_denials,
                     tools,
+                    parallel=parallel_tool_calls,
+                    tool_timeout=tool_timeout,
+                    run_id=run_id,
                     **_on_event_kwargs(on_event),
                 )
             tools = self._narrow_tools_for_active_skill(tools, skill_state)
             if stop:
                 yield CLIverMessageChunk(
+                    run_id=run_id,
                     content="Tool calls failed repeatedly. Please check the tool arguments or try a different "
                     "approach.",
                 )
                 yield CLIverMessageChunk(
+                    run_id=run_id,
                     vendor_ext={"__llm_trace__": json.dumps(diagnostic_trace)},
                 )
                 return
 
         yield CLIverMessageChunk(
+            run_id=run_id,
             content="Reached maximum iterations without a final answer.",
         )
         yield CLIverMessageChunk(
+            run_id=run_id,
             vendor_ext={"__llm_trace__": json.dumps(diagnostic_trace)},
         )
 
@@ -1055,6 +1547,7 @@ class AgentCore:
         parallel: bool = False,
         tool_timeout: float | None = None,
         on_event: EventHandler | None = None,
+        run_id: str | None = None,
     ) -> tuple[int, int, bool]:
         """Execute a batch of tool calls and append results to messages.
 
@@ -1081,7 +1574,9 @@ class AgentCore:
         by_name = {t.name: t for t in tools}
 
         if parallel and len(tool_calls) > 1:
-            results = await self._execute_tool_calls_parallel(tool_calls, by_name, tool_timeout, on_event)
+            results = await self._execute_tool_calls_parallel(
+                tool_calls, by_name, tool_timeout, on_event, run_id=run_id
+            )
             for tc, result in zip(tool_calls, results, strict=True):
                 messages.append(
                     CLIverMessage(
@@ -1103,6 +1598,7 @@ class AgentCore:
                 by_name.get(tc.name),
                 tool_timeout=tool_timeout,
                 on_event=on_event,
+                run_id=run_id,
             )
             messages.append(
                 CLIverMessage(
@@ -1125,6 +1621,8 @@ class AgentCore:
         by_name: dict[str, CLIverTool],
         tool_timeout: float | None,
         on_event: EventHandler | None,
+        *,
+        run_id: str | None = None,
     ) -> list[list[dict]]:
         """Check permissions in order, then run the approved bodies at once.
 
@@ -1142,6 +1640,7 @@ class AgentCore:
             await self._emit(
                 ToolEvent(
                     event=ToolEventType.START,
+                    run_id=run_id,
                     tool_name=tc.name,
                     tool_call_id=tc.id,
                     args=tc.args,
@@ -1149,7 +1648,7 @@ class AgentCore:
                 on_event,
             )
             if tool is None:
-                results[index] = await self._reject_unavailable(tc, on_event=on_event, start=start)
+                results[index] = await self._reject_unavailable(tc, on_event=on_event, start=start, run_id=run_id)
                 continue
             denial = await self._check_permission(tc, tool)
             if denial is None:
@@ -1158,6 +1657,7 @@ class AgentCore:
             await self._emit(
                 ToolEvent(
                     event=ToolEventType.PERMISSION_DENIED,
+                    run_id=run_id,
                     tool_name=tc.name,
                     tool_call_id=tc.id,
                     args=tc.args,
@@ -1168,6 +1668,7 @@ class AgentCore:
             await self._emit(
                 ToolEvent(
                     event=ToolEventType.END,
+                    run_id=run_id,
                     tool_name=tc.name,
                     tool_call_id=tc.id,
                     result=_truncate(self._format_tool_result(denial), 500),
@@ -1184,6 +1685,7 @@ class AgentCore:
                 tool_timeout=tool_timeout,
                 on_event=on_event,
                 start=time.monotonic(),
+                run_id=run_id,
             )
 
         if launches:
@@ -1336,6 +1838,7 @@ class AgentCore:
         *,
         tool_timeout: float | None = None,
         on_event: EventHandler | None = None,
+        run_id: str | None = None,
     ) -> list[dict]:
         """Execute a single tool call. Emits TOOL_START, TOOL_PERMISSION_DENIED,
         TOOL_END, or TOOL_ERROR events.
@@ -1351,6 +1854,7 @@ class AgentCore:
         await self._emit(
             ToolEvent(
                 event=ToolEventType.START,
+                run_id=run_id,
                 tool_name=tc.name,
                 tool_call_id=tc.id,
                 args=tc.args,
@@ -1358,12 +1862,13 @@ class AgentCore:
             on_event,
         )
         if tool is None:
-            return await self._reject_unavailable(tc, on_event=on_event, start=start)
+            return await self._reject_unavailable(tc, on_event=on_event, start=start, run_id=run_id)
         denial = await self._check_permission(tc, tool)
         if denial is not None:
             await self._emit(
                 ToolEvent(
                     event=ToolEventType.PERMISSION_DENIED,
+                    run_id=run_id,
                     tool_name=tc.name,
                     tool_call_id=tc.id,
                     args=tc.args,
@@ -1374,6 +1879,7 @@ class AgentCore:
             await self._emit(
                 ToolEvent(
                     event=ToolEventType.END,
+                    run_id=run_id,
                     tool_name=tc.name,
                     tool_call_id=tc.id,
                     result=_truncate(self._format_tool_result(denial), 500),
@@ -1388,6 +1894,7 @@ class AgentCore:
             tool_timeout=tool_timeout,
             on_event=on_event,
             start=start,
+            run_id=run_id,
         )
 
     async def _execute_tool_body(
@@ -1398,6 +1905,7 @@ class AgentCore:
         tool_timeout: float | None,
         on_event: EventHandler | None,
         start: float,
+        run_id: str | None = None,
     ) -> list[dict]:
         """Run one approved call (START already emitted) and emit END/ERROR.
 
@@ -1415,6 +1923,7 @@ class AgentCore:
             await self._emit(
                 ToolEvent(
                     event=ToolEventType.ERROR,
+                    run_id=run_id,
                     tool_name=tc.name,
                     tool_call_id=tc.id,
                     error=str(e),
@@ -1426,6 +1935,7 @@ class AgentCore:
         await self._emit(
             ToolEvent(
                 event=ToolEventType.END,
+                run_id=run_id,
                 tool_name=tc.name,
                 tool_call_id=tc.id,
                 result=_truncate(self._format_tool_result(result), 500),
@@ -1479,6 +1989,7 @@ class AgentCore:
         *,
         on_event: EventHandler | None,
         start: float,
+        run_id: str | None = None,
     ) -> list[dict]:
         """Return the normal error result for an unadvertised tool call."""
         message = f"Tool '{tc.name}' is not available for this call"
@@ -1486,6 +1997,7 @@ class AgentCore:
         await self._emit(
             ToolEvent(
                 event=ToolEventType.ERROR,
+                run_id=run_id,
                 tool_name=tc.name,
                 tool_call_id=tc.id,
                 error=message,

@@ -51,6 +51,7 @@ class OpenAIProvider(Provider):
     protocol = "openai"
     brand = "openai"
     default_base_url = "https://api.openai.com/v1"
+    supports_client_options = True
 
     def __init__(
         self,
@@ -61,6 +62,8 @@ class OpenAIProvider(Provider):
         logger: "logging.Logger | None" = None,
         on_event: EventHandler | None = None,
         transport: BrandSDK | None = None,
+        client_timeout: float | None = None,
+        client_max_retries: int | None = None,
     ):
         super().__init__(api_key, base_url, logger=logger)
         self.user_agent = user_agent
@@ -74,6 +77,8 @@ class OpenAIProvider(Provider):
             base_url=base_url,
             brand=self.provider_name(),
             user_agent=user_agent,
+            timeout=client_timeout,
+            max_retries=client_max_retries,
         )
 
     async def close(self) -> None:
@@ -170,6 +175,7 @@ class OpenAIProvider(Provider):
                 model=request.model,
                 provider=self.protocol,
                 request_id=request_id,
+                run_id=request.run_id,
                 data={"message_count": len(messages), "tool_count": len(tools)},
             )
         )
@@ -185,6 +191,7 @@ class OpenAIProvider(Provider):
                     model=request.model,
                     provider=self.protocol,
                     request_id=request_id,
+                    run_id=request.run_id,
                     data={"error": str(exc), "retryable": exc.retryable},
                 )
             )
@@ -197,6 +204,7 @@ class OpenAIProvider(Provider):
                 model=request.model,
                 provider=self.protocol,
                 request_id=request_id,
+                run_id=request.run_id,
                 data={
                     "total_latency_ms": (time.monotonic() - start) * 1000,
                     "usage": usage.model_dump() if usage else None,
@@ -239,6 +247,7 @@ class OpenAIProvider(Provider):
                 model=request.model,
                 provider=self.protocol,
                 request_id=request_id,
+                run_id=request.run_id,
                 data={"message_count": len(messages), "tool_count": len(tools)},
             )
         )
@@ -278,6 +287,7 @@ class OpenAIProvider(Provider):
                             model=request.model,
                             provider=self.protocol,
                             request_id=request_id,
+                            run_id=request.run_id,
                             data={"latency_ms": (time.monotonic() - start) * 1000},
                         )
                     )
@@ -290,6 +300,7 @@ class OpenAIProvider(Provider):
                                 model=request.model,
                                 provider=self.protocol,
                                 request_id=request_id,
+                                run_id=request.run_id,
                                 data={"tool_name": tc.name or "?", "tool_call_id": tc.id},
                             )
                         )
@@ -313,6 +324,7 @@ class OpenAIProvider(Provider):
                     model=request.model,
                     provider=self.protocol,
                     request_id=request_id,
+                    run_id=request.run_id,
                     data=data,
                 )
             )
@@ -324,6 +336,7 @@ class OpenAIProvider(Provider):
                 model=request.model,
                 provider=self.protocol,
                 request_id=request_id,
+                run_id=request.run_id,
                 data={
                     "total_latency_ms": (time.monotonic() - start) * 1000,
                     "usage": completed_usage.model_dump() if completed_usage else None,

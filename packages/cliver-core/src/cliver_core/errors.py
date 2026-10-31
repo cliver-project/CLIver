@@ -7,7 +7,7 @@ raise :class:`CapabilityNotSupported`, and ``bindings`` imports ``provider``
 
 from __future__ import annotations
 
-__all__ = ["CapabilityNotSupported", "ProviderError"]
+__all__ = ["CapabilityNotSupported", "ProviderError", "RunTimeoutError"]
 
 
 class CapabilityNotSupported(Exception):
@@ -19,6 +19,24 @@ class CapabilityNotSupported(Exception):
     * the bound provider/brand does not implement the purpose (e.g. image
       generation on Anthropic, TTS on MiniMax).
     """
+
+
+class RunTimeoutError(TimeoutError):
+    """The run exceeded its run-level deadline (``run_timeout``).
+
+    Raised by ``AgentCore.chat()`` / ``stream()`` / ``run_skill()`` and
+    ``chat_structured()`` when the wall-clock budget expires.  It is a plain
+    ``TimeoutError``, deliberately not a :class:`ProviderError`: no failover
+    is attempted, and the application decides whether to retry.
+    ``CancelledError`` from the caller is never converted into this error.
+    """
+
+    def __init__(self, timeout: float, run_id: str | None = None) -> None:
+        self.timeout = timeout
+        self.run_id = run_id
+        super().__init__(
+            f"Run '{run_id}' timed out after {timeout:g}s" if run_id else f"Run timed out after {timeout:g}s"
+        )
 
 
 class ProviderError(RuntimeError):

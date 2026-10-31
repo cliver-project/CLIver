@@ -28,6 +28,7 @@ export default defineConfig({
           label: "Core Concepts",
           items: [
             { label: "AgentCore", slug: "core-concepts" },
+            { label: "Structured Output", slug: "core-concepts/structured-output" },
             { label: "Concurrency & Lifecycle", slug: "core-concepts/concurrency" },
             { label: "Tools", slug: "core-concepts/tools" },
             { label: "Skills", slug: "core-concepts/skills" },
@@ -36,6 +37,12 @@ export default defineConfig({
             { label: "MCP", slug: "core-concepts/mcp" },
             { label: "Permissions & Policy", slug: "core-concepts/policy" },
             { label: "Media Capabilities", slug: "core-concepts/media" },
+          ],
+        },
+        {
+          label: "Guides",
+          items: [
+            { label: "FastAPI Server", slug: "guides/fastapi" },
           ],
         },
         {

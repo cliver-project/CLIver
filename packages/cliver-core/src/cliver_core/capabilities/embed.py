@@ -54,9 +54,9 @@ async def embed(
     """
     if isinstance(texts, str):
         texts = [texts]
-    provider = binding.get_provider()
-    return await provider.embed(
-        list(texts),
-        model=binding.model,
-        **{**binding.call_defaults(), **options},
-    )
+    async with binding.lease_provider() as provider:
+        return await provider.embed(
+            list(texts),
+            model=binding.model,
+            **{**binding.call_defaults(), **options},
+        )

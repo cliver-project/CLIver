@@ -7,8 +7,9 @@ owning its own Provider means image / tts / asr / ... can each point at a
 different endpoint or account.
 
 The provider is built on first use, cached, and reused for every later call;
-providers a binding built are closed by :meth:`ModelBinding.aclose` (a
-caller-supplied provider is never closed by the binding).
+providers a binding built are closed by :meth:`ModelBinding.arefresh` once
+they are retired with no in-flight call, and by :meth:`ModelBinding.aclose`
+(a caller-supplied provider is never closed by the binding).
 
 Build bindings with the per-purpose factories — each knows the common
 parameters of its purpose and folds them into ``params``::
@@ -61,23 +62,30 @@ and purpose validation applies to every element of a list.
 from __future__ import annotations
 
 import asyncio
+import inspect
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import Any, Sequence
+from typing import Any, AsyncIterator, Awaitable, Callable, Sequence
 
 from cliver_core.errors import CapabilityNotSupported
 from cliver_core.events import EventHandler
 from cliver_core.provider import Provider
 from cliver_core.provider.providers import create_provider
 from cliver_core.provider.providers.system_one import SystemOneProvider
-from cliver_core.util import drop_none
+from cliver_core.util import drop_none, validate_client_options
 
 #: Purposes AgentCore can bind models for — ``llm`` is the chat/stream model
 #: and ``system_one`` a decision model for structured predictions.
 PURPOSES = ("llm", "embed", "rerank", "image", "audio", "video", "tts", "asr", "system_one")
 
+#: Resolves a fresh credential for a binding — sync or async; must return a
+#: non-empty string.  Rotation is explicit (``arefresh()``); nothing refreshes
+#: automatically on a 401 — the application owns that policy.
+CredentialProvider = Callable[[], "str | Awaitable[str]"]
+
 # Re-exported for backward compatibility — the exception now lives in
 # :mod:`cliver_core.errors` because the provider layer raises it too.
-__all__ = ["CapabilityNotSupported", "ModelBinding", "ModelBindings", "PURPOSES"]
+__all__ = ["CapabilityNotSupported", "CredentialProvider", "ModelBinding", "ModelBindings", "PURPOSES"]
 
 
 @dataclass(kw_only=True)
@@ -115,7 +123,9 @@ class ModelBinding:
 
     model: str
     provider: Provider | None = None
-    api_key: str = ""
+    api_key: str = field(default="", repr=False)
+    # Excluded from repr: bindings are logged and dumped, and the key is a
+    # secret (``repr`` is the leak path into log lines and error reports).
     base_url: str = ""
     protocol: str = "openai"
     provider_name: str | None = None
@@ -129,6 +139,20 @@ class ModelBinding:
     # Applied at construction, so inference events fire before/after every
     # request the binding's provider makes.  With ``provider=`` the supplied
     # instance keeps its own handler — configure it there instead.
+    credential_provider: CredentialProvider | None = field(default=None, repr=False)
+    # Resolves the credential used by :meth:`arefresh` — sync or async, must
+    # return a non-empty string.  Without one, ``arefresh()`` rebuilds with the
+    # current ``api_key`` (assign it first to rotate in place).
+    client_timeout: float | None = None
+    # SDK-client request timeout in seconds.  ``None`` keeps the SDK default
+    # (600 s read on both builtin SDKs).  This is a client-construction
+    # setting, distinct from a per-request ``timeout`` in ``params``; it
+    # applies to every HTTP phase, and a streaming response's read timeout is
+    # re-armed per chunk.  Only providers with an SDK transport accept it.
+    client_max_retries: int | None = None
+    # SDK-client retry count.  ``None`` keeps the SDK default (2 on both
+    # builtin SDKs).  This is transport-level retrying, distinct from
+    # AgentCore's same-purpose binding failover.
     purpose: str | None = field(default=None, compare=False)
     params: dict[str, Any] = field(default_factory=dict)
     _built: Provider | None = field(default=None, init=False, repr=False, compare=False)
@@ -136,6 +160,23 @@ class ModelBinding:
     # loop-bound (SDK clients pool connections on their loop), so a binding
     # refuses a second loop instead of failing deep inside the client.
     _loop: asyncio.AbstractEventLoop | None = field(default=None, init=False, repr=False, compare=False)
+    # Providers replaced by :meth:`arefresh`.  They outlive the swap only
+    # while an in-flight lease still uses them; the next :meth:`arefresh` (or
+    # :meth:`aclose`) closes every retired provider with no active lease.
+    _retired: list[Provider] = field(default_factory=list, init=False, repr=False, compare=False)
+    # In-flight lease count per provider, maintained by :meth:`lease_provider`.
+    # A retired provider is never closed while its count is non-zero.
+    _leases: dict[Provider, int] = field(default_factory=dict, init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        self.client_timeout, self.client_max_retries = validate_client_options(
+            self.client_timeout, self.client_max_retries
+        )
+        if self.provider is not None and (self.client_timeout is not None or self.client_max_retries is not None):
+            raise ValueError(
+                "client_timeout/client_max_retries apply only to a provider the binding builds; "
+                "configure the supplied provider's SDK client directly."
+            )
 
     # ── Per-purpose factories ─────────────────────────────────
 
@@ -151,6 +192,9 @@ class ModelBinding:
         provider: Provider | None = None,
         path: str | None = None,
         on_event: EventHandler | None = None,
+        credential_provider: CredentialProvider | None = None,
+        client_timeout: float | None = None,
+        client_max_retries: int | None = None,
         **params: Any,
     ) -> ModelBinding:
         """Chat/stream-purpose binding — the LLM handle for ``AgentCore``.
@@ -168,6 +212,11 @@ class ModelBinding:
         binding builds — the same surface as passing ``on_event=`` to the
         provider constructor.  It applies only to a provider the binding
         builds; a supplied ``provider=`` keeps its own handler.
+
+        ``client_timeout`` and ``client_max_retries`` tune the SDK client this
+        binding builds (positive seconds; non-negative retries); ``None``
+        keeps the SDK's defaults.  A per-request ``timeout`` belongs in
+        ``params`` instead.
         """
         if path is not None:
             raise TypeError(
@@ -182,6 +231,9 @@ class ModelBinding:
             protocol=protocol,
             provider_name=provider_name,
             on_event=on_event,
+            credential_provider=credential_provider,
+            client_timeout=client_timeout,
+            client_max_retries=client_max_retries,
             purpose="llm",
             params=dict(params),
         )
@@ -196,6 +248,9 @@ class ModelBinding:
         protocol: str = "openai",
         provider_name: str | None = None,
         provider: Provider | None = None,
+        credential_provider: CredentialProvider | None = None,
+        client_timeout: float | None = None,
+        client_max_retries: int | None = None,
         path: str | None = None,
         n: int | None = None,
         size: str | None = None,
@@ -212,6 +267,9 @@ class ModelBinding:
             base_url=base_url,
             protocol=protocol,
             provider_name=provider_name,
+            credential_provider=credential_provider,
+            client_timeout=client_timeout,
+            client_max_retries=client_max_retries,
             path=path,
             purpose="image",
             params={**drop_none(n=n, size=size, style=style, quality=quality), **params},
@@ -227,6 +285,9 @@ class ModelBinding:
         protocol: str = "openai",
         provider_name: str | None = None,
         provider: Provider | None = None,
+        credential_provider: CredentialProvider | None = None,
+        client_timeout: float | None = None,
+        client_max_retries: int | None = None,
         path: str | None = None,
         duration: int | None = None,
         resolution: str | None = None,
@@ -241,6 +302,9 @@ class ModelBinding:
             base_url=base_url,
             protocol=protocol,
             provider_name=provider_name,
+            credential_provider=credential_provider,
+            client_timeout=client_timeout,
+            client_max_retries=client_max_retries,
             path=path,
             purpose="video",
             params={**drop_none(duration=duration, resolution=resolution), **params},
@@ -256,6 +320,9 @@ class ModelBinding:
         protocol: str = "openai",
         provider_name: str | None = None,
         provider: Provider | None = None,
+        credential_provider: CredentialProvider | None = None,
+        client_timeout: float | None = None,
+        client_max_retries: int | None = None,
         voice: str | None = None,
         response_format: str | None = None,
         path: str | None = None,
@@ -270,6 +337,9 @@ class ModelBinding:
             base_url=base_url,
             protocol=protocol,
             provider_name=provider_name,
+            credential_provider=credential_provider,
+            client_timeout=client_timeout,
+            client_max_retries=client_max_retries,
             path=path,
             purpose="tts",
             params={**drop_none(voice=voice, response_format=response_format), **params},
@@ -285,6 +355,9 @@ class ModelBinding:
         protocol: str = "openai",
         provider_name: str | None = None,
         provider: Provider | None = None,
+        credential_provider: CredentialProvider | None = None,
+        client_timeout: float | None = None,
+        client_max_retries: int | None = None,
         language: str | None = None,
         path: str | None = None,
         **params: Any,
@@ -298,6 +371,9 @@ class ModelBinding:
             base_url=base_url,
             protocol=protocol,
             provider_name=provider_name,
+            credential_provider=credential_provider,
+            client_timeout=client_timeout,
+            client_max_retries=client_max_retries,
             path=path,
             purpose="asr",
             params={**drop_none(language=language), **params},
@@ -313,6 +389,9 @@ class ModelBinding:
         protocol: str = "openai",
         provider_name: str | None = None,
         provider: Provider | None = None,
+        credential_provider: CredentialProvider | None = None,
+        client_timeout: float | None = None,
+        client_max_retries: int | None = None,
         dimensions: int | None = None,
         path: str | None = None,
         **params: Any,
@@ -326,6 +405,9 @@ class ModelBinding:
             base_url=base_url,
             protocol=protocol,
             provider_name=provider_name,
+            credential_provider=credential_provider,
+            client_timeout=client_timeout,
+            client_max_retries=client_max_retries,
             path=path,
             purpose="embed",
             params={**drop_none(dimensions=dimensions), **params},
@@ -341,6 +423,9 @@ class ModelBinding:
         protocol: str = "openai",
         provider_name: str | None = None,
         provider: Provider | None = None,
+        credential_provider: CredentialProvider | None = None,
+        client_timeout: float | None = None,
+        client_max_retries: int | None = None,
         top_k: int | None = None,
         path: str | None = None,
         **params: Any,
@@ -354,6 +439,9 @@ class ModelBinding:
             base_url=base_url,
             protocol=protocol,
             provider_name=provider_name,
+            credential_provider=credential_provider,
+            client_timeout=client_timeout,
+            client_max_retries=client_max_retries,
             path=path,
             purpose="rerank",
             params={**drop_none(top_k=top_k), **params},
@@ -371,6 +459,9 @@ class ModelBinding:
         protocol: str = "system-one",
         provider_class: type[Provider] | None = None,
         on_event: EventHandler | None = None,
+        credential_provider: CredentialProvider | None = None,
+        client_timeout: float | None = None,
+        client_max_retries: int | None = None,
         **params: Any,
     ) -> ModelBinding:
         """System One decision-model binding — predictions, never text.
@@ -399,6 +490,9 @@ class ModelBinding:
             provider_class=provider_class,
             path=path,
             on_event=on_event,
+            credential_provider=credential_provider,
+            client_timeout=client_timeout,
+            client_max_retries=client_max_retries,
             purpose="system_one",
             params=dict(params),
         )
@@ -468,19 +562,120 @@ class ModelBinding:
                 provider_class=self.provider_class,
                 provider_name=self.provider_name,
                 on_event=self.on_event,
+                client_timeout=self.client_timeout,
+                client_max_retries=self.client_max_retries,
             )
         return self._built
 
-    async def aclose(self) -> None:
-        """Close the provider this binding built — a caller-supplied one stays open.
+    @asynccontextmanager
+    async def lease_provider(self) -> AsyncIterator[Provider]:
+        """Yield the current provider while holding an in-flight lease.
 
-        Must run on the loop the binding was used on, and releases the loop
-        claim so the binding can be mounted in a new agent afterwards.
+        Every :class:`~cliver_core.agent.AgentCore` model call, capability
+        call, and System One prediction holds one of these, so
+        :meth:`arefresh` closes a leased-out provider at the first refresh
+        after its last in-flight call finishes, instead of keeping it until
+        :meth:`aclose`.
+        Use this — not :meth:`get_provider` — whenever a provider is used
+        across an ``await``::
+
+            async with binding.lease_provider() as provider:
+                response = await provider.chat(request)
+
+        Leases are per binding and per event loop, like the provider itself.
+        """
+        provider = self.get_provider()
+        self._leases[provider] = self._leases.get(provider, 0) + 1
+        try:
+            yield provider
+        finally:
+            count = self._leases.get(provider, 1) - 1
+            if count:
+                self._leases[provider] = count
+            else:
+                self._leases.pop(provider, None)
+
+    async def _prune_retired(self) -> None:
+        """Close retired providers whose in-flight leases have all finished."""
+        remaining: list[Provider] = []
+        for provider in self._retired:
+            if self._leases.get(provider, 0):
+                remaining.append(provider)
+            else:
+                await provider.close()
+        self._retired = remaining
+
+    async def arefresh(self) -> None:
+        """Rotate this binding's credential and rebuild its provider.
+
+        The credential comes from ``credential_provider`` (sync or async); it
+        must resolve to a non-empty string or :class:`ValueError` is raised
+        before anything is mutated.  Without a credential provider the current
+        ``api_key`` is reused — assign it first to rotate in place.
+
+        The replacement provider is built **before** the swap: on build
+        failure the binding keeps its old provider and key.  The old provider
+        is retired: a call that already holds it through
+        :meth:`lease_provider` keeps working undisturbed, and once its last
+        lease is released the next refresh closes it.  When nothing is in
+        flight the old provider is closed inside this call, so frequent
+        rotation on a long-lived server does not accumulate providers.  A
+        caller-supplied ``provider=`` is never rebuilt or closed; only
+        ``api_key`` updates (media paths read it from the binding).
+
+        Runs on the owning loop; another loop raises ``RuntimeError``.  There
+        is no automatic refresh on a 401 — the application decides when to
+        rotate (TTL timer, or catch :class:`ProviderError` and call this).
+        """
+        self._claim_loop()
+        if self.credential_provider is None:
+            credential = self.api_key
+        else:
+            credential = self.credential_provider()
+            if inspect.isawaitable(credential):
+                credential = await credential
+            if not isinstance(credential, str) or not credential.strip():
+                raise ValueError(
+                    f"credential_provider for '{self.model}' must return a non-empty string, got {credential!r}"
+                )
+        if self.provider is not None or self._built is None:
+            # Supplied provider: never rebuild or close it.  Unbuilt binding:
+            # the next get_provider() builds with the new key.
+            self.api_key = credential
+            return
+        replacement = create_provider(
+            api_key=credential,
+            base_url=self.base_url,
+            protocol=self.protocol,
+            provider_class=self.provider_class,
+            provider_name=self.provider_name,
+            on_event=self.on_event,
+            client_timeout=self.client_timeout,
+            client_max_retries=self.client_max_retries,
+        )
+        previous, self._built = self._built, replacement
+        self.api_key = credential
+        self._retired.append(previous)
+        await self._prune_retired()
+
+    async def aclose(self) -> None:
+        """Close the provider this binding built and every retired one.
+
+        A caller-supplied provider stays open.  Must run on the loop the
+        binding was used on, and releases the loop claim so the binding can be
+        mounted in a new agent afterwards.  In-flight leases are not awaited
+        here — the agent drains its work before closing its bindings; a
+        provider closed under a still-running call is the caller's contract
+        violation, exactly as before.
         """
         self._claim_loop()
         if self._built is not None:
             built, self._built = self._built, None
             await built.close()
+        retired, self._retired = self._retired, []
+        for provider in retired:
+            await provider.close()
+        self._leases.clear()
         self._loop = None
 
 
@@ -576,6 +771,17 @@ class ModelBindings:
     def bound_purposes(self) -> list[str]:
         """Purposes that have a model bound."""
         return [p for p in PURPOSES if getattr(self, p) is not None]
+
+    async def arefresh(self) -> None:
+        """Rotate the credential of every mounted binding — primary and fallbacks.
+
+        Purposes are visited in :data:`PURPOSES` order and bindings in mount
+        order.  The first failure (resolution or build) stops the pass with
+        its exception; bindings already refreshed keep their new credentials.
+        """
+        for purpose in self.bound_purposes():
+            for binding in self.get_all(purpose):
+                await binding.arefresh()
 
     async def aclose(self) -> None:
         """Close providers built by these bindings — caller-supplied ones stay open."""

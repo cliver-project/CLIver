@@ -15,7 +15,7 @@ from cliver_core.capabilities import (
     text_to_speech,
     transcribe_audio,
 )
-from cliver_core.errors import ProviderError
+from cliver_core.errors import ProviderError, RunTimeoutError
 from cliver_core.events import EventHandler
 from cliver_core.media import MediaContent
 from cliver_core.media_jobs import MediaJob
@@ -49,6 +49,7 @@ from cliver_core.policy import (
 )
 from cliver_core.skill import Skill, SkillError, SkillManager, SkillNotFoundError
 from cliver_core.skill_tools import SkillSearch, SkillSelector
+from cliver_core.structured import StructuredOutputError, StructuredResponse
 from cliver_core.tool import CLIverTool, ToolRegistry, tool
 
 __all__ = [
@@ -60,6 +61,7 @@ __all__ = [
     "ModelBinding",
     "ModelBindings",
     "ProviderError",
+    "RunTimeoutError",
     "ToolCall",
     "UsageInfo",
     "CLIverTool",
@@ -76,6 +78,9 @@ __all__ = [
     "SkillNotFoundError",
     "SkillSearch",
     "SkillSelector",
+    # Structured output (schema-validated chat)
+    "StructuredOutputError",
+    "StructuredResponse",
     # Deterministic skill pipelines (sub-agent style)
     "FailurePolicy",
     "InputBuilder",

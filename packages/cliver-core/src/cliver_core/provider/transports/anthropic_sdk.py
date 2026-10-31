@@ -11,7 +11,7 @@ import inspect
 import json
 from typing import Any, AsyncIterator
 
-from anthropic import AsyncAnthropic
+from anthropic import AsyncAnthropic, Timeout
 
 from cliver_core.provider.transport import as_dict
 
@@ -57,14 +57,22 @@ class AnthropicSDK:
         protocol: str = "anthropic",
         user_agent: str | None = None,
         use_bearer_auth: bool = False,
+        timeout: float | None = None,
+        max_retries: int | None = None,
     ) -> "AnthropicSDK":
         headers = {"User-Agent": user_agent} if user_agent else {}
+        client_options: dict[str, object] = {}
+        if timeout is not None:
+            # One budget for every HTTP phase (connect/read/write/pool).
+            client_options["timeout"] = Timeout(timeout)
+        if max_retries is not None:
+            client_options["max_retries"] = max_retries
         # Anthropic SDK: api_key → x-api-key header, auth_token → Authorization: Bearer
         # Third-party providers (DeepSeek, MiniMax) use Bearer auth.
         if use_bearer_auth:
-            client = AsyncAnthropic(auth_token=api_key, base_url=base_url, default_headers=headers)
+            client = AsyncAnthropic(auth_token=api_key, base_url=base_url, default_headers=headers, **client_options)
         else:
-            client = AsyncAnthropic(api_key=api_key, base_url=base_url, default_headers=headers)
+            client = AsyncAnthropic(api_key=api_key, base_url=base_url, default_headers=headers, **client_options)
         return cls(client)
 
     # ── BrandSDK ───────────────────────────────────────────────

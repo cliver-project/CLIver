@@ -607,6 +607,7 @@ async def test_stream_policy_not_leaked_when_abandoned():
         parallel_tool_calls=False,
         tool_timeout=None,
         skill_state=None,
+        run_id=None,
     ):
         yield CLIverMessageChunk(content="partial")
         yield CLIverMessageChunk(content="more")

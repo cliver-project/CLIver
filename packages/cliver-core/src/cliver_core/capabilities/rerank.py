@@ -56,10 +56,10 @@ async def rerank(
     Returns:
         :class:`~cliver_core.provider.RerankItem` entries, best first.
     """
-    provider = binding.get_provider()
-    return await provider.rerank(
-        query,
-        documents,
-        model=binding.model,
-        **{**binding.call_defaults(), **drop_none(top_k=top_k), **options},
-    )
+    async with binding.lease_provider() as provider:
+        return await provider.rerank(
+            query,
+            documents,
+            model=binding.model,
+            **{**binding.call_defaults(), **drop_none(top_k=top_k), **options},
+        )

@@ -12,7 +12,7 @@ import inspect
 import json
 from typing import Any, AsyncIterator
 
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, Timeout
 
 from cliver_core.provider.transport import as_dict
 
@@ -74,9 +74,17 @@ class OpenAISDK:
         protocol: str = "openai",
         user_agent: str | None = None,
         use_bearer_auth: bool = False,
+        timeout: float | None = None,
+        max_retries: int | None = None,
     ) -> "OpenAISDK":
         headers = {"User-Agent": user_agent} if user_agent else {}
-        return cls(AsyncOpenAI(api_key=api_key, base_url=base_url, default_headers=headers))
+        client_options: dict[str, object] = {}
+        if timeout is not None:
+            # One budget for every HTTP phase (connect/read/write/pool).
+            client_options["timeout"] = Timeout(timeout)
+        if max_retries is not None:
+            client_options["max_retries"] = max_retries
+        return cls(AsyncOpenAI(api_key=api_key, base_url=base_url, default_headers=headers, **client_options))
 
     # ── BrandSDK ───────────────────────────────────────────────
 

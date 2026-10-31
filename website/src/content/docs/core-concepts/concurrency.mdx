@@ -17,6 +17,11 @@ what the application must supply.
   on a second one instead of failing inside the HTTP client; `aclose()` releases the claim.
 - **Conversation state is per call.** Pass `conversation=` on every call. Nothing about a
   conversation is stored on the agent.
+- **Deadlines are per run.** `run_timeout` bounds one whole run — preamble, model calls, tools,
+  failover, event handlers. Expiry raises `RunTimeoutError`; the caller's cancellation is never
+  converted into it.
+- **Credentials rotate explicitly.** `await agent.arefresh_credentials()` rebuilds providers with
+  a fresh credential; calls already in flight keep the provider they captured.
 - **Configure before serving.** Bindings, tools, skills, and MCP servers are shared, read-mostly
   state. Do not mutate them while calls are in flight. Each call reads the registry once when it
   starts: a tool registered mid-call appears on the next call, not the current one.
@@ -59,21 +64,62 @@ synchronous tools (run in the executor), and media loading (done by the caller �
 | `ModelBindings` and their providers | Shared | Providers are built lazily and cached on the binding; one provider serves every call using that binding |
 | `ToolRegistry` | Shared | Register tools before serving; runtime registration is not synchronized |
 | `SkillManager` | Shared | The catalogue is cached; `reload()` is the explicit refresh. `AgentCore` preloads it in a worker thread before the first skill access |
-| `MCPClient` | Shared | One client per agent; sessions are opened per call |
+| `MCPClient` | Shared | One client per agent; sessions are opened per call, or pooled per server with `session_pool_size` |
 | `messages` / `conversation` | Per call | The caller owns the history list |
 | `extra_tools`, `tool_filter`, `mcp_servers` | Per call | The advertised set is also the execution set |
 | `execution_policy`, permission callback | Per call (overrides) | Policy is ambient around tool execution only |
-| `parallel_tool_calls`, `tool_timeout` | Per call (overrides) | Constructor values are defaults |
+| `parallel_tool_calls`, `tool_timeout`, `run_timeout` | Per call (overrides) | Constructor values are defaults |
+| `run_id` | Per call | Generated when absent; correlates every event of the run |
 | `skill_state` (activation) | Per call | A skill activated in one run does not affect another |
 | `on_event` | Per call (optional) | Instance and call-site handlers both fire for tool events |
 | Builtin Todo list | Per run | `TodoWrite` / `TodoRead` state is isolated per `chat()` / `stream()` call |
 | Media jobs (`submit_*`) | Per loop | The returned `MediaJob` is bound to the loop that created it |
 
+## Run Deadline
+
+`run_timeout` is one wall-clock budget for a whole run — skill preload, MCP start, tool/skill
+selection, every model call (failover retries included), every tool batch, and event-handler
+awaits:
+
+```python
+agent = AgentCore(bindings, run_timeout=30.0)            # default for every call
+
+response = await agent.chat(prompt, run_timeout=10.0)    # per-call override
+response = await agent.chat(prompt, run_timeout=None)    # disabled for this call
+```
+
+- Expiry raises `RunTimeoutError` — a `TimeoutError` carrying `.timeout` and `.run_id`. It is
+  deliberately not a `ProviderError`, so no failover is attempted; the application decides
+  whether to retry. The caller's own cancellation still arrives as `CancelledError`.
+- `run_skill()` and `chat_structured()` own a single clock: the inner `chat()` calls never
+  restart it.
+- Streaming starts the clock when the first chunk is pulled. No timer spans a yield: each pull
+  is bounded by the remaining budget, and time the consumer spends parked between pulls still
+  counts. On expiry or abandonment the provider stream is closed.
+- Synchronous tools run in a worker thread and cannot be killed: the run times out and discards
+  the result while the thread finishes in the background. `tool_timeout` still bounds each tool
+  on its own.
+
+## Event Correlation (`run_id`)
+
+Every public entry point (`chat`, `stream`, `run_skill`, `chat_structured`, `SkillPipeline.run`)
+resolves one **`run_id`** — pass your own non-empty string, or let core generate one. It is
+carried on:
+
+- `CLIverResponse.run_id`;
+- every `InferenceEvent` and `ToolEvent`, beside the per-model-call `request_id`;
+- terminal stream chunks (the trace chunk and the final stop / iteration-limit chunk);
+- pipeline events, `PipelineContext.run_id`, and `PipelineResult.run_id`.
+
+`request_id` stays per model call: one run can contain many requests. Log both — `run_id` groups
+a run's events, `request_id` pinpoints one inference.
+
 ## Deploying a Concurrent Server
 
 For an async web framework (FastAPI, Starlette, aiohttp), build the agent **once per worker
 process** and share it across requests on that process's single loop. Never share that instance
-with a worker thread of the same process:
+with a worker thread of the same process. The [FastAPI Server guide](/guides/fastapi/) walks
+through the full lifespan, endpoint, streaming, and shutdown wiring:
 
 ```python
 import asyncio
@@ -171,9 +217,13 @@ Warm-up also surfaces bad credentials and unreachable MCP servers before traffic
 - **Async `@tool` functions run on the agent's loop** (`execute_async`), so `tool_timeout` and
   caller cancellation reach them, and they may use loop-bound clients and objects. Tool bodies
   are still caller code: never block the loop inside an async tool.
-- **MCP tool calls run on the agent's loop** and open an ephemeral session per call. A stdio
-  server therefore starts a subprocess per session; streamable HTTP opens a new client and
-  session per call. Under high concurrency, budget MCP processes/sockets accordingly.
+- **MCP tool calls run on the agent's loop.** By default every call opens an ephemeral session:
+  a stdio server starts a subprocess per session; streamable HTTP opens a new client and session
+  per call. A streamable-http server configured with `session_pool_size=N` keeps up to N
+  sessions open and leases each exclusively, so at most N calls run at once and a further call
+  waits for an idle session instead of dialing again — see
+  [MCP session pooling](/core-concepts/mcp/#session-pooling). Size the pool per tenant and drain
+  calls before `mcp_client.close()`.
 
 `parallel_tool_calls=True` is opt-in per agent or per call. It only makes sense for independent
 tools: permission checks still run sequentially in tool-call order, and results are appended in
@@ -222,8 +272,12 @@ await mcp_client.close()
   built for all of them; give each agent its own bindings, or close only after every agent is
   done.
 - `AgentCore` does not close an injected `MCPClient`. Whoever built it closes it.
-- A closed agent rejects every public entry point (`chat`, `stream`, `run_skill`, embedded model
-  calls, `submit_*`) with `RuntimeError`. Build a new one for a new loop.
+- `mcp_client.close()` also stops every server's session pool and closes its sessions —
+  including leased ones, which is how the SDK cancels an in-flight call. Drain the calls first
+  when their errors must not be observed.
+- A closed agent rejects every public entry point (`chat`, `stream`, `run_skill`,
+  `chat_structured`, embedded model calls, `submit_*`) with `RuntimeError`. Build a new one for
+  a new loop.
 
 ## Streaming
 
@@ -253,6 +307,50 @@ if the model tries to call it — and never triggers a permission prompt. It is 
 the tool body itself; use the [permission callback and execution policy](/core-concepts/policy/)
 for that.
 
+## Credential Rotation
+
+Provider clients bake their credential at construction. A binding built with an expiring key can
+be rotated explicitly:
+
+```python
+from cliver_core import AgentCore, ModelBinding, ModelBindings
+
+binding = ModelBinding.llm(
+    model="deepseek-chat",
+    protocol="openai",
+    api_key=initial_key,
+    credential_provider=load_current_key,   # sync or async, no arguments
+)
+agent = AgentCore(ModelBindings(llm=binding))
+
+# Later — on a TTL timer, or after catching a ProviderError:
+await agent.arefresh_credentials()          # refreshes every binding on the agent
+```
+
+- `credential_provider()` is resolved first and must return a non-empty string. An exception or
+  a bad value raises `ValueError` before anything changes; the old provider and key stay in use.
+- The replacement provider is built **before** the swap. Every model, capability, and System One
+  call holds an in-flight lease on the provider it captured, so a call already running finishes
+  undisturbed. A retired provider with no active lease is closed inside the refresh itself; one
+  still serving a call is closed by the first refresh after that call finishes. Frequent rotation
+  on a long-lived server therefore does not accumulate providers, and `aclose()` closes whatever
+  remains.
+- If you use `binding.get_provider()` directly, wrap it — `async with binding.lease_provider() as
+  provider:` — so a concurrent refresh cannot close it under an in-flight call.
+- A caller-supplied `provider=` is never rebuilt or closed — only `api_key` (used by media
+  paths) is updated.
+- There is **no automatic refresh on 401/403**. The application owns the policy: catch a
+  retryable `ProviderError` (or track the credential's TTL) and call `arefresh()` /
+  `arefresh_credentials()` itself.
+- Per tenant, keep one binding fed by that tenant's secret source and refresh it on the tenant's
+  schedule:
+
+```python
+async def refresh_all(tenants: dict[str, AgentCore]) -> None:
+    for agent in tenants.values():
+        await agent.arefresh_credentials()
+```
+
 ## Failure and Retries
 
 - SDK clients retry transient HTTP failures (the `openai` and `anthropic` SDKs default to two
@@ -263,6 +361,33 @@ for that.
 - A tool error is a normal result; five consecutive tool errors or permission denials stop that
   run with a failure response. One run's streak never affects another.
 
+### SDK Client Timeout and Retries
+
+Both builtin SDK clients default to an SDK read timeout of 600 seconds and two retries — far
+larger than a typical request budget. A hung primary can spend the whole `run_timeout` before
+failover ever sees an error. Every binding factory (`llm`, `image`, `video`, `tts`, `asr`,
+`embed`, `rerank`, `system_one`) accepts two client-construction options:
+
+```python
+binding = ModelBinding.llm(
+    model="deepseek-chat",
+    protocol="openai",
+    api_key=key,
+    client_timeout=30,        # seconds, every HTTP phase; None = SDK default (600 s read)
+    client_max_retries=0,     # transport retries; None = SDK default (2)
+)
+```
+
+- These are SDK-client settings, not request parameters. A `timeout` inside `params` is the
+  per-request value the SDK accepts in the request body — different knob, same word.
+- They apply to every call made through the binding — chat, streaming, media, embeddings,
+  rerank, System One — and are re-applied when `arefresh()` rebuilds the provider.
+- Transport retries (this option) happen inside one model call; binding failover (D39) happens
+  after a retryable `ProviderError` escapes it. Set `client_max_retries=0` when you want the
+  failover to react immediately.
+- They are rejected with `ValueError` on a supplied `provider=` (configure that provider's
+  client directly) and on provider classes without a builtin SDK transport.
+
 ## Checklist
 
 - [ ] One `AgentCore` per event loop, created inside that loop — one per thread.
@@ -271,4 +396,8 @@ for that.
 - [ ] Application-level concurrency limit and per-tenant quotas are in place.
 - [ ] Permission callback and event handlers are non-blocking and concurrency-safe.
 - [ ] `max_iterations`, conversation length, and tool output are bounded.
+- [ ] A `run_timeout` is set (per agent or per call) and `RunTimeoutError` is handled.
+- [ ] Events are logged with `run_id` and `request_id`.
+- [ ] Credential refresh is scheduled per tenant (TTL or on `ProviderError`) — never assumed.
+- [ ] MCP `session_pool_size` is sized per server, and pooled calls are drained before close.
 - [ ] Shutdown drains in-flight calls, awaits media jobs, then closes the MCP client and agent.

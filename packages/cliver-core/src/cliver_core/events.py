@@ -31,11 +31,17 @@ class ToolEventType(str, Enum):
 
 
 class InferenceEvent(BaseModel):
-    """An event from the LLM inference lifecycle."""
+    """An event from the LLM inference lifecycle.
+
+    ``run_id`` identifies the whole agent run (chat/stream/run_skill/pipeline)
+    and is shared by every event of that run; ``request_id`` identifies one
+    model call and changes on each Re-Act iteration.
+    """
 
     event: InferenceEventType
     model: str
     provider: str
+    run_id: str | None = None
     request_id: str = Field(default_factory=lambda: "")
     data: dict[str, Any] | None = None
     # Event-specific payloads:
@@ -49,9 +55,14 @@ class InferenceEvent(BaseModel):
 
 
 class ToolEvent(BaseModel):
-    """An event from tool execution."""
+    """An event from tool execution.
+
+    ``run_id`` is the run that executed the tool (``None`` when a tool is
+    executed directly, outside ``chat()`` / ``stream()`` / ``run_skill()``).
+    """
 
     event: ToolEventType
+    run_id: str | None = None
     tool_name: str  # "Read" or "mcp__my_server__my_tool"
     tool_call_id: str
     args: dict[str, Any] | None = None
@@ -76,9 +87,12 @@ class PipelineEvent(BaseModel):
 
     Tool events raised inside a step are forwarded unchanged as
     :class:`ToolEvent`; this model covers the pipeline's own lifecycle.
+    ``run_id`` is the pipeline run's id; the default runner passes it to the
+    step's agent call, so forwarded tool events share it.
     """
 
     event: PipelineEventType
+    run_id: str | None = None
     step_name: str | None = None
     step_index: int | None = None
     data: dict[str, Any] | None = None

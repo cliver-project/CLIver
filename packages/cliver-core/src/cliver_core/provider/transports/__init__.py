@@ -58,6 +58,8 @@ def resolve_brand_sdk(
     brand: str | None = None,
     user_agent: str | None = None,
     use_bearer_auth: bool = False,
+    timeout: float | None = None,
+    max_retries: int | None = None,
 ) -> BrandSDK:
     """Resolve the transport for *brand* speaking *protocol*.
 
@@ -65,20 +67,30 @@ def resolve_brand_sdk(
     ``openai`` / ``anthropic``.  A third-party brand SDK adapter wins when
     it supports the protocol; otherwise the protocol's builtin SDK adapter
     serves the brand through its ``base_url``.
+
+    *timeout* and *max_retries* tune the SDK client the adapter builds.
+    They are forwarded only when set, so adapters and SDKs keep their own
+    defaults otherwise.
     """
     requested = (brand or protocol).lower()
+
+    create_kwargs: dict[str, object] = {
+        "api_key": api_key,
+        "base_url": base_url,
+        "protocol": protocol,
+        "user_agent": user_agent,
+        "use_bearer_auth": use_bearer_auth,
+    }
+    if timeout is not None:
+        create_kwargs["timeout"] = timeout
+    if max_retries is not None:
+        create_kwargs["max_retries"] = max_retries
 
     adapter_cls = registered_adapters().get(requested)
     if adapter_cls is not None:
         if protocol in getattr(adapter_cls, "supported_protocols", ()):
             try:
-                return adapter_cls.create(
-                    api_key=api_key,
-                    base_url=base_url,
-                    protocol=protocol,
-                    user_agent=user_agent,
-                    use_bearer_auth=use_bearer_auth,
-                )
+                return adapter_cls.create(**create_kwargs)
             except ImportError as exc:
                 logger.warning(
                     "Brand SDK adapter '%s' unavailable (%s); using builtin %s transport",
@@ -112,10 +124,4 @@ def resolve_brand_sdk(
         else:
             hint = " (pass a placeholder value if the endpoint needs no auth)"
         raise ValueError(f"the '{requested}' provider needs an API key — pass api_key=...{hint}")
-    return builtin_cls.create(
-        api_key=api_key,
-        base_url=base_url,
-        protocol=protocol,
-        user_agent=user_agent,
-        use_bearer_auth=use_bearer_auth,
-    )
+    return builtin_cls.create(**create_kwargs)

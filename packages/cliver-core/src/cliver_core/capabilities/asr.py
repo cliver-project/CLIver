@@ -70,13 +70,13 @@ async def transcribe_audio(
         transcription raises
         :class:`~cliver_core.errors.CapabilityNotSupported`.
     """
-    provider = binding.get_provider()
-    return await provider.asr(
-        coerce_media(audio),
-        binding.model,
-        **{
-            **binding.call_defaults(),
-            **drop_none(language=language),
-            **options,
-        },
-    )
+    async with binding.lease_provider() as provider:
+        return await provider.asr(
+            coerce_media(audio),
+            binding.model,
+            **{
+                **binding.call_defaults(),
+                **drop_none(language=language),
+                **options,
+            },
+        )

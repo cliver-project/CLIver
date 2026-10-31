@@ -66,15 +66,15 @@ async def generate_video(
         A :class:`~cliver_core.provider.CLIverResponse`; generated videos are
         in ``.media``.
     """
-    provider = binding.get_provider()
-    return await provider.video(
-        prompt,
-        binding.model,
-        media=media,
-        output_dir=output_dir,
-        **{
-            **binding.call_defaults(),
-            **drop_none(duration=duration, resolution=resolution),
-            **options,
-        },
-    )
+    async with binding.lease_provider() as provider:
+        return await provider.video(
+            prompt,
+            binding.model,
+            media=media,
+            output_dir=output_dir,
+            **{
+                **binding.call_defaults(),
+                **drop_none(duration=duration, resolution=resolution),
+                **options,
+            },
+        )

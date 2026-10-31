@@ -14,7 +14,6 @@ descriptions and argument metadata, never advertised as tools.
 
 from __future__ import annotations
 
-import asyncio
 import copy
 import functools
 import json
@@ -28,6 +27,8 @@ import httpx2
 from mcp import Client, Implementation, StdioServerParameters
 from mcp.client.streamable_http import streamable_http_client
 
+from cliver_core.mcp.pool import SessionPool
+from cliver_core.timeouts import timeout_after
 from cliver_core.tool import CLIverTool
 
 logger = logging.getLogger(__name__)
@@ -42,36 +43,9 @@ _ERROR_DETAIL_LIMIT = 300
 
 @asynccontextmanager
 async def _timeout_after(seconds: float) -> AsyncIterator[None]:
-    """Cancel the current task after ``seconds`` (``asyncio.timeout`` for 3.10).
-
-    ``asyncio.wait_for`` cannot be used for connection timeouts: on Python
-    < 3.12 it runs the awaited coroutine in a *new* task, so the MCP client
-    enters its anyio cancel scopes in one task and exits them in another
-    (``RuntimeError: Attempted to exit cancel scope in a different task``).
-    Cancelling the current task keeps the SDK's context managers unwinding
-    in the task that entered them.
-    """
-    task = asyncio.current_task()
-    timed_out = False
-
-    def _cancel() -> None:
-        nonlocal timed_out
-        timed_out = True
-        if task is not None:
-            task.cancel()
-
-    handle = asyncio.get_running_loop().call_later(seconds, _cancel)
-    try:
+    """MCP connection timeout — the shared cancel-based helper with its message."""
+    async with timeout_after(seconds, message=f"startup timed out after {seconds:g}s"):
         yield
-    except asyncio.CancelledError:
-        if timed_out:
-            uncancel = getattr(task, "uncancel", None)
-            if uncancel is not None:  # Python 3.11+
-                uncancel()
-            raise TimeoutError(f"startup timed out after {seconds:g}s") from None
-        raise
-    finally:
-        handle.cancel()
 
 
 _SCHEMA_PASSTHROUGH = ("$defs", "definitions", "additionalProperties", "title")
@@ -91,6 +65,18 @@ def _as_float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _validate_pool_size(name: str, config: dict[str, Any], *, supported: bool) -> int:
+    """``session_pool_size`` as an int — 0 (or absent/None) means no pool."""
+    value = config.get("session_pool_size")
+    if value is None:
+        return 0
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"MCP server '{name}': session_pool_size must be a non-negative integer (got {value!r})")
+    if value and not supported:
+        raise ValueError(f"MCP server '{name}': session_pool_size is supported for streamable-http only")
+    return value
 
 
 def _dump(model: Any) -> dict:
@@ -134,10 +120,19 @@ def _normalize_schema(input_schema: dict | None) -> dict:
 
 
 class MCPServerAdapter(ABC):
-    """Lifecycle and ephemeral sessions for one MCP server (one transport)."""
+    """Lifecycle and sessions for one MCP server (one transport).
+
+    ``session()`` opens an ephemeral session — connect, use, disconnect.
+    Streamable-http adapters may instead enable a session pool with
+    ``session_pool_size=N`` (max concurrent tool calls; sessions are reused
+    and an idle call never dials again).  Prompts, resources and ``start()``
+    discovery always stay ephemeral.
+    """
 
     transport: str = ""
     _required: tuple[str, ...] = ()
+    #: Whether ``session_pool_size`` applies — streamable-http only.
+    supports_session_pool: bool = False
 
     def __init__(self, name: str, config: dict[str, Any]):
         missing = [key for key in self._required if not config.get(key)]
@@ -145,6 +140,8 @@ class MCPServerAdapter(ABC):
             raise ValueError(f"MCP server '{name}': {self.transport} transport requires {', '.join(missing)}")
         self.name = name
         self.config = config
+        self._pool_size = _validate_pool_size(name, config, supported=self.supports_session_pool)
+        self._pool: SessionPool | None = None
         self._tools: list[CLIverTool] = []
 
     @abstractmethod
@@ -161,8 +158,12 @@ class MCPServerAdapter(ABC):
         return _DEFAULT_STARTUP_TIMEOUT_REMOTE
 
     @asynccontextmanager
-    async def session(self) -> AsyncIterator[Client]:
-        """Open one ephemeral, connected ``Client`` session."""
+    async def _connected(self) -> AsyncIterator[Client]:
+        """One connected ``Client`` — transport, connect, yield, disconnect.
+
+        The caller (ephemeral path or the pool's manager task) owns the
+        lifecycle; every enter/exit happens in the calling task.
+        """
         async with self._transport() as server_arg:
             client = Client(
                 server_arg,
@@ -181,6 +182,18 @@ class MCPServerAdapter(ABC):
                 yield client
             finally:
                 await stack.aclose()
+
+    @asynccontextmanager
+    async def session(self) -> AsyncIterator[Client]:
+        """Open one ephemeral, connected ``Client`` session."""
+        async with self._connected() as client:
+            yield client
+
+    def _ensure_pool(self) -> SessionPool:
+        """The lazy session pool — created on first pooled call, caller's loop."""
+        if self._pool is None:
+            self._pool = SessionPool(self._connected, self._pool_size)
+        return self._pool
 
     async def _list_all(self, client: Client, method: str, field: str) -> list[Any]:
         items: list[Any] = []
@@ -250,19 +263,46 @@ class MCPServerAdapter(ABC):
             )
         return tools
 
+    def _format_result(self, result: Any, tool_name: str) -> list[dict]:
+        """SDK call result → content blocks, or the server-named error entry."""
+        if result.is_error:
+            return [{"error": f"MCP tool '{tool_name}' failed on server '{self.name}': {_error_detail(result)}"}]
+        content = [_dump(block) for block in result.content]
+        if not content and result.structured_content is not None:
+            content = [{"text": json.dumps(result.structured_content, ensure_ascii=False, default=str)}]
+        return content
+
     async def call_tool(self, tool_name: str, args: dict[str, Any]) -> list[dict]:
-        """Call a tool on this server using an ephemeral session."""
+        """Call a tool on this server — pooled when enabled, ephemeral otherwise.
+
+        A raised failure releases the pooled session for replacement (never
+        retried here); an MCP ``is_error`` result is tool-level and keeps the
+        session.
+        """
+        if self._pool_size:
+            return await self._call_tool_pooled(tool_name, args)
         try:
             async with self.session() as client:
                 result = await client.call_tool(tool_name, args)
-            if result.is_error:
-                return [{"error": f"MCP tool '{tool_name}' failed on server '{self.name}': {_error_detail(result)}"}]
-            content = [_dump(block) for block in result.content]
-            if not content and result.structured_content is not None:
-                content = [{"text": json.dumps(result.structured_content, ensure_ascii=False, default=str)}]
-            return content
+            return self._format_result(result, tool_name)
         except Exception as exc:
             return [{"error": f"MCP tool '{tool_name}' on server '{self.name}' failed: {exc}"}]
+
+    async def _call_tool_pooled(self, tool_name: str, args: dict[str, Any]) -> list[dict]:
+        pool = self._ensure_pool()
+        try:
+            session = await pool.acquire()
+        except Exception as exc:
+            return [{"error": f"MCP tool '{tool_name}' on server '{self.name}' failed: {exc}"}]
+        ok = False
+        try:
+            result = await session.call_tool(tool_name, args)
+            ok = True
+            return self._format_result(result, tool_name)
+        except Exception as exc:
+            return [{"error": f"MCP tool '{tool_name}' on server '{self.name}' failed: {exc}"}]
+        finally:
+            await pool.release(session, ok=ok)
 
     def _call_tool(self, tool_name: str, **kwargs: Any) -> Any:
         """Executor bound into ``CLIverTool.execute`` — returns a coroutine to await."""
@@ -311,7 +351,14 @@ class MCPServerAdapter(ABC):
         return list(self._tools)
 
     async def close(self) -> None:
-        """Drop discovered tools — sessions are ephemeral, nothing else to release."""
+        """Close the session pool (when enabled), then drop discovered tools.
+
+        Idempotent.  In-flight pooled calls should be drained first — closing
+        a session is how the SDK cancels them.
+        """
+        if self._pool is not None:
+            pool, self._pool = self._pool, None
+            await pool.close()
         self._tools.clear()
 
 
@@ -341,6 +388,7 @@ class StreamableHTTPAdapter(MCPServerAdapter):
 
     transport = "streamable-http"
     _required = ("url",)
+    supports_session_pool = True
 
     @asynccontextmanager
     async def _transport(self) -> AsyncIterator[Any]:

@@ -312,6 +312,10 @@ class CLIverMessageChunk(BaseModel):
     """
 
     content: str | None = None
+    run_id: str | None = None
+    # Set on the run's terminal chunks (the ``__llm_trace__`` sentinel and the
+    # stop/iteration-limit messages); ordinary delta chunks leave it ``None``.
+    # In-run ``ToolEvent`` / ``InferenceEvent`` events carry the same id.
     tool_call_chunks: list[ToolCallChunk] | None = None
     vendor_ext: dict[str, str] = Field(default_factory=dict)
     # String deltas — vendor-specific keys the SDK surfaced

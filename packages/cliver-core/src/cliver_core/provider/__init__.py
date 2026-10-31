@@ -4,7 +4,7 @@ import base64
 import inspect
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable, Mapping, Union
+from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable, ClassVar, Mapping, Union
 
 from pydantic import BaseModel, Field
 
@@ -72,6 +72,9 @@ class CLIverRequest(BaseModel):
     tools: list[CLIverTool] | None = None
     model: str
     options: dict[str, Any] = Field(default_factory=dict)
+    run_id: str | None = None
+    # The AgentCore run this call belongs to — copied onto every inference
+    # event the provider emits.  Never sent on the wire.
     # temperature, top_p, max_tokens, thinking, etc.
     # Passed through — each provider filters what it supports.
 
@@ -98,6 +101,9 @@ class CLIverResponse(BaseModel):
     # worth retrying (rate limit, timeout, connection, 5xx).  AgentCore uses
     # it to fail over to the next binding of the same purpose; ``None`` on
     # success.
+    run_id: str | None = None
+    # Set by AgentCore on chat()/stream() responses: the id shared by every
+    # event of this run.  Provider-side responses leave it ``None``.
 
 
 #: ``generate_media(output_handler=...)`` — a sync or async callable that turns
@@ -144,6 +150,12 @@ class Provider(ABC):
 
     protocol: str = ""
     brand: str = ""
+
+    #: Whether this provider class builds an SDK client from
+    #: ``client_timeout`` / ``client_max_retries``.  Only the protocol
+    #: providers with a builtin SDK transport do; custom classes built by
+    #: the user are free to ignore the options entirely.
+    supports_client_options: ClassVar[bool] = False
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)

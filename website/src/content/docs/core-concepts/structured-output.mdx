@@ -1,0 +1,94 @@
+---
+title: Structured Output
+---
+
+`agent.chat_structured()` runs a normal agentic chat and validates the model's final answer
+against a schema. On a parse or validation failure it re-prompts with a corrective message and
+tries again. Use it when the run's result feeds code, not prose: extraction, classification,
+verdicts, tool-less JSON APIs.
+
+```python
+from typing import Literal
+
+from pydantic import BaseModel
+
+from cliver_core import StructuredOutputError
+
+
+class PartVerdict(BaseModel):
+    part_id: str
+    verdict: Literal["pass", "fail"]
+    confidence: float
+
+
+try:
+    result = await agent.chat_structured(
+        "Inspect the recording and judge the part.",
+        schema=PartVerdict,
+        media=[video],
+    )
+except StructuredOutputError as exc:
+    log.warning("run %s gave up after %d attempts: %s", exc.run_id, exc.attempts, exc.last_error)
+else:
+    verdict = result.value          # a validated PartVerdict
+    print(result.attempts, result.usage_total, result.run_id)
+```
+
+`chat_structured()` accepts every `chat()` parameter (`system_prompt`, `conversation`, `media`,
+`extra_tools`, `mcp_servers`, `tool_filter`, `options`, `max_iterations`, `execution_policy`,
+`parallel_tool_calls`, `tool_timeout`, `skill_dispatch`, `on_event`, `run_timeout`, `run_id`),
+so tools, skills, MCP, and media work inside a structured run.
+
+## Schemas
+
+- **Pydantic model class** — the result is a validated model instance.
+- **JSON-Schema dict** — the result is the parsed `dict` (no JSON-Schema validator dependency).
+
+The schema is also serialized (compact JSON) into the single system message, so the model is told
+the exact shape even when the provider has no native structured-output support.
+
+## Modes
+
+`mode` controls the wire-level option sent to the provider. The protocol is read from the
+primary `llm` binding:
+
+| Mode | OpenAI protocol | Anthropic protocol |
+|------|-----------------|--------------------|
+| `auto` (default) | `response_format={"type": "json_object"}` | `output_config={"format": {"type": "json_schema", "schema": ...}}` |
+| `json_schema` | `response_format={"type": "json_schema", "json_schema": {"name", "schema", "strict": true}}` | same `output_config` |
+| `json_object` | `response_format={"type": "json_object"}` | no wire option (instruction only, like `prompt`) |
+| `prompt` | no wire option | no wire option |
+
+Every mode also appends the schema instruction to the system message, and every mode validates
+the answer. The wire option only upgrades enforcement where the provider supports it.
+
+Caller-supplied `response_format` or `output_config` in `options` always wins — the helper never
+overwrites them. If fallback bindings use a different protocol than the primary, pass explicit
+`options` or `mode="prompt"`, because the mapping is chosen from the primary only.
+
+## Validation and Retries
+
+The assistant text is parsed with `json.loads` after stripping a surrounding Markdown code fence;
+pydantic schemas are then validated. Prose around the JSON is a failure, not a silent extraction.
+
+- `retries` (default `1`) is the number of extra attempts. `retries=0` makes exactly one.
+- A failed attempt appends to the retry conversation: the original user message (media included
+  once) and the model's bad answer, then a corrective user turn carrying the error. The caller's
+  `conversation` list is never mutated.
+- `StructuredResponse` reports `attempts`, the final `response`, `usage_total` (summed over every
+  attempt, failed ones included), and the shared `run_id`.
+- Exhausted retries raise `StructuredOutputError` (a `RuntimeError`) with `attempts`,
+  `last_error`, `raw_content`, `run_id`, and the final `response` — enough to log or re-prompt.
+- `run_timeout` bounds the whole structured run, retries included, and raises
+  `RunTimeoutError`. Every attempt shares one `run_id`, so events correlate across retries.
+
+## Caveats
+
+- The final answer must be assistant text. A provider returning non-text content is treated as a
+  parse failure and retried.
+- Streaming structured output is not supported — use `chat_structured()` for the final answer.
+- `json_object` mode on the Anthropic protocol cannot enforce a schema on the wire; it behaves
+  like `prompt`. Prefer `auto`/`json_schema` there.
+- OpenAI-compatible vendors vary in `response_format` support. Unsupported values are surfaced
+  by the provider as errors; switch that binding to `mode="prompt"` rather than adding a brand
+  special case.

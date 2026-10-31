@@ -1,0 +1,335 @@
+---
+title: FastAPI Server
+---
+
+`cliver-core` is loop-safe, not thread-safe: one agent belongs to one event loop for its whole
+life. A FastAPI application under uvicorn (or gunicorn with uvicorn workers) gives each worker
+process its own loop, so the shape is:
+
+> **one agent, one bindings set, one MCP client per worker process — built in the lifespan,
+> shared by every request on that loop.**
+
+This guide wires that shape: startup, non-streaming and streaming endpoints, cancellation,
+credential rotation, sizing, and shutdown.
+
+:::caution
+Do not build the agent at import time. A module-level `agent = AgentCore(...)` is bound to the
+first loop that first uses it — which may be a test client's loop, not the server's. Build it in
+`lifespan`, and give FastAPI tests their own lifespan-built app.
+
+Every endpoint that touches the agent must be **`async def`**. A plain `def` endpoint runs in a
+worker thread, and the agent, its bindings, and its MCP client are loop-bound — using them there
+raises `RuntimeError` once the binding has claimed the server loop.
+:::
+
+## Lifespan
+
+```python
+# app/server.py
+import asyncio
+import json
+import logging
+import os
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+
+from cliver_core import AgentCore, ModelBindings, ProviderError, RunTimeoutError, presets
+from cliver_core.mcp import MCPClient
+from cliver_core.tools import discover_builtin_tools
+
+log = logging.getLogger("app")
+
+
+async def refresh_credentials_forever(agent: AgentCore, interval: float = 300.0) -> None:
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            await agent.arefresh_credentials()
+        except Exception:  # keep serving on the old provider
+            log.exception("credential refresh failed")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Optional: give blocking tools more room than the default executor.
+    loop = asyncio.get_running_loop()
+    # loop.set_default_executor(ThreadPoolExecutor(max_workers=64))
+
+    mcp = MCPClient.from_discovery()
+    await mcp.start()  # connect and discover now, not on the first request
+
+    binding = presets.deepseek(
+        api_key=os.environ["DEEPSEEK_API_KEY"],
+        client_timeout=60,     # SDK read timeout (all HTTP phases); default is 600 s
+        client_max_retries=1,  # SDK transport retries; default is 2
+    )
+    agent = AgentCore(
+        ModelBindings(llm=binding),
+        builtin_tools=discover_builtin_tools(),
+        mcp_client=mcp,
+        run_timeout=120,  # default budget; call sites may override
+        tool_timeout=30,
+    )
+
+    app.state.agent = agent
+    app.state.mcp = mcp
+    app.state.slots = asyncio.Semaphore(int(os.environ.get("MAX_CONCURRENT_RUNS", "32")))
+    app.state.in_flight = set()
+    app.state.refresher = asyncio.create_task(refresh_credentials_forever(agent))
+
+    yield  # serve
+
+    # Shutdown: stop the refresher, drain runs, close in ownership order.
+    app.state.refresher.cancel()
+    await asyncio.gather(app.state.refresher, return_exceptions=True)
+    await asyncio.gather(*app.state.in_flight, return_exceptions=True)
+    await agent.aclose()  # drains media jobs, closes built providers
+    await mcp.close()     # the app built it, so the app closes it
+
+
+app = FastAPI(lifespan=lifespan)
+```
+
+- `MCPClient.from_discovery()` also starts lazily, but calling `start()` in the lifespan surfaces
+  a broken server at startup instead of on the first request.
+- `agent.aclose()` is idempotent. It does **not** close the MCP client — the lifespan owns that
+  order.
+- With several workers (`uvicorn --workers 4`, or gunicorn), each worker runs this lifespan
+  itself: four processes, four loops, four agents. Nothing is shared across processes.
+
+## Non-Streaming Endpoint
+
+Track in-flight runs, admit through a semaphore, and map core errors to HTTP statuses:
+
+```python
+from contextlib import asynccontextmanager
+
+
+@asynccontextmanager
+async def bounded_run(request: Request):
+    state = request.app.state
+    task = asyncio.current_task()
+    state.in_flight.add(task)
+    try:
+        async with state.slots:
+            yield state.agent
+    finally:
+        state.in_flight.discard(task)
+
+
+class RunRequest(BaseModel):
+    input: str
+    run_id: str | None = None  # the caller's correlation id, or omit
+
+
+class RunReply(BaseModel):
+    run_id: str
+    content: str
+    usage_total: dict | None = None
+
+
+@app.post("/runs", response_model=RunReply)
+async def create_run(body: RunRequest, request: Request) -> RunReply:
+    async with bounded_run(request) as agent:
+        try:
+            response = await agent.chat(body.input, run_id=body.run_id, run_timeout=90)
+        except RunTimeoutError as exc:
+            raise HTTPException(504, f"run {exc.run_id} exceeded its budget") from exc
+        except ProviderError as exc:
+            raise HTTPException(503 if exc.retryable else 502, str(exc)) from exc
+    return RunReply(
+        run_id=response.run_id,
+        content=response.message.content or "",
+        usage_total=response.usage_total.model_dump() if response.usage_total else None,
+    )
+```
+
+- `run_timeout` is your request SLA: one wall clock over model calls, tool batches, failover
+  retries, and handler awaits. `RunTimeoutError` is not a `ProviderError` — map it to 504, not
+  503.
+- `run_id` correlates every inference and tool event of the run. Pass the client's id when it
+  logs one; core generates a 32-hex id otherwise. Return it on success **and** on failure (the
+  exception carries it).
+- `usage_total` sums every Re-Act iteration, including the tool-requesting ones — meter from it
+  instead of recounting events.
+- The semaphore is the application's admission policy. Pick `MAX_CONCURRENT_RUNS` from upstream
+  rate limits and per-run token budgets, not from CPU count; `AgentCore` has no rate limiter.
+
+For JSON-shaped results, swap in `agent.chat_structured(body.input, schema=MyModel, ...)` and map
+`StructuredOutputError` to 422 — see [Structured Output](/core-concepts/structured-output/).
+
+## Streaming Endpoint
+
+A streaming run must start inside the response generator. Acquire an admission slot in the
+handler — with a short bounded wait, so a saturated server can answer `429` before any bytes are
+sent — and release it in the generator's `finally`:
+
+```python
+REQUEST_BUDGET = 90.0
+ADMISSION_WAIT = 0.05  # seconds; tune to your p99 queueing target
+
+
+def sse(event: str, **data) -> str:
+    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+@app.post("/runs/stream")
+async def stream_run(body: RunRequest, request: Request):
+    state = request.app.state
+    try:
+        await asyncio.wait_for(state.slots.acquire(), timeout=ADMISSION_WAIT)
+    except asyncio.TimeoutError:
+        raise HTTPException(429, "all run slots are busy") from None
+
+    generator = state.agent.stream(body.input, run_id=body.run_id, run_timeout=REQUEST_BUDGET)
+
+    async def events():
+        task = asyncio.current_task()
+        state.in_flight.add(task)
+        run_id = body.run_id
+        try:
+            async for chunk in generator:
+                if chunk.run_id:
+                    run_id = chunk.run_id  # terminal chunks carry the id
+                if chunk.content:
+                    yield sse("delta", text=chunk.content)
+            yield sse("done", run_id=run_id)
+        except RunTimeoutError as exc:
+            yield sse("error", code="timeout", run_id=exc.run_id)
+        except ProviderError as exc:
+            yield sse("error", code="provider", retryable=exc.retryable, run_id=run_id)
+        finally:
+            await generator.aclose()  # close the provider stream on abandonment
+            state.in_flight.discard(task)
+            state.slots.release()
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+```
+
+- **Cancellation.** When the client disconnects, Starlette receives `http.disconnect` and cancels
+  the streaming task. The `async for` unwinds, `finally` closes the generator and releases the
+  slot, and core closes the provider stream and releases its binding lease. No polling needed —
+  but do not swallow `asyncio.CancelledError` in your own `except` blocks.
+- `run_timeout` bounds each pull with the remaining budget; time the consumer spends parked
+  between chunks still counts. If your proxy buffers, disable buffering (`X-Accel-Buffering` for
+  nginx) so deltas reach the client and disconnects arrive promptly.
+- Status codes must be decided before the first yield. Once streaming starts, report failures as
+  `error` events, as above. The semaphore is released in the generator's `finally`; the slot is
+  therefore held from admission until the stream ends, errors out, or is cancelled.
+- Ordinary delta chunks leave `run_id` unset; the terminal trace/stop chunk carries it, so
+  capture it as it passes.
+
+## Log Correlation and Events
+
+Inference and tool events arrive through two different subscriptions: the binding's
+`on_event` receives every `InferenceEvent`, and the agent's `on_event` receives every
+`ToolEvent`:
+
+```python
+from cliver_core.events import InferenceEvent, ToolEvent
+
+
+async def record_inference(event: InferenceEvent) -> None:
+    # run_id groups one logical run; request_id pinpoints one model call.
+    metrics.observe(event)          # your metrics backend
+    log.info("%s %s", event.run_id, event.event.value)
+
+
+async def record_tool(event: ToolEvent) -> None:
+    log.info("%s tool %s %s", event.run_id, event.tool_name, event.event.value)
+
+
+binding = ModelBinding.llm(..., on_event=record_inference)
+agent = AgentCore(ModelBindings(llm=binding), ..., on_event=record_tool)
+```
+
+Handlers must not block the loop: push to a queue or batch; never `await` a slow network call
+inline. They run inside the run's deadline, so a slow handler also burns the request budget, and
+a handler exception propagates — it fails the run rather than being swallowed. Wrap your own
+bookkeeping in `try/except` and keep the handler total. Per-call `on_event=` adds a
+**tool-event** handler for one call only. A supplied `provider=` carries its own `on_event` from
+construction and does not accept a binding-level one.
+
+## Credential Rotation
+
+Provider clients bake the key at construction. Rotate explicitly — core has no automatic refresh:
+
+```python
+# On a TTL timer (the lifespan task above), or after catching a ProviderError.
+await agent.arefresh_credentials()  # rebuilds every binding that has a credential_provider
+```
+
+- `credential_provider=` (sync or async, no arguments) supplies the new key. A bad value raises
+  `ValueError` before anything changes.
+- In-flight calls finish on the retired provider; it is closed by the next refresh once its last
+  call finishes. Frequent rotation does not accumulate providers.
+- For a retry-once policy, treat a non-retryable `ProviderError` as possibly auth-related:
+  refresh, then retry the run under your own policy. Do not loop indefinitely.
+
+```python
+async def chat_with_refresh(agent: AgentCore, prompt: str, **kwargs):
+    try:
+        return await agent.chat(prompt, **kwargs)
+    except ProviderError as exc:
+        if exc.retryable:
+            raise  # rate limit / timeout / 5xx: retrying with the same key will not help
+        await agent.arefresh_credentials()
+        return await agent.chat(prompt, **kwargs)
+```
+
+For tenants, keep one agent per tenant with that tenant's secret source and refresh schedule;
+share an agent only when tenants differ by call parameters alone.
+
+## Sizing and Limits
+
+| Knob | Where | Why |
+|------|-------|-----|
+| `run_timeout` | `AgentCore(...)` + per call | Maps a run to your request SLA; bounds the whole Re-Act loop |
+| `tool_timeout` | `AgentCore(...)` + per call | Bounds one tool execution; sync tools run in a thread and cannot be killed |
+| `client_timeout` | Binding factory | A hung upstream must fail before the run budget is gone |
+| `client_max_retries` | Binding factory | `0` makes same-purpose binding failover react on the first retryable error |
+| admission semaphore | Application | Core has no rate limiter or circuit breaker |
+| `session_pool_size` | streamable-http MCP entry | Set it to the concurrent calls you allow for that server; leaves stay ephemeral |
+| `max_iterations` | Per call, default 50 | Caps a runaway loop; lower it for latency-sensitive endpoints |
+
+- Synchronous tools run via `asyncio.to_thread` and share the loop's default executor. Under high
+  concurrency the executor, not the model, becomes the bottleneck — raise its size at startup or
+  cut tool concurrency.
+- Media helpers (`generate_image`, `text_to_speech`, …) are ordinary coroutines: call them from
+  an endpoint (not inside a tool body that already blocks), with their own timeout budget.
+- `AgentCore` instances are cheap to build but hold a provider client each; build one per worker
+  and reuse it. Building a new agent per request defeats connection reuse.
+
+## Shutdown
+
+FastAPI runs the lifespan's post-`yield` block after it stops routing requests, but in-flight
+*streams* can still be running. The drain above waits for tracked runs first:
+
+1. Cancel the credential refresher and any other background task.
+2. `await asyncio.gather(*in_flight, return_exceptions=True)` — let requests finish or observe
+   their cancellation.
+3. `await agent.aclose()` — cancels and drains media jobs, then closes the providers the
+   bindings built.
+4. `await mcp.close()` — stops session pools and closes sessions, including leased ones.
+
+Give uvicorn a graceful-shutdown timeout long enough for step 2 (`--timeout-graceful-shutdown`),
+and make sure your orchestrator's termination grace period is longer than that.
+
+## Checklist
+
+- [ ] One agent per worker process, built inside `lifespan` on that worker's loop.
+- [ ] `run_timeout` and `client_timeout` set below the upstream/proxy timeouts.
+- [ ] Admission semaphore sized from upstream limits; `429` (or backpressure) when saturated.
+- [ ] `RunTimeoutError` → 504, retryable `ProviderError` → 503, other provider failures → 502.
+- [ ] `run_id` accepted from the caller and returned in every response, success or failure.
+- [ ] Streaming: cancellation unwinds cleanly, terminal `run_id` emitted, buffering disabled.
+- [ ] Credential rotation on a timer or on an auth-related failure; no unbounded retry loop.
+- [ ] Shutdown drains in-flight runs, then `agent.aclose()`, then `mcp.close()`.
+- [ ] Auth, quotas, persistence, tracing export, and tenant administration stay in the app.

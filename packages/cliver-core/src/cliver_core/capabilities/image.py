@@ -68,15 +68,15 @@ async def generate_image(
         A :class:`~cliver_core.provider.CLIverResponse`; generated images are
         in ``.media`` (and ``.message.content`` summarizes the call).
     """
-    provider = binding.get_provider()
-    return await provider.image(
-        prompt,
-        binding.model,
-        media=media,
-        output_dir=output_dir,
-        **{
-            **binding.call_defaults(),
-            **drop_none(n=n, size=size, style=style, quality=quality),
-            **options,
-        },
-    )
+    async with binding.lease_provider() as provider:
+        return await provider.image(
+            prompt,
+            binding.model,
+            media=media,
+            output_dir=output_dir,
+            **{
+                **binding.call_defaults(),
+                **drop_none(n=n, size=size, style=style, quality=quality),
+                **options,
+            },
+        )

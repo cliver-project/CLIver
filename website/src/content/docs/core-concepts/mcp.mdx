@@ -32,6 +32,39 @@ builtin tools — including permission categories and events. A server's self-de
 `readOnlyHint` annotation maps to the `SAFE` category; it is a hint, never a permission
 boundary. Override individual tools with `safety_overrides=`.
 
+## Session Pooling
+
+By default every tool call opens an ephemeral session: a stdio server starts a subprocess per
+call, and streamable HTTP dials a new client per call. A **streamable-http** server can instead
+keep a pool of open sessions:
+
+```json
+{
+  "mcpServers": {
+    "docs": {
+      "transport": "streamable-http",
+      "url": "https://example.com/mcp",
+      "headers": {"Authorization": "Bearer ${DOCS_TOKEN}"},
+      "session_pool_size": 4
+    }
+  }
+}
+```
+
+- `session_pool_size=N` is the **maximum number of concurrent tool calls** for that server.
+  Sessions are leased exclusively: up to N calls run at once, and a further call waits for an
+  idle session instead of dialing again.
+- Sessions open lazily on the first pooled call. `start()` discovery, prompts, and resources
+  stay ephemeral.
+- A call that raises (transport failure) evicts its session: it is closed and the next call
+  opens a replacement. An MCP `is_error` result is tool-level and keeps the session.
+- `session_pool_size` is supported on streamable-http only. Discovery drops the key from stdio
+  entries with a problem report; `create_adapter` raises `ValueError`. Absent or `0` keeps the
+  ephemeral behavior.
+- `close()` stops the pool and closes its sessions — leased ones included, which is how an
+  in-flight call is cancelled. Drain calls first. A pool belongs to its `MCPClient` and its
+  event loop.
+
 ## Lifecycle
 
 `start()` is single-flight: concurrent callers share one discovery pass, and a cancelled waiter

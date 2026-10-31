@@ -43,6 +43,7 @@ def _capture_loop(agent: AgentCore) -> dict:
         parallel_tool_calls=False,
         tool_timeout=None,
         skill_state=None,
+        run_id=None,
     ):
         captured["messages"] = messages
         captured["tools"] = all_tools

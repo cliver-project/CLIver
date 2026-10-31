@@ -32,6 +32,7 @@ from cliver_core.events import (
 )
 from cliver_core.messages import UsageInfo
 from cliver_core.provider import CLIverResponse
+from cliver_core.run_ids import resolve_run_id
 from cliver_core.skill import Skill
 
 __all__ = [
@@ -80,10 +81,16 @@ class StepResult:
 
 @dataclass(frozen=True)
 class PipelineContext:
-    """The original input plus the ordered results of the steps before this one."""
+    """The original input plus the ordered results of the steps before this one.
+
+    ``run_id`` identifies the pipeline run; a runner should pass it to the
+    agent call (``agent.chat(..., run_id=context.run_id)``) so the step's
+    inference and tool events correlate with the pipeline events.
+    """
 
     input: str
     results: tuple[StepResult, ...] = ()
+    run_id: str = ""
 
     def result(self, name: str) -> StepResult | None:
         """Return the prior result named *name*, or ``None``."""
@@ -144,6 +151,7 @@ class PipelineResult:
 
     results: tuple[StepResult, ...] = ()
     stopped: bool = False
+    run_id: str = ""
 
     @property
     def ok(self) -> bool:
@@ -184,16 +192,24 @@ class SkillPipeline:
         if without_runner and agent is None:
             raise ValueError("SkillPipeline needs agent=... for steps without a runner: " + ", ".join(without_runner))
 
-    async def run(self, input: str) -> PipelineResult:
-        """Run the steps in order.  Cancellation emits ``pipeline.end`` and re-raises."""
+    async def run(self, input: str, *, run_id: str | None = None) -> PipelineResult:
+        """Run the steps in order.  Cancellation emits ``pipeline.end`` and re-raises.
+
+        ``run_id`` identifies the whole pipeline run (omitted → generated);
+        it rides every pipeline event, ``PipelineContext.run_id`` for custom
+        runners, and the default runner's agent calls.
+        """
+        run_id = resolve_run_id(run_id)
         started = time.monotonic()
-        await self._emit(PipelineEvent(event=PipelineEventType.START, data={"step_count": len(self.steps)}))
+        await self._emit(
+            PipelineEvent(event=PipelineEventType.START, run_id=run_id, data={"step_count": len(self.steps)})
+        )
 
         results: list[StepResult] = []
         stopped = False
         try:
             for index, step in enumerate(self.steps):
-                result = await self._run_step(step, index, input, tuple(results))
+                result = await self._run_step(step, index, input, tuple(results), run_id)
                 results.append(result)
                 if result.error is not None and step.on_failure is FailurePolicy.STOP:
                     stopped = True
@@ -202,6 +218,7 @@ class SkillPipeline:
             await self._emit(
                 PipelineEvent(
                     event=PipelineEventType.END,
+                    run_id=run_id,
                     data={"cancelled": True, "steps_run": len(results)},
                     duration_ms=(time.monotonic() - started) * 1000,
                 )
@@ -212,11 +229,12 @@ class SkillPipeline:
         await self._emit(
             PipelineEvent(
                 event=PipelineEventType.END,
+                run_id=run_id,
                 data={"ok": ok, "stopped": stopped, "steps_run": len(results)},
                 duration_ms=(time.monotonic() - started) * 1000,
             )
         )
-        return PipelineResult(results=tuple(results), stopped=stopped)
+        return PipelineResult(results=tuple(results), stopped=stopped, run_id=run_id)
 
     async def _run_step(
         self,
@@ -224,10 +242,13 @@ class SkillPipeline:
         index: int,
         pipeline_input: str,
         prior: tuple[StepResult, ...],
+        run_id: str,
     ) -> StepResult:
-        context = PipelineContext(input=pipeline_input, results=prior)
+        context = PipelineContext(input=pipeline_input, results=prior, run_id=run_id)
         started = time.monotonic()
-        await self._emit(PipelineEvent(event=PipelineEventType.STEP_START, step_name=step.name, step_index=index))
+        await self._emit(
+            PipelineEvent(event=PipelineEventType.STEP_START, run_id=run_id, step_name=step.name, step_index=index)
+        )
         try:
             step_input = pipeline_input
             if step.input_builder is not None:
@@ -242,6 +263,7 @@ class SkillPipeline:
             await self._emit(
                 PipelineEvent(
                     event=PipelineEventType.STEP_ERROR,
+                    run_id=run_id,
                     step_name=step.name,
                     step_index=index,
                     error=str(exc),
@@ -253,6 +275,7 @@ class SkillPipeline:
         await self._emit(
             PipelineEvent(
                 event=PipelineEventType.STEP_END,
+                run_id=run_id,
                 step_name=step.name,
                 step_index=index,
                 data={
@@ -278,8 +301,9 @@ class SkillPipeline:
                 step_input,
                 system_prompt=step.prompt,
                 on_event=emit,
+                run_id=context.run_id,
             )
-        return await self.agent.chat(step_input, system_prompt=step.prompt, on_event=emit)
+        return await self.agent.chat(step_input, system_prompt=step.prompt, on_event=emit, run_id=context.run_id)
 
     async def _emit(self, event: InferenceEvent | ToolEvent | PipelineEvent) -> None:
         await dispatch_event(self.on_event, event)

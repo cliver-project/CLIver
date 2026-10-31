@@ -211,6 +211,7 @@ class AnthropicProvider(Provider):
     protocol = "anthropic"
     brand = "anthropic"
     default_base_url = "https://api.anthropic.com"
+    supports_client_options = True
 
     def __init__(
         self,
@@ -221,6 +222,8 @@ class AnthropicProvider(Provider):
         logger: "logging.Logger | None" = None,
         on_event: EventHandler | None = None,
         transport: BrandSDK | None = None,
+        client_timeout: float | None = None,
+        client_max_retries: int | None = None,
     ):
         super().__init__(api_key, base_url, logger=logger)
         self.user_agent = user_agent
@@ -235,6 +238,8 @@ class AnthropicProvider(Provider):
             brand=self.provider_name(),
             user_agent=user_agent,
             use_bearer_auth=getattr(self.__class__, "_anthropic_use_bearer_auth", False),
+            timeout=client_timeout,
+            max_retries=client_max_retries,
         )
 
     async def close(self) -> None:
@@ -379,6 +384,7 @@ class AnthropicProvider(Provider):
                 model=request.model,
                 provider=self.protocol,
                 request_id=request_id,
+                run_id=request.run_id,
                 data={"message_count": len(messages), "tool_count": len(tools)},
             )
         )
@@ -394,6 +400,7 @@ class AnthropicProvider(Provider):
                     model=request.model,
                     provider=self.protocol,
                     request_id=request_id,
+                    run_id=request.run_id,
                     data={"error": str(exc), "retryable": exc.retryable},
                 )
             )
@@ -406,6 +413,7 @@ class AnthropicProvider(Provider):
                 model=request.model,
                 provider=self.protocol,
                 request_id=request_id,
+                run_id=request.run_id,
                 data={
                     "total_latency_ms": (time.monotonic() - start) * 1000,
                     "usage": usage.model_dump() if usage else None,
@@ -448,6 +456,7 @@ class AnthropicProvider(Provider):
                 model=request.model,
                 provider=self.protocol,
                 request_id=request_id,
+                run_id=request.run_id,
                 data={"message_count": len(messages), "tool_count": len(tools)},
             )
         )
@@ -486,6 +495,7 @@ class AnthropicProvider(Provider):
                             model=request.model,
                             provider=self.protocol,
                             request_id=request_id,
+                            run_id=request.run_id,
                             data={"latency_ms": (time.monotonic() - start) * 1000},
                         )
                     )
@@ -498,6 +508,7 @@ class AnthropicProvider(Provider):
                                 model=request.model,
                                 provider=self.protocol,
                                 request_id=request_id,
+                                run_id=request.run_id,
                                 data={"tool_name": tc.name or "?", "tool_call_id": tc.id},
                             )
                         )
@@ -521,6 +532,7 @@ class AnthropicProvider(Provider):
                     model=request.model,
                     provider=self.protocol,
                     request_id=request_id,
+                    run_id=request.run_id,
                     data=data,
                 )
             )
@@ -532,6 +544,7 @@ class AnthropicProvider(Provider):
                 model=request.model,
                 provider=self.protocol,
                 request_id=request_id,
+                run_id=request.run_id,
                 data={
                     "total_latency_ms": (time.monotonic() - start) * 1000,
                     "usage": completed_usage.model_dump() if completed_usage else None,

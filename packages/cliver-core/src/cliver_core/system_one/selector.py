@@ -307,10 +307,10 @@ class SystemOneSelector:
         options = dict(self.binding.call_defaults())
         if self.timeout is not None:
             options["timeout"] = self.timeout
-        provider = self.binding.get_provider()
-        return await provider.system_one(
-            state=query,
-            questions=questions,
-            model=self.binding.model,
-            **options,
-        )
+        async with self.binding.lease_provider() as provider:
+            return await provider.system_one(
+                state=query,
+                questions=questions,
+                model=self.binding.model,
+                **options,
+            )
