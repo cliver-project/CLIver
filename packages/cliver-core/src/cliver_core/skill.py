@@ -24,6 +24,7 @@ anchors, no ``-`` sequences.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import threading
@@ -426,6 +427,10 @@ class SkillManager:
     directory.  Later sources override earlier ones with the same skill
     name, so put overrides last.  Sources are read lazily on first access
     (thread-safe, single load) and re-read after :meth:`reload`.
+
+    The synchronous accessors read the filesystem on first use.  Async code
+    should await :meth:`apreload` first: AgentCore does so before its first
+    skill access, so discovery never blocks the event loop.
     """
 
     def __init__(self, sources: list[str | Path] | None = None):
@@ -448,6 +453,16 @@ class SkillManager:
             else:
                 logger.debug("No skills found in %d source(s)", len(self._sources))
             return skills
+
+    async def apreload(self) -> None:
+        """Warm the cache without blocking the running event loop.
+
+        Discovery reads the filesystem; the first async use offloads it to a
+        worker thread.  A warm cache makes this a no-op, so calling it at the
+        start of every run is cheap.
+        """
+        if self._skills is None:
+            await asyncio.to_thread(self._ensure_loaded)
 
     def list_skills(self) -> list[Skill]:
         """All discovered skills (routing metadata level — name + description)."""

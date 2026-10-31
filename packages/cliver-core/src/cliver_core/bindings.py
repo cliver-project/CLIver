@@ -60,6 +60,7 @@ and purpose validation applies to every element of a list.
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Sequence
 
@@ -125,6 +126,10 @@ class ModelBinding:
     purpose: str | None = field(default=None, compare=False)
     params: dict[str, Any] = field(default_factory=dict)
     _built: Provider | None = field(default=None, init=False, repr=False, compare=False)
+    # The event loop this binding was first used on.  Providers are
+    # loop-bound (SDK clients pool connections on their loop), so a binding
+    # refuses a second loop instead of failing deep inside the client.
+    _loop: asyncio.AbstractEventLoop | None = field(default=None, init=False, repr=False, compare=False)
 
     # ── Per-purpose factories ─────────────────────────────────
 
@@ -363,6 +368,27 @@ class ModelBinding:
 
     # ── Provider handle ───────────────────────────────────────
 
+    def _claim_loop(self) -> None:
+        """Bind this handle to the running loop, rejecting a different one.
+
+        Providers are loop-bound: the SDK clients own connection pools and
+        stream tasks on the loop that created them.  The first async use
+        claims the loop; any later use from another loop (in practice another
+        thread) fails here with an actionable message rather than inside
+        ``httpx``.  Calls made outside a running loop are not recorded.
+        """
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        if self._loop is None:
+            self._loop = running
+        elif self._loop is not running:
+            raise RuntimeError(
+                f"ModelBinding for '{self.model}' is bound to another event loop; "
+                "create one binding (and AgentCore) per event loop — one per thread."
+            )
+
     def get_provider(self) -> Provider:
         """The provider for this binding — the supplied one, or built once and reused.
 
@@ -371,7 +397,12 @@ class ModelBinding:
         (set at construction) is the subscription surface, so combining
         ``provider=`` with a binding-level ``on_event`` is a configuration
         error rather than a silently ignored handler.
+
+        The first async use claims the running event loop; a later use from
+        another loop raises ``RuntimeError`` — the cached provider's clients
+        are loop-bound.
         """
+        self._claim_loop()
         if self.provider is not None:
             if self.on_event is not None:
                 raise ValueError(
@@ -390,10 +421,16 @@ class ModelBinding:
         return self._built
 
     async def aclose(self) -> None:
-        """Close the provider this binding built — a caller-supplied one stays open."""
+        """Close the provider this binding built — a caller-supplied one stays open.
+
+        Must run on the loop the binding was used on, and releases the loop
+        claim so the binding can be mounted in a new agent afterwards.
+        """
+        self._claim_loop()
         if self._built is not None:
             built, self._built = self._built, None
             await built.close()
+        self._loop = None
 
 
 @dataclass(kw_only=True)

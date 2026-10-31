@@ -12,6 +12,7 @@ the same purpose.
 import asyncio
 import inspect
 import logging
+import math
 import time
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable, Sequence
@@ -48,6 +49,7 @@ from cliver_core.provider import (
     EmbeddingsResult,
     RerankItem,
 )
+from cliver_core.run_state import ToolRunState, tool_run_state_scope
 from cliver_core.skill import Skill, SkillError, SkillManager, SkillNotFoundError
 from cliver_core.skill_tools import (
     READ_SKILL_FILE_TOOL,
@@ -70,6 +72,28 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 _MAX_CONSECUTIVE_ERRORS = 5
+
+
+class _Unset:
+    """Sentinel for "the call site did not supply a per-call override"."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "UNSET"
+
+
+_UNSET = _Unset()
+
+
+def _validate_tool_timeout(value: float | None) -> float | None:
+    """Normalize a tool timeout: ``None`` (no timeout) or positive seconds."""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0:
+        raise ValueError("tool_timeout must be a positive number of seconds or None")
+    return float(value)
+
 
 # App seam: narrow the tools advertised for a call to the candidates relevant
 # to the user's query (popularity today, encoder/system-1 relevance later).
@@ -100,11 +124,11 @@ class AgentCore:
         skill_manager, skill_selector, skill_search, skill_summary_limit,
         tool_selector, candidate_selector, permission_callback,
         execution_policy, safety_overrides, max_consecutive_errors,
-        on_event, builtin_system_prompt
+        parallel_tool_calls, tool_timeout, on_event, builtin_system_prompt
 
     **Call state** (passed per chat/stream, varies each turn):
         user_input, system_prompt, conversation, extra_tools, mcp_servers,
-        options, skill_dispatch
+        options, skill_dispatch, parallel_tool_calls, tool_timeout
 
     ``system_prompt`` (call-time) is appended to ``builtin_system_prompt``
     (construction-time) — the caller only needs to pass persona / extra context.
@@ -137,6 +161,8 @@ class AgentCore:
         safety_overrides: dict[str, ToolCategory] | None = None,
         on_event: EventHandler | None = None,
         max_consecutive_errors: int = _MAX_CONSECUTIVE_ERRORS,
+        parallel_tool_calls: bool = False,
+        tool_timeout: float | None = None,
         builtin_system_prompt: str | None = None,
         logger: logging.Logger | None = None,
     ):
@@ -179,8 +205,20 @@ class AgentCore:
         self.safety_overrides = safety_overrides or {}
         self.on_event = on_event
         self.max_consecutive_errors = max_consecutive_errors
+        # Tool execution defaults: sequential unless asked, and no timeout
+        # unless set.  Both have per-call overrides on chat()/stream().
+        self.parallel_tool_calls = parallel_tool_calls
+        self.tool_timeout = _validate_tool_timeout(tool_timeout)
         self._builtin_system_prompt = builtin_system_prompt
         self.logger = logger or logging.getLogger(__name__)
+        # Lifecycle: a closed agent rejects every public entry point.  The
+        # close task is shared so concurrent aclose() callers await the same
+        # shutdown pass.
+        self._closed = False
+        self._close_task: asyncio.Task | None = None
+        # Media jobs this agent started.  They hold a provider from these
+        # bindings, so they cannot outlive aclose().
+        self._media_jobs: set[MediaJob] = set()
 
     # ── Public API ────────────────────────────────────────────
 
@@ -197,6 +235,8 @@ class AgentCore:
         options: dict[str, Any] | None = None,
         max_iterations: int = 50,
         execution_policy: ExecutionPolicy | None = None,
+        parallel_tool_calls: bool | None = None,
+        tool_timeout: float | None | _Unset = _UNSET,
         skill_dispatch: bool = True,
         on_event: EventHandler | None = None,
     ) -> CLIverResponse:
@@ -221,6 +261,17 @@ class AgentCore:
         (call-site wins over the constructor default; ``None`` means neither
         is set).
 
+        ``parallel_tool_calls`` overrides the constructor default for this
+        call (``None`` inherits).  In parallel mode permission checks still
+        run sequentially in tool-call order, executions run concurrently,
+        and results are appended in the original order.
+
+        ``tool_timeout`` bounds each tool's execution in seconds — omit it to
+        inherit the constructor default, pass ``None`` to disable the
+        timeout for this call.  A timeout becomes a normal tool-error
+        result plus a ``tool.error`` event; the permission prompt is never
+        timed.
+
         ``skill_dispatch`` advertises the skill catalogue, ``FindSkills`` and
         ``ActivateSkill`` for this call (requires a ``skill_manager``);
         :meth:`run_skill` turns it off because the skill is already pinned.
@@ -229,6 +280,10 @@ class AgentCore:
         instance handler and receives the same tool events.  Nothing is
         stored on the agent, so concurrent calls can each observe their own.
         """
+        self._ensure_open()
+        await self._preload_skills()
+        effective_parallel = self.parallel_tool_calls if parallel_tool_calls is None else parallel_tool_calls
+        effective_timeout = self.tool_timeout if tool_timeout is _UNSET else _validate_tool_timeout(tool_timeout)
         skill_state = self._skill_run_state(skill_dispatch)
         if self.mcp_client:
             await self.mcp_client.start()
@@ -247,6 +302,8 @@ class AgentCore:
             opts,
             max_iterations,
             execution_policy=effective,
+            parallel_tool_calls=effective_parallel,
+            tool_timeout=effective_timeout,
             skill_state=skill_state,
             **_on_event_kwargs(on_event),
         )
@@ -264,6 +321,8 @@ class AgentCore:
         options: dict[str, Any] | None = None,
         max_iterations: int = 50,
         execution_policy: ExecutionPolicy | None = None,
+        parallel_tool_calls: bool | None = None,
+        tool_timeout: float | None | _Unset = _UNSET,
         skill_dispatch: bool = True,
         on_event: EventHandler | None = None,
     ) -> AsyncIterator[CLIverMessageChunk]:
@@ -272,9 +331,14 @@ class AgentCore:
         ``options`` merge exactly as in :meth:`chat` — binding defaults under,
         call-site over.  ``execution_policy`` is ambient around tool
         execution, exactly as in :meth:`chat` — the scope never spans yields,
-        so a consumer abandoning the stream leaks nothing.  ``skill_dispatch``
-        and ``on_event`` match :meth:`chat`.
+        so a consumer abandoning the stream leaks nothing.
+        ``parallel_tool_calls``, ``tool_timeout``, ``skill_dispatch`` and
+        ``on_event`` match :meth:`chat`.
         """
+        self._ensure_open()
+        await self._preload_skills()
+        effective_parallel = self.parallel_tool_calls if parallel_tool_calls is None else parallel_tool_calls
+        effective_timeout = self.tool_timeout if tool_timeout is _UNSET else _validate_tool_timeout(tool_timeout)
         skill_state = self._skill_run_state(skill_dispatch)
         if self.mcp_client:
             await self.mcp_client.start()
@@ -293,6 +357,8 @@ class AgentCore:
             opts,
             max_iterations,
             execution_policy=effective,
+            parallel_tool_calls=effective_parallel,
+            tool_timeout=effective_timeout,
             skill_state=skill_state,
             **_on_event_kwargs(on_event),
         ):
@@ -311,6 +377,8 @@ class AgentCore:
         options: dict[str, Any] | None = None,
         max_iterations: int = 50,
         execution_policy: ExecutionPolicy | None = None,
+        parallel_tool_calls: bool | None = None,
+        tool_timeout: float | None | _Unset = _UNSET,
         on_event: EventHandler | None = None,
     ) -> CLIverResponse:
         """Run one skill: pin its instructions, restrict tools, run the loop.
@@ -333,6 +401,8 @@ class AgentCore:
         paths and bundled scripts resolve inside the skill); no agent
         policy → no ambient policy at all.
         """
+        self._ensure_open()
+        await self._preload_skills()
         if isinstance(skill, str):
             manager = self.skill_manager
             if manager is None:
@@ -394,6 +464,8 @@ class AgentCore:
             options=options,
             max_iterations=max_iterations,
             execution_policy=effective_policy,
+            parallel_tool_calls=parallel_tool_calls,
+            tool_timeout=tool_timeout,
             skill_dispatch=False,
             **_on_event_kwargs(on_event),
         )
@@ -573,6 +645,7 @@ class AgentCore:
 
     def _bindings_for(self, purpose: str) -> list[ModelBinding]:
         """Every binding for *purpose* (primary first) or fail with the binding hint."""
+        self._ensure_open()
         bindings = self.bindings.get_all(purpose)
         if not bindings:
             example = "tts" if purpose == "audio" else purpose  # 'audio' is a legacy alias of tts
@@ -634,6 +707,7 @@ class AgentCore:
         fail fast at submit time.  *factory* is a zero-arg callable (not a
         coroutine) so nothing is left un-awaited when the check fails.
         """
+        self._ensure_open()
         self._require_binding(purpose)
         try:
             loop = asyncio.get_running_loop()
@@ -642,7 +716,10 @@ class AgentCore:
                 "submit_*() requires a running event loop — use the awaitable "
                 f"form (agent.{purpose}(...)) outside async code."
             ) from exc
-        return MediaJob(purpose, loop.create_task(factory()))
+        job = MediaJob(purpose, loop.create_task(factory()))
+        self._media_jobs.add(job)
+        job._task.add_done_callback(lambda _task: self._media_jobs.discard(job))
+        return job
 
     # ── Lifecycle ─────────────────────────────────────────────
 
@@ -652,8 +729,36 @@ class AgentCore:
         Covers ``bindings.llm`` too: a chat provider the binding built (from
         ``api_key`` / ``base_url``) is closed here.  A caller-supplied
         ``provider=`` is never closed — whoever built it owns it.
+
+        Idempotent and single-flight: concurrent callers await the same
+        shutdown pass.  Once closed, every public entry point raises
+        ``RuntimeError``; build a new agent for a new event loop.
         """
+        if self._close_task is None:
+            self._close_task = asyncio.ensure_future(self._close())
+        await asyncio.shield(self._close_task)
+
+    async def _close(self) -> None:
+        self._closed = True
+        # Media jobs hold this agent's providers; cancel and drain them
+        # before the providers go away.  A job that ignores cancellation
+        # delays close (there is no way to force-kill a task).
+        jobs = list(self._media_jobs)
+        for job in jobs:
+            job.cancel()
+        if jobs:
+            await asyncio.gather(*(job._task for job in jobs), return_exceptions=True)
         await self.bindings.aclose()
+
+    def _ensure_open(self) -> None:
+        """Reject calls on a closed agent with a clear error."""
+        if self._closed:
+            raise RuntimeError("AgentCore is closed — build a new agent for a new event loop")
+
+    async def _preload_skills(self) -> None:
+        """Load the skill cache off the loop before its synchronous accessors run."""
+        if self.skill_manager is not None:
+            await self.skill_manager.apreload()
 
     # ── Re-Act Loop (non-streaming) ───────────────────────────
 
@@ -664,6 +769,8 @@ class AgentCore:
         options: dict[str, Any],
         max_iterations: int,
         execution_policy: ExecutionPolicy | None = None,
+        parallel_tool_calls: bool = False,
+        tool_timeout: float | None = None,
         skill_state: SkillRunState | None = None,
         on_event: EventHandler | None = None,
     ) -> CLIverResponse:
@@ -671,6 +778,8 @@ class AgentCore:
         consecutive_denials = 0
         diagnostic_trace: list[dict] = []
         total_usage: UsageInfo | None = None
+        # One tool-state object per run, shared across every tool batch.
+        run_state = ToolRunState()
         # Ordered llm candidates — primary first, then same-purpose fallbacks.
         # ``active`` is sticky for this run: after a switch, later iterations
         # keep using the binding that worked.  Providers are built lazily and
@@ -718,14 +827,17 @@ class AgentCore:
             messages.append(msg)
             # The policy is ambient around tool execution only — tools are
             # its sole consumer, and a scope that spans yields (streaming)
-            # would leak into a consumer that abandons the generator.
-            with policy_scope(execution_policy):
+            # would leak into a consumer that abandons the generator.  The
+            # run state is the same object for every batch of this run.
+            with policy_scope(execution_policy), tool_run_state_scope(run_state):
                 consecutive_errors, consecutive_denials, stop = await self._execute_tool_calls(
                     messages,
                     msg.tool_calls,
                     consecutive_errors,
                     consecutive_denials,
                     tools,
+                    parallel=parallel_tool_calls,
+                    tool_timeout=tool_timeout,
                     **_on_event_kwargs(on_event),
                 )
             tools = self._narrow_tools_for_active_skill(tools, skill_state)
@@ -759,6 +871,8 @@ class AgentCore:
         options: dict[str, Any],
         max_iterations: int,
         execution_policy: ExecutionPolicy | None = None,
+        parallel_tool_calls: bool = False,
+        tool_timeout: float | None = None,
         skill_state: SkillRunState | None = None,
         on_event: EventHandler | None = None,
     ) -> AsyncIterator[CLIverMessageChunk]:
@@ -767,6 +881,7 @@ class AgentCore:
         consecutive_errors = 0
         consecutive_denials = 0
         diagnostic_trace: list[dict] = []
+        run_state = ToolRunState()
         # Same sticky same-purpose failover as the non-streaming loop.  A
         # stream may switch bindings only before it has yielded a chunk for
         # this iteration — once bytes reached the consumer, a retry would
@@ -835,7 +950,7 @@ class AgentCore:
                         "messages": [
                             m.model_dump(exclude={"native", "native_protocol", "trace"}) for m in request.messages
                         ],
-                        "tools": [t.model_dump(exclude={"execute"}) for t in (request.tools or [])],
+                        "tools": [t.model_dump(exclude={"execute", "execute_async"}) for t in (request.tools or [])],
                     },
                     "message": assistant.model_dump(exclude={"native", "native_protocol"}),
                     "usage": final_usage.model_dump() if final_usage else None,
@@ -852,8 +967,9 @@ class AgentCore:
             messages.append(assistant)
 
             # Same scoping rule as the non-streaming loop: ambient around
-            # tool execution only, never across a yield.
-            with policy_scope(execution_policy):
+            # tool execution only, never across a yield.  The run state is
+            # shared by every batch of this run.
+            with policy_scope(execution_policy), tool_run_state_scope(run_state):
                 consecutive_errors, consecutive_denials, stop = await self._execute_tool_calls(
                     messages,
                     tool_calls,
@@ -909,13 +1025,25 @@ class AgentCore:
         consecutive_denials: int,
         tools: list[CLIverTool],
         *,
+        parallel: bool = False,
+        tool_timeout: float | None = None,
         on_event: EventHandler | None = None,
     ) -> tuple[int, int, bool]:
         """Execute a batch of tool calls and append results to messages.
 
         ``tools`` is the exact set this call advertised to the model
-        (``_gather_tools`` output) — execution resolves against it, so
-        call-time ``extra_tools`` run alongside registry tools.
+        (``_gather_tools`` output) — execution resolves against it, and only
+        it: a registry tool, skill tool, or MCP server tool that was not
+        advertised is rejected before the permission check.
+
+        ``parallel`` runs the tool bodies concurrently; permission checks
+        stay sequential in tool-call order, and results are appended in the
+        original order either way.  A batch that stops the loop (streak cap)
+        has already run every call in parallel mode — sequential mode stops
+        before the remaining calls.
+
+        ``tool_timeout`` bounds each call's execution, never its permission
+        check.
 
         Denials share the consecutive cap with errors: five in a row of
         either (or mixed, since each resets the other's streak) stops the
@@ -924,8 +1052,31 @@ class AgentCore:
         Returns (consecutive_errors, consecutive_denials, should_stop).
         """
         by_name = {t.name: t for t in tools}
+
+        if parallel and len(tool_calls) > 1:
+            results = await self._execute_tool_calls_parallel(tool_calls, by_name, tool_timeout, on_event)
+            for tc, result in zip(tool_calls, results, strict=True):
+                messages.append(
+                    CLIverMessage(
+                        role="tool",
+                        content=self._format_tool_result(result),
+                        tool_call_id=tc.id,
+                    )
+                )
+                consecutive_errors, consecutive_denials, stop = self._track_tool_result(
+                    result, consecutive_errors, consecutive_denials
+                )
+                if stop:
+                    return consecutive_errors, consecutive_denials, True
+            return consecutive_errors, consecutive_denials, False
+
         for tc in tool_calls:
-            result = await self._execute_tool(tc, by_name.get(tc.name), **_on_event_kwargs(on_event))
+            result = await self._execute_tool(
+                tc,
+                by_name.get(tc.name),
+                tool_timeout=tool_timeout,
+                on_event=on_event,
+            )
             messages.append(
                 CLIverMessage(
                     role="tool",
@@ -933,22 +1084,97 @@ class AgentCore:
                     tool_call_id=tc.id,
                 )
             )
-
-            if self._is_denied(result):
-                consecutive_errors = 0
-                consecutive_denials += 1
-                if consecutive_denials >= self.max_consecutive_errors:
-                    return consecutive_errors, consecutive_denials, True
-            elif self._is_error(result):
-                consecutive_denials = 0
-                consecutive_errors += 1
-                if consecutive_errors >= self.max_consecutive_errors:
-                    return consecutive_errors, consecutive_denials, True
-            else:
-                consecutive_errors = 0
-                consecutive_denials = 0
+            consecutive_errors, consecutive_denials, stop = self._track_tool_result(
+                result, consecutive_errors, consecutive_denials
+            )
+            if stop:
+                return consecutive_errors, consecutive_denials, True
 
         return consecutive_errors, consecutive_denials, False
+
+    async def _execute_tool_calls_parallel(
+        self,
+        tool_calls: list[ToolCall],
+        by_name: dict[str, CLIverTool],
+        tool_timeout: float | None,
+        on_event: EventHandler | None,
+    ) -> list[list[dict]]:
+        """Check permissions in order, then run the approved bodies at once.
+
+        Returns results in the original tool-call order.  Every call emits
+        ``tool.start``; denied calls emit ``tool.permission_denied`` and
+        ``tool.end`` while the checks run, and all allowed bodies are
+        launched together afterwards.
+        """
+        results: list[list[dict] | None] = [None] * len(tool_calls)
+        launches: list[tuple[int, ToolCall, CLIverTool | None]] = []
+
+        for index, tc in enumerate(tool_calls):
+            tool = by_name.get(tc.name)
+            start = time.monotonic()
+            await self._emit(
+                ToolEvent(
+                    event=ToolEventType.START,
+                    tool_name=tc.name,
+                    tool_call_id=tc.id,
+                    args=tc.args,
+                ),
+                on_event,
+            )
+            if tool is None:
+                results[index] = await self._reject_unavailable(tc, on_event=on_event, start=start)
+                continue
+            denial = await self._check_permission(tc, tool)
+            if denial is None:
+                launches.append((index, tc, tool))
+                continue
+            await self._emit(
+                ToolEvent(
+                    event=ToolEventType.PERMISSION_DENIED,
+                    tool_name=tc.name,
+                    tool_call_id=tc.id,
+                    args=tc.args,
+                    error=denial[0]["error"],
+                ),
+                on_event,
+            )
+            await self._emit(
+                ToolEvent(
+                    event=ToolEventType.END,
+                    tool_name=tc.name,
+                    tool_call_id=tc.id,
+                    result=_truncate(self._format_tool_result(denial), 500),
+                    duration_ms=(time.monotonic() - start) * 1000,
+                ),
+                on_event,
+            )
+            results[index] = denial
+
+        async def run(index: int, tc: ToolCall, tool: CLIverTool | None) -> None:
+            results[index] = await self._execute_tool_body(
+                tc,
+                tool,
+                tool_timeout=tool_timeout,
+                on_event=on_event,
+                start=time.monotonic(),
+            )
+
+        if launches:
+            await asyncio.gather(*(run(*launch) for launch in launches))
+        return [result if result is not None else [] for result in results]
+
+    def _track_tool_result(
+        self,
+        result: list[dict],
+        consecutive_errors: int,
+        consecutive_denials: int,
+    ) -> tuple[int, int, bool]:
+        """Update the error/denial streaks from one result; True stops the loop."""
+        if self._is_denied(result):
+            return 0, consecutive_denials + 1, consecutive_denials + 1 >= self.max_consecutive_errors
+        if self._is_error(result):
+            return consecutive_errors + 1, 0, consecutive_errors + 1 >= self.max_consecutive_errors
+        return 0, 0, False
 
     # ── Helpers ────────────────────────────────────────────────
 
@@ -1035,7 +1261,7 @@ class AgentCore:
         """
         tools = list(self.tool_registry.all_tools)
         if self.mcp_client:
-            tools.extend(await self.mcp_client.get_tools(servers=mcp_servers or None))
+            tools.extend(await self.mcp_client.get_tools(servers=mcp_servers))
         if extra:
             tools.extend(extra)
         skills = list(self.skill_manager.list_skills()) if skill_state is not None and self.skill_manager else []
@@ -1081,16 +1307,20 @@ class AgentCore:
         tc: ToolCall,
         tool: CLIverTool | None = None,
         *,
+        tool_timeout: float | None = None,
         on_event: EventHandler | None = None,
     ) -> list[dict]:
         """Execute a single tool call. Emits TOOL_START, TOOL_PERMISSION_DENIED,
         TOOL_END, or TOOL_ERROR events.
 
-        ``tool`` is the advertised definition for this call (registry or
-        ``extra_tools``); the registry lookup is the fallback for a call to a
-        registered-but-unadvertised builtin.  ``on_event`` is the call-site
-        handler (see :meth:`chat`).
+        ``tool`` is the advertised definition for this call.  ``None`` means
+        the model called a tool this run did not advertise — the call is
+        rejected before the permission check, so a filtered or disallowed
+        tool can never run (and never prompts).  ``on_event`` is the call-site
+        handler (see :meth:`chat`).  ``tool_timeout`` bounds execution only —
+        the permission check (which may prompt a human) is never timed.
         """
+        start = time.monotonic()
         await self._emit(
             ToolEvent(
                 event=ToolEventType.START,
@@ -1100,45 +1330,58 @@ class AgentCore:
             ),
             on_event,
         )
-        start = time.monotonic()
-        try:
-            denial = await self._check_permission(tc, tool)
-            if denial is not None:
-                await self._emit(
-                    ToolEvent(
-                        event=ToolEventType.PERMISSION_DENIED,
-                        tool_name=tc.name,
-                        tool_call_id=tc.id,
-                        args=tc.args,
-                        error=denial[0]["error"],
-                    ),
-                    on_event,
-                )
-                result = denial
-            elif tc.name.startswith("mcp__"):
-                if not self.mcp_client:
-                    result = [{"error": "No MCP client configured"}]
-                else:
-                    result = await self.mcp_client.call_tool(tc.name, tc.args)
-            else:
-                resolved = tool or self.tool_registry.get(tc.name)
-                if resolved is None:
-                    result = [{"error": f"Tool '{tc.name}' not found"}]
-                else:
-                    result = await asyncio.to_thread(resolved.execute, **tc.args)
-
-            duration = (time.monotonic() - start) * 1000
+        if tool is None:
+            return await self._reject_unavailable(tc, on_event=on_event, start=start)
+        denial = await self._check_permission(tc, tool)
+        if denial is not None:
+            await self._emit(
+                ToolEvent(
+                    event=ToolEventType.PERMISSION_DENIED,
+                    tool_name=tc.name,
+                    tool_call_id=tc.id,
+                    args=tc.args,
+                    error=denial[0]["error"],
+                ),
+                on_event,
+            )
             await self._emit(
                 ToolEvent(
                     event=ToolEventType.END,
                     tool_name=tc.name,
                     tool_call_id=tc.id,
-                    result=_truncate(self._format_tool_result(result), 500),
-                    duration_ms=duration,
+                    result=_truncate(self._format_tool_result(denial), 500),
+                    duration_ms=(time.monotonic() - start) * 1000,
                 ),
                 on_event,
             )
-            return result
+            return denial
+        return await self._execute_tool_body(
+            tc,
+            tool,
+            tool_timeout=tool_timeout,
+            on_event=on_event,
+            start=start,
+        )
+
+    async def _execute_tool_body(
+        self,
+        tc: ToolCall,
+        tool: CLIverTool | None,
+        *,
+        tool_timeout: float | None,
+        on_event: EventHandler | None,
+        start: float,
+    ) -> list[dict]:
+        """Run one approved call (START already emitted) and emit END/ERROR.
+
+        Only a raise from the tool body (or its timeout) becomes a tool-error
+        result.  A handler raise propagates unchanged, matching the inference
+        surface — handler exceptions are never swallowed.
+        """
+        try:
+            result = await self._execute_with_timeout(tc, tool, tool_timeout)
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             duration = (time.monotonic() - start) * 1000
             self.logger.warning("Tool '%s' failed: %s", tc.name, e)
@@ -1153,6 +1396,77 @@ class AgentCore:
                 on_event,
             )
             return [{"error": str(e)}]
+        await self._emit(
+            ToolEvent(
+                event=ToolEventType.END,
+                tool_name=tc.name,
+                tool_call_id=tc.id,
+                result=_truncate(self._format_tool_result(result), 500),
+                duration_ms=(time.monotonic() - start) * 1000,
+            ),
+            on_event,
+        )
+        return result
+
+    async def _execute_with_timeout(
+        self,
+        tc: ToolCall,
+        tool: CLIverTool | None,
+        tool_timeout: float | None,
+    ) -> list[dict]:
+        """Dispatch the call, cancelling it once ``tool_timeout`` elapses."""
+        if tool_timeout is None:
+            return await self._dispatch_tool(tc, tool)
+        try:
+            return await asyncio.wait_for(self._dispatch_tool(tc, tool), timeout=tool_timeout)
+        except asyncio.TimeoutError:
+            raise TimeoutError(f"Tool '{tc.name}' timed out after {tool_timeout:g}s") from None
+
+    async def _dispatch_tool(self, tc: ToolCall, tool: CLIverTool | None) -> list[dict]:
+        """Run an advertised tool; the caller has already guarded ``None``.
+
+        Routing follows the tool's ``origin``: ``"mcp"`` tools go through the
+        MCP client, everything else executes the advertised definition
+        (``"local"``).  A tool's name is never used to decide routing — a
+        local tool may be named ``mcp__...``.  There is deliberately no
+        registry fallback: advertisement is the execution boundary.
+        """
+        if tool is None:
+            return [{"error": f"Tool '{tc.name}' is not available for this call"}]
+        if tool.origin == "mcp":
+            if not self.mcp_client:
+                return [{"error": "No MCP client configured"}]
+            return await self.mcp_client.call_tool(tc.name, tc.args)
+        # Async tools run on this loop — their timeout/cancellation reaches
+        # them, and they may use loop-bound resources.  Sync tools run in the
+        # executor so a blocking body never stalls the loop.
+        if tool.execute_async is not None:
+            return await tool.execute_async(**tc.args)
+        if inspect.iscoroutinefunction(tool.execute):
+            return await tool.execute(**tc.args)
+        return await asyncio.to_thread(tool.execute, **tc.args)
+
+    async def _reject_unavailable(
+        self,
+        tc: ToolCall,
+        *,
+        on_event: EventHandler | None,
+        start: float,
+    ) -> list[dict]:
+        """Return the normal error result for an unadvertised tool call."""
+        message = f"Tool '{tc.name}' is not available for this call"
+        self.logger.warning("Rejected unadvertised tool call: %s", tc.name)
+        await self._emit(
+            ToolEvent(
+                event=ToolEventType.ERROR,
+                tool_name=tc.name,
+                tool_call_id=tc.id,
+                error=message,
+                duration_ms=(time.monotonic() - start) * 1000,
+            ),
+            on_event,
+        )
+        return [{"error": message}]
 
     async def _emit(self, event: ToolEvent, on_event: EventHandler | None = None) -> None:
         await dispatch_event(self.on_event, event)

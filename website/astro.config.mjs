@@ -28,6 +28,7 @@ export default defineConfig({
           label: "Core Concepts",
           items: [
             { label: "AgentCore", slug: "core-concepts" },
+            { label: "Concurrency & Lifecycle", slug: "core-concepts/concurrency" },
             { label: "Tools", slug: "core-concepts/tools" },
             { label: "Skills", slug: "core-concepts/skills" },
             { label: "Pipelines", slug: "core-concepts/pipelines" },

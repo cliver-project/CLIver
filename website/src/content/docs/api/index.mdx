@@ -73,6 +73,13 @@ Runs the Re-Act loop with a skill pinned — see [Skills](/core-concepts/skills/
 `image()`, `video()`, `tts()`, `asr()`, `embed()`, and `rerank()` call the bound models directly.
 Their `submit_*` variants return a `MediaJob` whose `result()` resolves when generation finishes.
 
+### `await agent.aclose()`
+
+Cancels and drains the media jobs the agent started, then closes the providers its bindings
+built. A caller-supplied `provider=` and an injected `MCPClient` are never closed — their
+builders own them. Close is idempotent and single-flight; afterwards every public entry point
+raises `RuntimeError`, so build a new agent for a new event loop.
+
 ## Common Parameters
 
 | Parameter | Description |
@@ -81,8 +88,8 @@ Their `submit_*` variants return a `MediaJob` whose `result()` resolves when gen
 | `conversation` | Previous messages for multi-turn context |
 | `media` | Images/audio/video attached to the user message |
 | `extra_tools` | Additional tools for this call only |
-| `mcp_servers` | MCP server names to advertise for this call |
-| `tool_filter` | Predicate to filter advertised tools |
+| `mcp_servers` | MCP server names to advertise and allow (`None` = all, `[]` = none) |
+| `tool_filter` | Predicate to filter the advertised and executable tools |
 | `options` | Wire request options (override binding defaults) |
 | `max_iterations` | Max Re-Act iterations (default: 50) |
 | `execution_policy` | Per-call execution policy |
@@ -104,41 +111,42 @@ response = await agent.chat(
 
 ## Event Handling
 
-Pass `on_event=` to observe inference and tool lifecycle events. Handlers may be sync or
-async — a sync handler runs inline:
+Tool events and inference events have separate handlers. Attach a tool handler to the agent
+(or to one call) for `tool.start`, `tool.end`, `tool.error`, and `tool.permission_denied`:
 
 ```python
 from cliver_core.events import ToolEventType
 
 
-async def on_event(event):
-    if getattr(event, "event", None) == ToolEventType.START:
+async def on_tool_event(event):
+    if event.event is ToolEventType.START:
         print(f"Running: {event.tool_name}")
-    elif getattr(event, "event", None) == ToolEventType.END:
+    elif event.event is ToolEventType.END:
         print(f"Done: {event.tool_name} ({event.duration_ms}ms)")
 
 
-agent = AgentCore(bindings, on_event=on_event)
+agent = AgentCore(bindings, on_event=on_tool_event)
 ```
 
-Handlers can also be attached where the provider is defined, so they travel with every call
-that uses it:
+Inference events (`inference.started`, `inference.first_token`, `inference.chunk`,
+`inference.tool_call`, `inference.completed`, `inference.error`) are emitted by the provider.
+Attach their handler to the binding so it travels with every call that uses it:
 
 ```python
 bindings = ModelBindings(
-    llm=ModelBinding.llm(model="deepseek-chat", api_key="...", base_url="...", on_event=on_event)
+    llm=ModelBinding.llm(model="deepseek-chat", api_key="...", base_url="...", on_event=on_inference_event)
 )
 ```
 
-Events cover inference (`inference.started`, `inference.first_token`, `inference.chunk`,
-`inference.tool_call`, `inference.completed`, `inference.error`) and tool execution
-(`tool.start`, `tool.end`, `tool.error`, `tool.permission_denied`). Each `inference.completed`
-event carries that call's usage in `data["usage"]`, so per-call metering works even for runs
-with several Re-Act iterations.
+`AgentCore`'s `on_event=` receives tool events only. Each `inference.completed` event carries
+that call's usage in `data["usage"]`, so per-call metering works even for runs with several
+Re-Act iterations.
 
-**Handler exceptions are a contract, not an accident.** They propagate unchanged — AgentCore
-never catches or wraps them — and a raise on `inference.started` happens before the transport
-call, so a budget guard can abort a request before it is sent:
+Handlers may be sync or async — a sync handler runs inline. **Handler exceptions are a
+contract, not an accident.** They propagate unchanged on both surfaces — AgentCore never
+catches or wraps them, and a raise from a tool handler is never converted into a tool-error
+result. A raise on `inference.started` happens before the transport call, so a budget guard
+on the binding's handler can abort a request before it is sent:
 
 ```python
 def budget_guard(event):

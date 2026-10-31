@@ -46,13 +46,15 @@ asyncio.run(main())
 - **Embeddable.** `AgentCore` has zero CLI dependencies — it takes Python objects and returns
   message objects.
 - **Stateless instance, stateful calls.** Conversation context is passed per call
-  (`conversation=`), so one instance is safe for concurrent chats.
+  (`conversation=`), so one instance is safe for concurrent chats **within one event loop**.
+  See [Concurrency & Lifecycle](/core-concepts/concurrency/) for the sharing contract.
 - **Bindings, not config files.** Every model purpose — chat, image, video, TTS, ASR, embed,
   rerank — lives in `ModelBindings`.
 - **Lazy call-time resolution.** Extra tools, MCP servers, tool filters, and skill dispatch are
   resolved per `chat()`/`stream()` call.
-- **Observable.** Pass `on_event=` to receive inference and tool lifecycle events, including
-  `tool.start`, `tool.end`, `tool.error`, and `tool.permission_denied`.
+- **Observable.** Pass `on_event=` to `AgentCore` for tool lifecycle events (`tool.start`,
+  `tool.end`, `tool.error`, `tool.permission_denied`). Inference events come from the provider
+  and are observed through the binding's `on_event=`.
 
 ## Calling the Agent
 
@@ -66,8 +68,8 @@ content arrives. Both accept the same per-call options:
 | `conversation` | Previous messages for multi-turn context |
 | `media` | Images/audio/video attached to the user message |
 | `extra_tools` | Additional tools for this call only |
-| `mcp_servers` | MCP server names to advertise for this call |
-| `tool_filter` | Predicate that narrows the advertised tool set |
+| `mcp_servers` | MCP server names to advertise and allow for this call (`None` = all, `[]` = none) |
+| `tool_filter` | Predicate that narrows the advertised and executable tool set |
 | `options` | Wire request options; call site overrides binding defaults |
 | `max_iterations` | Max Re-Act iterations (default 50) |
 | `execution_policy` | Ambient tool-execution policy for this call |

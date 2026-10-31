@@ -237,6 +237,9 @@ class MCPServerAdapter(ABC):
                     # the default category, never a permission boundary.
                     # (SDK attribute is snake_case read_only_hint.)
                     safety="safe" if getattr(mcp_tool.annotations, "read_only_hint", None) else "mutating",
+                    # Identity routing: AgentCore dispatches via the MCP client
+                    # because of this origin, not because of the name prefix.
+                    origin="mcp",
                 )
             )
         if len(tools) > _MAX_TOOLS_WARN:

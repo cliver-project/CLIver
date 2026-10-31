@@ -428,7 +428,7 @@ class AnthropicProvider(Provider):
                 m.model_dump(exclude={"native", "native_protocol", "trace"}, exclude_none=True)
                 for m in request.messages
             ],
-            "tools": [t.model_dump(exclude={"execute"}) for t in tools],
+            "tools": [t.model_dump(exclude={"execute", "execute_async"}) for t in tools],
         }
 
         return self.on_response(response)

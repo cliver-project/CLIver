@@ -48,10 +48,11 @@ then runs the normal Re-Act loop.
 result = await agent.run_skill("refund-policy", "Customer 12345 wants a refund", conversation=history)
 ```
 
-A declared `allowed-tools` frontmatter narrows the advertised tools for that run. A non-empty
-allowlist that matches zero available tools fails fast; an absent or empty list leaves tools
-unchanged. `run_skill()` deliberately adds none of the model-driven skill tools below — the
-skill is already pinned.
+A declared `allowed-tools` frontmatter narrows the **advertised and executable** tools for that
+run: a tool outside the allowlist is rejected before it runs if the model tries to call it. A
+non-empty allowlist that matches zero available tools fails fast; an absent or empty list leaves
+tools unchanged. `run_skill()` deliberately adds none of the model-driven skill tools below —
+the skill is already pinned.
 
 ## Model-Driven Selection
 

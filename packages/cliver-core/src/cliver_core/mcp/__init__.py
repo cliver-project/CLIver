@@ -22,6 +22,7 @@ Usage::
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from typing import Any
 
@@ -96,6 +97,11 @@ class MCPClient:
     def __init__(self, server_configs: dict[str, dict] | None = None):
         self._adapters: dict = {}
         self._started = False
+        # Single-flight discovery: every concurrent caller awaits one shared
+        # task, so adapters are started once.  ``_close_task`` makes close
+        # idempotent and cancellable from any caller.
+        self._start_task: asyncio.Task | None = None
+        self._close_task: asyncio.Task | None = None
         if server_configs:
             _, create_adapter = _adapters()
             for name, cfg in server_configs.items():
@@ -115,42 +121,88 @@ class MCPClient:
     async def start(self) -> None:
         """Connect to all configured servers and discover their tools.
 
-        Idempotent — subsequent calls are no-ops.
+        Idempotent and single-flight: concurrent callers share one discovery
+        pass.  Cancelling one caller does not cancel the discovery for the
+        others (the shared task is shielded); cancelling the last caller
+        leaves discovery running to completion in the background.
         """
         if self._started:
             return
-        results = await asyncio.gather(
-            *(adapter.start() for adapter in self._adapters.values()),
-            return_exceptions=True,
-        )
-        self._started = True
-        for name, result in zip(self._adapters.keys(), results, strict=False):
-            if isinstance(result, Exception):
-                logger.warning("MCP server '%s' failed to start: %s", name, result)
+        if self._start_task is None:
+            self._start_task = asyncio.ensure_future(self._start_all())
+        await asyncio.shield(self._start_task)
+
+    async def _start_all(self) -> None:
+        """Start every adapter once and record per-server failures."""
+        names = list(self._adapters)
+        try:
+            results = await asyncio.gather(
+                *(self._adapters[name].start() for name in names),
+                return_exceptions=True,
+            )
+            self._started = True
+            for name, result in zip(names, results, strict=False):
+                if isinstance(result, Exception):
+                    logger.warning("MCP server '%s' failed to start: %s", name, result)
+        finally:
+            self._start_task = None
+
+    async def _await_start(self) -> None:
+        """Wait for an in-flight discovery before mutating the server table."""
+        task = self._start_task
+        if task is not None:
+            with contextlib.suppress(asyncio.CancelledError):
+                await asyncio.shield(task)
 
     async def add_server(self, name: str, config: dict[str, Any]) -> None:
-        """Add or replace an MCP server at runtime."""
+        """Add or replace an MCP server at runtime.
+
+        If the client is already serving, the new adapter is started
+        immediately; otherwise it is started by the next :meth:`start`.
+        """
+        await self._await_start()
         if name in self._adapters:
             await self.remove_server(name)
         _, create_adapter = _adapters()
         adapter = create_adapter(name, config)
-        await adapter.start()
+        if self._started:
+            await adapter.start()
         self._adapters[name] = adapter
 
     async def remove_server(self, name: str) -> None:
         """Remove and disconnect an MCP server."""
+        await self._await_start()
         adapter = self._adapters.pop(name, None)
         if adapter:
             await adapter.close()
 
     async def close(self) -> None:
-        """Disconnect all servers."""
+        """Cancel an in-flight start, then disconnect all servers.
+
+        Idempotent and safe to call concurrently: every caller awaits the
+        same shutdown pass.  A start() caller that was waiting on the
+        cancelled discovery sees ``CancelledError``.
+        """
+        if self._close_task is None:
+            self._close_task = asyncio.ensure_future(self._close_all())
+        await asyncio.shield(self._close_task)
+
+    async def _close_all(self) -> None:
+        task = self._start_task
+        if task is not None and not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        self._start_task = None
         self._started = False
-        await asyncio.gather(
-            *(adapter.close() for adapter in self._adapters.values()),
-            return_exceptions=True,
-        )
+        adapters = list(self._adapters.values())
         self._adapters.clear()
+        if adapters:
+            await asyncio.gather(
+                *(adapter.close() for adapter in adapters),
+                return_exceptions=True,
+            )
+        self._close_task = None
 
     # ── Tools ──────────────────────────────────────────────
 
@@ -159,8 +211,11 @@ class MCPClient:
 
         Args:
             servers: If given, only return tools from these server names.
+                ``None`` means every server; an empty list means none.
         """
-        targets = {s: self._adapters[s] for s in servers if s in self._adapters} if servers else self._adapters
+        targets = (
+            {s: self._adapters[s] for s in servers if s in self._adapters} if servers is not None else self._adapters
+        )
         tools: list[CLIverTool] = []
         for adapter in targets.values():
             tools.extend(adapter.tools)

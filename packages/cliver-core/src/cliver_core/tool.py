@@ -6,7 +6,7 @@ import asyncio
 import inspect
 import logging
 from pathlib import Path
-from typing import Any, Callable, Optional, get_args, get_origin
+from typing import Any, Awaitable, Callable, Optional, get_args, get_origin
 
 from pydantic import BaseModel
 
@@ -72,9 +72,12 @@ def _is_optional(annotation) -> bool:
 class CLIverTool(BaseModel):
     """A tool definition — what the LLM sees + how to execute it.
 
-    ``execute`` is always a synchronous callable returning list[dict].
-    Async functions are converted at registration time (via @tool decorator).
-    AgentCore always calls execute via asyncio.to_thread() for event-loop safety.
+    ``execute`` is a synchronous callable returning ``list[dict]`` — the
+    universal entry point (direct callers and the CLI use it).  An async tool
+    also carries ``execute_async``, its native coroutine factory.  AgentCore
+    awaits that on its own event loop, so async tools can use loop-bound
+    resources and a timeout/cancellation reaches them.  Sync tools run via
+    ``asyncio.to_thread()``, off the loop.
     """
 
     name: str
@@ -82,9 +85,16 @@ class CLIverTool(BaseModel):
     long_description: str | None = None  # full docstring, for humans / help
     parameters: dict[str, Any]  # JSON Schema
     execute: Callable[..., list[dict]]
+    #: Present for ``@tool`` async functions: returns the tool's coroutine.
+    execute_async: Callable[..., Awaitable[list[dict]]] | None = None
     # Permission category hint: "safe" tools run without consulting the
     # permission callback; "mutating" (the fail-closed default) tools ask.
     safety: str = "mutating"
+    # Where the tool lives: "local" (executed in-process) or "mcp" (routed
+    # through the agent's MCP client).  Routing follows this identity, never
+    # the tool's name — a local tool may legitimately be called anything,
+    # including a name that starts with ``mcp__``.
+    origin: str = "local"
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -164,13 +174,20 @@ def tool(
         if required:
             parameters["required"] = required
 
-        # Normalize execute to sync, with argument coercion
+        # Normalize execute to sync, with argument coercion.  Async tools also
+        # expose their native coroutine factory for AgentCore to await on its
+        # own loop; `execute` stays available for direct synchronous callers.
+        execute_async = None
         if inspect.iscoroutinefunction(fn):
 
             def _execute_sync(**kwargs):
                 return asyncio.run(fn(**_coerce_args(parameters, kwargs)))
 
+            async def _execute_async(**kwargs):
+                return await fn(**_coerce_args(parameters, kwargs))
+
             execute = _execute_sync
+            execute_async = _execute_async
         else:
 
             def _execute_coerced(**kwargs):
@@ -184,6 +201,7 @@ def tool(
             long_description=inspect.getdoc(fn),
             parameters=parameters,
             execute=execute,
+            execute_async=execute_async,
             safety=safety,
         )
 

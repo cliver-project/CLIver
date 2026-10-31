@@ -2,12 +2,16 @@
 
 import logging
 
+from cliver_core.run_state import current_tool_run_state
 from cliver_core.tool import tool
 
 logger = logging.getLogger(__name__)
 
-# Module-level todo storage (persists within a session)
+# Fallback for direct tool calls outside an AgentCore run.  AgentCore always
+# provides a per-run ToolRunState, so this list is never shared between runs.
 _current_todos: list[dict] = []
+
+_TODOS_KEY = "todos"
 
 STATUS_ICONS = {
     "pending": "[ ]",
@@ -16,9 +20,36 @@ STATUS_ICONS = {
 }
 
 
+def _run_todos() -> list[dict] | None:
+    """Return this run's todo list, or ``None`` outside an AgentCore run."""
+    state = current_tool_run_state()
+    if state is None:
+        return None
+    todos = state.data.get(_TODOS_KEY)
+    if not isinstance(todos, list):
+        todos = []
+        state.data[_TODOS_KEY] = todos
+    return todos
+
+
 def get_current_todos() -> list[dict]:
-    """Get the current todo list (for use by other tools or the system)."""
-    return list(_current_todos)
+    """Get the current todo list for this run (or the direct-call fallback)."""
+    todos = _run_todos()
+    if todos is None:
+        return list(_current_todos)
+    return list(todos)
+
+
+def _store_todos(validated: list[dict]) -> list[dict]:
+    todos = _run_todos()
+    if todos is None:
+        global _current_todos
+        _current_todos = validated
+        return _current_todos
+    # Mutate in place: the worker thread's context copy shares this object,
+    # but rebinding the context variable inside the worker would be lost.
+    todos[:] = validated
+    return todos
 
 
 def format_todo_summary(todos: list[dict]) -> str:
@@ -84,9 +115,6 @@ def todo_write(todos: list[dict]) -> list[dict]:
             content (str): Description of the task.
             status (str): One of 'pending', 'in_progress', or 'completed'.
     """
-    global _current_todos
-
     # Ensure we store a clean copy
     validated = [dict(item) if not isinstance(item, dict) else item for item in todos]
-    _current_todos = validated
-    return [{"text": format_todo_summary(_current_todos)}]
+    return [{"text": format_todo_summary(_store_todos(validated))}]

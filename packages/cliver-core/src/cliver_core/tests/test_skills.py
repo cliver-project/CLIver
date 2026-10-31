@@ -53,7 +53,16 @@ def _agent(
 def _capture_loop(agent: AgentCore) -> dict:
     captured: dict = {}
 
-    async def fake_run_loop(messages, all_tools, opts, max_iterations, execution_policy=None, skill_state=None):
+    async def fake_run_loop(
+        messages,
+        all_tools,
+        opts,
+        max_iterations,
+        execution_policy=None,
+        parallel_tool_calls=False,
+        tool_timeout=None,
+        skill_state=None,
+    ):
         captured["messages"] = messages
         captured["tools"] = all_tools
         return None
@@ -456,7 +465,16 @@ async def test_run_skill_pins_cwd_with_agent_policy():
     )
     captured = {}
 
-    async def fake_loop(messages, tools, opts, max_iterations, execution_policy=None, skill_state=None):
+    async def fake_loop(
+        messages,
+        tools,
+        opts,
+        max_iterations,
+        execution_policy=None,
+        parallel_tool_calls=False,
+        tool_timeout=None,
+        skill_state=None,
+    ):
         captured["policy"] = execution_policy
         return _response()
 
@@ -479,7 +497,16 @@ async def test_run_skill_call_site_policy_verbatim(tmp_path):
     )
     captured = {}
 
-    async def fake_loop(messages, tools, opts, max_iterations, execution_policy=None, skill_state=None):
+    async def fake_loop(
+        messages,
+        tools,
+        opts,
+        max_iterations,
+        execution_policy=None,
+        parallel_tool_calls=False,
+        tool_timeout=None,
+        skill_state=None,
+    ):
         captured["policy"] = execution_policy
         return _response()
 
@@ -500,7 +527,16 @@ async def test_run_skill_no_policy_pwd_unchanged():
     )
     captured = {}
 
-    async def fake_loop(messages, tools, opts, max_iterations, execution_policy=None, skill_state=None):
+    async def fake_loop(
+        messages,
+        tools,
+        opts,
+        max_iterations,
+        execution_policy=None,
+        parallel_tool_calls=False,
+        tool_timeout=None,
+        skill_state=None,
+    ):
         captured["policy"] = execution_policy
         return _response()
 
@@ -525,7 +561,16 @@ async def test_run_skill_allowed_tool_still_denied_by_callback():
     )
     result = {}
 
-    async def fake_loop(messages, tools, opts, max_iterations, execution_policy=None, skill_state=None):
+    async def fake_loop(
+        messages,
+        tools,
+        opts,
+        max_iterations,
+        execution_policy=None,
+        parallel_tool_calls=False,
+        tool_timeout=None,
+        skill_state=None,
+    ):
         web = next(t for t in tools if t.name == "WebSearch")
         result["out"] = await agent._execute_tool(ToolCall(id="c1", name="WebSearch", args={}), web)
         return _response()

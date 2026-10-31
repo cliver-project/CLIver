@@ -52,15 +52,83 @@ def find_customer(email: str) -> list[dict]:
     return [{"text": "..."}]
 ```
 
+Async functions work the same way:
+
+```python
+@tool(description="Fetch a customer profile.")
+async def fetch_profile(customer_id: str) -> list[dict]:
+    async with httpx.AsyncClient() as client:
+        ...
+```
+
+`AgentCore` awaits async tools on its own event loop, so `tool_timeout` and caller cancellation
+reach them, and they can use loop-bound clients. `execute` remains a synchronous entry point for
+direct callers (it uses `asyncio.run()`), and `execute_async` is the native coroutine factory.
+
 Register custom tools per call with `extra_tools=`, or build a `ToolRegistry` and pass its tools
-to the constructor. Use `tool_filter=` to narrow the advertised set per call.
+to the constructor. Use `tool_filter=` to narrow the advertised set per call. The registry is
+read once per call: a tool registered while a call is in flight appears on the next call.
+
+## Tool Scope
+
+The set advertised to the model is also the set that can execute. When the model calls a tool
+that was not advertised — removed by `tool_filter=`, disallowed by an active skill's
+`allowed-tools`, or belonging to an MCP server not selected by `mcp_servers=` — the call is
+rejected with an error result **before the permission check**. It never runs and never prompts.
+
+`tool_filter` and skill `allowed-tools` are therefore execution boundaries, not hints. They are
+still not a sandbox for the tool body itself; that is the job of
+[permissions and policy](/core-concepts/policy/).
 
 ## MCP Tools
 
 MCP tools are advertised as `mcp__<server>__<tool>` and share the same execution path as builtin
-tools. See [MCP](/core-concepts/mcp/).
+tools. `mcp_servers=None` exposes every configured server, an explicit list exposes only those
+servers, and `mcp_servers=[]` exposes none. See [MCP](/core-concepts/mcp/).
+
+Routing follows the tool's `origin` identity (`"mcp"`), never its name. A local tool may
+legitimately be called anything — including a name that starts with `mcp__` — and it still
+executes in-process.
+
+## Parallel Tool Calls
+
+By default a turn that requests several tools runs them one at a time. Opt in on the agent or
+per call:
+
+```python
+agent = AgentCore(bindings, parallel_tool_calls=True)        # default for every call
+response = await agent.chat("...", parallel_tool_calls=True)  # or just this call
+```
+
+- Permission checks still run **sequentially**, in tool-call order — an interactive prompt never
+  races. Only the approved tool bodies execute concurrently.
+- Results are appended in the original tool-call order, so the model sees a deterministic
+  history no matter which tool finishes first.
+- Error/denial streaks still come from the ordered results. When the streak cap stops the loop,
+  every call in the batch has already run in parallel mode (sequential mode skips the rest).
+- Pass `parallel_tool_calls=None` (the default) to inherit the agent setting.
+
+## Tool Timeouts & Cancellation
+
+```python
+agent = AgentCore(bindings, tool_timeout=30)    # seconds; None (default) = no timeout
+await agent.chat("...", tool_timeout=5)         # stricter for this call
+await agent.chat("...", tool_timeout=None)      # no timeout for this call
+```
+
+A timed-out tool is a normal tool failure: the model receives
+`{"error": "Tool '<name>' timed out after <n>s"}` and observers get a `tool.error` event.
+The timeout applies to MCP calls as well, and it never times out the permission prompt.
+
+On expiry the in-flight operation is cancelled. Async tools and MCP calls run on the agent's
+loop, so the cancellation reaches them. Builtin tools run in worker threads, and Python cannot
+force-kill a thread — a timed-out synchronous tool keeps running in the background, but its late
+result is discarded and never reaches the model. Cancelling the `chat()` / `stream()` task
+propagates `asyncio.CancelledError` (it is not converted into a tool-error result) and cancels
+async tool work such as MCP calls.
 
 ## Events
 
 Tool execution emits `ToolEvent`s through `on_event`: `tool.start` → `tool.end`,
-`tool.error`, or `tool.permission_denied`.
+`tool.error`, or `tool.permission_denied`. Handlers may be sync or async; a handler exception
+propagates and aborts the call — it is never converted into a tool result.

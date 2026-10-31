@@ -1,0 +1,274 @@
+---
+title: Concurrency & Lifecycle
+---
+
+`AgentCore` is designed to serve many concurrent conversations from **one instance per event
+loop**. This page is the contract: what is safe to share, what belongs to a single call, and
+what the application must supply.
+
+## The Short Version
+
+- **Loop-safe, not thread-safe.** Share one `AgentCore` across tasks of the same event loop.
+  Do not share it across OS threads or event loops. This is the permanent contract, not a
+  limitation planned for removal.
+- **One agent per event loop — in practice, one per thread.** Each thread that serves work owns
+  its loop, its agent, its bindings, and its MCP client. Providers, MCP sessions, and media jobs
+  are loop-bound. A binding remembers the loop of its first async use and raises `RuntimeError`
+  on a second one instead of failing inside the HTTP client; `aclose()` releases the claim.
+- **Conversation state is per call.** Pass `conversation=` on every call. Nothing about a
+  conversation is stored on the agent.
+- **Configure before serving.** Bindings, tools, skills, and MCP servers are shared, read-mostly
+  state. Do not mutate them while calls are in flight. Each call reads the registry once when it
+  starts: a tool registered mid-call appears on the next call, not the current one.
+- **No built-in backpressure.** Admission control, per-tenant quotas, and shutdown draining are
+  the application's job.
+
+## Why Not Thread-Safe
+
+Thread safety is deliberately out of scope. It is not something a few locks can add, because the
+state an agent caches is bound to the event loop that created it:
+
+| State | Why it cannot cross threads |
+|-------|-----------------------------|
+| Cached providers (`ModelBinding`) | `AsyncOpenAI` / `AsyncAnthropic` wrap `httpx.AsyncClient`; its connection pool and locks belong to one loop |
+| `MediaJob` | A handle around an `asyncio.Task`; only its creating loop can drive or cancel it |
+| Event handlers | Async handlers are awaited on the calling loop |
+| `MCPClient` | Calls open an ephemeral session on the loop that runs them; safe per call, but live sessions are not shareable |
+
+A "thread-safe" wrapper would have to own a private loop and marshal every call into it. That is
+a deployment concern, not core behavior — the [owner-loop pattern](#threads-and-multiple-event-loops)
+below shows how to build one in the application if a host cannot give each thread its own loop.
+
+The rule is about the **loop**, not only the thread: an agent and its providers must be created
+and used within one loop's lifetime. Do not build an agent on the main thread and hand it to
+worker threads, and do not cache a thread-local agent across `asyncio.run()` calls — each
+`asyncio.run()` creates and closes a new loop.
+
+## Model Calls Are Async
+
+The built-in transports use the SDKs' async clients (`AsyncOpenAI` and `AsyncAnthropic`), which
+run on `httpx.AsyncClient`. No model request is moved to a worker thread, so a slow upstream does
+not consume a tool-executor slot. The synchronous parts are message shaping (small), your own
+synchronous tools (run in the executor), and media loading (done by the caller — load a URL into
+`MediaContent` before calling `chat()`).
+
+## What Is Shared, What Is Per Call
+
+| Surface | Scope | Notes |
+|---------|-------|-------|
+| `ModelBindings` and their providers | Shared | Providers are built lazily and cached on the binding; one provider serves every call using that binding |
+| `ToolRegistry` | Shared | Register tools before serving; runtime registration is not synchronized |
+| `SkillManager` | Shared | The catalogue is cached; `reload()` is the explicit refresh. `AgentCore` preloads it in a worker thread before the first skill access |
+| `MCPClient` | Shared | One client per agent; sessions are opened per call |
+| `messages` / `conversation` | Per call | The caller owns the history list |
+| `extra_tools`, `tool_filter`, `mcp_servers` | Per call | The advertised set is also the execution set |
+| `execution_policy`, permission callback | Per call (overrides) | Policy is ambient around tool execution only |
+| `parallel_tool_calls`, `tool_timeout` | Per call (overrides) | Constructor values are defaults |
+| `skill_state` (activation) | Per call | A skill activated in one run does not affect another |
+| `on_event` | Per call (optional) | Instance and call-site handlers both fire for tool events |
+| Builtin Todo list | Per run | `TodoWrite` / `TodoRead` state is isolated per `chat()` / `stream()` call |
+| Media jobs (`submit_*`) | Per loop | The returned `MediaJob` is bound to the loop that created it |
+
+## Deploying a Concurrent Server
+
+For an async web framework (FastAPI, Starlette, aiohttp), build the agent **once per worker
+process** and share it across requests on that process's single loop. Never share that instance
+with a worker thread of the same process:
+
+```python
+import asyncio
+
+from cliver_core import AgentCore, ModelBindings, presets
+from cliver_core.tools import discover_builtin_tools
+
+agent = AgentCore(
+    ModelBindings(llm=[presets.deepseek(api_key="...")]),
+    builtin_tools=discover_builtin_tools(),
+)
+
+
+async def handle(prompt: str, history: list) -> str:
+    response = await agent.chat(prompt, conversation=history)
+    return response.message.content or ""
+
+
+# Application-level admission control — AgentCore does not provide one.
+slots = asyncio.Semaphore(100)
+
+
+async def bounded_handle(prompt: str, history: list) -> str:
+    async with slots:
+        return await handle(prompt, history)
+```
+
+Settings that keep one worker healthy under load:
+
+- Bound `max_iterations` per call (the default is 50).
+- Bound the conversation you pass in; the core does not compact history.
+- Cap tool output at the tool boundary — large results stay in the message history.
+- Give each tenant a separate agent if it needs a different tool set, system prompt, or
+  permission policy. Otherwise share the agent and pass per-call options.
+- Never mutate a shared list or tool registry from a request handler.
+
+### Threads and Multiple Event Loops
+
+A provider wraps an async HTTP client bound to one loop. Sharing it with another thread or loop
+is unsupported. Keep the agent inside the lifetime of one loop:
+
+```python
+import asyncio
+
+from cliver_core import AgentCore, ModelBindings, presets
+
+
+def worker(prompts: list[str]) -> list[str]:
+    async def main() -> list[str]:
+        agent = AgentCore(ModelBindings(llm=presets.deepseek(api_key="...")))
+        try:
+            return [(await agent.chat(prompt)).message.content or "" for prompt in prompts]
+        finally:
+            await agent.aclose()
+
+    return asyncio.run(main())
+```
+
+That shape fits a thread that handles one unit of work. If a thread serves requests for its whole
+lifetime, give it one long-lived loop and create one agent inside that loop — do not call
+`asyncio.run()` per request and reuse an agent across the resulting loops.
+
+The alternative is **one loop, many threads**: run a single agent on a dedicated loop and submit
+work with `asyncio.run_coroutine_threadsafe(...)`. For streaming, bridge chunks through a
+`queue.Queue` because the async generator cannot be consumed from another thread. The agent still
+belongs to exactly one loop; the other threads only hand it work. Use this only when a host
+cannot give each thread its own loop.
+
+The CLI application is single-threaded and single-loop, so this does not affect it.
+
+## Warm-Up
+
+The first call does one-time work that is otherwise paid by a user request:
+
+- builds the provider(s) for the bound purpose;
+- starts the MCP client and discovers its tools;
+- loads the skill catalogue from disk (off the loop, in a worker thread).
+
+Run a small warm-up call at startup, after configuration is final:
+
+```python
+await agent.chat("Reply with OK.", max_iterations=1, skill_dispatch=False)
+```
+
+Warm-up also surfaces bad credentials and unreachable MCP servers before traffic arrives.
+
+## Tool Execution Under Load
+
+- **Synchronous tools** (all builtins) run via `asyncio.to_thread`. The default executor is
+  per loop and limited to `min(32, cpu_count + 4)` threads for the whole process. If a run
+  needs many tool calls, they queue behind other runs.
+- **`tool_timeout` includes queued time.** A call that waits for an executor slot and then runs
+  is bounded by one wall-clock timeout. Python cannot kill a running thread: a timed-out
+  synchronous tool keeps running in the background, and only its result is discarded.
+- **Async `@tool` functions run on the agent's loop** (`execute_async`), so `tool_timeout` and
+  caller cancellation reach them, and they may use loop-bound clients and objects. Tool bodies
+  are still caller code: never block the loop inside an async tool.
+- **MCP tool calls run on the agent's loop** and open an ephemeral session per call. A stdio
+  server therefore starts a subprocess per session; streamable HTTP opens a new client and
+  session per call. Under high concurrency, budget MCP processes/sockets accordingly.
+
+`parallel_tool_calls=True` is opt-in per agent or per call. It only makes sense for independent
+tools: permission checks still run sequentially in tool-call order, and results are appended in
+the original order. It does not raise the executor size.
+
+## Permission Callbacks and Event Handlers
+
+The permission callback is consulted for `ASK` tools. It runs in the calling task:
+
+- Make it non-blocking. The CLI reads terminal input in a worker thread; a server should use a
+  non-interactive policy instead of reading stdin.
+- It is serialized **within one run's batch**, not globally. Concurrent runs can invoke the
+  callback concurrently, so it must be concurrency-safe.
+- An exception fails closed — the tool is denied.
+
+Tool events reach both the instance `on_event=` and the call-site `on_event=`. Inference
+events are emitted by the provider and are observed through the binding's `on_event=` (they do
+not reach `AgentCore`'s handler). Handlers may be sync or async:
+
+- Do not block the loop inside a handler.
+- Handlers can run concurrently for different calls; treat shared state accordingly.
+- Handler exceptions propagate and abort the call on both surfaces — a raise from a tool
+  handler is never converted into a tool-error result, exactly like a raise from an inference
+  handler. A shared handler should be defensive.
+
+## Lifecycle and Shutdown
+
+```python
+# 1. Stop accepting new work, then drain in-flight chat()/stream() tasks.
+await asyncio.gather(*in_flight, return_exceptions=True)
+
+# 2. Close the agent: cancels and drains the media jobs it started, then
+#    closes the providers its bindings built.
+await agent.aclose()
+
+# 3. Close the MCP client you created — the agent never owns it.
+await mcp_client.close()
+```
+
+- `agent.aclose()` is idempotent and single-flight: concurrent callers await the same shutdown
+  pass. It closes providers the agent's bindings built — a caller-supplied `provider=` is never
+  closed.
+- Media jobs started with `submit_*` are cancelled and awaited before the providers close. A
+  job whose body ignores cancellation delays close; there is no way to force-kill a task.
+- Bindings can be shared by several agents. Closing one agent closes a provider its bindings
+  built for all of them; give each agent its own bindings, or close only after every agent is
+  done.
+- `AgentCore` does not close an injected `MCPClient`. Whoever built it closes it.
+- A closed agent rejects every public entry point (`chat`, `stream`, `run_skill`, embedded model
+  calls, `submit_*`) with `RuntimeError`. Build a new one for a new loop.
+
+## Streaming
+
+Consume a stream from one task and in the same loop that created the agent:
+
+```python
+async for chunk in agent.stream(prompt):
+    if chunk.content:
+        await send(chunk.content)
+```
+
+Do not share or concurrently iterate one async generator. Cancelling the consuming task
+propagates `asyncio.CancelledError`; run the normal shutdown drain rather than dropping the
+task silently.
+
+## Multi-Tenant Isolation
+
+The core isolates **per-call** state: messages, skill activation, tool selection, policies, and
+the builtin Todo list. It does not isolate shared configuration. For tenants that must not see
+each other's tools or prompts, build a separate `AgentCore` per tenant (often per loop) with its
+own bindings, registry, and policy; for tenants that differ only by request parameters, share
+the agent and pass options per call.
+
+The advertised tool set is an execution boundary: a tool that is filtered out, disallowed by a
+skill's `allowed-tools`, or belongs to an MCP server not selected for the call returns an error
+if the model tries to call it — and never triggers a permission prompt. It is not a sandbox for
+the tool body itself; use the [permission callback and execution policy](/core-concepts/policy/)
+for that.
+
+## Failure and Retries
+
+- SDK clients retry transient HTTP failures (the `openai` and `anthropic` SDKs default to two
+  retries), then `AgentCore` may fail over to the next same-purpose binding on a retryable
+  provider error. Every new call starts again at the primary binding.
+- There is no global circuit breaker or rate limiter in the core. If many concurrent runs hit
+  one upstream limit, they retry and fail independently.
+- A tool error is a normal result; five consecutive tool errors or permission denials stop that
+  run with a failure response. One run's streak never affects another.
+
+## Checklist
+
+- [ ] One `AgentCore` per event loop, created inside that loop — one per thread.
+- [ ] Configuration finalized before serving; no runtime registry/binding mutation.
+- [ ] A warm-up call has succeeded against every provider and MCP server.
+- [ ] Application-level concurrency limit and per-tenant quotas are in place.
+- [ ] Permission callback and event handlers are non-blocking and concurrency-safe.
+- [ ] `max_iterations`, conversation length, and tool output are bounded.
+- [ ] Shutdown drains in-flight calls, awaits media jobs, then closes the MCP client and agent.

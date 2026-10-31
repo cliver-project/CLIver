@@ -34,7 +34,16 @@ def _agent(**kwargs) -> AgentCore:
 def _capture_loop(agent: AgentCore) -> dict:
     captured: dict = {}
 
-    async def fake_run_loop(messages, all_tools, opts, max_iterations, execution_policy=None, skill_state=None):
+    async def fake_run_loop(
+        messages,
+        all_tools,
+        opts,
+        max_iterations,
+        execution_policy=None,
+        parallel_tool_calls=False,
+        tool_timeout=None,
+        skill_state=None,
+    ):
         captured["messages"] = messages
         captured["tools"] = all_tools
         captured["skill_state"] = skill_state

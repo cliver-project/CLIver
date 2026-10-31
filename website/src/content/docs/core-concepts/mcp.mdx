@@ -19,9 +19,11 @@ agent = AgentCore(bindings, builtin_tools=[...], mcp_client=client)
 project `.cliver/mcp.json`, and drop-in configuration files. Pass `extra=` to add servers
 programmatically.
 
-Call `agent.chat(..., mcp_servers=["server-name"])` to advertise only a subset for one call.
-The client starts lazily (and idempotently) before tools are gathered, so the first turn
-already sees MCP tools.
+Call `agent.chat(..., mcp_servers=["server-name"])` to advertise and allow only that subset for
+one call. `None` (the default) exposes every configured server; an empty list exposes none. A
+tool from an unselected server cannot be executed even if the model calls it by name. The client
+starts lazily (and idempotently) before tools are gathered, so the first turn already sees MCP
+tools.
 
 ## Tool Naming
 
@@ -29,6 +31,18 @@ MCP tools are advertised as `mcp__<server>__<tool>`. They share the same executi
 builtin tools — including permission categories and events. A server's self-declared
 `readOnlyHint` annotation maps to the `SAFE` category; it is a hint, never a permission
 boundary. Override individual tools with `safety_overrides=`.
+
+## Lifecycle
+
+`start()` is single-flight: concurrent callers share one discovery pass, and a cancelled waiter
+does not cancel discovery for the others. A server that fails to start is logged and skipped —
+the rest still connect. `close()` cancels an in-flight start, closes every adapter exactly once,
+and is safe to call concurrently.
+
+`add_server()` before `start()` defers the connection until that start; afterwards it connects
+immediately. The agent **never closes an injected client** — whoever constructs it closes it,
+after the agent's calls are drained. Like the rest of the agent, a client belongs to one event
+loop.
 
 ## Prompts and Resources
 
