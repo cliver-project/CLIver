@@ -101,6 +101,11 @@ def system_one_binding_from_env(env: Mapping[str, str] | None = None) -> ModelBi
     endpoint using the shared ``/v1/systemone`` wire sets ``BASE_URL`` and
     leaves ``PROVIDER`` unset.
 
+    ``MODEL`` is optional for the hosted ``bailian`` and ``typesafe`` presets
+    (they pin ``decision-model-preview`` and ``jev-latest``) and required for
+    ``laya`` (a checkpoint) and a custom ``BASE_URL`` (no backend identity to
+    derive a default from).
+
     The key is ``CLIVER_SYSTEM_ONE_API_KEY`` or the provider's conventional
     variable (``DASHSCOPE_API_KEY`` / ``TYPESAFE_API_KEY``).
     """
@@ -110,10 +115,13 @@ def system_one_binding_from_env(env: Mapping[str, str] | None = None) -> ModelBi
     base_url = values.get("CLIVER_SYSTEM_ONE_BASE_URL", "").strip()
     if not model and not provider and not base_url:
         return None
-    if not model:
-        raise ValueError("CLIVER_SYSTEM_ONE_MODEL is required when a System One provider or endpoint is configured.")
 
     if provider == "laya":
+        if not model:
+            raise ValueError(
+                "CLIVER_SYSTEM_ONE_MODEL is required for the laya provider "
+                "(a checkpoint name, a repository id, or 'auto')."
+            )
         max_len_raw = values.get("CLIVER_SYSTEM_ONE_MAX_LEN", "").strip()
         provider_obj = LocalSystemOneProvider(
             model=model,
@@ -127,19 +135,25 @@ def system_one_binding_from_env(env: Mapping[str, str] | None = None) -> ModelBi
         workspace_id = values.get("CLIVER_SYSTEM_ONE_WORKSPACE_ID", "").strip()
         if not workspace_id and not base_url:
             raise ValueError("bailian requires CLIVER_SYSTEM_ONE_WORKSPACE_ID (or CLIVER_SYSTEM_ONE_BASE_URL).")
+        bailian_options: dict[str, str] = {}
+        if model:
+            bailian_options["model"] = model
         return presets.bailian_system_one(
             workspace_id=workspace_id,
             api_key=_system_one_api_key(values, "dashscope"),
-            model=model,
             region=values.get("CLIVER_SYSTEM_ONE_REGION", "").strip() or "cn-beijing",
             base_url=base_url,
+            **bailian_options,
         )
 
     if provider == "typesafe":
+        typesafe_options: dict[str, str] = {}
+        if model:
+            typesafe_options["model"] = model
         return presets.typesafe_system_one(
             api_key=_system_one_api_key(values, "typesafe"),
-            model=model,
             base_url=base_url,
+            **typesafe_options,
         )
 
     if provider:
@@ -151,6 +165,10 @@ def system_one_binding_from_env(env: Mapping[str, str] | None = None) -> ModelBi
         raise ValueError(
             "a System One endpoint is required: set CLIVER_SYSTEM_ONE_PROVIDER "
             "(bailian/typesafe/laya) or CLIVER_SYSTEM_ONE_BASE_URL."
+        )
+    if not model:
+        raise ValueError(
+            "CLIVER_SYSTEM_ONE_MODEL is required for a custom System One endpoint (CLIVER_SYSTEM_ONE_BASE_URL)."
         )
     return ModelBinding.system_one(
         model=model,
@@ -181,7 +199,8 @@ def selector_from_env(
     if system_one_binding is None:
         print(
             "warning: CLIVER_SELECTOR is on but no System One model is configured; "
-            "set CLIVER_SYSTEM_ONE_MODEL (and CLIVER_SYSTEM_ONE_PROVIDER) to enable selection.",
+            "set CLIVER_SYSTEM_ONE_PROVIDER (bailian/typesafe/laya, or a custom "
+            "CLIVER_SYSTEM_ONE_BASE_URL plus MODEL) to enable selection.",
             file=sys.stderr,
         )
         return None

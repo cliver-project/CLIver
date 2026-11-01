@@ -299,6 +299,67 @@ async def test_seedance_preset_resolves_the_ark_task_endpoint() -> None:
     assert "path" not in presets.seedance(api_key="k", path=None).call_defaults()
 
 
+WORKSPACE_CASES = [
+    (presets.qwen, "https://ws-abc.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"),
+    (presets.qwen_image, "https://ws-abc.cn-beijing.maas.aliyuncs.com/api/v1"),
+    (presets.dashscope_image, "https://ws-abc.cn-beijing.maas.aliyuncs.com/api/v1"),
+    (presets.dashscope_background, "https://ws-abc.cn-beijing.maas.aliyuncs.com/api/v1"),
+    (presets.dashscope_video, "https://ws-abc.cn-beijing.maas.aliyuncs.com/api/v1"),
+]
+
+
+@pytest.mark.parametrize(
+    ("factory", "expected"),
+    WORKSPACE_CASES,
+    ids=[case[0].__name__ for case in WORKSPACE_CASES],
+)
+def test_bailian_workspace_id_composes_the_maas_host(factory, expected) -> None:
+    """Bailian workspace-scoped keys use the workspace-dedicated host;
+    without one the preset keeps the shared DashScope registry default."""
+    assert factory(api_key="k", workspace_id="ws-abc").base_url == expected
+    assert factory(api_key="k").base_url == ""
+
+
+def test_bailian_workspace_region_selects_the_host_suffix() -> None:
+    binding = presets.qwen(api_key="k", workspace_id="ws-abc", region="ap-southeast-1")
+    assert binding.base_url == "https://ws-abc.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+
+
+def test_bailian_explicit_base_url_wins_over_the_workspace() -> None:
+    binding = presets.qwen(api_key="k", workspace_id="ws-abc", base_url="https://proxy.test/v1")
+    assert binding.base_url == "https://proxy.test/v1"
+
+
+@pytest.mark.parametrize("workspace_id", ["ws/abc", "ws abc", "ws\nabc"])
+def test_bailian_workspace_id_rejects_url_separators(workspace_id) -> None:
+    with pytest.raises(ValueError, match="workspace"):
+        presets.qwen(api_key="k", workspace_id=workspace_id)
+
+
+def test_bailian_region_rejects_url_separators_when_composing() -> None:
+    with pytest.raises(ValueError, match="region"):
+        presets.qwen(api_key="k", workspace_id="ws-abc", region="cn-beijing/evil")
+
+
+@pytest.mark.asyncio
+async def test_bailian_workspace_binding_builds_the_provider_on_the_maas_host() -> None:
+    binding = presets.qwen(api_key="k", workspace_id="ws-abc")
+    provider = binding.get_provider()
+    assert provider.base_url == "https://ws-abc.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+    await binding.aclose()
+
+
+@pytest.mark.asyncio
+async def test_qwen_image_workspace_binding_resolves_the_media_endpoint() -> None:
+    binding = presets.qwen_image(api_key="k", workspace_id="ws-abc")
+    provider = binding.get_provider()
+    via_binding = provider._resolve_media_gen_url("image", binding.call_defaults()["path"])
+    assert via_binding == (
+        "https://ws-abc.cn-beijing.maas.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation"
+    )
+    await binding.aclose()
+
+
 def test_all_presets_are_exported() -> None:
     assert set(presets.__all__) == {
         "bailian_system_one",

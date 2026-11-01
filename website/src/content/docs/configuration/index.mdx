@@ -39,6 +39,10 @@ With an exact `provider_name` registry hit, the default `base_url` comes from th
 no recognized brand, `base_url` is required — there is no implicit endpoint. Anthropic-protocol
 endpoints must set `protocol="anthropic"`.
 
+A `base_url=` you pass is always the final URL and wins over any brand default, on every
+factory. Brand presets may compose one from vendor identifiers (for example Bailian's
+`workspace_id=` / `region=`); the binding itself only ever carries the resolved URL.
+
 ## Default Request Options
 
 Keyword arguments beyond the shared fields become the binding's default call options. Per-call

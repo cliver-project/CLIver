@@ -44,6 +44,16 @@ def test_bailian_base_url_override_wins() -> None:
     assert binding.base_url == "https://proxy.internal/compatible-mode"
 
 
+def test_bailian_accepts_an_explicit_base_url_without_a_workspace() -> None:
+    binding = presets.bailian_system_one(api_key="k", base_url="https://proxy.internal/compatible-mode")
+    assert binding.base_url == "https://proxy.internal/compatible-mode"
+
+
+def test_bailian_requires_a_workspace_when_no_base_url_is_given() -> None:
+    with pytest.raises(ValueError, match="workspace_id"):
+        presets.bailian_system_one(api_key="k")
+
+
 def test_typesafe_system_one_defaults_to_jev_latest() -> None:
     binding = presets.typesafe_system_one(api_key="k")
 

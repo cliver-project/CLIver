@@ -67,19 +67,23 @@ moves to the next binding of the same purpose.
 from cliver_core import presets
 
 # Aliyun Bailian — key from DASHSCOPE_API_KEY
+# model defaults to "decision-model-preview"
 bailian = presets.bailian_system_one(
     workspace_id="ws-...",
     region="cn-beijing",            # or "ap-southeast-1"
-    model="decision-model-preview",
 )
 
 # TypeSafe Jev — key from TYPESAFE_API_KEY
-jev = presets.typesafe_system_one(model="jev-latest")
+# model defaults to "jev-latest"
+jev = presets.typesafe_system_one()
 ```
 
 Bailian builds the endpoint from the workspace id
 (`https://{workspace_id}.{region}.maas.aliyuncs.com/compatible-mode`) and pins `/v1/systemone`.
-Both presets accept `base_url=` to override it, for example when a gateway fronts the endpoint.
+Both presets accept `base_url=` to override it, for example when a gateway fronts the endpoint;
+with an explicit `base_url=` the workspace id can be omitted. The same `workspace_id=` /
+`region=` composition is available on the Bailian chat and media presets (`qwen`, `qwen_image`,
+`dashscope_*`); see [Providers & Presets](/configuration/providers/).
 
 For any other Jev-compatible endpoint, use the factory directly:
 
@@ -173,11 +177,13 @@ the CLI defaults the close read off for a local System One model and on for HTTP
 ## Configuration in the CLI
 
 `cliver` builds the System One binding and the selector from environment variables (usually
-`~/.cliver/.env`). `CLIVER_SYSTEM_ONE_MODEL` is required whenever anything else is set.
+`~/.cliver/.env`). `CLIVER_SYSTEM_ONE_MODEL` can be omitted for the hosted `bailian` and
+`typesafe` providers — both presets pin a default — and is required for `laya` and a custom
+endpoint.
 
 | Setting | Environment | Values |
 |---|---|---|
-| Decision model | `CLIVER_SYSTEM_ONE_MODEL` | e.g. `decision-model-preview`, `jev-latest`, `multilingual` |
+| Decision model | `CLIVER_SYSTEM_ONE_MODEL` | optional for `bailian` / `typesafe` (preset defaults); required for `laya` and a custom endpoint |
 | Provider | `CLIVER_SYSTEM_ONE_PROVIDER` | `bailian`, `typesafe`, `laya`; omit for a custom endpoint |
 | Custom endpoint | `CLIVER_SYSTEM_ONE_BASE_URL` | any Jev-compatible `/v1/systemone` base |
 | API key | `CLIVER_SYSTEM_ONE_API_KEY` | else `DASHSCOPE_API_KEY` / `TYPESAFE_API_KEY` |

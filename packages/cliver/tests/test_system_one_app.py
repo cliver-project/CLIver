@@ -100,9 +100,64 @@ def test_custom_endpoint_uses_the_shared_system_one_wire():
     assert binding.base_url == "https://decisions.example.test/v1"
 
 
-def test_model_is_required_when_anything_is_configured():
-    with pytest.raises(ValueError, match="CLIVER_SYSTEM_ONE_MODEL"):
+def test_bailian_without_a_model_uses_the_preset_default():
+    binding = system_one_binding_from_env(
+        {
+            "CLIVER_SYSTEM_ONE_PROVIDER": "bailian",
+            "CLIVER_SYSTEM_ONE_WORKSPACE_ID": "ws-test-123",
+            "DASHSCOPE_API_KEY": "test-dashscope-key",
+        }
+    )
+
+    assert binding is not None
+    assert binding.model == "decision-model-preview"
+    assert binding.base_url == "https://ws-test-123.cn-beijing.maas.aliyuncs.com/compatible-mode"
+
+
+def test_typesafe_without_a_model_uses_the_preset_default():
+    binding = system_one_binding_from_env(
+        {
+            "CLIVER_SYSTEM_ONE_PROVIDER": "typesafe",
+            "TYPESAFE_API_KEY": "test-typesafe-key",
+        }
+    )
+
+    assert binding is not None
+    assert binding.model == "jev-latest"
+
+
+def test_an_explicit_model_still_wins_over_the_preset_default():
+    binding = system_one_binding_from_env(
+        {
+            "CLIVER_SYSTEM_ONE_MODEL": "decision-model-preview-2026",
+            "CLIVER_SYSTEM_ONE_PROVIDER": "bailian",
+            "CLIVER_SYSTEM_ONE_WORKSPACE_ID": "ws-test-123",
+            "DASHSCOPE_API_KEY": "test-dashscope-key",
+        }
+    )
+
+    assert binding is not None
+    assert binding.model == "decision-model-preview-2026"
+
+
+def test_bailian_without_a_workspace_or_endpoint_is_rejected():
+    with pytest.raises(ValueError, match="CLIVER_SYSTEM_ONE_WORKSPACE_ID"):
         system_one_binding_from_env({"CLIVER_SYSTEM_ONE_PROVIDER": "bailian"})
+
+
+def test_laya_still_requires_a_model():
+    with pytest.raises(ValueError, match="laya"):
+        system_one_binding_from_env({"CLIVER_SYSTEM_ONE_PROVIDER": "laya"})
+
+
+def test_a_custom_endpoint_still_requires_a_model():
+    with pytest.raises(ValueError, match="CLIVER_SYSTEM_ONE_MODEL"):
+        system_one_binding_from_env(
+            {
+                "CLIVER_SYSTEM_ONE_BASE_URL": "https://decisions.example.test/v1",
+                "CLIVER_SYSTEM_ONE_API_KEY": "explicit-key",
+            }
+        )
 
 
 def test_unknown_provider_is_rejected():

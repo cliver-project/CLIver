@@ -24,6 +24,10 @@ explicitly.
 | `minimax_anthropic()` | Chat | Anthropic |
 | `glm()` | Chat | OpenAI |
 | `glm_anthropic()` | Chat | Anthropic |
+| `qwen()` | Chat | OpenAI |
+| `qwen_image()` | Image | OpenAI |
+| `dashscope_image()` | Image | OpenAI |
+| `dashscope_video()` | Video | OpenAI |
 | `minimax_image()` | Image | Anthropic leaf |
 | `minimax_tts()` | Text-to-speech | Anthropic leaf |
 | `minimax_asr()` | Speech-to-text | Anthropic leaf |
@@ -37,15 +41,45 @@ agent = AgentCore(ModelBindings(llm=presets.deepseek()))
 
 Each factory returns a **fresh** binding. An explicit `api_key=` wins; otherwise the brand's
 conventional environment variable is read at call time — `DEEPSEEK_API_KEY`,
-`MINIMAX_API_KEY`, `GLM_API_KEY` (or `ZHIPUAI_API_KEY`), and `SEEDANCE_API_KEY`. Every preset
-also accepts `base_url=` and `**params` defaults.
+`MINIMAX_API_KEY`, `GLM_API_KEY` (or `ZHIPUAI_API_KEY`), `DASHSCOPE_API_KEY`, and
+`SEEDANCE_API_KEY`. Every preset also accepts `base_url=` and `**params` defaults.
 
 Media presets pin their endpoint path explicitly on the binding (`minimax_image` →
 `/image_generation`, `minimax_tts` → `/t2a_v2`, `minimax_asr` → `/speech_to_text`,
 `seedance` → `/contents/generations/tasks`). Pass `path=None` to defer to the brand map or
 supply another path to override.
 
+### Bailian Workspace Hosts
+
+Alibaba Bailian API keys belong to a business workspace. A workspace-scoped key can call that
+workspace's dedicated host (a key from another workspace, or the wrong region, answers 401);
+keys used on the shared `dashscope.aliyuncs.com` host need no workspace. The DashScope-family
+presets accept `workspace_id=` and `region=` and compose the final URL, so `cliver-core` still
+only ever receives the resolved endpoint:
+
+```python
+from cliver_core import presets
+
+llm = presets.qwen(workspace_id="ws-...")          # …maas.aliyuncs.com/compatible-mode/v1
+image = presets.qwen_image(workspace_id="ws-...")  # …maas.aliyuncs.com/api/v1
+video = presets.dashscope_video(workspace_id="ws-...")
+
+# Shared DashScope host (no workspace)
+llm = presets.qwen()
+
+# A plan key or a gateway: pass the final URL; it wins over both
+llm = presets.qwen(base_url="https://gateway.internal/compatible-mode/v1")
+```
+
+`region` defaults to `cn-beijing` and applies only when `workspace_id` is set. Without
+`workspace_id` the preset keeps the provider registry's shared DashScope endpoint, and an
+explicit `base_url=` always wins.
+
 ## Custom Endpoints
+
+Every purpose factory — `llm()`, `image()`, `video()`, `tts()`, `asr()`, `embed()`,
+`rerank()`, and `system_one()` — accepts the final URL through `base_url=`, and that value
+wins over any brand default.
 
 ```python
 from cliver_core import ModelBinding

@@ -12,7 +12,10 @@ message naming the exact variable to set.
 
 ``provider_name`` and ``protocol`` are pinned, and ``base_url`` stays empty so
 the provider registry's ``default_base_url`` is the single source of truth for
-each brand's endpoint.  Media presets likewise pin the endpoint ``path``
+each brand's endpoint.  The exception is a vendor identifier the endpoint
+depends on: the Bailian presets compose the workspace-dedicated host from
+``workspace_id`` / ``region`` when one is supplied, so core still receives
+only the final URL.  Media presets likewise pin the endpoint ``path``
 explicitly — ``minimax_image`` / ``minimax_tts`` / ``minimax_asr`` name
 ``/image_generation`` / ``/t2a_v2`` / ``/speech_to_text`` and ``seedance``
 names the Ark task endpoint ``/contents/generations/tasks`` on the binding
@@ -72,6 +75,26 @@ def _api_key(api_key: str | None, brand: str) -> str:
         if os.environ.get(env_var):
             return os.environ[env_var]
     return ""
+
+
+def _bailian_host(workspace_id: str, region: str, path: str) -> str:
+    """Compose a workspace-dedicated Bailian host, or ``""`` for the shared one.
+
+    Bailian API keys belong to a business workspace.  A workspace-scoped key
+    can call the dedicated host ``https://{workspace_id}.{region}.maas.aliyuncs.com``;
+    keys used on the shared ``dashscope.aliyuncs.com`` host need no workspace.
+    The composition happens here, in the brand preset — core only ever
+    receives the final URL through the binding's ``base_url``.
+    """
+    workspace = workspace_id.strip()
+    if not workspace:
+        return ""
+    zone = region.strip() or "cn-beijing"
+    if any(ch in workspace for ch in "/\\ \t\r\n"):
+        raise ValueError(f"invalid Bailian workspace id {workspace_id!r}")
+    if any(ch in zone for ch in "/\\ \t\r\n"):
+        raise ValueError(f"invalid Bailian region {region!r}")
+    return f"https://{workspace}.{zone}.maas.aliyuncs.com/{path}"
 
 
 def deepseek(
@@ -150,16 +173,28 @@ def glm_anthropic(
     )
 
 
-def qwen(*, api_key: str | None = None, model: str = "qwen-plus", base_url: str = "", **params: Any) -> ModelBinding:
+def qwen(
+    *,
+    api_key: str | None = None,
+    model: str = "qwen-plus",
+    base_url: str = "",
+    workspace_id: str = "",
+    region: str = "cn-beijing",
+    **params: Any,
+) -> ModelBinding:
     """Qwen chat over DashScope's OpenAI-compatible endpoint.
 
-    Keys are region-bound: a key from another region (e.g. Singapore) needs
-    an explicit ``base_url`` override.
+    ``workspace_id`` composes the workspace-dedicated Bailian host
+    (``https://{workspace_id}.{region}.maas.aliyuncs.com/compatible-mode/v1``)
+    for workspace-scoped keys; without it the shared DashScope endpoint
+    applies.  An explicit ``base_url`` wins over both.  Keys are
+    region-bound: a key from another region needs either a matching
+    ``region`` with a workspace id or an explicit ``base_url`` override.
     """
     return ModelBinding.llm(
         model=model,
         api_key=_api_key(api_key, "qwen"),
-        base_url=base_url,
+        base_url=base_url or _bailian_host(workspace_id, region, "compatible-mode/v1"),
         protocol="openai",
         provider_name="qwen",
         **params,
@@ -171,6 +206,8 @@ def qwen_image(
     api_key: str | None = None,
     model: str = "qwen-image-3.0",
     base_url: str = "",
+    workspace_id: str = "",
+    region: str = "cn-beijing",
     path: str | None = "/services/aigc/multimodal-generation/generation",
     **params: Any,
 ) -> ModelBinding:
@@ -188,13 +225,17 @@ def qwen_image(
     written either ``x`` or ``*`` separated.  The result is returned in the
     same request (no task polling).
 
-    Keys are region-bound: a key from another region needs an explicit
+    ``workspace_id`` composes the workspace-dedicated Bailian native host
+    (``https://{workspace_id}.{region}.maas.aliyuncs.com/api/v1``); without
+    it the shared DashScope endpoint applies.  An explicit ``base_url``
+    wins over both.  Keys are region-bound: a key from another region
+    needs either a matching ``region`` with a workspace id or an explicit
     ``base_url`` override.
     """
     return ModelBinding.image(
         model=model,
         api_key=_api_key(api_key, "qwen-image"),
-        base_url=base_url,
+        base_url=base_url or _bailian_host(workspace_id, region, "api/v1"),
         protocol="openai",
         provider_name="qwen-image",
         path=path,
@@ -328,6 +369,8 @@ def dashscope_image(
     api_key: str | None = None,
     model: str = "wanx2.1-t2i-turbo",
     base_url: str = "",
+    workspace_id: str = "",
+    region: str = "cn-beijing",
     path: str | None = "/services/aigc/text2image/image-synthesis",
     **params: Any,
 ) -> ModelBinding:
@@ -343,11 +386,16 @@ def dashscope_image(
     ``poll_timeout`` (seconds to wait for the result, default 600; ``None``
     waits without a deadline).  ``media=[...]`` reference images are ignored
     by plain text-to-image models.
+
+    ``workspace_id`` composes the workspace-dedicated Bailian native host
+    (``https://{workspace_id}.{region}.maas.aliyuncs.com/api/v1``); without
+    it the shared DashScope endpoint applies.  An explicit ``base_url``
+    wins over both.
     """
     return ModelBinding.image(
         model=model,
         api_key=_api_key(api_key, "dashscope"),
-        base_url=base_url,
+        base_url=base_url or _bailian_host(workspace_id, region, "api/v1"),
         protocol="openai",
         provider_name="dashscope",
         path=path,
@@ -360,6 +408,8 @@ def dashscope_background(
     api_key: str | None = None,
     model: str = "wanx-background-generation-v2",
     base_url: str = "",
+    workspace_id: str = "",
+    region: str = "cn-beijing",
     path: str | None = "/services/aigc/background-generation/generation",
     model_version: str = "v3",
     n: int | None = 1,
@@ -378,12 +428,14 @@ def dashscope_background(
     through.  ``model_version="v3"`` and ``n=1`` are the documented
     defaults; more parameters (``ref_prompt_weight``, ``noise_level``, …)
     ride the request's ``parameters``.  Poll knobs as on
-    :func:`dashscope_image`.
+    :func:`dashscope_image`.  ``workspace_id`` composes the
+    workspace-dedicated Bailian native host (``…/api/v1``); an explicit
+    ``base_url`` wins.
     """
     return ModelBinding.image(
         model=model,
         api_key=_api_key(api_key, "dashscope"),
-        base_url=base_url,
+        base_url=base_url or _bailian_host(workspace_id, region, "api/v1"),
         protocol="openai",
         provider_name="dashscope",
         path=path,
@@ -398,6 +450,8 @@ def dashscope_video(
     api_key: str | None = None,
     model: str = "wanx2.1-t2v-turbo",
     base_url: str = "",
+    workspace_id: str = "",
+    region: str = "cn-beijing",
     path: str | None = "/services/aigc/video-generation/video-synthesis",
     duration: int | None = 5,
     size: str | None = "1280*720",
@@ -412,12 +466,14 @@ def dashscope_video(
     ``media`` image is the start frame (``input.img_url``, local bytes are
     uploaded to ``oss://`` automatically).  Defaults: ``duration=5``
     seconds and ``size="1280*720"`` (``x`` is accepted too).  Poll knobs as
-    on :func:`dashscope_image`.
+    on :func:`dashscope_image`.  ``workspace_id`` composes the
+    workspace-dedicated Bailian native host (``…/api/v1``); an explicit
+    ``base_url`` wins.
     """
     return ModelBinding.video(
         model=model,
         api_key=_api_key(api_key, "dashscope"),
-        base_url=base_url,
+        base_url=base_url or _bailian_host(workspace_id, region, "api/v1"),
         protocol="openai",
         provider_name="dashscope",
         path=path,
@@ -429,7 +485,7 @@ def dashscope_video(
 
 def bailian_system_one(
     *,
-    workspace_id: str,
+    workspace_id: str = "",
     api_key: str | None = None,
     model: str = "decision-model-preview",
     region: str = "cn-beijing",
@@ -445,14 +501,23 @@ def bailian_system_one(
     ``cn-beijing`` and ``ap-southeast-1`` (Singapore).  The key comes from
     ``DASHSCOPE_API_KEY`` unless passed explicitly.
 
+    ``workspace_id`` is required only when ``base_url`` is empty: an
+    explicit base URL (a proxy, a private endpoint) already names the host.
+    The composition is shared with the other Bailian presets
+    (:func:`qwen`, :func:`qwen_image`, the ``dashscope_*`` media factories):
+    workspace-scoped keys use the dedicated host, keys on the shared
+    DashScope host need no workspace.
+
     The endpoint path is pinned explicitly on the binding (``path=None``
     defers to the provider's default).  ``**params`` become default call
     options (e.g. ``timeout=5``).
     """
+    if not workspace_id.strip() and not base_url:
+        raise ValueError("bailian_system_one requires workspace_id when base_url is empty")
     return ModelBinding.system_one(
         model=model,
         api_key=_api_key(api_key, "dashscope"),
-        base_url=base_url or f"https://{workspace_id}.{region}.maas.aliyuncs.com/compatible-mode",
+        base_url=base_url or _bailian_host(workspace_id, region, "compatible-mode"),
         path=path,
         **params,
     )
