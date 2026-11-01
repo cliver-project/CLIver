@@ -118,7 +118,7 @@ a run's events, `request_id` pinpoints one inference.
 
 For an async web framework (FastAPI, Starlette, aiohttp), build the agent **once per worker
 process** and share it across requests on that process's single loop. Never share that instance
-with a worker thread of the same process. The [FastAPI Server guide](/guides/fastapi/) walks
+with a worker thread of the same process. The [FastAPI Server guide](../../guides/fastapi/) walks
 through the full lifespan, endpoint, streaming, and shutdown wiring:
 
 ```python
@@ -151,7 +151,7 @@ Settings that keep one worker healthy under load:
 
 - Bound `max_iterations` per call (the default is 50).
 - Bound the conversation you pass in. For long runs, pass a `context_compactor` — core ships
-  the seam, not a policy. See [Context Window](/core-concepts/context-window/).
+  the seam, not a policy. See [Context Window](../context-window/).
 - Cap tool output at the tool boundary — large results stay in the message history.
 - Give each tenant a separate agent if it needs a different tool set, system prompt, or
   permission policy. Otherwise share the agent and pass per-call options.
@@ -223,7 +223,7 @@ Warm-up also surfaces bad credentials and unreachable MCP servers before traffic
   per call. A streamable-http server configured with `session_pool_size=N` keeps up to N
   sessions open and leases each exclusively, so at most N calls run at once and a further call
   waits for an idle session instead of dialing again — see
-  [MCP session pooling](/core-concepts/mcp/#session-pooling). Size the pool per tenant and drain
+  [MCP session pooling](../mcp/#session-pooling). Size the pool per tenant and drain
   calls before `mcp_client.close()`.
 
 `parallel_tool_calls=True` is opt-in per agent or per call. It only makes sense for independent
@@ -305,7 +305,7 @@ the agent and pass options per call.
 The advertised tool set is an execution boundary: a tool that is filtered out, disallowed by a
 skill's `allowed-tools`, or belongs to an MCP server not selected for the call returns an error
 if the model tries to call it — and never triggers a permission prompt. It is not a sandbox for
-the tool body itself; use the [permission callback and execution policy](/core-concepts/policy/)
+the tool body itself; use the [permission callback and execution policy](../policy/)
 for that.
 
 ## Credential Rotation

@@ -1,6 +1,6 @@
-"""cliver — Personal AI Lab CLI.
+"""cliver — the CLI application built on ``cliver-core``.
 
-The application package layered on ``cliver-core``.  It supplies CLIver's
-skill discovery conventions, application wiring, and the one-shot ``cliver``
-command; the interactive TUI lands in a later phase.
+The application package supplies CLIver's config-directory conventions, skill
+discovery, application wiring, and the one-shot ``cliver`` command; the
+interactive TUI lands in a later phase.
 """

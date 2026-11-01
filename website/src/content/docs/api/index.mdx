@@ -66,17 +66,18 @@ async for chunk in agent.stream("Write a README"):
 
 ### `await agent.run_skill(name, user_input, **options) → CLIverResponse`
 
-Runs the Re-Act loop with a skill pinned — see [Skills](/core-concepts/skills/).
+Runs the Re-Act loop with a skill pinned — see [Skills](../core-concepts/skills/).
 
 ### Media Methods
 
-`image()`, `video()`, `tts()`, `asr()`, `embed()`, and `rerank()` call the bound models directly.
-Their `submit_*` variants return a `MediaJob` whose `result()` resolves when generation finishes.
+`image()`, `video()`, `tts()`, and `asr()` call the bound models directly; their `submit_*`
+variants return a `MediaJob` whose `result()` resolves when generation finishes. `embed()` and
+`rerank()` return their results directly.
 
 ### `await agent.system_one(state, questions, **options) → SystemOneResult`
 
 Calls the bound System One decision model: `state` plus typed `questions` in, probabilities out.
-See [System One](/core-concepts/system-one/).
+See [System One](../core-concepts/system-one/).
 
 ### `await agent.aclose()`
 

@@ -8,12 +8,25 @@ No CLI, no database, no config files — you pass Python objects in and get mess
 ## Install
 
 ```bash
-pip install cliver-core==0.3.0a5          # core library + MCP client (stdio / streamable HTTP)
-pip install "cliver-core[local]==0.3.0a5" # + in-process local embedding / rerank models
+pip install cliver-core==0.3.0rc1          # core library + MCP client (stdio / streamable HTTP)
+pip install "cliver-core[local]==0.3.0rc1" # + in-process local embed / rerank / System One models
 ```
 
-The project is on pre-releases, so pin the exact version (an exact pin selects the pre-release
-without `--pre`). Python 3.10+.
+`0.3.0rc1` is the release candidate for the 0.3 API-stability series: feature-complete and
+API-frozen, with only bug fixes before `0.3.0`. Pin the exact version (an exact pin selects the
+pre-release without `--pre`). Python 3.10–3.13. See
+[Stability & Versioning](https://cliver-project.github.io/CLIver/getting-started/stability/).
+
+## 0.3 highlights
+
+- Ordered binding mounts with same-purpose retryable failover
+- `run_id` correlation, `run_timeout` deadlines, and `arefresh_credentials()`
+- `chat_structured()` with pydantic / JSON-Schema validation and retries
+- Caller-supplied `context_compactor` for long conversations
+- System One decision models and `SystemOneSelector`
+- A streamable-HTTP MCP session pool (`session_pool_size`)
+- DashScope, Qwen, and Qwen-Image chat/media brands
+- A committed live verification suite (`make live-verify`)
 
 ## Quick start
 
@@ -84,15 +97,53 @@ image = await generate_image(
 Purposes: image, video, text-to-speech, speech-to-text, embed, rerank. Long generations can return
 a `MediaJob` future via `AgentCore`'s `submit_*` variants.
 
+## Reliability and structured output
+
+`ModelBindings` accepts an ordered list per purpose. Retryable failures — rate limits, timeouts,
+connection failures, and 5xx — move to the next binding; non-retryable failures surface
+immediately. Chat is sticky after a switch, and streams switch only before the first chunk.
+
+`run_id` correlates inference, tool, and pipeline events; `run_timeout` bounds a whole run
+(preamble, model calls, tools, and handler awaits); `arefresh_credentials()` rebuilds providers
+after a credential rotation. A caller-supplied `context_compactor` can replace history once per
+Re-Act iteration before the model call.
+
+`chat_structured()` validates a pydantic model or JSON-Schema dict and retries invalid output:
+
+```python
+from pydantic import BaseModel
+
+
+class Item(BaseModel):
+    title: str
+    price: float
+
+
+result = await agent.chat_structured("Extract the product from this page.", schema=Item)
+print(result.value.title)
+```
+
+See [Structured Output](https://cliver-project.github.io/CLIver/core-concepts/structured-output/),
+[Concurrency & Lifecycle](https://cliver-project.github.io/CLIver/core-concepts/concurrency/), and
+[Context Window](https://cliver-project.github.io/CLIver/core-concepts/context-window/).
+
+## System One
+
+`ModelBinding.system_one(...)` mounts a Jev-compatible decision model. `AgentCore.system_one()`
+answers typed `Choice` / `Score` / `Noul` questions, and `SystemOneSelector` uses the model to
+narrow tools and skills as a fail-open candidate selector. Hosted Bailian and TypeSafe presets
+and a local `laya` backend are available. See
+[System One](https://cliver-project.github.io/CLIver/core-concepts/system-one/).
+
 ## Local models
 
-Run embedding and rerank models in-process — no endpoint. The backends pull torch, so they are
-opt-in:
+Run embedding, rerank, and System One decision models in-process — no endpoint. The backends
+pull torch, so they are opt-in:
 
 ```bash
-pip install "cliver-core[local-st]"     # sentence-transformers embeddings
-pip install "cliver-core[local-flag]"   # FlagEmbedding embeddings + rerank
-pip install "cliver-core[local]"        # both
+pip install "cliver-core[local-st]==0.3.0rc1"     # sentence-transformers embeddings
+pip install "cliver-core[local-flag]==0.3.0rc1"   # FlagEmbedding embeddings + rerank
+pip install "cliver-core[local]==0.3.0rc1"        # all three local backends
 ```
 
 ```python

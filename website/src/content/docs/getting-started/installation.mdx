@@ -9,23 +9,25 @@ title: Installation
 
 ## Install cliver-core
 
-The project is on pre-releases, so pin the exact version — an exact pin selects the pre-release
-without `--pre`:
+`0.3.0rc1` is the release candidate for the 0.3 API-stability series: feature-complete and
+API-frozen, with only bug fixes before `0.3.0`. Pin the exact version — an exact pin selects the
+pre-release without `--pre`:
 
 ```bash
-pip install cliver-core==0.3.0a5
+pip install cliver-core==0.3.0rc1
 ```
 
-The core package includes the MCP client (stdio and streamable HTTP).
+The core package includes the MCP client (stdio and streamable HTTP). See
+[Stability & Versioning](../stability/) for the support policy.
 
 ## Optional local models
 
-In-process embedding and rerank backends pull torch, so they are opt-in:
+In-process embedding, rerank, and System One backends pull torch, so they are opt-in:
 
 ```bash
-pip install "cliver-core[local-st]==0.3.0a5"     # sentence-transformers embeddings
-pip install "cliver-core[local-flag]==0.3.0a5"   # FlagEmbedding embeddings + rerank
-pip install "cliver-core[local]==0.3.0a5"        # both
+pip install "cliver-core[local-st]==0.3.0rc1"     # sentence-transformers embeddings
+pip install "cliver-core[local-flag]==0.3.0rc1"   # FlagEmbedding embeddings + rerank
+pip install "cliver-core[local]==0.3.0rc1"        # all three local backends
 ```
 
 ## Verify Installation
@@ -50,4 +52,4 @@ make test          # run both packages' tests
 
 ## Next Steps
 
-[Configure model bindings](/configuration/) to connect `cliver-core` to your LLM of choice.
+[Configure model bindings](../../configuration/) to connect `cliver-core` to your LLM of choice.

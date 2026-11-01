@@ -1,30 +1,35 @@
 <div align="center">
   <img src="https://github.com/cliver-project/CLIver/blob/main/website/public/icon.png?raw=true" alt="CLIver" width="120"/>
   <h1>CLIver</h1>
-  <p><strong>Personal AI Lab</strong> — experimenting with AI agents from the terminal or as an embeddable Python library.</p>
+  <p><strong>Embeddable agent core with a companion CLI</strong> — Re-Act, tools, skills, MCP, and media generation in one Python library.</p>
 </div>
 
 ---
 
-CLIver is an **AI agent research and experimentation project** built from two packages:
+CLIver is an **embeddable agent core with a companion CLI**, built from two packages:
 
 - **`cliver-core`** — the embeddable engine: a Re-Act loop with tool calling, provider engines
   for the OpenAI and Anthropic protocols, per-purpose model bindings (chat, image, video, TTS,
   ASR, embed, rerank), nine built-in tools, Agent Skills, MCP, and opt-in permission and
   execution-policy axes. No CLI, database, or config files — Python objects in, messages out.
 - **`cliver`** — the CLI application built on `cliver-core`: config-path and skill-discovery
-  conventions plus a one-shot `cliver` command with interactive tool approval. An interactive
-  TUI is not built yet.
+  conventions plus a one-shot `cliver` command with interactive tool approval. It remains
+  experimental and is not on PyPI yet.
 
-**A lab, not a product.** CLIver is designed for tinkering. Swap models mid-conversation. Test
-how different system prompts change behavior. Add custom skills and tools to see what sticks.
+`cliver-core` 0.3 is the API-stability series: the public API is frozen at release-candidate
+quality, and only bug fixes land before the `0.3.0` final. The `cliver` CLI is for tinkering:
+run one-shot agent tasks with your own skills and tools, approve mutating calls interactively,
+and inspect tool events. See
+[Stability & Versioning](https://cliver-project.github.io/CLIver/getting-started/stability/)
+for the support policy.
 
 ## Quick Start
 
-Install the core library (the project is currently on pre-releases — pin the exact version):
+Install the core library (`0.3.0rc1` is a release candidate — pin the exact version; Python
+3.10–3.13):
 
 ```bash
-pip install cliver-core==0.3.0a5
+pip install cliver-core==0.3.0rc1
 ```
 
 ### As a library
@@ -76,6 +81,10 @@ is loaded automatically.
 - **MCP support** — stdio and streamable HTTP clients with CLIver-style discovery
 - **Permission and execution policy** — opt-in SAFE/ASK gates and env/cwd/path scopes
 - **Media capabilities** — image, video, text-to-speech, speech-to-text, embedding, and rerank
+- **Reliability** — same-purpose failover, run deadlines, and explicit credential rotation
+- **Structured output** — schema-validated `chat_structured()` with retries and usage accounting
+- **Context management** — caller-supplied compaction inside the run deadline
+- **System One** — decision-model tool/skill selection with a fail-open selector
 - **Embeddable API** — `AgentCore.chat()`, `.stream()`, and `.run_skill()` with no CLI
   dependencies
 

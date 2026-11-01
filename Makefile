@@ -17,6 +17,7 @@ live-verify: init ## Run live verification against real providers (missing keys 
 	CLIVER_LIVE_VERIFICATION=1 uv run pytest packages/cliver-core/src/cliver_core/tests/live -q -rs
 
 dist: ## Build the cliver-core sdist + wheel into dist/
+	rm -rf dist
 	uv build --package cliver-core --out-dir dist
 
 lint: ## Lint + format check

@@ -22,6 +22,7 @@ export default defineConfig({
           items: [
             { label: "Introduction", slug: "getting-started" },
             { label: "Installation", slug: "getting-started/installation" },
+            { label: "Stability & Versioning", slug: "getting-started/stability" },
           ],
         },
         {

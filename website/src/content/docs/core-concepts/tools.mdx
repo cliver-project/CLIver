@@ -31,7 +31,7 @@ agent = AgentCore(bindings, builtin_tools=discover_builtin_tools())
 
 Each tool carries a permission category: `Read`, `LS`, `Grep`, `TodoRead`, and `TodoWrite` are
 `SAFE`; `Write`, `Bash`, `Exec`, and `WebFetch` are `ASK` by default. See
-[Permissions & Policy](/core-concepts/policy/) for the gate.
+[Permissions & Policy](../policy/) for the gate.
 
 ## Custom Tools
 
@@ -78,19 +78,19 @@ rejected with an error result **before the permission check**. It never runs and
 
 `tool_filter` and skill `allowed-tools` are therefore execution boundaries, not hints. They are
 still not a sandbox for the tool body itself; that is the job of
-[permissions and policy](/core-concepts/policy/).
+[permissions and policy](../policy/).
 
 ## Selecting Tools
 
 When an application advertises many tools, a `candidate_selector` narrows the pool per user
 input before the request is built. A built-in implementation ranks tools and skills with a
-System One decision model — see [System One](/core-concepts/system-one/#selecting-tools-and-skills).
+System One decision model — see [System One](../system-one/#selecting-tools-and-skills).
 
 ## MCP Tools
 
 MCP tools are advertised as `mcp__<server>__<tool>` and share the same execution path as builtin
 tools. `mcp_servers=None` exposes every configured server, an explicit list exposes only those
-servers, and `mcp_servers=[]` exposes none. See [MCP](/core-concepts/mcp/).
+servers, and `mcp_servers=[]` exposes none. See [MCP](../mcp/).
 
 Routing follows the tool's `origin` identity (`"mcp"`), never its name. A local tool may
 legitimately be called anything — including a name that starts with `mcp__` — and it still

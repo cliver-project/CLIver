@@ -23,37 +23,54 @@ manual approval before a publish in the repository settings.
 ## Version rule
 
 Both packages in `packages/*/pyproject.toml` must carry the exact same version. The release
-tag is `v` + that version, e.g. `v0.3.0a5`. The release workflow refuses to build if the tag
+tag is `v` + that version, e.g. `v0.3.0rc1`. The release workflow refuses to build if the tag
 and the `cliver-core` version disagree.
 
-Because `0.3.0a5` is a pre-release, downstream projects should pin it exactly:
-`pip install cliver-core==0.3.0a5`. The exact pin selects the pre-release without `--pre`;
+`0.3.0rc1` is the release candidate for the 0.3 API-stability series: feature-complete and
+API-frozen, with only bug fixes before `0.3.0`. Downstream projects should pin it exactly:
+`pip install cliver-core==0.3.0rc1`. The exact pin selects the pre-release without `--pre`;
 using `--pre` also allows pre-release versions of transitive dependencies (it can pull an
 unrelated dev build), so prefer the exact pin.
+
+## Release candidate gate
+
+Before an `rc` tag, all of the following must be true:
+
+- The public API is frozen; the only remaining changes are bug fixes.
+- `CHANGELOG.md` covers every commit since the previous release, including breaking changes and
+  an upgrade section.
+- The `cliver-core` README and the documentation install snippets pin the new version.
+- `pyproject.toml` carries `Development Status :: 4 - Beta` and the Documentation / Changelog /
+  Issues project URLs.
+- The CI matrix is green for every Python version listed in the classifiers.
+- `make format && make lint && make test && make live-verify` passes; the docs site builds.
+- A wheel built from a clean `dist/` installs and imports in a fresh virtual environment.
 
 ## Release steps
 
 1. Bump the version in both `packages/*/pyproject.toml` files.
 2. Refresh the lockfile: `uv lock`.
-3. `make format && make lint && make test`.
+3. `make format && make lint && make test && make live-verify`.
 4. `make dist` — builds `dist/cliver_core-<version>-py3-none-any.whl` and the sdist.
 5. Smoke-test the wheel (never publish an untested artifact):
 
    ```bash
-   uv venv /tmp/cliver-core-check
-   uv pip install --python /tmp/cliver-core-check/bin/python dist/cliver_core-*.whl
-   /tmp/cliver-core-check/bin/python -c "import cliver_core; print(cliver_core.AgentCore)"
+   checkdir="$(mktemp -d)"
+   uv venv "$checkdir/venv"
+   uv pip install --python "$checkdir/venv/bin/python" dist/cliver_core-*.whl
+   "$checkdir/venv/bin/python" -c "import cliver_core; print(cliver_core.AgentCore)"
    ```
 
-6. Commit the version bump, then tag and push:
+6. Commit the version bump and merge the release branch into `main`.
+7. Tag the release commit on `main` and push the tag:
 
    ```bash
-   git tag v0.3.0a5
-   git push origin v0.3.0a5
+   git tag v0.3.0rc1
+   git push origin v0.3.0rc1
    ```
 
-7. The `Release` workflow runs the tests, builds, verifies the tag, and publishes directly to
-   **PyPI**. A failure at any step stops the chain.
+8. The `Release` workflow runs lint and the tests, builds, verifies the tag, and publishes
+   directly to **PyPI**. A failure at any step stops the chain.
 
 ## Notes
 
@@ -62,6 +79,6 @@ unrelated dev build), so prefer the exact pin.
 - Re-running a release for an already-published version is safe: PyPI ignores identical files.
   It never allows re-uploading a file with changed contents, so a broken release needs a new
   version.
-- If a release turns out to be broken after publishing, bump the pre-release (`0.3.0a5`, …)
+- If a release turns out to be broken after publishing, bump the pre-release (`0.3.0rc2`, …)
   and release again.
 - No `PYPI_TOKEN` secret is used or required.

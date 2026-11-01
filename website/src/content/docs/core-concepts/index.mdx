@@ -47,7 +47,7 @@ asyncio.run(main())
   message objects.
 - **Stateless instance, stateful calls.** Conversation context is passed per call
   (`conversation=`), so one instance is safe for concurrent chats **within one event loop**.
-  See [Concurrency & Lifecycle](/core-concepts/concurrency/) for the sharing contract.
+  See [Concurrency & Lifecycle](concurrency/) for the sharing contract.
 - **Bindings, not config files.** Every model purpose — chat, image, video, TTS, ASR, embed,
   rerank — lives in `ModelBindings`.
 - **Lazy call-time resolution.** Extra tools, MCP servers, tool filters, and skill dispatch are
@@ -73,7 +73,7 @@ content arrives. Both accept the same per-call options:
 | `options` | Wire request options; call site overrides binding defaults |
 | `max_iterations` | Max Re-Act iterations (default 50) |
 | `execution_policy` | Ambient tool-execution policy for this call |
-| `context_compactor` | Caller-supplied trim/compact hook; see [Context Window](/core-concepts/context-window/) |
+| `context_compactor` | Caller-supplied trim/compact hook; see [Context Window](context-window/) |
 | `skill_dispatch` | Advertise the skill catalogue and dispatch tools (default on) |
 
 When finished, call `await agent.aclose()` to close providers the agent built.

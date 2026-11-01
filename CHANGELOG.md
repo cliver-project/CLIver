@@ -7,33 +7,117 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0rc1] - 2026-11-01
+
+The 0.3 release candidate. The public `cliver-core` API is frozen: only bug fixes land before
+`0.3.0`. The `cliver` CLI remains experimental and is not published to PyPI.
+
 ### Added
-- **cliver-core: `inference.completed` carries usage** — every completed inference event now
-  includes the call's usage under `data["usage"]` (`UsageInfo` dump, or `None` when the vendor
-  reported none), for both `chat()` and `stream()` on the OpenAI and Anthropic protocols.
-  Per-call metering therefore works from events alone, across multi-iteration Re-Act runs.
+
+- **cliver-core: metered inference events** — every `inference.completed` event now includes the
+  call's usage under `data["usage"]` (`UsageInfo` dump, or `None` when the vendor reported
+  none), for both `chat()` and `stream()` on the OpenAI and Anthropic protocols. Per-call
+  metering works from events alone, across multi-iteration Re-Act runs.
 - **cliver-core: `CLIverResponse.usage_total`** — the sum of every model call in the run,
   intermediate tool-requesting iterations included. `response.usage` keeps its existing
   meaning: the final model call's usage.
-- **cliver-core: `ModelBinding.on_event` / `create_provider(on_event=...)`** — the provider a
-  binding builds can be given an inference-event subscriber at construction, so events are
-  reachable without supplying a pre-built provider. Combining `provider=` with a
+- **cliver-core: binding-level inference events** — `ModelBinding.on_event` /
+  `create_provider(on_event=...)` subscribes a provider to inference events at construction, so
+  events are reachable without supplying a pre-built provider. Combining `provider=` with a
   binding-level `on_event` raises a configuration error (the supplied instance keeps its own).
-- **cliver-core: `ProviderError`** — provider boundaries now raise one error type with the
-  vendor's exception preserved as `__cause__` and a best-effort `retryable` flag (rate limits,
-  timeouts, connection failures, and 5xx responses are retryable). `inference.error` reports
-  it in `data["retryable"]`. AgentCore re-raises it unchanged. Exported from `cliver_core`
-  and `cliver_core.errors`.
+- **cliver-core: `ProviderError`** — provider boundaries raise one error type with the vendor's
+  exception preserved as `__cause__` and a best-effort `retryable` flag (rate limits, timeouts,
+  connection failures, and 5xx responses are retryable). `inference.error` reports it in
+  `data["retryable"]`.
+- **cliver-core: DashScope, Qwen, and Qwen-Image providers** — the `dashscope` brand runs native
+  asynchronous image/video tasks on `/api/v1` (create, poll, deadline handling, `oss://`
+  reference uploads), `qwen` provides chat on the compatible-mode endpoint, and `qwen-image`
+  implements the synchronous reference-aware image wire with direct data-URI inputs.
+  `presets.qwen` and `presets.qwen_image` are live-verified; the DashScope media presets are
+  implemented and covered by the offline test suite.
+- **cliver-core: same-purpose failover** — every purpose accepts an ordered list of bindings:
+  the first is primary and the rest are fallbacks used only for retryable provider failures.
+  Failover never crosses purposes; chat is sticky after a switch; streams switch only before
+  the first chunk; media returns the last friendly failure and embed/rerank raise the last
+  error.
+- **cliver-core: parallel tool execution and per-tool deadlines** — opt-in
+  `parallel_tool_calls=True` runs tool bodies concurrently while permission checks stay
+  sequential and results preserve call order. `tool_timeout` is available on the constructor
+  and per call (omit to inherit, `None` to disable); async tools and MCP calls run on the
+  agent's loop.
+- **cliver-core: explicit execution scope and per-run tool state** — the advertised tool set is
+  the execution set; tools outside it are rejected before permission checks, and
+  `mcp_servers=[]` disables MCP for a call. Per-run `ToolRunState` gives Todo tools run-scoped
+  state instead of agent-scoped state.
+- **cliver-core: System One decision models** — `ModelBinding.system_one(...)` mounts the
+  Jev-compatible decision wire; `Choice`, `Score`, and `Noul` return probabilities, labels, and
+  scores rather than generated text. Hosted Bailian and TypeSafe presets plus the local `laya`
+  backend are supported, and `SystemOneSelector` uses the decision model to narrow tools and
+  skills as a fail-open candidate selector.
+- **cliver-core: FastAPI harness primitives** — `run_id` correlation across inference, tool,
+  pipeline, and terminal stream events; `run_timeout` with `RunTimeoutError`; explicit
+  credential rotation through `arefresh()` / `arefresh_credentials()`; `chat_structured()` with
+  pydantic or JSON-Schema dict output, validation, retries, and usage accounting; a streamable
+  HTTP MCP session pool (`session_pool_size`); and `client_timeout` / `client_max_retries` SDK
+  client options. The published FastAPI guide covers the wiring.
+- **cliver-core: caller-supplied context compactor** — the `context_compactor` hook receives a
+  `CompactionContext` once per Re-Act iteration, before the model call, and returns a validated
+  replacement history. Compaction runs inside the run deadline and its model usage is counted;
+  `None` disables it.
+- **cliver-core: Bailian workspace hosts** — `qwen`, `qwen_image`, `dashscope_image`,
+  `dashscope_video`, and `bailian_system_one` accept `workspace_id=` / `region=` and compose
+  the workspace-dedicated `maas.aliyuncs.com` host; an explicit `base_url=` still wins, and no
+  workspace id keeps the shared DashScope default.
+- **cliver-core: committed live verification suite** — `tests/live/` runs 23 checks against real
+  providers under `CLIVER_LIVE_VERIFICATION=1` / `make live-verify`, with missing provider keys
+  warning and skipping rather than failing.
 
 ### Changed
+
 - **cliver-core: sync event handlers** — `EventHandler` accepts sync and async callables; a
   sync handler runs inline. Handler exceptions still propagate unchanged (a raise on
   `inference.started` happens before the transport call).
+- **cliver-core: `AgentCore.on_event` is tool-only** — instance and per-call handlers receive
+  tool events; inference events come from the binding/provider `on_event`.
+- **cliver-core: lifecycle contract** — `AgentCore.aclose()` drains media jobs it started and
+  closes providers its bindings built, but never owns the MCP client or a caller-supplied
+  provider. Bindings are loop-affine: create and use them on the same event loop.
+- **cliver-core: `api_key` is excluded from binding reprs** — accidental logging no longer
+  prints credentials.
+- **cliver: hosted System One model is optional** — `CLIVER_SYSTEM_ONE_MODEL` can be omitted for
+  the `bailian` and `typesafe` presets, which pin a default; it remains required for `laya` and
+  custom endpoints.
 
 ### Fixed
-- **cliver-core: streamed responses stage usage before the terminal event** — the streaming
-  terminal chunk's usage is retained locally, so `inference.completed` for a stream carries
-  the same usage as the chunk it summarizes.
+
+- **cliver-core: streamed usage is staged before the terminal event** — the streaming terminal
+  chunk's usage is retained locally, so `inference.completed` for a stream carries the same
+  usage as the chunk it summarizes.
+
+### Breaking Changes
+
+- **Execution scope** — `AgentCore` advertises exactly the tools it will execute. A tool that is
+  not in the call's execution set is rejected before permission checks; there is no registry
+  fallback. Pass the intended tools explicitly, and use `mcp_servers=[]` to disable MCP.
+- **Loop affinity** — bindings, agents, and MCP clients belong to the event loop that created
+  them. Using them from another loop raises `RuntimeError`; thread safety is not provided.
+- **`bailian_system_one()` requires an endpoint** — pass `workspace_id=` or `base_url=`;
+  calling it with neither now raises `ValueError`.
+- **Provider exceptions are wrapped** — catch `ProviderError` and inspect `.retryable` rather
+  than relying on raw vendor exception types. It subclasses `RuntimeError` for compatibility
+  with older embed/rerank callers.
+
+### Upgrade Notes from 0.3.0a5
+
+- Pin exactly: `pip install cliver-core==0.3.0rc1` (a bare install will not select a release
+  candidate).
+- If a call relied on tools being advertised from the registry without being passed, pass the
+  execution set explicitly.
+- Create bindings and agents inside the event loop that serves the request; do not share them
+  across threads or loops.
+- Pass `workspace_id=` or `base_url=` to `bailian_system_one()`.
+- Replace raw provider exception handling with `ProviderError`; use `.retryable` to decide
+  whether to retry or fail over.
 
 ## [0.3.0a5] - 2026-10-25
 

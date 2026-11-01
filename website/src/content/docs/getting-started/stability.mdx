@@ -1,0 +1,50 @@
+---
+title: Stability & Versioning
+---
+
+`0.3.0rc1` is the release candidate for the 0.3 series. The public `cliver-core` API is frozen:
+only bug fixes land before `0.3.0`. The `cliver` CLI application remains experimental and is not
+published to PyPI.
+
+## What counts as public API
+
+- Names exported from `cliver_core.__init__` — `AgentCore`, `ModelBinding`, `ModelBindings`,
+  `presets`, and the other documented exports.
+- Documented methods, parameters, return types, and event payloads on those objects.
+- The wire and lifecycle contracts under Core Concepts.
+
+Modules, classes, and functions under `cliver_core.*` that are not exported or documented are
+internal. They may change without notice.
+
+## Versioning
+
+- **SemVer before 1.0.** `0.3.0` is a stable minor release; breaking changes require a new minor
+  release (`0.4.0`).
+- **Patch releases** (`0.3.1`) contain bug fixes only.
+- **Deprecations** are announced in the changelog for at least one minor release before removal.
+- **Pre-releases** (`a`, `b`, `rc`) are not selected by default. Pin exactly
+  (`cliver-core==0.3.0rc1`) or pass `--pre`.
+- `--pre` also allows pre-releases of transitive dependencies. Prefer the exact pin.
+
+## Python support
+
+CI tests Python 3.10, 3.11, 3.12, and 3.13. The package declares `requires-python >=3.10`.
+
+## Operational contracts
+
+- **Loop-safe, not thread-safe.** Create and use one agent, set of bindings, and MCP client per
+  event loop. Do not share them across threads or loops.
+- **Stateless by default.** `AgentCore` does not carry conversation state; pass `conversation=`
+  on every call and persist what you need in the application.
+- **Lifecycle.** `AgentCore.aclose()` drains media jobs it started and closes providers its
+  bindings built. It never owns the MCP client or a provider you supplied.
+
+See [Concurrency & Lifecycle](../core-concepts/concurrency/) for the full contract.
+
+## Experimental surfaces
+
+- The `cliver` CLI application (not on PyPI yet).
+- Local model backends depend on their upstream libraries (`sentence-transformers`,
+  `FlagEmbedding`, and `laya`).
+- Provider brands are curated convenience, not coverage. A wire-compatible vendor needs no brand
+  entry — pass `base_url` and the protocol explicitly.
