@@ -148,7 +148,7 @@ pyproject.toml               # uv workspace + shared tooling config
 
 ### Key Modules
 
-- **agent.py**: The Re-Act loop with tool calling, skill dispatch, MCP, and events
+- **agent.py**: The agent loop with tool calling, skill dispatch, MCP, and events
 - **bindings.py**: Per-purpose model bindings (chat, image, video, TTS, ASR, embed, rerank)
 - **presets.py**: Live-verified provider presets (DeepSeek, GLM, MiniMax, Seedance, …)
 - **provider/**: OpenAI and Anthropic protocol engines plus the media pipeline

@@ -1,6 +1,6 @@
 # cliver-core
 
-The embeddable agent core behind [CLIver](https://github.com/cliver-project/CLIver): a Re-Act loop
+The embeddable agent core behind [CLIver](https://github.com/cliver-project/CLIver): an agent loop
 with tool calling, per-purpose model bindings, media capabilities, and first-class MCP support.
 
 No CLI, no database, no config files — you pass Python objects in and get messages back.
@@ -46,7 +46,7 @@ async def main():
             )
         )
     )
-    response = await agent.chat("Summarize the Re-Act pattern in one sentence.")
+    response = await agent.chat("Summarize the agent loop in one sentence.")
     print(response.message.content)
     await agent.aclose()
 
@@ -106,7 +106,7 @@ immediately. Chat is sticky after a switch, and streams switch only before the f
 `run_id` correlates inference, tool, and pipeline events; `run_timeout` bounds a whole run
 (preamble, model calls, tools, and handler awaits); `arefresh_credentials()` rebuilds providers
 after a credential rotation. A caller-supplied `context_compactor` can replace history once per
-Re-Act iteration before the model call.
+loop iteration before the model call.
 
 `chat_structured()` validates a pydantic model or JSON-Schema dict and retries invalid output:
 
@@ -222,7 +222,7 @@ result = await agent.run_skill("Refund", "订单 12345 想退货", conversation=
 
 `run_skill` (name or an already-loaded `Skill` object) appends an activation header — skill
 name and location, so bundled `scripts/` are runnable — plus the skill body to the single
-system message and runs the normal Re-Act loop; a declared `allowed-tools` frontmatter narrows
+system message and runs the normal agent loop; a declared `allowed-tools` frontmatter narrows
 the advertised tools to that set — a non-empty allowlist matching zero available tools fails
 fast, while an absent or empty list leaves tools unchanged. The other call parameters mirror
 `chat()` (except `tool_filter` and `skill_dispatch`). `run_skill()` adds none of the

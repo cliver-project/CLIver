@@ -5,7 +5,7 @@
 CLIver is a **Personal AI Lab** for AI agent research and experimentation. The repository holds
 two packages:
 
-- **`cliver-core`** — the embeddable agent engine: Re-Act loop, provider protocol engines,
+- **`cliver-core`** — the embeddable agent engine: agent loop, provider protocol engines,
   per-purpose model bindings, builtin tools, skills, MCP, and opt-in policy. Zero CLI
   dependencies.
 - **`cliver`** — the CLI application built on `cliver-core`.
@@ -72,7 +72,7 @@ on Windows, or `~/.cliver` otherwise. Skills come from eight sources: builtin,
 
 ## Key Design Decisions
 
-- **No langchain.** AgentCore implements its own Re-Act loop.
+- **No langchain.** AgentCore implements its own agent loop.
 - **Stateless AgentCore, stateful calls.** One instance per model; conversation context is
   passed per call.
 - **One system prompt.** All system content as a single SystemMessage.

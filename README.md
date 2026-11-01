@@ -1,14 +1,14 @@
 <div align="center">
   <img src="https://github.com/cliver-project/CLIver/blob/main/website/public/icon.png?raw=true" alt="CLIver" width="120"/>
   <h1>CLIver</h1>
-  <p><strong>Embeddable agent core with a companion CLI</strong> — Re-Act, tools, skills, MCP, and media generation in one Python library.</p>
+  <p><strong>Embeddable agent core with a companion CLI</strong> — agent loop, tools, skills, MCP, and media generation in one Python library.</p>
 </div>
 
 ---
 
 CLIver is an **embeddable agent core with a companion CLI**, built from two packages:
 
-- **`cliver-core`** — the embeddable engine: a Re-Act loop with tool calling, provider engines
+- **`cliver-core`** — the embeddable engine: an agent loop with tool calling, provider engines
   for the OpenAI and Anthropic protocols, per-purpose model bindings (chat, image, video, TTS,
   ASR, embed, rerank), nine built-in tools, Agent Skills, MCP, and opt-in permission and
   execution-policy axes. No CLI, database, or config files — Python objects in, messages out.
@@ -42,7 +42,7 @@ from cliver_core import AgentCore, ModelBindings, presets
 
 async def main():
     agent = AgentCore(ModelBindings(llm=presets.deepseek(api_key="...")))
-    response = await agent.chat("Summarize the Re-Act pattern in one sentence.")
+    response = await agent.chat("Summarize the agent loop in one sentence.")
     print(response.message.content)
     await agent.aclose()
 
