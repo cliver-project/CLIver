@@ -4,9 +4,10 @@ MCPClient is imported lazily inside methods so that AgentCore itself has no
 module-level third-party dependencies beyond pydantic; importing cliver_core
 stays light even though the MCP SDK is a hard dependency.
 
-No langchain dependency. No compression (v1).  Failover never crosses
-purposes: a retryable provider failure moves to the next binding mounted for
-the same purpose.
+No langchain dependency.  Core ships no compression policy: a caller-supplied
+:class:`~cliver_core.compaction.ContextCompactor` is the context-window seam.
+Failover never crosses purposes: a retryable provider failure moves to the
+next binding mounted for the same purpose.
 """
 
 import asyncio
@@ -19,6 +20,11 @@ from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable, Mappi
 
 from cliver_core import capabilities
 from cliver_core.bindings import CapabilityNotSupported, ModelBinding, ModelBindings
+from cliver_core.compaction import (
+    CompactionContext,
+    ContextCompactor,
+    validate_compacted_history,
+)
 from cliver_core.errors import ProviderError, RunTimeoutError
 from cliver_core.events import (
     EventHandler,
@@ -110,6 +116,15 @@ def _validate_timeout(name: str, value: float | None) -> float | None:
     return float(value)
 
 
+def _validate_context_compactor(name: str, value: ContextCompactor | None) -> ContextCompactor | None:
+    """A compactor is a sync or async callable; ``None`` disables the seam."""
+    if value is None:
+        return None
+    if not callable(value):
+        raise ValueError(f"{name} must be a callable or None")
+    return value
+
+
 @dataclass
 class _PreparedRun:
     """Per-call preamble output shared by ``chat()`` and ``stream()``."""
@@ -152,13 +167,13 @@ class AgentCore:
         skill_manager, skill_selector, skill_search, skill_summary_limit,
         tool_selector, candidate_selector, permission_callback,
         execution_policy, safety_overrides, max_consecutive_errors,
-        parallel_tool_calls, tool_timeout, run_timeout, on_event,
-        builtin_system_prompt
+        parallel_tool_calls, tool_timeout, run_timeout, context_compactor,
+        on_event, builtin_system_prompt
 
     **Call state** (passed per chat/stream, varies each turn):
         user_input, system_prompt, conversation, extra_tools, mcp_servers,
         options, skill_dispatch, parallel_tool_calls, tool_timeout,
-        run_timeout, run_id
+        run_timeout, context_compactor, run_id
 
     ``system_prompt`` (call-time) is appended to ``builtin_system_prompt``
     (construction-time) — the caller only needs to pass persona / extra context.
@@ -194,6 +209,7 @@ class AgentCore:
         parallel_tool_calls: bool = False,
         tool_timeout: float | None = None,
         run_timeout: float | None = None,
+        context_compactor: ContextCompactor | None = None,
         builtin_system_prompt: str | None = None,
         logger: logging.Logger | None = None,
     ):
@@ -241,6 +257,9 @@ class AgentCore:
         self.parallel_tool_calls = parallel_tool_calls
         self.tool_timeout = _validate_timeout("tool_timeout", tool_timeout)
         self.run_timeout = _validate_timeout("run_timeout", run_timeout)
+        # Context-window seam: a caller-supplied trim/compact hook called
+        # before every model call.  Core ships no policy of its own.
+        self.context_compactor = _validate_context_compactor("context_compactor", context_compactor)
         self._builtin_system_prompt = builtin_system_prompt
         self.logger = logger or logging.getLogger(__name__)
         # Lifecycle: a closed agent rejects every public entry point.  The
@@ -270,6 +289,7 @@ class AgentCore:
         parallel_tool_calls: bool | None = None,
         tool_timeout: float | None | _Unset = _UNSET,
         run_timeout: float | None | _Unset = _UNSET,
+        context_compactor: ContextCompactor | None | _Unset = _UNSET,
         skill_dispatch: bool = True,
         on_event: EventHandler | None = None,
         run_id: str | None = None,
@@ -315,6 +335,14 @@ class AgentCore:
         tool already running in a worker thread cannot be killed — the run
         ends and the thread finishes in the background.
 
+        ``context_compactor`` is the context-window seam: a sync or async
+        callable invoked before every model call with the run's non-system
+        history (see :class:`~cliver_core.compaction.CompactionContext`).  It
+        returns a replacement history or ``None`` to leave it unchanged; an
+        invalid replacement raises ``ValueError`` before the model call.
+        Omit it to inherit the constructor default, pass ``None`` to disable
+        it for this call.  Core ships no summarization policy.
+
         ``skill_dispatch`` advertises the skill catalogue, ``FindSkills`` and
         ``ActivateSkill`` for this call (requires a ``skill_manager``);
         :meth:`run_skill` turns it off because the skill is already pinned.
@@ -331,6 +359,7 @@ class AgentCore:
         self._ensure_open()
         run_id = resolve_run_id(run_id)
         timeout = self._effective_run_timeout(run_timeout)
+        compactor = self._effective_context_compactor(context_compactor)
         return await self._with_run_deadline(
             self._chat_impl(
                 user_input,
@@ -345,6 +374,7 @@ class AgentCore:
                 execution_policy=execution_policy,
                 parallel_tool_calls=parallel_tool_calls,
                 tool_timeout=tool_timeout,
+                context_compactor=compactor,
                 skill_dispatch=skill_dispatch,
                 on_event=on_event,
                 run_id=run_id,
@@ -368,6 +398,7 @@ class AgentCore:
         execution_policy: ExecutionPolicy | None = None,
         parallel_tool_calls: bool | None = None,
         tool_timeout: float | None | _Unset = _UNSET,
+        context_compactor: ContextCompactor | None = None,
         skill_dispatch: bool = True,
         on_event: EventHandler | None = None,
         run_id: str | None = None,
@@ -395,6 +426,7 @@ class AgentCore:
             parallel_tool_calls=prepared.parallel_tool_calls,
             tool_timeout=prepared.tool_timeout,
             skill_state=prepared.skill_state,
+            context_compactor=context_compactor,
             run_id=run_id,
             **_on_event_kwargs(on_event),
         )
@@ -415,6 +447,7 @@ class AgentCore:
         parallel_tool_calls: bool | None = None,
         tool_timeout: float | None | _Unset = _UNSET,
         run_timeout: float | None | _Unset = _UNSET,
+        context_compactor: ContextCompactor | None | _Unset = _UNSET,
         skill_dispatch: bool = True,
         on_event: EventHandler | None = None,
         run_id: str | None = None,
@@ -426,7 +459,8 @@ class AgentCore:
         execution, exactly as in :meth:`chat` — the scope never spans yields,
         so a consumer abandoning the stream leaks nothing.
         ``parallel_tool_calls``, ``tool_timeout``, ``run_timeout``,
-        ``skill_dispatch`` and ``on_event`` match :meth:`chat`.  ``run_id``
+        ``context_compactor``, ``skill_dispatch`` and ``on_event`` match
+        :meth:`chat`.  ``run_id``
         follows :meth:`chat`'s contract, with one streaming nuance: ordinary
         delta chunks leave it unset; the terminal ``__llm_trace__`` and
         stop/iteration-limit chunks carry it.  Validation runs on the first
@@ -441,6 +475,7 @@ class AgentCore:
         self._ensure_open()
         run_id = resolve_run_id(run_id)
         timeout = self._effective_run_timeout(run_timeout)
+        compactor = self._effective_context_compactor(context_compactor)
         inner = self._stream_impl(
             user_input,
             system_prompt=system_prompt,
@@ -454,6 +489,7 @@ class AgentCore:
             execution_policy=execution_policy,
             parallel_tool_calls=parallel_tool_calls,
             tool_timeout=tool_timeout,
+            context_compactor=compactor,
             skill_dispatch=skill_dispatch,
             on_event=on_event,
             run_id=run_id,
@@ -494,6 +530,7 @@ class AgentCore:
         execution_policy: ExecutionPolicy | None = None,
         parallel_tool_calls: bool | None = None,
         tool_timeout: float | None | _Unset = _UNSET,
+        context_compactor: ContextCompactor | None = None,
         skill_dispatch: bool = True,
         on_event: EventHandler | None = None,
         run_id: str | None = None,
@@ -521,6 +558,7 @@ class AgentCore:
             parallel_tool_calls=prepared.parallel_tool_calls,
             tool_timeout=prepared.tool_timeout,
             skill_state=prepared.skill_state,
+            context_compactor=context_compactor,
             run_id=run_id,
             **_on_event_kwargs(on_event),
         )
@@ -549,6 +587,7 @@ class AgentCore:
         parallel_tool_calls: bool | None = None,
         tool_timeout: float | None | _Unset = _UNSET,
         run_timeout: float | None | _Unset = _UNSET,
+        context_compactor: ContextCompactor | None | _Unset = _UNSET,
         skill_dispatch: bool = True,
         on_event: EventHandler | None = None,
         run_id: str | None = None,
@@ -592,6 +631,7 @@ class AgentCore:
             raise ValueError("retries must be a non-negative integer")
         run_id = resolve_run_id(run_id)
         timeout = self._effective_run_timeout(run_timeout)
+        compactor = self._effective_context_compactor(context_compactor)
         return await self._with_run_deadline(
             self._chat_structured_impl(
                 user_input,
@@ -609,6 +649,7 @@ class AgentCore:
                 execution_policy=execution_policy,
                 parallel_tool_calls=parallel_tool_calls,
                 tool_timeout=tool_timeout,
+                context_compactor=compactor,
                 skill_dispatch=skill_dispatch,
                 on_event=on_event,
                 run_id=run_id,
@@ -635,6 +676,7 @@ class AgentCore:
         execution_policy: ExecutionPolicy | None,
         parallel_tool_calls: bool | None,
         tool_timeout: float | None | _Unset,
+        context_compactor: ContextCompactor | None,
         skill_dispatch: bool,
         on_event: EventHandler | None,
         run_id: str,
@@ -665,6 +707,7 @@ class AgentCore:
                 parallel_tool_calls=parallel_tool_calls,
                 tool_timeout=tool_timeout,
                 run_timeout=None,  # the structured run owns the clock
+                context_compactor=context_compactor,
                 skill_dispatch=skill_dispatch,
                 on_event=on_event,
                 run_id=run_id,
@@ -716,6 +759,7 @@ class AgentCore:
         parallel_tool_calls: bool | None = None,
         tool_timeout: float | None | _Unset = _UNSET,
         run_timeout: float | None | _Unset = _UNSET,
+        context_compactor: ContextCompactor | None | _Unset = _UNSET,
         on_event: EventHandler | None = None,
         run_id: str | None = None,
     ) -> CLIverResponse:
@@ -746,10 +790,14 @@ class AgentCore:
         ``run_timeout`` bounds the whole skill run — skill loading,
         allowlist preflight and the delegated chat — on one clock; the inner
         :meth:`chat` inherits that deadline instead of starting its own.
+
+        ``context_compactor`` follows :meth:`chat`'s contract and applies to
+        the delegated chat.
         """
         self._ensure_open()
         run_id = resolve_run_id(run_id)
         timeout = self._effective_run_timeout(run_timeout)
+        compactor = self._effective_context_compactor(context_compactor)
         return await self._with_run_deadline(
             self._run_skill_impl(
                 skill,
@@ -764,6 +812,7 @@ class AgentCore:
                 execution_policy=execution_policy,
                 parallel_tool_calls=parallel_tool_calls,
                 tool_timeout=tool_timeout,
+                context_compactor=compactor,
                 on_event=on_event,
                 run_id=run_id,
             ),
@@ -786,6 +835,7 @@ class AgentCore:
         execution_policy: ExecutionPolicy | None = None,
         parallel_tool_calls: bool | None = None,
         tool_timeout: float | None | _Unset = _UNSET,
+        context_compactor: ContextCompactor | None = None,
         on_event: EventHandler | None = None,
         run_id: str | None = None,
     ) -> CLIverResponse:
@@ -854,6 +904,7 @@ class AgentCore:
             parallel_tool_calls=parallel_tool_calls,
             tool_timeout=tool_timeout,
             run_timeout=None,
+            context_compactor=context_compactor,
             skill_dispatch=False,
             run_id=run_id,
             **_on_event_kwargs(on_event),
@@ -1242,6 +1293,49 @@ class AgentCore:
             return self.run_timeout
         return _validate_timeout("run_timeout", run_timeout)
 
+    def _effective_context_compactor(
+        self, context_compactor: ContextCompactor | None | _Unset
+    ) -> ContextCompactor | None:
+        """Per-call override for the context compactor (``_UNSET`` inherits)."""
+        if context_compactor is _UNSET:
+            return self.context_compactor
+        return _validate_context_compactor("context_compactor", context_compactor)
+
+    async def _compact_history(
+        self,
+        compactor: ContextCompactor,
+        messages: list[CLIverMessage],
+        *,
+        iteration: int,
+        run_id: str | None,
+        model: str,
+        last_usage: UsageInfo | None,
+        record_usage: Callable[[UsageInfo], None],
+    ) -> list[CLIverMessage]:
+        """Run the seam once before a model call; core re-attaches the system message.
+
+        The compactor sees a fresh list of the non-system history; ``None``
+        leaves the history untouched.  A returned history is validated before
+        it can reach a provider.  Exceptions propagate to the caller and run
+        inside the run deadline.
+        """
+        system = messages[0] if messages and messages[0].role == "system" else None
+        context = CompactionContext(
+            messages=list(messages[1:] if system is not None else messages),
+            iteration=iteration,
+            run_id=run_id,
+            model=model,
+            last_usage=last_usage,
+            record_usage=record_usage,
+        )
+        result = compactor(context)
+        if inspect.isawaitable(result):
+            result = await result
+        if result is None:
+            return messages
+        compacted = validate_compacted_history(result)
+        return ([system] if system is not None else []) + compacted
+
     async def _with_run_deadline(self, awaitable: Awaitable[_T], timeout: float | None, run_id: str) -> _T:
         """Await *awaitable* under the run's wall-clock budget."""
         if timeout is None:
@@ -1261,6 +1355,7 @@ class AgentCore:
         parallel_tool_calls: bool = False,
         tool_timeout: float | None = None,
         skill_state: SkillRunState | None = None,
+        context_compactor: ContextCompactor | None = None,
         on_event: EventHandler | None = None,
         run_id: str | None = None,
     ) -> CLIverResponse:
@@ -1268,6 +1363,12 @@ class AgentCore:
         consecutive_denials = 0
         diagnostic_trace: list[dict] = []
         total_usage: UsageInfo | None = None
+        last_usage: UsageInfo | None = None
+
+        def record_usage(usage: UsageInfo) -> None:
+            nonlocal total_usage
+            total_usage = _merge_usage(total_usage, usage)
+
         # One tool-state object per run, shared across every tool batch.
         run_state = ToolRunState()
         # Ordered llm candidates — primary first, then same-purpose fallbacks.
@@ -1278,6 +1379,19 @@ class AgentCore:
         active = 0
 
         for _iteration in range(max_iterations):
+            # The context-window seam runs once per iteration, before the
+            # failover retries: every binding in this iteration sees the same
+            # history.
+            if context_compactor is not None:
+                messages = await self._compact_history(
+                    context_compactor,
+                    messages,
+                    iteration=_iteration,
+                    run_id=run_id,
+                    model=candidates[active].model,
+                    last_usage=last_usage,
+                    record_usage=record_usage,
+                )
             while True:
                 binding = candidates[active]
                 request = CLIverRequest(
@@ -1299,6 +1413,7 @@ class AgentCore:
                     raise
                 break
             total_usage = _merge_usage(total_usage, response.usage)
+            last_usage = response.usage
             msg = response.message
 
             # Collect diagnostic data for this Re-Act iteration
@@ -1370,6 +1485,7 @@ class AgentCore:
         parallel_tool_calls: bool = False,
         tool_timeout: float | None = None,
         skill_state: SkillRunState | None = None,
+        context_compactor: ContextCompactor | None = None,
         on_event: EventHandler | None = None,
         run_id: str | None = None,
     ) -> AsyncIterator[CLIverMessageChunk]:
@@ -1378,6 +1494,13 @@ class AgentCore:
         consecutive_errors = 0
         consecutive_denials = 0
         diagnostic_trace: list[dict] = []
+        total_usage: UsageInfo | None = None
+        last_usage: UsageInfo | None = None
+
+        def record_usage(usage: UsageInfo) -> None:
+            nonlocal total_usage
+            total_usage = _merge_usage(total_usage, usage)
+
         run_state = ToolRunState()
         # Same sticky same-purpose failover as the non-streaming loop.  A
         # stream may switch bindings only before it has yielded a chunk for
@@ -1387,6 +1510,18 @@ class AgentCore:
         active = 0
 
         for _iteration in range(max_iterations):
+            # Same seam placement as the non-streaming loop: once per
+            # iteration, before any binding attempt.
+            if context_compactor is not None:
+                messages = await self._compact_history(
+                    context_compactor,
+                    messages,
+                    iteration=_iteration,
+                    run_id=run_id,
+                    model=candidates[active].model,
+                    last_usage=last_usage,
+                    record_usage=record_usage,
+                )
             while True:
                 binding = candidates[active]
                 request = CLIverRequest(
@@ -1437,6 +1572,8 @@ class AgentCore:
 
             if final_native is None:
                 raise RuntimeError("Provider stream ended without a final native message")
+            total_usage = _merge_usage(total_usage, final_usage)
+            last_usage = final_usage
             # One conversion, exactly like the non-streaming path — the
             # streamed assistant keeps its native wire form and
             # passthrough-converts on the next request.
@@ -1465,6 +1602,7 @@ class AgentCore:
                     },
                     "message": assistant.model_dump(exclude={"native", "native_protocol"}),
                     "usage": final_usage.model_dump() if final_usage else None,
+                    "usage_total": total_usage.model_dump() if total_usage else None,
                 }
             )
 

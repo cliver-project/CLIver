@@ -50,6 +50,7 @@ async def test_chat_starts_mcp_client_before_gathering_tools():
         parallel_tool_calls=False,
         tool_timeout=None,
         skill_state=None,
+        context_compactor=None,
         run_id=None,
     ):
         captured["tools"] = all_tools
@@ -76,6 +77,7 @@ async def test_stream_starts_mcp_client_before_gathering_tools():
         parallel_tool_calls=False,
         tool_timeout=None,
         skill_state=None,
+        context_compactor=None,
         run_id=None,
     ):
         captured["tools"] = all_tools
@@ -103,6 +105,7 @@ async def test_repeated_turns_keep_mcp_tools_advertised():
         parallel_tool_calls=False,
         tool_timeout=None,
         skill_state=None,
+        context_compactor=None,
         run_id=None,
     ):
         seen.append([tool.name for tool in all_tools])

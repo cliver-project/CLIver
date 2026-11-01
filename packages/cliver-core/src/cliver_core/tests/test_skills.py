@@ -62,6 +62,7 @@ def _capture_loop(agent: AgentCore) -> dict:
         parallel_tool_calls=False,
         tool_timeout=None,
         skill_state=None,
+        context_compactor=None,
         run_id=None,
     ):
         captured["messages"] = messages
@@ -475,6 +476,7 @@ async def test_run_skill_pins_cwd_with_agent_policy():
         parallel_tool_calls=False,
         tool_timeout=None,
         skill_state=None,
+        context_compactor=None,
         run_id=None,
     ):
         captured["policy"] = execution_policy
@@ -508,6 +510,7 @@ async def test_run_skill_call_site_policy_verbatim(tmp_path):
         parallel_tool_calls=False,
         tool_timeout=None,
         skill_state=None,
+        context_compactor=None,
         run_id=None,
     ):
         captured["policy"] = execution_policy
@@ -539,6 +542,7 @@ async def test_run_skill_no_policy_pwd_unchanged():
         parallel_tool_calls=False,
         tool_timeout=None,
         skill_state=None,
+        context_compactor=None,
         run_id=None,
     ):
         captured["policy"] = execution_policy
@@ -574,6 +578,7 @@ async def test_run_skill_allowed_tool_still_denied_by_callback():
         parallel_tool_calls=False,
         tool_timeout=None,
         skill_state=None,
+        context_compactor=None,
         run_id=None,
     ):
         web = next(t for t in tools if t.name == "WebSearch")

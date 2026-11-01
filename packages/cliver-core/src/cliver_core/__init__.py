@@ -15,6 +15,7 @@ from cliver_core.capabilities import (
     text_to_speech,
     transcribe_audio,
 )
+from cliver_core.compaction import CompactionContext, ContextCompactor
 from cliver_core.errors import ProviderError, RunTimeoutError
 from cliver_core.events import EventHandler
 from cliver_core.media import MediaContent
@@ -57,6 +58,8 @@ __all__ = [
     "CapabilityNotSupported",
     "CLIverMessage",
     "CLIverMessageChunk",
+    "CompactionContext",
+    "ContextCompactor",
     "MediaJob",
     "ModelBinding",
     "ModelBindings",

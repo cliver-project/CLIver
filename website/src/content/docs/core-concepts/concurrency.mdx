@@ -68,7 +68,7 @@ synchronous tools (run in the executor), and media loading (done by the caller �
 | `messages` / `conversation` | Per call | The caller owns the history list |
 | `extra_tools`, `tool_filter`, `mcp_servers` | Per call | The advertised set is also the execution set |
 | `execution_policy`, permission callback | Per call (overrides) | Policy is ambient around tool execution only |
-| `parallel_tool_calls`, `tool_timeout`, `run_timeout` | Per call (overrides) | Constructor values are defaults |
+| `parallel_tool_calls`, `tool_timeout`, `run_timeout`, `context_compactor` | Per call (overrides) | Constructor values are defaults |
 | `run_id` | Per call | Generated when absent; correlates every event of the run |
 | `skill_state` (activation) | Per call | A skill activated in one run does not affect another |
 | `on_event` | Per call (optional) | Instance and call-site handlers both fire for tool events |
@@ -150,7 +150,8 @@ async def bounded_handle(prompt: str, history: list) -> str:
 Settings that keep one worker healthy under load:
 
 - Bound `max_iterations` per call (the default is 50).
-- Bound the conversation you pass in; the core does not compact history.
+- Bound the conversation you pass in. For long runs, pass a `context_compactor` — core ships
+  the seam, not a policy. See [Context Window](/core-concepts/context-window/).
 - Cap tool output at the tool boundary — large results stay in the message history.
 - Give each tenant a separate agent if it needs a different tool set, system prompt, or
   permission policy. Otherwise share the agent and pass per-call options.

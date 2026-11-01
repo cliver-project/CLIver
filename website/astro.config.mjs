@@ -28,6 +28,7 @@ export default defineConfig({
           label: "Core Concepts",
           items: [
             { label: "AgentCore", slug: "core-concepts" },
+            { label: "Context Window", slug: "core-concepts/context-window" },
             { label: "Structured Output", slug: "core-concepts/structured-output" },
             { label: "Concurrency & Lifecycle", slug: "core-concepts/concurrency" },
             { label: "Tools", slug: "core-concepts/tools" },
