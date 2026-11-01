@@ -1,6 +1,21 @@
-/* ── Deep Tech theme for Starlight ─────────────────────────── */
+/* ── CLIver design system ─────────────────────────────────────
+   One token layer for the whole site: the documentation shell,
+   the landing page, and the Field Notes blog. The blog keeps its
+   own component styles in blog.css and aliases these tokens. */
 
 :root {
+  /* Editorial tokens */
+  --fv-signal: #fbbf24;
+  --fv-signal-soft: rgba(251, 191, 36, 0.12);
+  --fv-border: rgba(148, 163, 184, 0.18);
+  --fv-border-strong: rgba(148, 163, 184, 0.32);
+  --fv-surface: rgba(30, 41, 59, 0.42);
+  --fv-surface-strong: rgba(30, 41, 59, 0.75);
+  --fv-shadow: 0 24px 80px rgba(2, 6, 23, 0.4);
+  --fv-code-bg: #0b0b18;
+  --fv-serif: ui-serif, "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+  --fv-mono: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+
   /* Dark palette (default) */
   --sl-color-accent-low: #1e1b4b;
   --sl-color-accent: #60a5fa;
@@ -15,20 +30,34 @@
   --sl-color-gray-7: #1e293b;
   --sl-color-black: #0f0f23;
   --sl-color-bg-nav: #0d0d1a;
-  --sl-color-bg-sidebar: #0d0d1a;
+  --sl-color-bg-sidebar: #0f0f23;
   --sl-color-bg: #0f0f23;
   --sl-color-hairline: #1e293b;
 
-  /* Typography */
+  /* Typography and layout */
   --sl-font: "Inter", system-ui, -apple-system, sans-serif;
-  --sl-font-mono: "JetBrains Mono", "Fira Code", monospace;
+  --sl-font-mono: var(--fv-mono);
+  --sl-line-height: 1.75;
+  --sl-line-height-headings: 1.12;
+  --sl-content-width: 48rem;
+  --sl-sidebar-width: 15rem;
+  --sl-nav-height: 3.75rem;
 
-  /* Hero accent gradient */
+  /* Accent gradient */
   --hero-gradient: linear-gradient(135deg, #60a5fa, #a78bfa, #38bdf8);
 }
 
 /* Light palette */
 :root[data-theme="light"] {
+  --fv-signal: #a16207;
+  --fv-signal-soft: rgba(161, 98, 7, 0.1);
+  --fv-border: rgba(15, 23, 42, 0.12);
+  --fv-border-strong: rgba(15, 23, 42, 0.22);
+  --fv-surface: rgba(241, 245, 249, 0.72);
+  --fv-surface-strong: #f8fafc;
+  --fv-shadow: 0 24px 80px rgba(15, 23, 42, 0.08);
+  --fv-code-bg: #0b0b18;
+
   --sl-color-accent-low: #dbeafe;
   --sl-color-accent: #2563eb;
   --sl-color-accent-high: #7c3aed;
@@ -42,113 +71,354 @@
   --sl-color-gray-7: #f1f5f9;
   --sl-color-black: #ffffff;
   --sl-color-bg-nav: #f8fafc;
-  --sl-color-bg-sidebar: #f8fafc;
+  --sl-color-bg-sidebar: #ffffff;
   --sl-color-bg: #ffffff;
   --sl-color-hairline: #e2e8f0;
 }
 
-/* ── Typography refinements ────────────────────────────────── */
+/* ── Base ───────────────────────────────────────────────────── */
 
-h1, h2, h3 {
-  letter-spacing: -0.02em;
+html {
+  scroll-behavior: smooth;
 }
 
-.site-title {
-  font-weight: 800;
+body {
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+::selection {
+  background: rgba(251, 191, 36, 0.28);
+}
+
+h1,
+h2 {
+  font-family: var(--fv-serif);
+  font-weight: 600;
   letter-spacing: -0.03em;
 }
 
-/* ── Hero section on landing page ──────────────────────────── */
-
-.hero {
-  background: radial-gradient(ellipse at 50% 0%, #1e1b4b 0%, #0f0f23 60%);
-  position: relative;
-  overflow: hidden;
+h3,
+h4 {
+  letter-spacing: -0.015em;
 }
 
-.hero::before {
-  content: "";
-  position: absolute;
-  top: -50%;
-  left: -50%;
-  width: 200%;
-  height: 200%;
-  background: radial-gradient(circle at 30% 50%, rgba(96, 165, 250, 0.08) 0%, transparent 50%),
-              radial-gradient(circle at 70% 50%, rgba(167, 139, 250, 0.06) 0%, transparent 50%);
-  pointer-events: none;
+/* ── Documentation masthead ────────────────────────────────── */
+
+.docs-masthead {
+  padding: 1.25rem 0 2rem;
+  margin-bottom: 1.75rem;
+  border-bottom: 1px solid var(--fv-border);
+  background:
+    radial-gradient(circle at 12% 0%, rgba(96, 165, 250, 0.1), transparent 42%),
+    radial-gradient(circle at 88% 10%, rgba(167, 139, 250, 0.07), transparent 38%);
 }
 
-.hero-gradient-text {
-  background: var(--hero-gradient);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-/* ── Feature cards ─────────────────────────────────────────── */
-
-.feature-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 1.5rem;
-}
-
-.feature-card {
-  background: var(--sl-color-gray-7);
-  border: 1px solid var(--sl-color-hairline);
-  border-radius: 0.75rem;
-  padding: 1.5rem;
-  transition: border-color 0.2s, transform 0.2s;
-}
-
-.feature-card:hover {
-  border-color: var(--sl-color-accent);
-  transform: translateY(-2px);
-}
-
-.feature-icon {
-  font-size: 1.5rem;
-  margin-bottom: 0.75rem;
-}
-
-/* ── Blog listing ──────────────────────────────────────────── */
-
-.blog-list {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
-.blog-card {
-  background: var(--sl-color-gray-7);
-  border: 1px solid var(--sl-color-hairline);
-  border-radius: 0.75rem;
-  padding: 1.5rem;
-  transition: border-color 0.2s;
-}
-
-.blog-card:hover {
-  border-color: var(--sl-color-accent);
-}
-
-.blog-date {
-  font-size: 0.875rem;
+.docs-eyebrow {
+  margin: 0;
+  font-family: var(--fv-mono);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
   color: var(--sl-color-gray-4);
 }
 
-/* Hide left sidebar — navigation is in the header */
-.sidebar-pane {
-  display: none !important;
-}
-html[data-has-sidebar] {
-  --sl-content-inline-start: 0px !important;
+.docs-masthead h1 {
+  margin: 0.65rem 0 0;
+  font-size: clamp(2.35rem, 4.6vw, 3.4rem);
+  line-height: 1.02;
+  color: var(--sl-color-white);
+  text-wrap: balance;
 }
 
-/* Narrower right sidebar (Table of Contents) */
+.docs-lede {
+  max-width: 46rem;
+  margin: 1rem 0 0;
+  font-size: 1.05rem;
+  line-height: 1.7;
+  color: var(--sl-color-gray-2);
+  text-wrap: pretty;
+}
+
+/* ── Documentation prose ───────────────────────────────────── */
+
+.sl-markdown-content {
+  font-size: 1rem;
+  line-height: 1.78;
+  color: var(--sl-color-gray-2);
+}
+
+.sl-markdown-content > :first-child {
+  margin-top: 0;
+}
+
+body:has(.docs-masthead) .sl-markdown-content p {
+  text-wrap: pretty;
+}
+
+body:has(.docs-masthead) .sl-markdown-content h2 {
+  margin: 3.25rem 0 1.1rem;
+  padding-top: 1.6rem;
+  border-top: 1px solid var(--fv-border);
+  font-size: clamp(1.65rem, 2.4vw, 1.9rem);
+  line-height: 1.15;
+  color: var(--sl-color-white);
+}
+
+body:has(.docs-masthead) .sl-markdown-content h2:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+body:has(.docs-masthead) .sl-markdown-content h3 {
+  margin: 2.1rem 0 0.65rem;
+  font-family: var(--sl-font);
+  font-size: 1.08rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--sl-color-white);
+}
+
+body:has(.docs-masthead) .sl-markdown-content h4 {
+  color: var(--sl-color-white);
+}
+
+body:has(.docs-masthead) .sl-markdown-content strong {
+  font-weight: 650;
+  color: var(--sl-color-white);
+}
+
+body:has(.docs-masthead) .sl-markdown-content a:not(.sl-anchor-link) {
+  color: var(--sl-color-accent);
+  text-decoration-color: color-mix(in srgb, var(--sl-color-accent) 38%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.18em;
+}
+
+body:has(.docs-masthead) .sl-markdown-content a:not(.sl-anchor-link):hover {
+  color: var(--sl-color-accent-high);
+  text-decoration-color: currentColor;
+}
+
+body:has(.docs-masthead) .sl-markdown-content :not(pre) > code {
+  border: 1px solid var(--fv-border);
+  border-radius: 0.35rem;
+  padding: 0.12em 0.36em;
+  background: var(--fv-surface);
+  color: var(--sl-color-gray-1);
+  font-family: var(--fv-mono);
+  font-size: 0.86em;
+  font-weight: 500;
+}
+
+body:has(.docs-masthead) .sl-markdown-content blockquote {
+  margin: 1.75rem 0;
+  padding: 1rem 1.2rem;
+  border-inline-start: 2px solid var(--fv-signal);
+  border-radius: 0 0.6rem 0.6rem 0;
+  background: var(--fv-signal-soft);
+  font-family: var(--fv-serif);
+  font-size: 1.04rem;
+  font-style: italic;
+  line-height: 1.65;
+  color: var(--sl-color-gray-2);
+}
+
+body:has(.docs-masthead) .sl-markdown-content blockquote > :first-child {
+  margin-top: 0;
+}
+
+body:has(.docs-masthead) .sl-markdown-content blockquote > :last-child {
+  margin-bottom: 0;
+}
+
+body:has(.docs-masthead) .sl-markdown-content hr {
+  margin: 2.75rem 0;
+  border: 0;
+  border-top: 1px solid var(--fv-border);
+}
+
+body:has(.docs-masthead) .sl-markdown-content table {
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+body:has(.docs-masthead) .sl-markdown-content th {
+  border-bottom: 1px solid var(--fv-border-strong);
+  padding: 0.65rem 0.8rem;
+  font-family: var(--fv-mono);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--sl-color-gray-3);
+  text-align: start;
+}
+
+body:has(.docs-masthead) .sl-markdown-content td {
+  border-bottom: 1px solid var(--fv-border);
+  padding: 0.7rem 0.8rem;
+  vertical-align: top;
+}
+
+body:has(.docs-masthead) .sl-markdown-content tr:last-child td {
+  border-bottom: 0;
+}
+
+body:has(.docs-masthead) .sl-markdown-content img {
+  border: 1px solid var(--fv-border);
+  border-radius: 0.75rem;
+}
+
+body:has(.docs-masthead) .sl-markdown-content .expressive-code {
+  margin: 1.6rem 0;
+}
+
+.starlight-aside {
+  border-radius: 0.6rem;
+  border-inline-start-width: 2px;
+}
+
+/* ── Starlight drawer toggle ───────────────────────────────── */
+
+starlight-menu-button button {
+  border: 1px solid var(--fv-border);
+  border-radius: 0.45rem;
+  background-color: var(--fv-surface);
+  color: var(--sl-color-gray-2);
+  box-shadow: none;
+}
+
+starlight-menu-button button:hover {
+  background-color: var(--fv-surface-strong);
+  color: var(--sl-color-white);
+}
+
+starlight-menu-button[aria-expanded="true"] button {
+  border-color: var(--fv-border-strong);
+  background-color: var(--fv-signal-soft);
+  color: var(--sl-color-white);
+  box-shadow: none;
+}
+
+/* ── Sidebar ───────────────────────────────────────────────── */
+
+nav.sidebar {
+  background: var(--sl-color-bg-sidebar);
+}
+
+.sidebar-pane {
+  border-inline-end: 1px solid var(--fv-border);
+}
+
+.sidebar-content {
+  padding-top: 1.6rem;
+}
+
+.sidebar-content .top-level > li + li {
+  margin-top: 1.35rem;
+}
+
+.sidebar-content summary .large {
+  font-family: var(--fv-mono);
+  font-size: 0.64rem;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--sl-color-gray-4);
+}
+
+.sidebar-content a {
+  border-radius: 0.4rem;
+  padding: 0.32rem 0.55rem;
+  color: var(--sl-color-gray-2);
+  font-size: 0.855rem;
+  line-height: 1.4;
+  text-decoration: none;
+  transition: color 0.15s, background 0.15s;
+}
+
+.sidebar-content a:hover {
+  color: var(--sl-color-white);
+  background: var(--fv-surface);
+}
+
+.sidebar-content a[aria-current="page"] {
+  color: var(--sl-color-white);
+  background: var(--fv-signal-soft);
+  box-shadow: inset 2px 0 0 var(--fv-signal);
+}
+
+/* ── Right rail ────────────────────────────────────────────── */
+
+.right-sidebar {
+  border-inline-start: 1px solid var(--fv-border);
+  background: transparent;
+}
+
 .right-sidebar-panel {
-  width: 8rem !important;
-  min-width: 8rem !important;
-  max-width: 8rem !important;
-  flex: none !important;
-  border-left: none !important;
+  border-inline-start: 0;
+  padding: 1.25rem 1rem 2rem 1.25rem;
+}
+
+starlight-toc nav h2,
+#starlight__on-this-page {
+  font-family: var(--fv-mono);
+  font-size: 0.63rem;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--sl-color-gray-4);
+}
+
+starlight-toc a {
+  color: var(--sl-color-gray-3);
+  font-size: 0.79rem;
+  line-height: 1.45;
+  text-decoration: none;
+}
+
+starlight-toc a:hover {
+  color: var(--sl-color-white);
+}
+
+starlight-toc a[aria-current="true"],
+starlight-toc a[aria-current="location"] {
+  color: var(--fv-signal);
+}
+
+mobile-starlight-toc .toggle,
+mobile-starlight-toc summary {
+  font-family: var(--fv-mono);
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--sl-color-gray-3);
+}
+
+/* ── Motion ────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (max-width: 71.999rem) {
+  .docs-masthead {
+    padding-top: 0.75rem;
+  }
+
+  .docs-masthead h1 {
+    font-size: 2.4rem;
+  }
 }

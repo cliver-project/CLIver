@@ -1,0 +1,82 @@
+---
+import type { BlogPost } from "../../data/blog-posts";
+import { formatPostDate } from "../../data/blog-posts";
+
+interface Props {
+  post: BlogPost;
+  variant?: "default" | "featured" | "compact";
+}
+
+const { post, variant = "default" } = Astro.props;
+const issue = String(post.issue).padStart(2, "0");
+const primaryTag = post.tags[0] ?? "Field note";
+const showDraft = post.draft;
+---
+
+{
+  variant === "featured" ? (
+    <article class="blog-featured" data-post-tags={post.tags.join(" ")}>
+      <a class="blog-featured__link" href={post.href}>
+        <div class="blog-featured__copy">
+          <div class="blog-featured__eyebrow">
+            <span class="blog-issue">No. {issue}</span>
+            <span class="blog-featured__flag">Featured</span>
+            <span>{primaryTag}</span>
+            {showDraft && <span class="blog-draft-pill">Draft</span>}
+          </div>
+          <h2>{post.title}</h2>
+          <p class="blog-featured__description">{post.description}</p>
+          <div class="blog-featured__meta">
+            <time datetime={post.pubDate.toISOString()}>{formatPostDate(post.pubDate)}</time>
+            <span aria-hidden="true">·</span>
+            <span>{post.readingTime}</span>
+          </div>
+          <span class="blog-read-link">
+            Read the note
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              <path d="M4 10h11M11 5l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </span>
+        </div>
+        <div class="blog-featured__art" aria-hidden="true">
+          <span class="blog-featured__number">{issue}</span>
+          <div class="blog-terminal">
+            <div class="blog-terminal__bar">
+              <span />
+              <span />
+              <span />
+            </div>
+            <code>
+              <span class="blog-terminal__prompt">$</span> cliver run first_agent.py
+              <br />
+              <span class="blog-terminal__muted">→ agent.chat("...")</span>
+              <br />
+              <span class="blog-terminal__ok">✓ done in 1.2s</span>
+              <span class="blog-terminal__cursor" />
+            </code>
+          </div>
+        </div>
+      </a>
+    </article>
+  ) : (
+    <article class:list={["blog-card", { "blog-card--compact": variant === "compact" }]} data-blog-card data-post-tags={post.tags.join(" ")}>
+      <a class="blog-card__link" href={post.href}>
+        <div class="blog-card__top">
+          <span class="blog-issue">No. {issue}</span>
+          <span class="blog-card__tag">{primaryTag}</span>
+          {showDraft && <span class="blog-draft-pill">Draft</span>}
+        </div>
+        <h3>{post.title}</h3>
+        {variant !== "compact" && <p>{post.description}</p>}
+        <div class="blog-card__meta">
+          <time datetime={post.pubDate.toISOString()}>{formatPostDate(post.pubDate)}</time>
+          <span aria-hidden="true">·</span>
+          <span>{post.readingTime}</span>
+          <svg class="blog-card__arrow" viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M4 10h11M11 5l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </div>
+      </a>
+    </article>
+  )
+}

@@ -2,11 +2,12 @@
 title: AgentCore
 ---
 
-`AgentCore` is the reasoning engine at the heart of CLIver. It implements the **Re-Act loop** —
+`AgentCore` is the reasoning engine at the heart of CLIver. It implements the **agent loop** —
 send messages to an LLM, execute tools, feed results back, and continue until a final response
-is ready.
+is ready. It is the native tool-calling form of the ReAct pattern: reasoning happens inside the
+model, and the core owns the action–observation cycle.
 
-## The Re-Act Loop
+## The Agent Loop
 
 ```
 1. Receive user input
@@ -71,7 +72,7 @@ content arrives. Both accept the same per-call options:
 | `mcp_servers` | MCP server names to advertise and allow for this call (`None` = all, `[]` = none) |
 | `tool_filter` | Predicate that narrows the advertised and executable tool set |
 | `options` | Wire request options; call site overrides binding defaults |
-| `max_iterations` | Max Re-Act iterations (default 50) |
+| `max_iterations` | Max loop iterations (default 50) |
 | `execution_policy` | Ambient tool-execution policy for this call |
 | `context_compactor` | Caller-supplied trim/compact hook; see [Context Window](context-window/) |
 | `skill_dispatch` | Advertise the skill catalogue and dispatch tools (default on) |

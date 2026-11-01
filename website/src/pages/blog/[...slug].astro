@@ -1,0 +1,47 @@
+---
+import { getCollection, render, type CollectionEntry } from "astro:content";
+import BlogPost from "../../layouts/BlogPost.astro";
+import type { BlogPost as BlogPostData } from "../../data/blog-posts";
+import { getRelatedPosts, toBlogPosts } from "../../data/blog-posts";
+
+interface Props {
+  entry: CollectionEntry<"blog">;
+  post: BlogPostData;
+  relatedPosts: BlogPostData[];
+}
+
+export async function getStaticPaths() {
+  const entries = await getCollection("blog");
+  const allPosts = toBlogPosts(entries, { includeDrafts: true });
+  const visiblePosts = import.meta.env.DEV
+    ? allPosts
+    : allPosts.filter((post) => !post.draft);
+  const postBySlug = new Map(allPosts.map((post) => [post.slug, post]));
+
+  return entries
+    .filter((entry) => import.meta.env.DEV || !entry.data.draft)
+    .map((entry) => {
+      const post = postBySlug.get(entry.id);
+
+      if (!post) {
+        throw new Error(`No blog metadata found for content entry "${entry.id}".`);
+      }
+
+      return {
+        params: { slug: entry.id },
+        props: {
+          entry,
+          post,
+          relatedPosts: getRelatedPosts(post, visiblePosts),
+        },
+      };
+    });
+}
+
+const { entry, post, relatedPosts } = Astro.props as Props;
+const { Content, headings } = await render(entry);
+---
+
+<BlogPost post={post} headings={headings} relatedPosts={relatedPosts}>
+  <Content />
+</BlogPost>

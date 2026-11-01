@@ -1,5 +1,32 @@
 ---
-import type { Props } from "@astrojs/starlight/props";
+const base = import.meta.env.BASE_URL;
+const path = Astro.url.pathname;
+const route = Astro.locals.starlightRoute;
+const slug = route?.entry.slug ?? "";
+const title = route?.entry.data.title ?? "";
+const description = route?.entry.data.description;
+
+const isHome = path === base || path === `${base}index.html`;
+const isBlog = slug === "blog" || slug.startsWith("blog/");
+
+const sectionLabels: Record<string, string> = {
+  "getting-started": "Getting Started",
+  "core-concepts": "Core Concepts",
+  guides: "Guides",
+  configuration: "Models",
+  cli: "CLI Application",
+  api: "API Reference",
+};
+
+const section = sectionLabels[slug.split("/")[0] ?? ""] ?? "Documentation";
 ---
 
-<h1 class="site-title">{Astro.props.title}</h1>
+{
+  !isHome && !isBlog && title && (
+    <header class="docs-masthead">
+      <p class="docs-eyebrow">Docs / {section}</p>
+      <h1>{title}</h1>
+      {description && <p class="docs-lede">{description}</p>}
+    </header>
+  )
+}

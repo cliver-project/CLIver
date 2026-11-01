@@ -153,7 +153,7 @@ async def create_run(body: RunRequest, request: Request) -> RunReply:
 - `run_id` correlates every inference and tool event of the run. Pass the client's id when it
   logs one; core generates a 32-hex id otherwise. Return it on success **and** on failure (the
   exception carries it).
-- `usage_total` sums every Re-Act iteration, including the tool-requesting ones — meter from it
+- `usage_total` sums every loop iteration, including the tool-requesting ones — meter from it
   instead of recounting events.
 - The semaphore is the application's admission policy. Pick `MAX_CONCURRENT_RUNS` from upstream
   rate limits and per-run token budgets, not from CPU count; `AgentCore` has no rate limiter.
@@ -291,7 +291,7 @@ share an agent only when tenants differ by call parameters alone.
 
 | Knob | Where | Why |
 |------|-------|-----|
-| `run_timeout` | `AgentCore(...)` + per call | Maps a run to your request SLA; bounds the whole Re-Act loop |
+| `run_timeout` | `AgentCore(...)` + per call | Maps a run to your request SLA; bounds the whole agent loop |
 | `tool_timeout` | `AgentCore(...)` + per call | Bounds one tool execution; sync tools run in a thread and cannot be killed |
 | `client_timeout` | Binding factory | A hung upstream must fail before the run budget is gone |
 | `client_max_retries` | Binding factory | `0` makes same-purpose binding failover react on the first retryable error |

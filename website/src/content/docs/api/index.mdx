@@ -36,7 +36,7 @@ asyncio.run(main())
 
 Non-streaming chat. Returns the final response with its message, usage, and any media.
 `response.usage` is the **final model call's** usage. `response.usage_total` is the sum across
-every Re-Act iteration — the intermediate calls that requested tools included — so a whole run
+every loop iteration — the intermediate calls that requested tools included — so a whole run
 can be metered without recomputing it from events. Both are `None` when no call reported usage.
 
 ```python
@@ -66,7 +66,7 @@ async for chunk in agent.stream("Write a README"):
 
 ### `await agent.run_skill(name, user_input, **options) → CLIverResponse`
 
-Runs the Re-Act loop with a skill pinned — see [Skills](../core-concepts/skills/).
+Runs the agent loop with a skill pinned — see [Skills](../core-concepts/skills/).
 
 ### Media Methods
 
@@ -97,7 +97,7 @@ raises `RuntimeError`, so build a new agent for a new event loop.
 | `mcp_servers` | MCP server names to advertise and allow (`None` = all, `[]` = none) |
 | `tool_filter` | Predicate to filter the advertised and executable tools |
 | `options` | Wire request options (override binding defaults) |
-| `max_iterations` | Max Re-Act iterations (default: 50) |
+| `max_iterations` | Max loop iterations (default: 50) |
 | `execution_policy` | Per-call execution policy |
 | `skill_dispatch` | Advertise skill dispatch tools (default: on) |
 
@@ -146,7 +146,7 @@ bindings = ModelBindings(
 
 `AgentCore`'s `on_event=` receives tool events only. Each `inference.completed` event carries
 that call's usage in `data["usage"]`, so per-call metering works even for runs with several
-Re-Act iterations.
+loop iterations.
 
 Handlers may be sync or async — a sync handler runs inline. **Handler exceptions are a
 contract, not an accident.** They propagate unchanged on both surfaces — AgentCore never

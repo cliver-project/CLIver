@@ -36,7 +36,7 @@ result = await pipeline.run("A subscription box for office plants")
 print(result.ok, result.final.content)
 ```
 
-Each step calls `AgentCore.run_skill()` on the same agent — one fresh Re-Act run per step, so
+Each step calls `AgentCore.run_skill()` on the same agent — one fresh agent-loop run per step, so
 earlier steps' conversation and tool noise never enter a later step's context. The pipeline
 itself holds only step definitions, so one pipeline can be run concurrently.
 

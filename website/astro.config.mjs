@@ -70,10 +70,13 @@ export default defineConfig({
       social: [
         { icon: "github", label: "GitHub", href: "https://github.com/cliver-project/CLIver" },
       ],
-      customCss: ["./src/styles/custom.css"],
+      customCss: ["./src/styles/custom.css", "./src/styles/blog.css"],
+      routeMiddleware: ["./src/route-middleware.ts"],
       components: {
         Header: "./src/components/Header.astro",
         PageTitle: "./src/components/PageTitle.astro",
+        Footer: "./src/components/Footer.astro",
+        MobileMenuFooter: "./src/components/MobileMenuFooter.astro",
       },
       expressiveCode: {
         themes: ["github-dark", "github-light"],

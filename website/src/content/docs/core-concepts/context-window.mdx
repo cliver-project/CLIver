@@ -2,7 +2,7 @@
 title: Context Window
 ---
 
-The Re-Act loop can only grow its history: every tool batch appends an assistant message and
+The agent loop can only grow its history: every tool batch appends an assistant message and
 one tool result per call. `AgentCore` owns the loop but **ships no compression policy** — no
 tokenizer, no threshold, no summarization model, no persistence. It exposes one seam: a
 `context_compactor` invoked before every model call.
@@ -35,7 +35,7 @@ async def my_compactor(context: CompactionContext) -> list | None:
 | Field | Meaning |
 |-------|---------|
 | `messages` | The run history **excluding** the core-owned system message — a fresh list; treat the message objects as read-only |
-| `iteration` | Zero-based Re-Act iteration about to call the model |
+| `iteration` | Zero-based loop iteration about to call the model |
 | `run_id` | The run's correlation id (same one on events and the response) |
 | `model` | The active llm binding's model before failover for this call |
 | `last_usage` | The previous iteration's usage for this run; `None` on the first iteration |
@@ -46,7 +46,7 @@ the next call may exceed the window. It is per call, not cumulative.
 
 ## Invocation Contract
 
-- **Once per Re-Act iteration, before the model call.** Failover retries inside that iteration
+- **Once per loop iteration, before the model call.** Failover retries inside that iteration
   reuse the compacted history; they do not re-run the compactor.
 - **The first iteration included.** A caller-supplied conversation that is already too large can
   be trimmed before the first call, but `last_usage` is `None` there — trigger on a message or

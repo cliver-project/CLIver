@@ -1,10 +1,261 @@
 ---
 import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+import PostCard from "../../components/blog/PostCard.astro";
+import {
+  collectTags,
+  loadBlogPosts,
+  selectFeaturedPost,
+} from "../../data/blog-posts";
+
+const base = import.meta.env.BASE_URL;
+const site = Astro.site ?? new URL("https://cliver-project.github.io");
+const ogImage = new URL(`${base}og/blog-default.png`, site).href;
+const posts = await loadBlogPosts();
+const featuredPost = selectFeaturedPost(posts);
+const latestPosts = featuredPost
+  ? posts.filter((post) => post.slug !== featuredPost.slug)
+  : posts;
+const draftCount = posts.filter((post) => post.draft).length;
+const filterTags = collectTags(latestPosts);
+const tagCounts = new Map(
+  filterTags.map((tag) => [tag, latestPosts.filter((post) => post.tags.includes(tag)).length]),
+);
+
+const topicCards = [
+  {
+    number: "01",
+    title: "Build the loop",
+    description:
+      "AgentCore, tools, skills, and the smallest amount of code needed to get a useful agent running.",
+    meta: "AgentCore · tools · skills",
+  },
+  {
+    number: "02",
+    title: "Make it reliable",
+    description:
+      "Failover, deadlines, MCP, context, permissions, and the operational edges that show up after the demo.",
+    meta: "MCP · policy · failover · context",
+  },
+  {
+    number: "03",
+    title: "Ship something real",
+    description:
+      "Structured output, media generation, local models, and complete use cases you can adapt.",
+    meta: "structured output · media · local models",
+  },
+];
 ---
 
-<StarlightPage frontmatter={{ title: "Blog" }}>
-  <p style="color:var(--sl-color-gray-3);margin-bottom:2rem;font-size:1.1rem;">
-    Thoughts, updates, and guides from the CLIver project.
-  </p>
-  <p>Stay tuned — posts coming soon.</p>
+<StarlightPage
+  frontmatter={{
+    title: "Field Notes",
+    description:
+      "Short, tested notes on building agents that hold up: the CLIver agent loop, tools, MCP, media pipelines, and production edges.",
+    template: "splash",
+    head: [
+      { tag: "meta", attrs: { property: "og:type", content: "website" } },
+      { tag: "meta", attrs: { property: "og:image", content: ogImage } },
+      { tag: "meta", attrs: { property: "og:image:width", content: "1200" } },
+      { tag: "meta", attrs: { property: "og:image:height", content: "630" } },
+      { tag: "meta", attrs: { name: "twitter:image", content: ogImage } },
+    ],
+  }}
+>
+  <div class="blog-index" data-blog-index>
+    <header class="blog-masthead">
+      <div class="blog-masthead__copy">
+        <p class="blog-eyebrow">CLIver / Field Notes</p>
+        <h1>Field notes from the <span class="hero-gradient-text">agent layer</span>.</h1>
+        <p class="blog-masthead__lede">
+          Short, tested notes on the agent loop, tool boundaries, model failover,
+          media pipelines, and the unglamorous work of shipping agents that behave.
+        </p>
+        <div class="blog-masthead__details">
+          <span>Two notes a week</span>
+          <span aria-hidden="true">·</span>
+          <span>Code included</span>
+          <span aria-hidden="true">·</span>
+          <span>No tracking</span>
+        </div>
+      </div>
+
+      <aside class="blog-signal" aria-label="Subscribe to Field Notes">
+        <div class="blog-signal__status">
+          <span class="blog-live-dot" aria-hidden="true"></span>
+          <span>Publishing Tuesday + Friday</span>
+        </div>
+        <div class="blog-signal__terminal" aria-hidden="true">
+          <span class="blog-terminal__prompt">$</span> subscribe --rss
+          <br />
+          <span class="blog-terminal__muted">
+            → {posts.length > 0
+              ? `${posts.length} ${posts.length === 1 ? "note" : "notes"} in the feed`
+              : "first dispatch in progress"}
+          </span>
+          <span class="blog-terminal__cursor" />
+        </div>
+        <a class="blog-button blog-button--primary" href={`${base}blog/rss.xml`}>
+          <span class="blog-button__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <circle cx="6.5" cy="17.5" r="2.2" fill="currentColor" />
+              <path d="M4 4.5a15.5 15.5 0 0 1 15.5 15.5M4 10a10 10 0 0 1 10 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            </svg>
+          </span>
+          RSS feed
+          <span class="blog-button__arrow" aria-hidden="true">↗</span>
+        </a>
+        <a class="blog-button" href="https://github.com/cliver-project/CLIver" target="_blank" rel="noopener noreferrer">
+          Follow the source
+          <span class="blog-button__arrow" aria-hidden="true">↗</span>
+        </a>
+        <p class="blog-signal__note">
+          One idea, one tested sample, one CLI note. Written by the people building the core.
+        </p>
+      </aside>
+    </header>
+
+    {draftCount > 0 && (
+      <p class="blog-draft-note">
+        <span class="blog-draft-pill">Preview</span>
+        {draftCount} draft {draftCount === 1 ? "note is" : "notes are"} visible in development and
+        excluded from the production index and RSS feed.
+      </p>
+    )}
+
+    {featuredPost ? (
+      <section class="blog-featured-section" aria-labelledby="featured-heading">
+        <div class="blog-section-heading">
+          <p class="blog-eyebrow">Start here</p>
+          <h2 id="featured-heading">The latest field note</h2>
+        </div>
+        <PostCard post={featuredPost} variant="featured" />
+      </section>
+    ) : (
+      <section class="blog-empty" aria-labelledby="empty-heading">
+        <span class="blog-empty__number" aria-hidden="true">00</span>
+        <div>
+          <p class="blog-eyebrow">Issue 00</p>
+          <h2 id="empty-heading">The first dispatch lands with CLIver 0.3.0.</h2>
+          <p>
+            The feed is wired and the layout is ready. The first notes will cover the
+            first agent, the loop underneath it, and the edges that make it dependable.
+          </p>
+          <div class="blog-empty__actions">
+            <a class="blog-button blog-button--primary" href={`${base}getting-started/`}>
+              Read the docs
+              <span class="blog-button__arrow" aria-hidden="true">↗</span>
+            </a>
+            <a class="blog-button" href={`${base}blog/rss.xml`}>Subscribe via RSS</a>
+          </div>
+        </div>
+      </section>
+    )}
+
+    {latestPosts.length > 0 && (
+      <section class="blog-feed" aria-labelledby="latest-heading">
+        <div class="blog-feed__head">
+          <div class="blog-section-heading">
+            <p class="blog-eyebrow">The archive</p>
+            <h2 id="latest-heading">Latest notes</h2>
+          </div>
+          <span class="blog-feed__count" data-blog-count>
+            {latestPosts.length} {latestPosts.length === 1 ? "note" : "notes"}
+          </span>
+        </div>
+
+        {filterTags.length > 0 && (
+          <div class="blog-filters" role="group" aria-label="Filter notes by topic">
+            <button
+              type="button"
+              class="blog-filter is-active"
+              data-blog-filter="all"
+              aria-pressed="true"
+            >
+              All <span>{latestPosts.length}</span>
+            </button>
+            {filterTags.map((tag) => (
+              <button
+                type="button"
+                class="blog-filter"
+                data-blog-filter={tag}
+                aria-pressed="false"
+              >
+                {tag} <span>{tagCounts.get(tag)}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div class="blog-grid">
+          {latestPosts.map((post) => <PostCard post={post} />)}
+        </div>
+
+        <p class="blog-no-results" data-blog-no-results hidden>
+          No notes match that topic yet. Try another filter or
+          <a href={`${base}blog/rss.xml`}>subscribe to the feed</a>.
+        </p>
+      </section>
+    )}
+
+    <section class="blog-topics" aria-labelledby="topics-heading">
+      <div class="blog-section-heading">
+        <p class="blog-eyebrow">The beat</p>
+        <h2 id="topics-heading">What you&rsquo;ll find here</h2>
+      </div>
+      <div class="blog-topic-grid">
+        {topicCards.map((topic) => (
+          <article class="blog-topic-card">
+            <span class="blog-topic-card__number">{topic.number}</span>
+            <h3>{topic.title}</h3>
+            <p>{topic.description}</p>
+            <span class="blog-topic-card__meta">{topic.meta}</span>
+          </article>
+        ))}
+      </div>
+    </section>
+
+    <section class="blog-format" aria-labelledby="format-heading">
+      <div>
+        <p class="blog-eyebrow">The format</p>
+        <h2 id="format-heading">One idea. One tested sample. One CLI note.</h2>
+      </div>
+      <div class="blog-format__copy">
+        <p>
+          Every note is short enough to read with coffee and concrete enough to run.
+          The sample is a real mini-project in the repository, included at build time
+          so the code in the post cannot drift from the code that passed the test.
+        </p>
+        <a class="blog-text-link" href={`${base}getting-started/`}>
+          Start with the core
+          <span aria-hidden="true">→</span>
+        </a>
+      </div>
+    </section>
+
+    <footer class="blog-index__footer">
+      <div>
+        <p class="blog-eyebrow">Stay in the loop</p>
+        <h2>Read it in your feed reader.</h2>
+      </div>
+      <div class="blog-index__footer-actions">
+        <a class="blog-button blog-button--primary" href={`${base}blog/rss.xml`}>
+          RSS feed
+          <span class="blog-button__arrow" aria-hidden="true">↗</span>
+        </a>
+        <a
+          class="blog-button"
+          href="https://github.com/cliver-project/CLIver"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          GitHub
+          <span class="blog-button__arrow" aria-hidden="true">↗</span>
+        </a>
+      </div>
+    </footer>
+  </div>
 </StarlightPage>
+
+<script>
+  import "../../scripts/blog";
+</script>

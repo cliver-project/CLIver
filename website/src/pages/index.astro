@@ -1,109 +1,702 @@
 ---
+import { Code } from "astro:components";
 import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+import PostCard from "../components/blog/PostCard.astro";
+import { loadBlogPosts } from "../data/blog-posts";
 
 const base = import.meta.env.BASE_URL;
+const posts = await loadBlogPosts();
+const latestNotes = posts.slice(0, 2);
+
+const quickstartCode = `import asyncio
+
+from cliver_core import AgentCore, ModelBindings, presets
+from cliver_core.tools import discover_builtin_tools
+
+agent = AgentCore(
+    ModelBindings(llm=presets.deepseek()),
+    builtin_tools=discover_builtin_tools(),
+)
+
+
+async def main() -> None:
+    response = await agent.chat("List the files in this project.")
+    print(response.message.content)
+
+
+asyncio.run(main())`;
+
+const capabilities = [
+  {
+    index: "01",
+    title: "Model freedom",
+    body: "OpenAI and Anthropic wire protocols, live-verified presets for DeepSeek, GLM, MiniMax, and Bailian, plus any compatible or local endpoint.",
+    href: `${base}configuration/providers/`,
+    link: "Providers & presets",
+  },
+  {
+    index: "02",
+    title: "The agent loop",
+    body: "chat(), stream(), and run_skill() over a plain agent loop. Tools in, messages out — no graph framework to learn or fight.",
+    href: `${base}core-concepts/`,
+    link: "AgentCore",
+  },
+  {
+    index: "03",
+    title: "Tools with policy",
+    body: "Nine builtin tools, a @tool decorator for your own, and an opt-in SAFE/ASK gate with execution scopes around every call.",
+    href: `${base}core-concepts/tools/`,
+    link: "Tools",
+  },
+  {
+    index: "04",
+    title: "Skills and MCP",
+    body: "Agent Skills with per-run activation and allowed-tools narrowing, plus stdio or streamable-HTTP MCP servers with pooled sessions.",
+    href: `${base}core-concepts/skills/`,
+    link: "Skills",
+  },
+  {
+    index: "05",
+    title: "Media pipeline",
+    body: "Image, video, TTS, ASR, embedding, and reranking through one provider seam, with async task polling for long-running jobs.",
+    href: `${base}core-concepts/media/`,
+    link: "Media capabilities",
+  },
+  {
+    index: "06",
+    title: "Production edges",
+    body: "Failover across bindings, whole-run deadlines, credential rotation, usage totals, and structured output that validates before it returns.",
+    href: `${base}core-concepts/concurrency/`,
+    link: "Concurrency & lifecycle",
+  },
+];
 ---
 
-<StarlightPage frontmatter={{ title: "CLIver" }}>
-  <div class="hero" style="padding:4rem 2rem;margin-bottom:3rem;text-align:center;">
-    <img
-      src={`${base}icon.png`}
-      alt="CLIver"
-      style="width:96px;height:96px;margin:0 auto 1.5rem;display:block;"
-    />
-    <h1 style="font-size:3rem;font-weight:800;margin:0 0 1rem;">
-      <span class="hero-gradient-text">CLIver</span>
-    </h1>
-    <p style="font-size:1.25rem;color:var(--sl-color-gray-2);max-width:600px;margin:0 auto 2rem;line-height:1.6;">
-      An embeddable Python agent core — Re-Act, tools, skills,
-      MCP, and media generation, with a companion CLI.
-    </p>
-    <div style="display:flex;gap:1rem;justify-content:center;flex-wrap:wrap;">
-      <a
-        href={`${base}getting-started/`}
-        style="background:var(--hero-gradient);color:#fff;padding:0.75rem 1.5rem;border-radius:0.5rem;font-weight:600;text-decoration:none;transition:opacity 0.2s;"
-      >
-        Get Started
-      </a>
-      <a
-        href={`${base}core-concepts/`}
-        style="background:var(--sl-color-gray-7);color:var(--sl-color-white);padding:0.75rem 1.5rem;border-radius:0.5rem;font-weight:600;text-decoration:none;border:1px solid var(--sl-color-hairline);transition:border-color 0.2s;"
-      >
-        Learn More
-      </a>
-    </div>
-  </div>
+<StarlightPage frontmatter={{ title: "CLIver", template: "splash", tableOfContents: false }}>
+  <div class="home">
+    <section class="home-masthead" aria-labelledby="home-title">
+      <div class="home-masthead__copy">
+        <p class="home-eyebrow">CLIVER / EMBEDDABLE AGENT CORE</p>
+        <h1 id="home-title">
+          Build agents that <span class="home-accent">hold up.</span>
+        </h1>
+        <p class="home-lede">
+          The Python core for the agent loop, tools, skills, MCP, and media — with explicit
+          permissions, model failover, and the production edges already built in.
+        </p>
+        <div class="home-actions">
+          <a class="home-button home-button--primary" href={`${base}getting-started/`}>
+            Start building
+          </a>
+          <a class="home-button" href={`${base}core-concepts/`}>Read the docs</a>
+        </div>
+        <p class="home-meta">
+          <span>Python 3.10+</span>
+          <span>OpenAI + Anthropic</span>
+          <span>Zero CLI deps</span>
+          <span>Loop-safe</span>
+        </p>
+      </div>
 
-  <h2 style="text-align:center;margin-bottom:2rem;">What CLIver Can Do</h2>
+      <div class="home-terminal" aria-label="Install and run CLIver">
+        <div class="home-terminal__status">
+          <span class="home-live-dot" aria-hidden="true"></span>
+          <span>0.3.0rc1 — release candidate</span>
+        </div>
+        <pre class="home-terminal__body"><span class="home-prompt">$</span> pip install cliver-core==0.3.0rc1
+<span class="home-prompt">$</span> python first_agent.py
+<span class="home-muted">  → agent bound · 9 tools · 0 CLI deps</span>
+<span class="home-ok">✓ reply received</span></pre>
+        <div class="home-terminal__foot">
+          <span>One package. No service to run.</span>
+          <a href={`${base}getting-started/installation/`}>Installation →</a>
+        </div>
+      </div>
+    </section>
 
-  <div class="feature-grid" style="margin-bottom:4rem;">
-    <div class="feature-card">
-      <div class="feature-icon">🔌</div>
-      <h3>Model-Agnostic</h3>
-      <p>
-        Connect to any OpenAI-compatible API, Anthropic-protocol endpoints, or
-        local models via Ollama. Switch providers on the fly — no vendor lock-in.
-      </p>
-    </div>
+    <section class="home-section" aria-labelledby="capabilities-title">
+      <div class="home-section__head">
+        <div>
+          <p class="home-eyebrow">THE CORE</p>
+          <h2 id="capabilities-title">Everything the loop needs. Nothing it doesn't.</h2>
+        </div>
+        <p class="home-section__lede">
+          A small surface with real depth: every capability below is in the core package, not
+          a plugin graph around it.
+        </p>
+      </div>
 
-    <div class="feature-card">
-      <div class="feature-icon">🧠</div>
-      <h3>AgentCore Engine</h3>
-      <p>
-        A clean Re-Act loop with <code>chat()</code> and <code>stream()</code> APIs.
-        Supports text, image, audio, and video generation when configured. Embed into your own Python applications.
-      </p>
-    </div>
+      <div class="home-grid">
+        {
+          capabilities.map((item) => (
+            <article class="home-card">
+              <span class="home-card__index">{item.index}</span>
+              <h3>{item.title}</h3>
+              <p>{item.body}</p>
+              <a class="home-card__link" href={item.href}>
+                {item.link} <span aria-hidden="true">→</span>
+              </a>
+            </article>
+          ))
+        }
+      </div>
+    </section>
 
-    <div class="feature-card">
-      <div class="feature-icon">🛠️</div>
-      <h3>Built-in Tools</h3>
-      <p>
-        Nine tools for file I/O, shell execution, code, web fetching, and todo
-        tracking — all sharing one permission and event pipeline.
-      </p>
-    </div>
+    <section class="home-quickstart" aria-labelledby="quickstart-title">
+      <div class="home-quickstart__copy">
+        <p class="home-eyebrow">QUICKSTART</p>
+        <h2 id="quickstart-title">One install. One loop.</h2>
+        <p>
+          Point a binding at any supported endpoint and call <code>chat()</code>. The sample
+          uses the DeepSeek preset and the nine builtin tools — swap the binding, keep the
+          loop.
+        </p>
+        <p class="home-quickstart__note">
+          <code>pip install cliver-core==0.3.0rc1</code>
+        </p>
+        <a class="home-text-link" href={`${base}core-concepts/`}>
+          Read the AgentCore guide <span aria-hidden="true">→</span>
+        </a>
+      </div>
 
-    <div class="feature-card">
-      <div class="feature-icon">🎯</div>
-      <h3>Skills System</h3>
-      <p>
-        LLM-driven skill activation following the <a href="https://agentskills.io/specification" style="color:inherit;">Agent Skills specification</a>.
-        Built-in skills for brainstorming, planning, and structured execution.
-      </p>
-    </div>
+      <div class="home-code">
+        <div class="home-code__bar">
+          <span class="home-code__dot" aria-hidden="true"></span>
+          <span class="home-code__dot" aria-hidden="true"></span>
+          <span class="home-code__dot" aria-hidden="true"></span>
+          <span class="home-code__name">first_agent.py</span>
+        </div>
+        <div class="home-code__body">
+          <Code code={quickstartCode} lang="python" theme="github-dark" />
+        </div>
+      </div>
+    </section>
 
-    <div class="feature-card">
-      <div class="feature-icon">🔐</div>
-      <h3>Opt-in Policy</h3>
-      <p>
-        SAFE/ASK permission gates with an application-supplied callback, plus
-        execution scopes for environment, working directory, and paths.
-      </p>
-    </div>
+    <section class="home-notes" aria-labelledby="notes-title">
+      <div class="home-section__head">
+        <div>
+          <p class="home-eyebrow">FIELD NOTES</p>
+          <h2 id="notes-title">Notes from the agent layer.</h2>
+        </div>
+        <a class="home-text-link" href={`${base}blog/`}>
+          All notes <span aria-hidden="true">→</span>
+        </a>
+      </div>
 
-    <div class="feature-card">
-      <div class="feature-icon">⚡</div>
-      <h3>MCP Support</h3>
-      <p>
-        Connect stdio and streamable HTTP servers. MCP tools share the same
-        execution path as builtin tools; prompts and resources are read on demand.
-      </p>
-    </div>
-  </div>
+      {
+        latestNotes.length > 0 ? (
+          <div class="home-notes__grid">
+            {latestNotes.map((post) => (
+              <PostCard post={post} variant="compact" />
+            ))}
+          </div>
+        ) : (
+          <div class="home-notes__empty">
+            <span class="home-notes__issue">ISSUE 00</span>
+            <p>
+              The first dispatch lands with CLIver 0.3.0. Until then, the docs are the lab
+              notebook.
+            </p>
+            <a class="home-text-link" href={`${base}getting-started/`}>
+              Start with the docs <span aria-hidden="true">→</span>
+            </a>
+          </div>
+        )
+      }
+    </section>
 
-  <div style="background:var(--sl-color-gray-7);border:1px solid var(--sl-color-hairline);border-radius:0.75rem;padding:2rem;margin-bottom:2rem;">
-    <h2 style="margin-top:0;">Quick Start</h2>
-    <p style="color:var(--sl-color-gray-3);margin-bottom:1.5rem;">Install the core library and run your first agent.</p>
-
-    <pre style="background:var(--sl-color-black);padding:1.5rem;border-radius:0.5rem;overflow-x:auto;"><code>pip install cliver-core==0.3.0rc1
-
-python - &lt;&lt;'PY'
-import asyncio
-from cliver_core import AgentCore, ModelBindings, presets
-
-agent = AgentCore(ModelBindings(llm=presets.deepseek()))
-print(asyncio.run(agent.chat("Hello!")).message.content)
-PY</code></pre>
+    <section class="home-cta" aria-labelledby="cta-title">
+      <div>
+        <p class="home-eyebrow">START HERE</p>
+        <h2 id="cta-title">Read the loop. Then own it.</h2>
+        <p>
+          CLIver stays small on purpose: you bring the model and the application, the core
+          brings the loop and the edges.
+        </p>
+      </div>
+      <div class="home-actions">
+        <a class="home-button home-button--primary" href={`${base}getting-started/installation/`}>
+          Install CLIver
+        </a>
+        <a class="home-button" href="https://github.com/cliver-project/CLIver" target="_blank" rel="noopener">
+          View on GitHub
+        </a>
+      </div>
+    </section>
   </div>
 </StarlightPage>
+
+<style>
+  .home {
+    width: 100%;
+    padding-bottom: 1rem;
+  }
+
+  .home-eyebrow {
+    margin: 0;
+    font-family: var(--fv-mono);
+    font-size: 0.68rem;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--sl-color-gray-4);
+  }
+
+  /* ── Masthead ─────────────────────────────────────────────── */
+
+  .home-masthead {
+    display: grid;
+    grid-template-columns: minmax(0, 1.28fr) minmax(18rem, 0.72fr);
+    gap: clamp(2rem, 5vw, 4.5rem);
+    align-items: center;
+    padding: clamp(2.5rem, 6vw, 4.5rem) 0 clamp(3rem, 6vw, 4.5rem);
+    border-bottom: 1px solid var(--fv-border);
+    background:
+      radial-gradient(circle at 84% 4%, rgba(96, 165, 250, 0.14), transparent 36%),
+      radial-gradient(circle at 4% 34%, rgba(167, 139, 250, 0.09), transparent 38%);
+  }
+
+  .home-masthead h1 {
+    max-width: 13ch;
+    margin: 1rem 0 1.4rem;
+    font-family: var(--fv-serif);
+    font-size: clamp(3.1rem, 6.4vw, 5.1rem);
+    font-weight: 600;
+    letter-spacing: -0.045em;
+    line-height: 0.98;
+    text-wrap: balance;
+  }
+
+  .home-accent {
+    background: var(--hero-gradient);
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .home-lede {
+    max-width: 42rem;
+    margin: 0;
+    font-size: clamp(1.05rem, 1.7vw, 1.18rem);
+    line-height: 1.7;
+    color: var(--sl-color-gray-2);
+    text-wrap: pretty;
+  }
+
+  .home-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.7rem;
+    margin-top: 1.8rem;
+  }
+
+  .home-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.7rem 1.15rem;
+    border: 1px solid var(--fv-border-strong);
+    border-radius: 0.55rem;
+    background: var(--fv-surface);
+    color: var(--sl-color-white);
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition: border-color 0.15s, transform 0.15s, background 0.15s;
+  }
+
+  .home-button:hover {
+    border-color: var(--fv-signal);
+    background: var(--fv-signal-soft);
+    transform: translateY(-1px);
+  }
+
+  .home-button--primary {
+    border-color: transparent;
+    background: var(--hero-gradient);
+    color: #fff;
+  }
+
+  .home-button--primary:hover {
+    border-color: transparent;
+    background: var(--hero-gradient);
+    opacity: 0.92;
+  }
+
+  .home-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem 0.9rem;
+    margin: 1.6rem 0 0;
+    font-family: var(--fv-mono);
+    font-size: 0.64rem;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--sl-color-gray-4);
+  }
+
+  .home-meta span + span::before {
+    content: "·";
+    margin-right: 0.9rem;
+    color: var(--sl-color-gray-5);
+  }
+
+  /* ── Terminal card ────────────────────────────────────────── */
+
+  .home-terminal {
+    display: grid;
+    gap: 0.8rem;
+    padding: 1.15rem;
+    border: 1px solid var(--fv-border);
+    border-radius: 1rem;
+    background:
+      radial-gradient(circle at 100% 0%, rgba(96, 165, 250, 0.12), transparent 54%),
+      var(--fv-surface);
+    box-shadow: var(--fv-shadow);
+  }
+
+  .home-terminal__status {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+    font-family: var(--fv-mono);
+    font-size: 0.63rem;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--sl-color-gray-2);
+  }
+
+  .home-live-dot {
+    width: 0.42rem;
+    height: 0.42rem;
+    border-radius: 50%;
+    background: #34d399;
+    box-shadow: 0 0 0 4px rgba(52, 211, 153, 0.12);
+  }
+
+  .home-terminal__body {
+    margin: 0;
+    padding: 0.85rem 0.9rem;
+    overflow-x: auto;
+    border: 1px solid var(--fv-border);
+    border-radius: 0.55rem;
+    background: var(--fv-code-bg);
+    color: #cbd5e1;
+    font-family: var(--fv-mono);
+    font-size: 0.72rem;
+    line-height: 1.9;
+  }
+
+  .home-prompt {
+    color: var(--fv-signal);
+  }
+
+  .home-muted {
+    color: #94a3b8;
+  }
+
+  .home-ok {
+    color: #34d399;
+  }
+
+  .home-terminal__foot {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 0.76rem;
+    color: var(--sl-color-gray-3);
+  }
+
+  .home-terminal__foot a {
+    color: var(--sl-color-white);
+    text-decoration: none;
+  }
+
+  .home-terminal__foot a:hover {
+    color: var(--fv-signal);
+  }
+
+  /* ── Sections ─────────────────────────────────────────────── */
+
+  .home-section,
+  .home-notes,
+  .home-quickstart {
+    padding: clamp(2.75rem, 6vw, 4.25rem) 0;
+    border-bottom: 1px solid var(--fv-border);
+  }
+
+  .home-section__head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.25rem 3rem;
+    align-items: flex-end;
+    justify-content: space-between;
+    margin-bottom: 2.25rem;
+  }
+
+  .home-section__head h2,
+  .home-quickstart h2,
+  .home-cta h2 {
+    max-width: 22ch;
+    margin: 0.75rem 0 0;
+    font-family: var(--fv-serif);
+    font-size: clamp(2rem, 3.4vw, 2.75rem);
+    font-weight: 600;
+    letter-spacing: -0.035em;
+    line-height: 1.05;
+    text-wrap: balance;
+  }
+
+  .home-section__lede {
+    max-width: 26rem;
+    margin: 0;
+    font-size: 0.98rem;
+    line-height: 1.7;
+    color: var(--sl-color-gray-3);
+  }
+
+  /* ── Capability grid ──────────────────────────────────────── */
+
+  .home-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0;
+    border-top: 1px solid var(--fv-border);
+  }
+
+  .home-card {
+    display: flex;
+    flex-direction: column;
+    padding: 1.6rem 1.5rem 1.4rem 0;
+    border-bottom: 1px solid var(--fv-border);
+  }
+
+  .home-card:nth-child(even) {
+    padding-left: 1.5rem;
+    border-left: 1px solid var(--fv-border);
+  }
+
+  .home-card__index {
+    font-family: var(--fv-mono);
+    font-size: 0.64rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    color: var(--fv-signal);
+  }
+
+  .home-card h3 {
+    margin: 0.7rem 0 0.55rem;
+    font-family: var(--fv-serif);
+    font-size: 1.4rem;
+    font-weight: 600;
+    letter-spacing: -0.025em;
+    color: var(--sl-color-white);
+  }
+
+  .home-card p {
+    margin: 0 0 1.1rem;
+    font-size: 0.94rem;
+    line-height: 1.72;
+    color: var(--sl-color-gray-3);
+  }
+
+  .home-card__link,
+  .home-text-link {
+    margin-top: auto;
+    color: var(--sl-color-white);
+    font-family: var(--fv-mono);
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    text-decoration: none;
+  }
+
+  .home-card__link:hover,
+  .home-text-link:hover {
+    color: var(--fv-signal);
+  }
+
+  /* ── Quickstart ───────────────────────────────────────────── */
+
+  .home-quickstart {
+    display: grid;
+    grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr);
+    gap: clamp(2rem, 5vw, 4rem);
+    align-items: center;
+  }
+
+  .home-quickstart__copy p {
+    max-width: 34rem;
+    margin: 1.1rem 0 0;
+    font-size: 0.98rem;
+    line-height: 1.75;
+    color: var(--sl-color-gray-3);
+  }
+
+  .home-quickstart__copy code {
+    border: 1px solid var(--fv-border);
+    border-radius: 0.35rem;
+    padding: 0.1em 0.35em;
+    background: var(--fv-surface);
+    font-family: var(--fv-mono);
+    font-size: 0.86em;
+    color: var(--sl-color-gray-1);
+  }
+
+  .home-quickstart__note {
+    font-family: var(--fv-mono);
+    font-size: 0.8rem !important;
+  }
+
+  .home-quickstart .home-text-link {
+    display: inline-block;
+    margin-top: 1.4rem;
+  }
+
+  .home-code {
+    overflow: hidden;
+    border: 1px solid var(--fv-border);
+    border-radius: 0.85rem;
+    background: var(--fv-code-bg);
+    box-shadow: var(--fv-shadow);
+  }
+
+  .home-code__bar {
+    display: flex;
+    gap: 0.4rem;
+    align-items: center;
+    padding: 0.7rem 0.9rem;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  }
+
+  .home-code__dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: rgba(148, 163, 184, 0.28);
+  }
+
+  .home-code__name {
+    margin-left: 0.5rem;
+    font-family: var(--fv-mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.08em;
+    color: var(--sl-color-gray-4);
+  }
+
+  .home-code__body :global(pre) {
+    margin: 0 !important;
+    padding: 1rem 1.1rem 1.2rem !important;
+    background: transparent !important;
+    font-size: 0.78rem !important;
+    line-height: 1.75 !important;
+  }
+
+  .home-code__body :global(code) {
+    font-family: var(--fv-mono) !important;
+  }
+
+  /* ── Field notes ──────────────────────────────────────────── */
+
+  .home-notes__grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1rem;
+  }
+
+  .home-notes__empty {
+    padding: 1.6rem;
+    border: 1px solid var(--fv-border);
+    border-radius: 0.85rem;
+    background: var(--fv-surface);
+  }
+
+  .home-notes__issue {
+    font-family: var(--fv-mono);
+    font-size: 0.64rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    color: var(--fv-signal);
+  }
+
+  .home-notes__empty p {
+    max-width: 34rem;
+    margin: 0.7rem 0 1rem;
+    font-family: var(--fv-serif);
+    font-size: 1.2rem;
+    line-height: 1.5;
+    color: var(--sl-color-gray-2);
+  }
+
+  /* ── Closing CTA ──────────────────────────────────────────── */
+
+  .home-cta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem 3rem;
+    align-items: center;
+    justify-content: space-between;
+    margin: 3rem 0 1rem;
+    padding: clamp(1.75rem, 4vw, 2.75rem);
+    border: 1px solid var(--fv-border);
+    border-radius: 1rem;
+    background:
+      radial-gradient(circle at 92% 10%, rgba(96, 165, 250, 0.12), transparent 42%),
+      var(--fv-surface);
+  }
+
+  .home-cta h2 {
+    font-size: clamp(1.8rem, 3vw, 2.4rem);
+  }
+
+  .home-cta p:not(.home-eyebrow) {
+    max-width: 38rem;
+    margin: 0.8rem 0 0;
+    font-size: 0.96rem;
+    line-height: 1.7;
+    color: var(--sl-color-gray-3);
+  }
+
+  .home-cta .home-actions {
+    margin-top: 0;
+  }
+
+  @media (max-width: 960px) {
+    .home-masthead,
+    .home-quickstart {
+      grid-template-columns: 1fr;
+    }
+
+    .home-terminal {
+      max-width: 34rem;
+    }
+
+    .home-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .home-card,
+    .home-card:nth-child(even) {
+      padding: 1.4rem 0;
+      border-left: 0;
+    }
+
+    .home-notes__grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 560px) {
+    .home-masthead h1 {
+      font-size: 2.8rem;
+    }
+
+    .home-section__head {
+      align-items: flex-start;
+    }
+  }
+</style>

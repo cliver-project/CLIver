@@ -6,14 +6,15 @@
     "dev": "astro dev",
     "start": "astro dev",
     "build": "astro build",
-    "preview": "astro preview"
+    "preview": "astro preview",
+    "generate-og": "node scripts/generate-og.mjs"
   },
   "dependencies": {
+    "@astrojs/rss": "^4.0.19",
     "@astrojs/starlight": "^0.34.0",
-
-    "astro": "^5.0.0",
-    "tailwindcss": "^3.4.0",
     "@astrojs/tailwind": "^6.0.0",
-    "sharp": "^0.33.0"
+    "astro": "^5.0.0",
+    "sharp": "^0.33.0",
+    "tailwindcss": "^3.4.0"
   }
 }

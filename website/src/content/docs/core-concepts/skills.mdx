@@ -42,7 +42,7 @@ keeps skill bodies out of context until activation.
 
 `run_skill(name, user_input, conversation=...)` appends an activation header (skill name and
 location, so bundled scripts are runnable) and the skill body to the single system message,
-then runs the normal Re-Act loop.
+then runs the normal agent loop.
 
 ```python
 result = await agent.run_skill("refund-policy", "Customer 12345 wants a refund", conversation=history)

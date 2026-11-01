@@ -1,0 +1,214 @@
+---
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+import PostCard from "../components/blog/PostCard.astro";
+import type { BlogPost } from "../data/blog-posts";
+import { formatPostDateLong } from "../data/blog-posts";
+
+interface Props {
+  post: BlogPost;
+  headings?: Array<{ depth: number; slug: string; text: string }>;
+  relatedPosts?: BlogPost[];
+}
+
+const { post, headings = [], relatedPosts = [] } = Astro.props;
+const base = import.meta.env.BASE_URL;
+const isDraft = post.draft;
+const site = Astro.site ?? new URL("https://cliver-project.github.io");
+const ogImage = new URL(`${base}og/blog-default.png`, site).href;
+const shareUrl = new URL(`${base}blog/${post.slug}/`, site).href;
+const shareText = encodeURIComponent(post.title);
+const tocHeadings = headings.filter((heading) => heading.depth === 2 || heading.depth === 3);
+const publishedDate = post.pubDate.toISOString();
+const updatedDate = post.updatedDate?.toISOString();
+const primaryTag = post.tags[0] ?? "Field note";
+const initials = post.author
+  .split(/\s+/)
+  .map((part) => part[0])
+  .join("")
+  .slice(0, 2)
+  .toUpperCase();
+
+const structuredData = {
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  headline: post.title,
+  description: post.description,
+  datePublished: publishedDate,
+  ...(updatedDate ? { dateModified: updatedDate } : {}),
+  author: { "@type": "Person", name: post.author },
+  publisher: { "@type": "Organization", name: "CLIver" },
+  mainEntityOfPage: shareUrl,
+  keywords: post.tags.join(", "),
+};
+
+const articleHead = [
+  { tag: "meta", attrs: { property: "og:image", content: ogImage } },
+  { tag: "meta", attrs: { property: "og:image:width", content: "1200" } },
+  { tag: "meta", attrs: { property: "og:image:height", content: "630" } },
+  { tag: "meta", attrs: { name: "twitter:image", content: ogImage } },
+  { tag: "meta", attrs: { property: "article:published_time", content: publishedDate } },
+  ...(updatedDate
+    ? [{ tag: "meta", attrs: { property: "article:modified_time", content: updatedDate } }]
+    : []),
+  ...post.tags.map((tag) => ({
+    tag: "meta",
+    attrs: { property: "article:tag", content: tag },
+  })),
+  ...(isDraft
+    ? [{ tag: "meta", attrs: { name: "robots", content: "noindex,nofollow" } }]
+    : []),
+  {
+    tag: "script",
+    attrs: { type: "application/ld+json" },
+    content: JSON.stringify(structuredData),
+  },
+];
+---
+
+<StarlightPage
+  frontmatter={{
+    title: post.title,
+    description: post.description,
+    template: "splash",
+    lastUpdated: post.updatedDate,
+    pagefind: !isDraft,
+    head: articleHead,
+  }}
+>
+  <div class="blog-progress" aria-hidden="true">
+    <span data-blog-progress></span>
+  </div>
+
+  <article class="blog-article" data-blog-article>
+    <nav class="blog-breadcrumb" aria-label="Breadcrumb">
+      <a href={`${base}blog/`}>Field Notes</a>
+      <span aria-hidden="true">/</span>
+      <span>{primaryTag}</span>
+    </nav>
+
+    {isDraft && (
+      <div class="blog-draft-banner" role="status">
+        <span class="blog-draft-pill">Draft</span>
+        Preview only. This note is not published and is excluded from the feed.
+      </div>
+    )}
+
+    <header class="blog-article__header">
+      <div class="blog-article__eyebrow">
+        <span class="blog-issue">No. {String(post.issue).padStart(2, "0")}</span>
+        <span>{post.series}</span>
+      </div>
+      <h1>{post.title}</h1>
+      <p class="blog-article__lede">{post.description}</p>
+      <div class="blog-byline">
+        <span class="blog-avatar" aria-hidden="true">{initials}</span>
+        <div>
+          <span class="blog-byline__name">{post.author}</span>
+          <span class="blog-byline__meta">
+            <time datetime={publishedDate}>{formatPostDateLong(post.pubDate)}</time>
+            <span aria-hidden="true">·</span>
+            <span>{post.readingTime}</span>
+          </span>
+        </div>
+      </div>
+    </header>
+
+    <div class="blog-article__layout">
+      <div class="blog-article__body">
+        <slot />
+
+        <footer class="blog-article__footer">
+          <div class="blog-article__tags" aria-label="Topics">
+            {post.tags.map((tag) => <span class="blog-tag">{tag}</span>)}
+          </div>
+          <div class="blog-share" aria-label="Share this note">
+            <span class="blog-share__label">Share</span>
+            <a
+              href={`https://x.com/intent/tweet?text=${shareText}&url=${encodeURIComponent(shareUrl)}`}
+              target="_blank"
+              rel="noopener noreferrer">X / Twitter</a
+            >
+            <a
+              href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`}
+              target="_blank"
+              rel="noopener noreferrer">LinkedIn</a
+            >
+            <a href={`${base}blog/rss.xml`}>RSS</a>
+          </div>
+        </footer>
+
+        <div class="blog-author-card">
+          <span class="blog-avatar blog-avatar--lg" aria-hidden="true">{initials}</span>
+          <div>
+            <p class="blog-author-card__name">{post.author}</p>
+            <p>
+              Building CLIver, an embeddable Python agent core. Field Notes is the lab
+              notebook: short posts, tested samples, and the trade-offs behind the API.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <aside class="blog-article__rail" aria-label="Article navigation">
+        {tocHeadings.length > 0 && (
+          <>
+            <details class="blog-toc blog-toc--mobile">
+              <summary>On this page</summary>
+              <nav>
+                <ol>
+                  {tocHeadings.map((heading) => (
+                    <li class:list={{ "blog-toc__sub": heading.depth === 3 }}>
+                      <a href={`#${heading.slug}`}>{heading.text}</a>
+                    </li>
+                  ))}
+                </ol>
+              </nav>
+            </details>
+
+            <div class="blog-toc blog-toc--desktop">
+              <p class="blog-toc__label">On this page</p>
+              <nav>
+                <ol>
+                  {tocHeadings.map((heading) => (
+                    <li class:list={{ "blog-toc__sub": heading.depth === 3 }}>
+                      <a href={`#${heading.slug}`}>{heading.text}</a>
+                    </li>
+                  ))}
+                </ol>
+              </nav>
+            </div>
+          </>
+        )}
+
+        <a class="blog-rail-link" href={`${base}blog/rss.xml`}>
+          <span class="blog-rail-link__icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24">
+              <circle cx="6.5" cy="17.5" r="2.2" fill="currentColor" />
+              <path d="M4 4.5a15.5 15.5 0 0 1 15.5 15.5M4 10a10 10 0 0 1 10 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" />
+            </svg>
+          </span>
+          <span>
+            <strong>Subscribe via RSS</strong>
+            <small>No email. No tracking.</small>
+          </span>
+        </a>
+      </aside>
+    </div>
+
+    {relatedPosts.length > 0 && (
+      <section class="blog-related" aria-labelledby="related-heading">
+        <div class="blog-section-heading">
+          <p class="blog-eyebrow">Keep reading</p>
+          <h2 id="related-heading">Related field notes</h2>
+        </div>
+        <div class="blog-grid blog-grid--related">
+          {relatedPosts.map((related) => <PostCard post={related} variant="compact" />)}
+        </div>
+      </section>
+    )}
+  </article>
+</StarlightPage>
+
+<script>
+  import "../scripts/blog";
+</script>

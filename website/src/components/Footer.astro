@@ -1,0 +1,105 @@
+---
+import LastUpdated from "virtual:starlight/components/LastUpdated";
+
+const base = import.meta.env.BASE_URL;
+---
+
+<footer class="site-footer">
+  <div class="site-footer__top">
+    <div>
+      <p class="site-footer__brand">CLIver</p>
+      <p class="site-footer__tagline">
+        An embeddable Python agent core. Loop-safe,
+        <span class="nowrap">model-agnostic</span>, and small enough to own.
+      </p>
+    </div>
+    <nav class="site-footer__links" aria-label="Footer">
+      <a href={`${base}getting-started/`}>Documentation</a>
+      <a href={`${base}blog/`}>Field Notes</a>
+      <a href={`${base}blog/rss.xml`}>RSS</a>
+      <a href="https://github.com/cliver-project/CLIver" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://pypi.org/project/cliver-core/" target="_blank" rel="noopener">PyPI</a>
+      <a href="https://github.com/cliver-project/CLIver/blob/main/LICENSE" target="_blank" rel="noopener">
+        Apache-2.0
+      </a>
+    </nav>
+  </div>
+  <div class="site-footer__bottom">
+    <span>© 2026 Lin Gao</span>
+    <LastUpdated />
+  </div>
+</footer>
+
+<style>
+  .site-footer {
+    margin-top: 4rem;
+    padding-top: 1.75rem;
+    border-top: 1px solid var(--fv-border);
+  }
+
+  .site-footer__top {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem 3rem;
+    align-items: flex-start;
+    justify-content: space-between;
+  }
+
+  .site-footer__brand {
+    margin: 0;
+    font-family: var(--fv-serif);
+    font-size: 1.35rem;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    color: var(--sl-color-white);
+  }
+
+  .site-footer__tagline {
+    max-width: 24rem;
+    margin: 0.35rem 0 0;
+    font-size: 0.88rem;
+    line-height: 1.6;
+    color: var(--sl-color-gray-3);
+  }
+
+  .site-footer__tagline .nowrap {
+    white-space: nowrap;
+  }
+
+  .site-footer__links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.25rem;
+    font-size: 0.84rem;
+  }
+
+  .site-footer__links a {
+    color: var(--sl-color-gray-2);
+    text-decoration: none;
+  }
+
+  .site-footer__links a:hover {
+    color: var(--fv-signal);
+  }
+
+  .site-footer__bottom {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem 1.5rem;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 1.75rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--fv-border);
+    font-family: var(--fv-mono);
+    font-size: 0.64rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--sl-color-gray-4);
+  }
+
+  .site-footer__bottom :global(p) {
+    margin: 0;
+    font-size: inherit;
+  }
+</style>

@@ -1,0 +1,56 @@
+---
+import LanguageSelect from "virtual:starlight/components/LanguageSelect";
+import SocialIcons from "virtual:starlight/components/SocialIcons";
+import ThemeSelect from "virtual:starlight/components/ThemeSelect";
+
+const base = import.meta.env.BASE_URL;
+---
+
+<div class="mobile-preferences">
+  <div class="mobile-preferences__links">
+    <a href={`${base}blog/`}>Field Notes</a>
+    <a href={`${base}blog/rss.xml`}>RSS</a>
+  </div>
+  <div class="mobile-preferences__controls">
+    <SocialIcons />
+    <ThemeSelect />
+    <LanguageSelect />
+  </div>
+</div>
+
+<style>
+  .mobile-preferences {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1rem;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.9rem 0;
+    border-top: 1px solid var(--fv-border);
+  }
+
+  .mobile-preferences__links {
+    display: flex;
+    gap: 1rem;
+    font-family: var(--fv-mono);
+    font-size: 0.66rem;
+    font-weight: 600;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+  }
+
+  .mobile-preferences__links a {
+    color: var(--sl-color-gray-2);
+    text-decoration: none;
+  }
+
+  .mobile-preferences__links a:hover {
+    color: var(--fv-signal);
+  }
+
+  .mobile-preferences__controls {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+  }
+</style>
