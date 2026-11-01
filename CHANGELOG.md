@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **cliver-core: declarative context compaction** — `context_compactor` may now return a
+  `CompactionPlan` instead of a complete history. Core validates the `keep_from` boundary
+  (inside the history, pointing at a `user` message), prepends the summary as
+  `[Compacted earlier context]`, preserves tool call/result pairs, and records the plan's usage
+  into `usage_total`. New `CompactionContext.split_at_user_turn()` / `.render()` and
+  `CompactionSplit.plan()` keep the boundary bound to the text the summarizer saw. Returning a
+  full `list[CLIverMessage]` remains supported as the escape hatch.
+- **cliver-core: `LlmCompactor`** — an opt-in, threshold-triggered summarization policy built on
+  plans. It is never installed automatically; applications must pass it to
+  `AgentCore(context_compactor=...)`.
+
 ## [0.3.0rc1] - 2026-11-01
 
 The 0.3 release candidate. The public `cliver-core` API is frozen: only bug fixes land before

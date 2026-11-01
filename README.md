@@ -83,7 +83,7 @@ is loaded automatically.
 - **Media capabilities** — image, video, text-to-speech, speech-to-text, embedding, and rerank
 - **Reliability** — same-purpose failover, run deadlines, and explicit credential rotation
 - **Structured output** — schema-validated `chat_structured()` with retries and usage accounting
-- **Context management** — caller-supplied compaction inside the run deadline
+- **Context management** — declarative compaction plans, an opt-in `LlmCompactor`, and a full-history escape hatch, all inside the run deadline
 - **System One** — decision-model tool/skill selection with a fail-open selector
 - **Embeddable API** — `AgentCore.chat()`, `.stream()`, and `.run_skill()` with no CLI
   dependencies

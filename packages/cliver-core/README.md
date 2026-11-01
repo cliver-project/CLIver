@@ -22,7 +22,7 @@ pre-release without `--pre`). Python 3.10–3.13. See
 - Ordered binding mounts with same-purpose retryable failover
 - `run_id` correlation, `run_timeout` deadlines, and `arefresh_credentials()`
 - `chat_structured()` with pydantic / JSON-Schema validation and retries
-- Caller-supplied `context_compactor` for long conversations
+- Caller-supplied `context_compactor` (declarative plans) plus an opt-in `LlmCompactor`
 - System One decision models and `SystemOneSelector`
 - A streamable-HTTP MCP session pool (`session_pool_size`)
 - DashScope, Qwen, and Qwen-Image chat/media brands
@@ -106,7 +106,9 @@ immediately. Chat is sticky after a switch, and streams switch only before the f
 `run_id` correlates inference, tool, and pipeline events; `run_timeout` bounds a whole run
 (preamble, model calls, tools, and handler awaits); `arefresh_credentials()` rebuilds providers
 after a credential rotation. A caller-supplied `context_compactor` can replace history once per
-loop iteration before the model call.
+loop iteration before the model call: return a `CompactionPlan` and core applies it safely, or
+return a full history as an escape hatch. `LlmCompactor` is an opt-in reference policy that is
+never installed automatically.
 
 `chat_structured()` validates a pydantic model or JSON-Schema dict and retries invalid output:
 

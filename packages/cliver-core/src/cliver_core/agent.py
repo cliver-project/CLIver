@@ -22,7 +22,9 @@ from cliver_core import capabilities
 from cliver_core.bindings import CapabilityNotSupported, ModelBinding, ModelBindings
 from cliver_core.compaction import (
     CompactionContext,
+    CompactionPlan,
     ContextCompactor,
+    materialize_compaction,
     validate_compacted_history,
 )
 from cliver_core.errors import ProviderError, RunTimeoutError
@@ -1315,9 +1317,10 @@ class AgentCore:
         """Run the seam once before a model call; core re-attaches the system message.
 
         The compactor sees a fresh list of the non-system history; ``None``
-        leaves the history untouched.  A returned history is validated before
-        it can reach a provider.  Exceptions propagate to the caller and run
-        inside the run deadline.
+        leaves the history untouched.  A returned plan is materialized by
+        core (validate, prepend the summary, record its usage); a returned
+        history is validated as-is.  Nothing unvalidated reaches a provider.
+        Exceptions propagate to the caller and run inside the run deadline.
         """
         system = messages[0] if messages and messages[0].role == "system" else None
         context = CompactionContext(
@@ -1333,7 +1336,10 @@ class AgentCore:
             result = await result
         if result is None:
             return messages
-        compacted = validate_compacted_history(result)
+        if isinstance(result, CompactionPlan):
+            compacted = materialize_compaction(result, context)
+        else:
+            compacted = validate_compacted_history(result)
         return ([system] if system is not None else []) + compacted
 
     async def _with_run_deadline(self, awaitable: Awaitable[_T], timeout: float | None, run_id: str) -> _T:

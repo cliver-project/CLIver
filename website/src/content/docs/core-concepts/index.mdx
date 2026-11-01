@@ -74,7 +74,7 @@ content arrives. Both accept the same per-call options:
 | `options` | Wire request options; call site overrides binding defaults |
 | `max_iterations` | Max loop iterations (default 50) |
 | `execution_policy` | Ambient tool-execution policy for this call |
-| `context_compactor` | Caller-supplied trim/compact hook; see [Context Window](context-window/) |
+| `context_compactor` | Caller-supplied compaction (plan or full history); see [Context Window](context-window/) |
 | `skill_dispatch` | Advertise the skill catalogue and dispatch tools (default on) |
 
 When finished, call `await agent.aclose()` to close providers the agent built.

@@ -19,7 +19,7 @@ import pytest
 
 from cliver_core.agent import AgentCore
 from cliver_core.bindings import ModelBinding, ModelBindings
-from cliver_core.compaction import CompactionContext
+from cliver_core.compaction import CompactionContext, CompactionPlan, render_messages
 from cliver_core.errors import ProviderError, RunTimeoutError
 from cliver_core.messages import CLIverMessage, CLIverMessageChunk, ToolCall, UsageInfo
 from cliver_core.provider import CLIverRequest, CLIverResponse, Provider
@@ -120,6 +120,17 @@ def _response(content: str | None, *, tool_calls: list[ToolCall] | None = None, 
     return CLIverResponse(
         message=CLIverMessage(role="assistant", content=content, tool_calls=tool_calls),
         usage=usage,
+    )
+
+
+def _context(messages: list[CLIverMessage], *, last_usage: UsageInfo | None = None) -> CompactionContext:
+    return CompactionContext(
+        messages=list(messages),
+        iteration=0,
+        run_id="run-1",
+        model="mock-model",
+        last_usage=last_usage,
+        record_usage=lambda usage: None,
     )
 
 
@@ -472,3 +483,182 @@ async def test_compaction_runs_inside_the_run_deadline():
         await agent.chat("hi", context_compactor=slow_compactor, run_timeout=0.05)
 
     assert provider.requests == []
+
+
+# ── declarative compaction plans ─────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_plan_path_replaces_the_prefix_and_records_usage():
+    usage_1 = UsageInfo(input_tokens=3, output_tokens=1)
+    usage_2 = UsageInfo(input_tokens=4, output_tokens=2)
+    summary_usage = UsageInfo(input_tokens=10, output_tokens=2)
+    provider = _ScriptedProvider(
+        [
+            _response(None, tool_calls=[ToolCall(id="call_1", name="echo", args={"value": "hi"})], usage=usage_1),
+            _response("done", usage=usage_2),
+        ]
+    )
+    seen: list[CompactionContext] = []
+
+    def compactor(context: CompactionContext):
+        seen.append(context)
+        if context.iteration == 0:
+            return None
+        return CompactionPlan(keep_from=2, summary="summary of q1/a1", usage=summary_usage)
+
+    conversation = [
+        CLIverMessage(role="user", content="q1"),
+        CLIverMessage(role="assistant", content="a1"),
+    ]
+    agent = _agent(provider)
+
+    response = await agent.chat(
+        "new question",
+        system_prompt="sys",
+        conversation=conversation,
+        context_compactor=compactor,
+    )
+
+    assert [message.role for message in seen[1].messages] == ["user", "assistant", "user", "assistant", "tool"]
+
+    second = provider.requests[1].messages
+    assert [message.role for message in second] == ["system", "user", "user", "assistant", "tool"]
+    assert second[0].content == "sys"
+    assert second[1].content == "[Compacted earlier context]\nsummary of q1/a1"
+    assert second[2].content == "new question"
+    assert response.usage_total == UsageInfo(input_tokens=17, output_tokens=5)
+
+
+@pytest.mark.asyncio
+async def test_plan_can_drop_the_prefix_without_a_summary():
+    provider = _ScriptedProvider([_response("ok")])
+    conversation = [
+        CLIverMessage(role="user", content="q1"),
+        CLIverMessage(role="assistant", content="a1"),
+    ]
+    agent = _agent(provider)
+
+    response = await agent.chat(
+        "new question",
+        conversation=conversation,
+        context_compactor=lambda context: CompactionPlan(keep_from=2),
+    )
+
+    assert response.message.content == "ok"
+    assert [message.content for message in provider.requests[0].messages] == ["new question"]
+
+
+@pytest.mark.asyncio
+async def test_plan_keep_from_must_point_at_a_user_message():
+    provider = _ScriptedProvider([_response("unused")])
+    conversation = [
+        CLIverMessage(role="user", content="q1"),
+        CLIverMessage(role="assistant", content="a1"),
+    ]
+    agent = _agent(provider)
+
+    with pytest.raises(ValueError, match="user message"):
+        await agent.chat(
+            "new question",
+            conversation=conversation,
+            context_compactor=lambda context: CompactionPlan(keep_from=1),
+        )
+
+    assert provider.requests == []
+
+
+@pytest.mark.asyncio
+async def test_plan_keep_from_must_point_inside_the_history():
+    provider = _ScriptedProvider([_response("unused")])
+    agent = _agent(provider)
+
+    with pytest.raises(ValueError, match="inside"):
+        await agent.chat("hi", context_compactor=lambda context: CompactionPlan(keep_from=5))
+
+    assert provider.requests == []
+
+
+def test_compaction_plan_validates_its_fields():
+    with pytest.raises(ValueError, match="keep_from"):
+        CompactionPlan(keep_from=0)
+    with pytest.raises(ValueError, match="keep_from"):
+        CompactionPlan(keep_from=True)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="summary"):
+        CompactionPlan(keep_from=1, summary="   ")
+    with pytest.raises(ValueError, match="summary"):
+        CompactionPlan(keep_from=1, summary=123)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="usage"):
+        CompactionPlan(keep_from=1, usage="nope")  # type: ignore[arg-type]
+
+
+def test_split_at_user_turn_keeps_tool_pairs_intact():
+    messages = [
+        CLIverMessage(role="user", content="q1"),
+        CLIverMessage(
+            role="assistant",
+            content=None,
+            tool_calls=[ToolCall(id="call_1", name="echo", args={})],
+        ),
+        CLIverMessage(role="tool", content="result", tool_call_id="call_1"),
+        CLIverMessage(role="user", content="q2"),
+        CLIverMessage(role="assistant", content="a2"),
+        CLIverMessage(role="user", content="q3"),
+    ]
+    context = _context(messages)
+
+    split = context.split_at_user_turn(2)
+    assert split.keep_from == 3
+    assert [message.role for message in split.older] == ["user", "assistant", "tool"]
+    assert [message.content for message in split.recent] == ["q2", "a2", "q3"]
+
+    last_turn = context.split_at_user_turn(1)
+    assert last_turn.keep_from == 5
+    assert [message.content for message in last_turn.recent] == ["q3"]
+
+    keep_all = context.split_at_user_turn(6)
+    assert keep_all.keep_from == 0
+    assert keep_all.older == []
+    assert [message.content for message in keep_all.recent] == ["q1", None, "result", "q2", "a2", "q3"]
+
+    with pytest.raises(ValueError, match="keep_turns"):
+        context.split_at_user_turn(0)
+    with pytest.raises(ValueError, match="keep_turns"):
+        context.split_at_user_turn(True)  # type: ignore[arg-type]
+
+
+def test_split_plan_binds_the_same_boundary():
+    messages = [
+        CLIverMessage(role="user", content="q1"),
+        CLIverMessage(role="assistant", content="a1"),
+        CLIverMessage(role="user", content="q2"),
+        CLIverMessage(role="assistant", content="a2"),
+        CLIverMessage(role="user", content="q3"),
+    ]
+    context = _context(messages)
+
+    split = context.split_at_user_turn(2)
+    plan = split.plan(summary="summary", usage=UsageInfo(input_tokens=1, output_tokens=1))
+
+    assert plan.keep_from == split.keep_from
+
+    with pytest.raises(ValueError, match="keep_from"):
+        context.split_at_user_turn(6).plan(summary="summary")
+
+
+def test_render_messages_formats_tool_calls_and_results():
+    text = render_messages(
+        [
+            CLIverMessage(role="user", content="q1"),
+            CLIverMessage(
+                role="assistant",
+                content=None,
+                tool_calls=[ToolCall(id="call_1", name="echo", args={"value": "hi"})],
+            ),
+            CLIverMessage(role="tool", content="echo: hi", tool_call_id="call_1"),
+        ]
+    )
+
+    assert "user: q1" in text
+    assert 'assistant -> tools: echo({"value": "hi"})' in text
+    assert "tool result: echo: hi" in text

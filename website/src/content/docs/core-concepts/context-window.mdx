@@ -3,9 +3,9 @@ title: Context Window
 ---
 
 The agent loop can only grow its history: every tool batch appends an assistant message and
-one tool result per call. `AgentCore` owns the loop but **ships no compression policy** — no
-tokenizer, no threshold, no summarization model, no persistence. It exposes one seam: a
-`context_compactor` invoked before every model call.
+one tool result per call. `AgentCore` owns the loop but **ships no automatic compression
+policy** — nothing compacts unless you supply a `context_compactor`. It is invoked once per
+loop iteration, before the model call:
 
 ```python
 agent = AgentCore(bindings, context_compactor=my_compactor)      # constructor default
@@ -15,9 +15,16 @@ response = await agent.chat(prompt, context_compactor=other)     # per-call over
 response = await agent.chat(prompt, context_compactor=None)      # disabled for this call
 ```
 
-The compactor is a sync or async callable. It receives a `CompactionContext` and returns a
-replacement history, or `None` to leave the history unchanged. `chat()`, `stream()`,
-`run_skill()`, and `chat_structured()` all accept the same per-call parameter.
+The compactor is a sync or async callable receiving a `CompactionContext`. It can return:
+
+| Return | Meaning |
+|--------|---------|
+| `CompactionPlan` | **Recommended.** Declare what to compact; core materializes the replacement history |
+| `list[CLIverMessage]` | Escape hatch: return a complete, already-validated history |
+| `None` | Leave the history unchanged — the steady-state path |
+
+`chat()`, `stream()`, `run_skill()`, and `chat_structured()` all accept the same per-call
+parameter.
 
 ## What the Compactor Sees
 
@@ -25,24 +32,122 @@ replacement history, or `None` to leave the history unchanged. `chat()`, `stream
 from cliver_core import CompactionContext
 
 
-async def my_compactor(context: CompactionContext) -> list | None:
+async def my_compactor(context: CompactionContext):
     used = context.last_usage.input_tokens if context.last_usage else 0
     if used < 60_000:
         return None
-    return compact(context.messages)
+    return compact(context)
 ```
 
-| Field | Meaning |
-|-------|---------|
+| Field / method | Meaning |
+|----------------|---------|
 | `messages` | The run history **excluding** the core-owned system message — a fresh list; treat the message objects as read-only |
 | `iteration` | Zero-based loop iteration about to call the model |
 | `run_id` | The run's correlation id (same one on events and the response) |
 | `model` | The active llm binding's model before failover for this call |
 | `last_usage` | The previous iteration's usage for this run; `None` on the first iteration |
-| `record_usage(usage)` | Fold usage from a model call the compactor made (for example a summarization call) into the run total |
+| `record_usage(usage)` | Fold usage from a model call the compactor made (for example a summarization call) into the run total — the plan path does this for you |
+| `split_at_user_turn(keep_turns)` | Split the history before the Nth-from-last user turn; returns a `CompactionSplit` |
+| `render(messages)` | Format messages as compact text for a summarizer prompt |
 
 `last_usage.input_tokens` is the previous model call's input — the best available signal that
 the next call may exceed the window. It is per call, not cumulative.
+
+## Declarative Plans
+
+A plan describes the change; core performs it. That keeps the structural invariants — cutting at
+a safe boundary, preserving tool call/result pairs, framing the summary, and accounting for its
+usage — in one place instead of in every application's compactor.
+
+```python
+from cliver_core import CompactionContext, CompactionPlan
+
+SUMMARIZE = (
+    "Summarize the earlier part of this agent run for the same assistant. "
+    "Keep facts, decisions, tool results that still matter, and open tasks. "
+    "Be compact and do not invent."
+)
+
+
+async def my_compactor(context: CompactionContext) -> CompactionPlan | None:
+    used = context.last_usage.input_tokens if context.last_usage else 0
+    if used < 60_000:
+        return None
+
+    split = context.split_at_user_turn(keep_turns=2)
+    if not split.older:          # nothing to drop yet
+        return None
+
+    response = await summarizer.chat(f"{SUMMARIZE}\n\n{context.render(split.older)}")
+    if not response.message.content:
+        return None
+
+    return split.plan(summary=response.message.content, usage=response.usage_total)
+```
+
+| `CompactionPlan` field | Meaning |
+|------------------------|---------|
+| `keep_from` | Index of the first retained message in `context.messages`; must be positive and point at a `user` message |
+| `summary` | Optional replacement text; core prepends it as one `user` message beginning with `[Compacted earlier context]` |
+| `usage` | Optional usage from your summarization call; core adds it to the run's `usage_total` once the resulting history is accepted |
+
+**What core does with a plan:**
+
+1. Rejects a `keep_from` outside the history, or one that does not point at a `user` message —
+   `ValueError` before the model call.
+2. Builds `[summary_message, *messages[keep_from:]]` (the summary message is omitted when
+   `summary` is `None`).
+3. Validates the result (tool pairs intact, ends with `user` or `tool`).
+4. Records `plan.usage` into the run's usage total.
+
+`split_at_user_turn(keep_turns)` returns a `CompactionSplit` with `keep_from`, `older`, and
+`recent`. Its boundary is always a user message, so a suffix that starts there can never contain
+a dangling tool call/result pair. `split.plan(...)` binds that same boundary to the summary, so
+the plan cannot drift from the text the summarizer actually saw. It raises `ValueError` when the
+split drops nothing (`keep_from == 0`) — check `split.older` first. `keep_turns` must be at
+least 1.
+
+## Built-in `LlmCompactor`
+
+`cliver-core` ships the pattern above as an opt-in class. Core never installs it; pass it
+explicitly:
+
+```python
+from cliver_core import AgentCore, LlmCompactor, ModelBindings, presets
+
+# One summarizer per worker / event loop, like any other AgentCore.
+summarizer = AgentCore(ModelBindings(llm=presets.deepseek(api_key="...")))
+
+compactor = LlmCompactor(summarizer, threshold_tokens=60_000, keep_turns=2)
+agent = AgentCore(bindings, context_compactor=compactor)
+```
+
+- Triggers when `last_usage.input_tokens >= threshold_tokens`. It is silent on the first
+  iteration and whenever the history holds no complete older turn.
+- Keeps the last `keep_turns` user turns verbatim; the summarized prefix is exactly
+  `split.older`, rendered with `context.render(...)`.
+- Returns a plan, so the summarization call's `usage_total` is recorded automatically. An empty
+  or missing summary leaves the history unchanged (its usage is still recorded).
+- The summarizer is anything with an async `chat(prompt)` returning a `CLIverResponse` — usually
+  a second `AgentCore` bound to a cheaper model. Its run is a separate run with its own
+  `run_id` and events.
+- Import as `from cliver_core import LlmCompactor`; `CompactionPlan` and `CompactionSplit` are
+  exported alongside it.
+
+## Escape Hatch: Return a Full History
+
+Returning `list[CLIverMessage]` still works — it is the path for a deterministic trim, a
+non-LLM policy, or a history loaded from your own store. A returned list is validated before it
+can reach a provider. `ValueError` is raised — before the model call — when it:
+
+- is empty, or contains a `system` message;
+- has a tool result with no matching assistant tool call;
+- leaves an assistant tool call without all of its tool results;
+- does not end with a `user` or `tool` message, so the model has a turn to answer.
+
+Core re-attaches the system message to whatever history you return. If you take this path and
+make your own model call, record its usage with `context.record_usage(...)`; the plan path is
+the one that does it for you.
 
 ## Invocation Contract
 
@@ -54,124 +159,18 @@ the next call may exceed the window. It is per call, not cumulative.
 - **Inside the run deadline.** `run_timeout` covers compaction model calls too. Exceptions
   propagate; a slow summarizer consumes the run's budget.
 - **The system message stays core-owned.** It is never passed to the compactor and is
-  re-attached to whatever history the compactor returns.
+  re-attached to whatever history results.
 - **Streaming uses the same placement.** The replacement is visible to the next model call; the
-  terminal trace's entries carry a `usage_total` that includes `record_usage` calls.
-
-## Returned-History Rules
-
-A returned list is validated before it can reach a provider. `ValueError` is raised — before the
-model call — when it:
-
-- is empty, or contains a `system` message;
-- has a tool result with no matching assistant tool call;
-- leaves an assistant tool call without all of its tool results;
-- does not end with a `user` or `tool` message, so the model has a turn to answer.
-
-Return `None` on the steady-state path. A threshold check should be cheap; the compactor runs on
-every iteration even when it ends up doing nothing.
+  terminal trace's entries carry a `usage_total` that includes recorded compaction usage.
 
 ## Usage Accounting
 
-- Non-streaming: usage recorded through `context.record_usage(...)` is included in
-  `response.usage_total`.
+- Non-streaming: usage recorded through `context.record_usage(...)` — and `plan.usage` on the
+  plan path — is included in `response.usage_total`.
 - Streaming: each terminal trace entry has a `usage_total` as of that iteration.
 - The compactor's own `AgentCore` run (the summarizer) is a separate run with its own events and
-  usage; record its `usage_total` on the outer context so the caller's meter stays complete.
-
-## Reference: an LLM Compactor
-
-This is application policy, not core. It summarizes older turns with a cheap model when the
-previous call approached the model's context window. The summarizer is created once per worker,
-like any other `AgentCore`.
-
-```python
-import json
-
-from cliver_core import (
-    AgentCore,
-    CLIverMessage,
-    CompactionContext,
-    ModelBinding,
-    ModelBindings,
-)
-
-
-class LlmCompactor:
-    """Summarize older turns once the previous call crossed a threshold."""
-
-    def __init__(
-        self,
-        summarizer: AgentCore,
-        *,
-        threshold_tokens: int,
-        keep_turns: int = 2,
-    ) -> None:
-        self.summarizer = summarizer
-        self.threshold_tokens = threshold_tokens
-        self.keep_turns = keep_turns
-
-    async def __call__(self, context: CompactionContext) -> list[CLIverMessage] | None:
-        used = context.last_usage.input_tokens if context.last_usage else 0
-        if used < self.threshold_tokens:
-            return None
-
-        older, recent = _split_at_turns(context.messages, self.keep_turns)
-        if not older:
-            return None
-
-        response = await self.summarizer.chat(
-            "Summarize the earlier part of this agent run for the same assistant. "
-            "Keep facts, decisions, tool results that still matter, and open tasks. "
-            "Be compact and do not invent.\n\n" + _render(older)
-        )
-        if response.usage_total is not None:
-            context.record_usage(response.usage_total)
-
-        summary = CLIverMessage(
-            role="user",
-            content="[Compacted earlier context]\n" + (response.message.content or ""),
-        )
-        return [summary, *recent]
-
-
-def _split_at_turns(messages, keep_turns: int):
-    """Cut before the Nth-from-last user turn, so tool pairs stay intact."""
-    user_positions = [i for i, message in enumerate(messages) if message.role == "user"]
-    if len(user_positions) <= keep_turns:
-        return [], list(messages)
-    cut = user_positions[-keep_turns]
-    return list(messages[:cut]), list(messages[cut:])
-
-
-def _render(messages) -> str:
-    lines = []
-    for message in messages:
-        if message.role == "assistant" and message.tool_calls:
-            calls = ", ".join(
-                f"{call.name}({json.dumps(call.args, ensure_ascii=False)})"
-                for call in message.tool_calls
-            )
-            lines.append(f"assistant -> tools: {calls}")
-        elif message.role == "tool":
-            lines.append(f"tool result: {message.content}")
-        else:
-            lines.append(f"{message.role}: {message.content}")
-    return "\n".join(lines)
-
-
-# Once per worker / event loop:
-summarizer = AgentCore(
-    ModelBindings(llm=ModelBinding.llm(model="cheap-model", api_key=..., base_url=...)),
-)
-compactor = LlmCompactor(summarizer, threshold_tokens=60_000)
-agent = AgentCore(bindings, context_compactor=compactor)
-```
-
-Cutting at a user-turn boundary is what keeps the retained suffix valid: tool calls and their
-results only occur within a turn, so a suffix that starts at a user message can never contain a
-dangling pair. The summary is marked as a user message so it is distinguishable from real user
-turns in logs and prompts.
+  usage; `LlmCompactor` attaches its `usage_total` to the plan so the caller's meter stays
+  complete.
 
 ## Operational Notes
 
@@ -184,7 +183,8 @@ turns in logs and prompts.
   compacted history, store the summary in your conversation store and pass it as
   `conversation=`.
 - **Decide the failure policy.** A summarizer failure propagates and fails the run. If you
-  prefer a fallback, catch it inside the compactor and return a deterministic trim instead.
+  prefer a fallback, catch it inside the compactor and return a deterministic trim (or `None`)
+  instead.
 - **Keep the steady-state path cheap.** The compactor runs before every model call; a token
   check that returns `None` should not make a network request.
 - **Do not store per-run state on the agent.** Use the context, `run_id`, or application-owned
