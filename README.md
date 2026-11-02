@@ -13,13 +13,14 @@ CLIver is an **embeddable agent core with a companion CLI**, built from two pack
   ASR, embed, rerank), nine built-in tools, Agent Skills, MCP, and opt-in permission and
   execution-policy axes. No CLI, database, or config files — Python objects in, messages out.
 - **`cliver`** — the CLI application built on `cliver-core`: config-path and skill-discovery
-  conventions plus a one-shot `cliver` command with interactive tool approval. It remains
-  experimental and is not on PyPI yet.
+  conventions plus a `cliver` command that runs one task per invocation or starts a streaming
+  interactive REPL, with interactive tool approval in both modes. It remains experimental and
+  is not on PyPI yet.
 
 `cliver-core` 0.3 is the API-stability series: the public API is frozen at release-candidate
 quality, and only bug fixes land before the `0.3.0` final. The `cliver` CLI is for tinkering:
-run one-shot agent tasks with your own skills and tools, approve mutating calls interactively,
-and inspect tool events. See
+run one-shot tasks or a multi-turn REPL with your own skills and tools, approve mutating calls
+interactively, and inspect tool events. See
 [Stability & Versioning](https://cliver-project.github.io/CLIver/getting-started/stability/)
 for the support policy.
 
@@ -55,7 +56,8 @@ capabilities, and the full API.
 
 ### From the terminal
 
-The `cliver` CLI lives in this repository (not on PyPI yet) and runs one task per invocation:
+The `cliver` CLI lives in this repository (not on PyPI yet). With a prompt it runs one task;
+with no prompt on a terminal it starts a streaming REPL:
 
 ```bash
 export CLIVER_MODEL=deepseek-v4-flash
@@ -63,12 +65,14 @@ export CLIVER_PROVIDER=deepseek        # or CLIVER_BASE_URL for any compatible e
 export DEEPSEEK_API_KEY=...            # or CLIVER_API_KEY
 
 uv run cliver --yes "Read pyproject.toml and summarize the dependencies."
+uv run cliver --yes                    # interactive REPL: /help, /clear, /exit
 ```
 
 `--yes` approves ASK tools without prompting; without it, safe tools still run and each ASK
 tool asks on the terminal (non-interactive runs deny them). `--skill NAME` runs a skill
 explicitly, `--cwd DIR` selects the project root for skill discovery, and `{config_dir}/.env`
-is loaded automatically.
+is loaded automatically. In the REPL, each turn streams its answer and keeps the conversation
+for follow-ups.
 
 ## Built-in Capabilities
 

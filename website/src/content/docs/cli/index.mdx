@@ -3,8 +3,8 @@ title: CLI Application
 ---
 
 `cliver` is the CLI application layered on `cliver-core`. It provides CLIver's config-directory
-and skill-discovery conventions, and runs one agent task per invocation. An interactive TUI is
-not built yet.
+and skill-discovery conventions, and runs either one agent task per invocation or an interactive
+REPL session.
 
 The CLI is not published to PyPI; run it from a repository checkout after `make init`.
 
@@ -35,6 +35,38 @@ Piped stdin works as the prompt:
 git diff | uv run cliver --yes "Review this diff for correctness problems."
 ```
 
+### Interactive REPL
+
+Run `cliver` with no prompt on a terminal to start the REPL:
+
+```bash
+uv run cliver --yes
+```
+
+```
+cliver REPL (deepseek-v4-flash) — /help for commands, /exit to quit.
+cliver> Summarize the agent loop.
+...
+cliver> Now do the same in one sentence.
+...
+cliver> /exit
+```
+
+Each turn streams the answer to stdout and keeps the conversation, so follow-up questions see
+the earlier turns. Tool activity still prints to stderr through the event logger, and ASK tools
+use the same permission gate — pass `--yes` to approve them, or answer the prompt per call.
+Commands:
+
+| Command | Effect |
+|---|---|
+| `/help` | Show the command list |
+| `/clear` | Forget the conversation and start fresh |
+| `/exit`, `/quit`, `exit`, `quit` | Leave the REPL (Ctrl-D also works) |
+
+Ctrl-C at the prompt clears the line; Ctrl-C during a turn cancels that turn and keeps the
+session alive. The REPL requires both stdin and stdout to be terminals, so redirecting either
+one falls back to one-shot mode.
+
 ### Configuration
 
 | Setting | Flag | Environment |
@@ -52,6 +84,11 @@ place for keys.
 
 Use `--provider` for a brand with a default endpoint, or `--base-url` for anything else
 (Ollama, vLLM, a gateway). `--max-iterations` bounds the agent loop (default 50).
+
+`CLIVER_BASE_URL` does not imply a protocol: `CLIVER_PROTOCOL` defaults to `openai`. When you
+point at an Anthropic-compatible path — for example DeepSeek's `https://api.deepseek.com/anthropic`
+— also set `CLIVER_PROTOCOL=anthropic`. A mismatch surfaces as an HTTP 404, and the CLI prints
+the endpoint and protocol it used to make the cause obvious.
 
 ## System One and Tool Selection
 

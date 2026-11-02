@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **cliver: interactive REPL** — running `cliver` with no prompt on a terminal now starts a
+  streaming, multi-turn session instead of erroring. Each turn keeps the conversation for
+  follow-ups; `/help`, `/clear`, `/exit` (or `/quit`) and Ctrl-D manage the session. Tool
+  events and the SAFE/ASK permission gate behave exactly as in one-shot mode. Piped stdin and
+  explicit prompts still run one-shot. Bare `exit` / `quit` also leave the session.
+- **cliver: clean failure reporting** — configuration errors print a one-line
+  `cliver: error: ...` (exit 2) instead of a traceback; provider failures print the error plus
+  the endpoint and protocol used (exit 1), and Ctrl-C exits 130. In the REPL, provider errors
+  include the same endpoint line and keep the session alive.
 - **cliver-core: declarative context compaction** — `context_compactor` may now return a
   `CompactionPlan` instead of a complete history. Core validates the `keep_from` boundary
   (inside the history, pointing at a `user` message), prepends the summary as
