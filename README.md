@@ -17,8 +17,8 @@ CLIver is an **embeddable agent core with a companion CLI**, built from two pack
   interactive REPL, with interactive tool approval in both modes. It remains experimental and
   is not on PyPI yet.
 
-`cliver-core` 0.3 is the API-stability series: the public API is frozen at release-candidate
-quality, and only bug fixes land before the `0.3.0` final. The `cliver` CLI is for tinkering:
+`cliver-core` 0.3 is the first stable series: the public API is frozen, and `0.3.x` patch
+releases contain bug fixes only. The `cliver` CLI is for tinkering:
 run one-shot tasks or a multi-turn REPL with your own skills and tools, approve mutating calls
 interactively, and inspect tool events. See
 [Stability & Versioning](https://cliver-project.github.io/CLIver/getting-started/stability/)
@@ -26,11 +26,10 @@ for the support policy.
 
 ## Quick Start
 
-Install the core library (`0.3.0rc1` is a release candidate — pin the exact version; Python
-3.10–3.13):
+Install the core library (Python 3.10–3.13):
 
 ```bash
-pip install cliver-core==0.3.0rc1
+pip install cliver-core==0.3.0
 ```
 
 ### As a library

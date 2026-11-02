@@ -12,6 +12,7 @@ import asyncio
 from cliver_core import AgentCore, ModelBindings, presets, tool
 from cliver_core.provider import CLIverResponse
 
+
 # region: tool
 @tool(name="word_count", description="Count the words in a text.")
 def word_count(text: str) -> list[dict]:

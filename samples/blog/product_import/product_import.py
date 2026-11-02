@@ -12,6 +12,7 @@ import asyncio
 from cliver_core import AgentCore, ModelBindings, StructuredResponse, presets
 from pydantic import BaseModel, Field
 
+
 # region: schema
 class Product(BaseModel):
     name: str = Field(description="Product name")

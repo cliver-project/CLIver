@@ -8,13 +8,12 @@ No CLI, no database, no config files — you pass Python objects in and get mess
 ## Install
 
 ```bash
-pip install cliver-core==0.3.0rc1          # core library + MCP client (stdio / streamable HTTP)
-pip install "cliver-core[local]==0.3.0rc1" # + in-process local embed / rerank / System One models
+pip install cliver-core==0.3.0          # core library + MCP client (stdio / streamable HTTP)
+pip install "cliver-core[local]==0.3.0" # + in-process local embed / rerank / System One models
 ```
 
-`0.3.0rc1` is the release candidate for the 0.3 API-stability series: feature-complete and
-API-frozen, with only bug fixes before `0.3.0`. Pin the exact version (an exact pin selects the
-pre-release without `--pre`). Python 3.10–3.13. See
+`0.3.0` is the first stable release of the 0.3 API series: the public API is frozen, with bug
+fixes only in `0.3.x` patch releases. Python 3.10–3.13. See
 [Stability & Versioning](https://cliver-project.github.io/CLIver/getting-started/stability/).
 
 ## 0.3 highlights
@@ -143,9 +142,9 @@ Run embedding, rerank, and System One decision models in-process — no endpoint
 pull torch, so they are opt-in:
 
 ```bash
-pip install "cliver-core[local-st]==0.3.0rc1"     # sentence-transformers embeddings
-pip install "cliver-core[local-flag]==0.3.0rc1"   # FlagEmbedding embeddings + rerank
-pip install "cliver-core[local]==0.3.0rc1"        # all three local backends
+pip install "cliver-core[local-st]==0.3.0"     # sentence-transformers embeddings
+pip install "cliver-core[local-flag]==0.3.0"   # FlagEmbedding embeddings + rerank
+pip install "cliver-core[local]==0.3.0"        # all three local backends
 ```
 
 ```python

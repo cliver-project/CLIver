@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-02
+
+The first stable release of the 0.3 series. The public `cliver-core` API is frozen; only bug
+fixes land in `0.3.x` patch releases. The `cliver` CLI remains experimental and is not
+published to PyPI.
+
 ### Added
 
 - **cliver: interactive REPL** — running `cliver` with no prompt on a terminal now starts a
@@ -28,6 +34,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **cliver-core: `LlmCompactor`** — an opt-in, threshold-triggered summarization policy built on
   plans. It is never installed automatically; applications must pass it to
   `AgentCore(context_compactor=...)`.
+
+### Upgrade Notes from 0.3.0rc1
+
+- Pin exactly: `pip install cliver-core==0.3.0`.
+- No public API changes since `0.3.0rc1`; the additions are backward-compatible.
 
 ## [0.3.0rc1] - 2026-11-01
 

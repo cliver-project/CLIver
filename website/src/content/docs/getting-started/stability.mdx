@@ -2,9 +2,9 @@
 title: Stability & Versioning
 ---
 
-`0.3.0rc1` is the release candidate for the 0.3 series. The public `cliver-core` API is frozen:
-only bug fixes land before `0.3.0`. The `cliver` CLI application remains experimental and is not
-published to PyPI.
+`0.3.0` is the first stable release of the 0.3 series. The public `cliver-core` API is frozen:
+`0.3.x` patch releases contain bug fixes only. The `cliver` CLI application remains experimental
+and is not published to PyPI.
 
 ## What counts as public API
 
@@ -22,8 +22,8 @@ internal. They may change without notice.
   release (`0.4.0`).
 - **Patch releases** (`0.3.1`) contain bug fixes only.
 - **Deprecations** are announced in the changelog for at least one minor release before removal.
-- **Pre-releases** (`a`, `b`, `rc`) are not selected by default. Pin exactly
-  (`cliver-core==0.3.0rc1`) or pass `--pre`.
+- **Pre-releases** (`a`, `b`, `rc`) are not selected by default. Pin the exact pre-release or
+  pass `--pre`.
 - `--pre` also allows pre-releases of transitive dependencies. Prefer the exact pin.
 
 ## Python support
