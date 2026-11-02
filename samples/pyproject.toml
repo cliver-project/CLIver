@@ -1,0 +1,23 @@
+[project]
+name = "cliver-samples"
+version = "0.0.0"
+description = "Runnable examples for the CLIver Field Notes blog"
+requires-python = ">=3.10"
+dependencies = ["cliver-core"]
+
+[dependency-groups]
+dev = ["pytest>=7.0.0", "pytest-asyncio>=1.2.0"]
+
+[tool.uv]
+# Samples are demos, not a distribution: resolve their dependencies in the
+# workspace environment without building or installing this project.
+package = false
+
+[tool.uv.sources]
+cliver-core = { workspace = true }
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+pythonpath = ["."]
+testpaths = ["blog"]
+addopts = "-ra"

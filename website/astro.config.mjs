@@ -1,14 +1,20 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
 import tailwind from "@astrojs/tailwind";
+import remarkCodeSnippets from "./src/plugins/remark-code-snippets.mjs";
 
 const site = "https://cliver-project.github.io";
 const base = "/CLIver";
+const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 
 export default defineConfig({
   site,
   base,
   trailingSlash: "always",
+  markdown: {
+    remarkPlugins: [[remarkCodeSnippets, { repoRoot }]],
+  },
   integrations: [
     starlight({
       title: "CLIver",

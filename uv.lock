@@ -17,6 +17,7 @@ resolution-markers = [
 members = [
     "cliver",
     "cliver-core",
+    "cliver-samples",
 ]
 
 [[package]]
@@ -686,6 +687,29 @@ dev = [
     { name = "pytest", specifier = ">=7.0.0" },
     { name = "pytest-asyncio", specifier = ">=1.2.0" },
     { name = "ruff", specifier = ">=0.0.270" },
+]
+
+[[package]]
+name = "cliver-samples"
+version = "0.0.0"
+source = { virtual = "samples" }
+dependencies = [
+    { name = "cliver-core" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "cliver-core", editable = "packages/cliver-core" }]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=7.0.0" },
+    { name = "pytest-asyncio", specifier = ">=1.2.0" },
 ]
 
 [[package]]

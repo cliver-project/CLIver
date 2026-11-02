@@ -16,29 +16,16 @@ Most agent frameworks ask you to learn their graph, their state object, and thei
 story before you can print a file listing. CLIver starts from the other direction: one async
 loop, typed messages, and a tool registry you can read in a single sitting.
 
-Here is the whole thing.
+Here is the agent itself.
 
 ## A working agent
 
-```python
-import asyncio
-
-from cliver_core import AgentCore, ModelBindings, presets
-from cliver_core.tools import discover_builtin_tools
-
-
-async def main():
-    agent = AgentCore(
-        ModelBindings(llm=presets.deepseek(api_key="...")),
-        builtin_tools=discover_builtin_tools(),
-    )
-    response = await agent.chat("List the files in this directory.")
-    print(response.message.content)
-    await agent.aclose()
-
-
-asyncio.run(main())
+```python title="quickstart.py" file="samples/blog/quickstart/quickstart.py" region="agent"
 ```
+
+The runnable file adds the imports and an entry point. `presets.deepseek()` reads
+`DEEPSEEK_API_KEY` at call time, and the sample's test injects a scripted agent, so the test
+never reads a key or touches the network.
 
 That is a real agent loop. The model reads the tool catalogue, chooses a tool, the core runs
 it, and the result goes back to the model until it has an answer. No graph definition, no

@@ -1,4 +1,4 @@
-.PHONY: help init init-local test live-verify lint format dist clean
+.PHONY: help init init-local test live-verify samples-check samples-live blog-check lint format dist clean
 
 help: ## Show this help.
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -15,6 +15,15 @@ test: init ## Run the workspace test suite
 
 live-verify: init ## Run live verification against real providers (missing keys skip)
 	CLIVER_LIVE_VERIFICATION=1 uv run pytest packages/cliver-core/src/cliver_core/tests/live -q -rs
+
+samples-check: init ## Run blog sample tests (no provider keys needed)
+	cd samples && uv run pytest -q
+
+samples-live: init ## Run optional live sample checks (missing keys skip)
+	cd samples && CLIVER_LIVE_VERIFICATION=1 uv run pytest -q -rs
+
+blog-check: samples-check ## Validate snippets and build the docs site
+	cd website && npm run build
 
 dist: ## Build the cliver-core sdist + wheel into dist/
 	rm -rf dist

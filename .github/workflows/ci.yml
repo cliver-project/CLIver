@@ -38,3 +38,34 @@ jobs:
 
       - name: Test
         run: make test
+
+  blog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.3.0
+        with:
+          version: "0.12.9"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: website/package-lock.json
+
+      - name: Test blog samples
+        run: make samples-check
+
+      - name: Install website dependencies
+        run: cd website && npm ci
+
+      - name: Validate snippets and build the website
+        run: cd website && npm run build
