@@ -1,13 +1,13 @@
 ---
 title: "The smallest useful agent is a loop and a tool"
 description: "A working CLIver agent in about twenty lines — and the three boundaries that keep it from becoming a demo that only works once."
-pubDate: 2026-11-03
+pubDate: 2026-11-02
 tags:
   - AgentCore
   - Quickstart
 issue: 1
 featured: true
-draft: true
+draft: false
 author: Lin Gao
 series: Field Notes
 ---
@@ -57,5 +57,4 @@ Everything else — your routes, your database, your tenant model — stays in y
 
 ## Next
 
-The next note adds a typed custom tool and shows why the loop, not the prompt, is where
-reliability is won.
+The next note streams the same loop chunk by chunk, without a second code path.
