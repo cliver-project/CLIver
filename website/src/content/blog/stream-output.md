@@ -1,12 +1,12 @@
 ---
 title: "Stream output without changing your code"
 description: "The same AgentCore, the same bindings: iterate stream() instead of awaiting chat(), and keep the final message."
-pubDate: 2026-11-06
+pubDate: 2026-11-04
 tags:
   - AgentCore
   - Streaming
 issue: 2
-draft: true
+draft: false
 author: Lin Gao
 series: Field Notes
 ---
