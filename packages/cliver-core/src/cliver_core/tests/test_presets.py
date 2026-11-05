@@ -282,6 +282,24 @@ async def test_media_presets_pin_the_endpoint_path_explicitly() -> None:
     assert "path" not in presets.minimax_tts(api_key="k", path=None).call_defaults()
 
 
+@pytest.mark.parametrize(
+    ("factory", "wire_shape"),
+    [
+        (presets.dashscope_image, "dashscope_image_t2i"),
+        (presets.dashscope_background, "dashscope_image_background"),
+        (presets.dashscope_video, "dashscope_video"),
+        (presets.qwen_image, "qwen_image_messages"),
+        (presets.minimax_image, "minimax_image"),
+        (presets.minimax_tts, "minimax_tts"),
+        (presets.seedance, "seedance_video"),
+    ],
+)
+def test_media_presets_pin_their_wire_shape(factory, wire_shape) -> None:
+    """Every media preset names its wire shape — the preset is the verified
+    combo of endpoint and body shape, so the pin rides the binding."""
+    assert factory(api_key="k").wire_shape == wire_shape
+
+
 @pytest.mark.asyncio
 async def test_seedance_preset_resolves_the_ark_task_endpoint() -> None:
     """The seedance preset pins the Ark task path; the binding default and the

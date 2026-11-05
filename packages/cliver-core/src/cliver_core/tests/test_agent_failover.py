@@ -13,7 +13,7 @@ import pytest
 
 from cliver_core.agent import AgentCore
 from cliver_core.bindings import ModelBinding, ModelBindings
-from cliver_core.errors import ProviderError
+from cliver_core.errors import MediaReferenceError, ProviderError
 from cliver_core.media import MediaContent, MediaType
 from cliver_core.messages import CLIverMessage, CLIverMessageChunk, ToolCall
 from cliver_core.provider import (
@@ -22,6 +22,7 @@ from cliver_core.provider import (
     EmbeddingsResult,
     Provider,
 )
+from cliver_core.provider.providers.dashscope import DashScopeProvider
 from cliver_core.tool import tool
 
 
@@ -361,6 +362,45 @@ async def test_image_returns_the_last_failure_when_every_binding_fails() -> None
     assert response.message.content == "second failure"
     assert len(primary.calls) == 1
     assert len(backup.calls) == 1
+
+
+class _RecordingTransport:
+    """BrandSDK stand-in for a real provider — records every POST."""
+
+    def __init__(self) -> None:
+        self.posts: list[dict] = []
+
+    async def post(self, path, body, *, files=None, binary=False, headers=None):
+        self.posts.append({"path": path, "body": body})  # pragma: no cover
+        raise AssertionError("the reference gate must reject before any transport call")
+
+    async def close(self) -> None:  # pragma: no cover
+        pass
+
+
+@pytest.mark.asyncio
+async def test_a_reference_contract_error_does_not_fail_over() -> None:
+    """MediaReferenceError is a caller error, not a provider failure: the
+    real gate rejects the reference pre-wire, nothing reaches the transport,
+    and the failover loop never tries the next binding."""
+    transport = _RecordingTransport()
+    primary = DashScopeProvider(api_key="k", base_url="https://dashscope.example/api/v1", transport=transport)
+    backup = _ImageProvider(_image_success())
+    agent = _agent(
+        image=[
+            ModelBinding.image(model="wanx2.1-t2i-turbo", provider=primary),
+            ModelBinding.image(model="img-b", provider=backup),
+        ]
+    )
+
+    with pytest.raises(MediaReferenceError, match="dashscope_image_t2i"):
+        await agent.image(
+            "a cat on a mat",
+            media=[MediaContent(type=MediaType.IMAGE, data="QUJD", mime_type="image/png")],
+        )
+
+    assert transport.posts == []
+    assert backup.calls == []
 
 
 @pytest.mark.asyncio

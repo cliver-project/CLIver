@@ -223,7 +223,9 @@ def qwen_image(
     through.  Options (``size``, ``n``, ``negative_prompt``,
     ``prompt_extend``, ``seed`` …) ride ``parameters``; sizes may be
     written either ``x`` or ``*`` separated.  The result is returned in the
-    same request (no task polling).
+    same request (no task polling).  The binding pins the
+    ``qwen_image_messages`` wire shape: every reference image rides the
+    content array, with no fixed limit.
 
     ``workspace_id`` composes the workspace-dedicated Bailian native host
     (``https://{workspace_id}.{region}.maas.aliyuncs.com/api/v1``); without
@@ -239,6 +241,7 @@ def qwen_image(
         protocol="openai",
         provider_name="qwen-image",
         path=path,
+        wire_shape="qwen_image_messages",
         **params,
     )
 
@@ -257,7 +260,8 @@ def minimax_image(
 
     Media posts ride the brand's chat leaf (its only provider class); a
     ``base_url`` override maps ``…/anthropic`` to the sibling ``…/v1``
-    media root.
+    media root.  The binding pins the ``minimax_image`` wire shape, which
+    accepts no reference media.
     """
     return ModelBinding.image(
         model=model,
@@ -266,6 +270,7 @@ def minimax_image(
         protocol="anthropic",
         provider_name="minimax",
         path=path,
+        wire_shape="minimax_image",
         **params,
     )
 
@@ -284,7 +289,8 @@ def minimax_tts(
 
     Media posts ride the brand's chat leaf (its only provider class); a
     ``base_url`` override maps ``…/anthropic`` to the sibling ``…/v1``
-    media root.
+    media root.  The binding pins the ``minimax_tts`` wire shape, which
+    accepts no reference media.
     """
     return ModelBinding.tts(
         model=model,
@@ -293,6 +299,7 @@ def minimax_tts(
         protocol="anthropic",
         provider_name="minimax",
         path=path,
+        wire_shape="minimax_tts",
         **params,
     )
 
@@ -351,7 +358,9 @@ def seedance(
     ``poll_interval`` (seconds between task reads, default 5) and
     ``poll_timeout`` (seconds to wait for the result, default 600;
     ``None`` waits without a deadline).  A ``base_url`` override retargets
-    the endpoint (proxy or another Ark region).
+    the endpoint (proxy or another Ark region).  The binding pins the
+    ``seedance_video`` wire shape: at most two IMAGE references ride the
+    task's ``content`` array.
     """
     return ModelBinding.video(
         model=model,
@@ -360,6 +369,7 @@ def seedance(
         protocol="openai",
         provider_name="seedance",
         path=path,
+        wire_shape="seedance_video",
         **params,
     )
 
@@ -384,8 +394,11 @@ def dashscope_image(
     ``negative_prompt``, ``prompt_extend``, ``seed``, …) plus the poll knobs
     ``poll_interval`` (seconds between task reads, default 3) and
     ``poll_timeout`` (seconds to wait for the result, default 600; ``None``
-    waits without a deadline).  ``media=[...]`` reference images are ignored
-    by plain text-to-image models.
+    waits without a deadline).  The binding pins the ``dashscope_image_t2i``
+    wire shape, which accepts no reference media — ``media=[...]`` is
+    rejected with :class:`~cliver_core.errors.MediaReferenceError`; use
+    :func:`dashscope_background` (or :func:`qwen_image`) for reference
+    images.
 
     ``workspace_id`` composes the workspace-dedicated Bailian native host
     (``https://{workspace_id}.{region}.maas.aliyuncs.com/api/v1``); without
@@ -399,6 +412,7 @@ def dashscope_image(
         protocol="openai",
         provider_name="dashscope",
         path=path,
+        wire_shape="dashscope_image_t2i",
         **params,
     )
 
@@ -428,9 +442,11 @@ def dashscope_background(
     through.  ``model_version="v3"`` and ``n=1`` are the documented
     defaults; more parameters (``ref_prompt_weight``, ``noise_level``, …)
     ride the request's ``parameters``.  Poll knobs as on
-    :func:`dashscope_image`.  ``workspace_id`` composes the
-    workspace-dedicated Bailian native host (``…/api/v1``); an explicit
-    ``base_url`` wins.
+    :func:`dashscope_image`.  The binding pins the
+    ``dashscope_image_background`` wire shape: up to two IMAGE references
+    (``input.base_image_url`` + ``input.ref_image_url``).  ``workspace_id``
+    composes the workspace-dedicated Bailian native host (``…/api/v1``); an
+    explicit ``base_url`` wins.
     """
     return ModelBinding.image(
         model=model,
@@ -467,7 +483,8 @@ def dashscope_video(
     ``media`` image is the start frame (``input.img_url``, local bytes are
     uploaded to ``oss://`` automatically).  Defaults: ``duration=5``
     seconds and ``size="1280*720"`` (``x`` is accepted too).  Poll knobs as
-    on :func:`dashscope_image`.  ``workspace_id`` composes the
+    on :func:`dashscope_image`.  The binding pins the ``dashscope_video``
+    wire shape: one IMAGE reference (the start frame).  ``workspace_id`` composes the
     workspace-dedicated Bailian native host (``…/api/v1``); an explicit
     ``base_url`` wins.
     """
@@ -478,6 +495,7 @@ def dashscope_video(
         protocol="openai",
         provider_name="dashscope",
         path=path,
+        wire_shape="dashscope_video",
         duration=duration,
         size=size,
         **params,
