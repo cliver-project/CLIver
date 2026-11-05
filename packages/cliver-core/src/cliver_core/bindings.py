@@ -70,6 +70,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable, Sequence
 from cliver_core.errors import CapabilityNotSupported
 from cliver_core.events import EventHandler
 from cliver_core.provider import Provider
+from cliver_core.provider.media_shapes import SHAPES
 from cliver_core.provider.providers import create_provider
 from cliver_core.provider.providers.system_one import SystemOneProvider
 from cliver_core.util import drop_none, validate_client_options
@@ -134,6 +135,12 @@ class ModelBinding:
     # registry protocols (``system_one``).  When set, ``create_provider``
     # builds this class and a ``default_base_url`` on it applies.
     path: str | None = None
+    wire_shape: str | None = None
+    # Wire-shape selector for media bindings — names an entry in the
+    # provider's ``MEDIA_SHAPES`` (``cliver_core.provider.media_shapes``).
+    # Like ``path`` it says *how* the request is built, and is never sent in
+    # the request body.  Only meaningful on image/video/tts bindings; a brand
+    # with one shape per purpose needs none (the provider default applies).
     on_event: EventHandler | None = field(default=None, repr=False, compare=False)
     # Subscriber for the provider this binding builds (sync or async).
     # Applied at construction, so inference events fire before/after every
@@ -177,6 +184,22 @@ class ModelBinding:
                 "client_timeout/client_max_retries apply only to a provider the binding builds; "
                 "configure the supplied provider's SDK client directly."
             )
+        if self.wire_shape is not None:
+            if self.provider is not None:
+                raise ValueError(
+                    "wire_shape applies only to a provider the binding builds; "
+                    "a supplied provider= keeps its own shapes — configure it there."
+                )
+            shape = SHAPES.get(self.wire_shape)
+            if shape is None:
+                raise ValueError(
+                    f"unknown wire shape '{self.wire_shape}'; known shapes: {sorted(SHAPES)}"
+                )
+            if self.purpose is not None and shape.purpose not in ("any", self.purpose):
+                raise ValueError(
+                    f"wire shape '{self.wire_shape}' is for {shape.purpose} requests, "
+                    f"not this binding's purpose ('{self.purpose}')"
+                )
 
     # ── Per-purpose factories ─────────────────────────────────
 
@@ -191,6 +214,7 @@ class ModelBinding:
         provider_name: str | None = None,
         provider: Provider | None = None,
         path: str | None = None,
+        wire_shape: str | None = None,
         on_event: EventHandler | None = None,
         credential_provider: CredentialProvider | None = None,
         client_timeout: float | None = None,
@@ -223,6 +247,11 @@ class ModelBinding:
                 "ModelBinding.llm() takes no path — chat requests have no endpoint path "
                 "override (provider, base_url, and protocol configure the endpoint)."
             )
+        if wire_shape is not None:
+            raise TypeError(
+                "ModelBinding.llm() takes no wire_shape — chat media input is not a media "
+                "wire; images ride the message content, not a reference shape."
+            )
         return cls(
             model=model,
             provider=provider,
@@ -252,6 +281,7 @@ class ModelBinding:
         client_timeout: float | None = None,
         client_max_retries: int | None = None,
         path: str | None = None,
+        wire_shape: str | None = None,
         n: int | None = None,
         size: str | None = None,
         style: str | None = None,
@@ -259,6 +289,7 @@ class ModelBinding:
         **params: Any,
     ) -> ModelBinding:
         """Image-purpose binding — ``path`` is the endpoint override;
+        ``wire_shape`` names the reference-media wire;
         ``n`` / ``size`` / ``style`` / ``quality`` become default params."""
         return cls(
             model=model,
@@ -271,6 +302,7 @@ class ModelBinding:
             client_timeout=client_timeout,
             client_max_retries=client_max_retries,
             path=path,
+            wire_shape=wire_shape,
             purpose="image",
             params={**drop_none(n=n, size=size, style=style, quality=quality), **params},
         )
@@ -289,11 +321,13 @@ class ModelBinding:
         client_timeout: float | None = None,
         client_max_retries: int | None = None,
         path: str | None = None,
+        wire_shape: str | None = None,
         duration: int | None = None,
         resolution: str | None = None,
         **params: Any,
     ) -> ModelBinding:
         """Video-purpose binding — ``path`` is the endpoint override;
+        ``wire_shape`` names the reference-media wire;
         ``duration`` / ``resolution`` become default params."""
         return cls(
             model=model,
@@ -306,6 +340,7 @@ class ModelBinding:
             client_timeout=client_timeout,
             client_max_retries=client_max_retries,
             path=path,
+            wire_shape=wire_shape,
             purpose="video",
             params={**drop_none(duration=duration, resolution=resolution), **params},
         )
@@ -326,9 +361,11 @@ class ModelBinding:
         voice: str | None = None,
         response_format: str | None = None,
         path: str | None = None,
+        wire_shape: str | None = None,
         **params: Any,
     ) -> ModelBinding:
         """TTS-purpose binding — ``path`` is the endpoint override;
+        ``wire_shape`` names the reference-media wire;
         ``voice`` / ``response_format`` become default params."""
         return cls(
             model=model,
@@ -341,6 +378,7 @@ class ModelBinding:
             client_timeout=client_timeout,
             client_max_retries=client_max_retries,
             path=path,
+            wire_shape=wire_shape,
             purpose="tts",
             params={**drop_none(voice=voice, response_format=response_format), **params},
         )
@@ -360,10 +398,16 @@ class ModelBinding:
         client_max_retries: int | None = None,
         language: str | None = None,
         path: str | None = None,
+        wire_shape: str | None = None,
         **params: Any,
     ) -> ModelBinding:
         """ASR-purpose binding — ``path`` is the endpoint override;
         ``language`` becomes a default param."""
+        if wire_shape is not None:
+            raise TypeError(
+                "ModelBinding.asr() takes no wire_shape — transcription is a multipart "
+                "upload of the audio itself; there is no reference-media wire to select."
+            )
         return cls(
             model=model,
             provider=provider,
@@ -394,10 +438,15 @@ class ModelBinding:
         client_max_retries: int | None = None,
         dimensions: int | None = None,
         path: str | None = None,
+        wire_shape: str | None = None,
         **params: Any,
     ) -> ModelBinding:
         """Embedding-purpose binding — ``path`` is the endpoint override;
         ``dimensions`` becomes a default param."""
+        if wire_shape is not None:
+            raise TypeError(
+                "ModelBinding.embed() takes no wire_shape — embedding requests carry no media."
+            )
         return cls(
             model=model,
             provider=provider,
@@ -428,10 +477,15 @@ class ModelBinding:
         client_max_retries: int | None = None,
         top_k: int | None = None,
         path: str | None = None,
+        wire_shape: str | None = None,
         **params: Any,
     ) -> ModelBinding:
         """Rerank-purpose binding — ``path`` is the endpoint override;
         ``top_k`` becomes a default param."""
+        if wire_shape is not None:
+            raise TypeError(
+                "ModelBinding.rerank() takes no wire_shape — rerank requests carry no media."
+            )
         return cls(
             model=model,
             provider=provider,
@@ -564,6 +618,7 @@ class ModelBinding:
                 on_event=self.on_event,
                 client_timeout=self.client_timeout,
                 client_max_retries=self.client_max_retries,
+                wire_shape=self.wire_shape,
             )
         return self._built
 
@@ -652,6 +707,7 @@ class ModelBinding:
             on_event=self.on_event,
             client_timeout=self.client_timeout,
             client_max_retries=self.client_max_retries,
+            wire_shape=self.wire_shape,
         )
         previous, self._built = self._built, replacement
         self.api_key = credential

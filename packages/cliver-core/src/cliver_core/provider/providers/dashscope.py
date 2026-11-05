@@ -30,6 +30,11 @@ import httpx
 from cliver_core.errors import ProviderError
 from cliver_core.media import MediaContent, MediaType, get_file_extension
 from cliver_core.provider.providers.openai import OpenAIProvider
+from cliver_core.provider.media_shapes import (
+    DASHSCOPE_IMAGE_BACKGROUND,
+    DASHSCOPE_IMAGE_T2I,
+    DASHSCOPE_VIDEO,
+)
 
 
 async def _sleep(seconds: float) -> None:
@@ -57,6 +62,23 @@ class DashScopeProvider(OpenAIProvider):
         "video": "/services/aigc/video-generation/video-synthesis",
     }
     _standard_media_fallback = False
+
+    # Three wires: plain text-to-image (no references), background
+    # generation (up to two reference images, uploaded to oss://), and
+    # image-to-video (one).  The image default is plain t2i — background
+    # generation is selected by the binding's wire_shape, never by the
+    # model name.
+    MEDIA_SHAPES = {
+        **OpenAIProvider.MEDIA_SHAPES,
+        "dashscope_image_t2i": DASHSCOPE_IMAGE_T2I,
+        "dashscope_image_background": DASHSCOPE_IMAGE_BACKGROUND,
+        "dashscope_video": DASHSCOPE_VIDEO,
+    }
+    DEFAULT_MEDIA_SHAPES = {
+        **OpenAIProvider.DEFAULT_MEDIA_SHAPES,
+        "image": "dashscope_image_t2i",
+        "video": "dashscope_video",
+    }
 
     #: Background generation shares the ``image`` purpose but has its own
     #: endpoint (pinned by the ``dashscope_background`` preset) and body

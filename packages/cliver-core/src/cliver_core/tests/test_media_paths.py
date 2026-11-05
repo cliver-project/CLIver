@@ -24,9 +24,25 @@ from cliver_core.errors import CapabilityNotSupported, ProviderError
 from cliver_core.media import MediaType
 from cliver_core.messages import CLIverMessage
 from cliver_core.provider import CLIverRequest, CLIverResponse, EmbeddingsResult, Provider
+from cliver_core.provider.media_shapes import (
+    DASHSCOPE_IMAGE_BACKGROUND,
+    DASHSCOPE_IMAGE_T2I,
+    DASHSCOPE_VIDEO,
+    GENERIC_JSON,
+    MINIMAX_IMAGE,
+    MINIMAX_TTS,
+    OPENAI_IMAGE_JSON,
+    OPENAI_TTS,
+    QWEN_IMAGE_MESSAGES,
+    SEEDANCE_VIDEO,
+)
+from cliver_core.provider.providers import create_provider
 from cliver_core.provider.providers.anthropic import AnthropicProvider
+from cliver_core.provider.providers.dashscope import DashScopeProvider
 from cliver_core.provider.providers.minimax import MiniMaxAnthropicProvider
 from cliver_core.provider.providers.openai import OpenAIProvider
+from cliver_core.provider.providers.qwen_image import QwenImageProvider
+from cliver_core.provider.providers.seedance import SeedanceProvider
 
 
 def _response(text: str) -> CLIverResponse:
@@ -1219,3 +1235,138 @@ async def test_failure_response_classifies_vendor_sdk_errors() -> None:
 
     assert response.media is None
     assert response.retryable is True
+
+
+# ── Wire shapes — binding selection and provider resolution ─────────────────
+#
+# The wire shape is the unit of media support: bindings select one explicitly
+# (wire_shape=), providers declare the shapes they can emit, and the model
+# string never influences resolution.
+
+
+def test_media_factories_accept_wire_shape() -> None:
+    image = ModelBinding.image(
+        model="m", api_key="k", base_url="https://api.example/v1", wire_shape="openai_image_json"
+    )
+    video = ModelBinding.video(
+        model="m", api_key="k", base_url="https://api.example/v1", wire_shape="seedance_video"
+    )
+    tts = ModelBinding.tts(
+        model="m", api_key="k", base_url="https://api.example/v1", wire_shape="minimax_tts"
+    )
+    assert image.wire_shape == "openai_image_json"
+    assert video.wire_shape == "seedance_video"
+    assert tts.wire_shape == "minimax_tts"
+
+
+@pytest.mark.parametrize(
+    "factory",
+    [ModelBinding.llm, ModelBinding.asr, ModelBinding.embed, ModelBinding.rerank],
+)
+def test_non_media_factories_reject_wire_shape(factory) -> None:
+    # TypeError, matching the llm() path-guard precedent.
+    with pytest.raises(TypeError, match="wire_shape"):
+        factory(
+            model="m", api_key="k", base_url="https://api.example/v1", wire_shape="openai_image_json"
+        )
+
+
+def test_wire_shape_unknown_name_is_rejected_at_construction() -> None:
+    with pytest.raises(ValueError, match="unknown wire shape"):
+        ModelBinding.image(model="m", api_key="k", base_url="https://x", wire_shape="nope")
+
+
+def test_wire_shape_purpose_mismatch_is_rejected_at_construction() -> None:
+    with pytest.raises(ValueError, match="purpose"):
+        ModelBinding.image(model="m", api_key="k", base_url="https://x", wire_shape="seedance_video")
+
+
+def test_wire_shape_with_supplied_provider_is_a_config_error() -> None:
+    provider = OpenAIProvider(api_key="k", base_url="https://api.example/v1", transport=_RecordingTransport())
+    with pytest.raises(ValueError, match="provider="):
+        ModelBinding.image(model="m", provider=provider, wire_shape="openai_image_json")
+
+
+def test_base_provider_declares_only_generic_json() -> None:
+    assert Provider.MEDIA_SHAPES == {"generic_json": GENERIC_JSON}
+    assert Provider.DEFAULT_MEDIA_SHAPES == {}
+
+
+def test_openai_provider_resolves_default_shapes() -> None:
+    provider = OpenAIProvider(api_key="k", base_url="https://api.example/v1", transport=_RecordingTransport())
+    assert provider._media_shape("image") is OPENAI_IMAGE_JSON
+    assert provider._media_shape("tts") is OPENAI_TTS
+    assert provider._media_shape("audio") is OPENAI_TTS  # legacy alias normalizes
+    assert provider._media_shape("video") is GENERIC_JSON
+    assert provider._media_shape("music") is GENERIC_JSON  # custom purpose → generic
+
+
+def test_dashscope_default_image_shape_is_t2i_even_for_the_background_model_name() -> None:
+    provider = DashScopeProvider(
+        api_key="k", base_url="https://dashscope.example/api/v1", transport=_RecordingTransport()
+    )
+    assert provider._media_shape("image") is DASHSCOPE_IMAGE_T2I
+
+
+def test_explicit_wire_shape_selects_the_background_wire() -> None:
+    provider = DashScopeProvider(
+        api_key="k",
+        base_url="https://dashscope.example/api/v1",
+        transport=_RecordingTransport(),
+        wire_shape="dashscope_image_background",
+    )
+    assert provider._media_shape("image") is DASHSCOPE_IMAGE_BACKGROUND
+
+
+def test_explicit_wire_shape_rejects_a_purpose_mismatch() -> None:
+    provider = DashScopeProvider(
+        api_key="k",
+        base_url="https://dashscope.example/api/v1",
+        transport=_RecordingTransport(),
+        wire_shape="dashscope_video",
+    )
+    with pytest.raises(ValueError, match="dashscope_video"):
+        provider._media_shape("image")
+
+
+def test_create_provider_rejects_a_wire_shape_the_provider_does_not_declare() -> None:
+    with pytest.raises(ValueError, match="does not declare"):
+        create_provider(
+            provider_name="dashscope",
+            api_key="k",
+            base_url="https://dashscope.example/api/v1",
+            wire_shape="seedance_video",
+        )
+
+
+def test_shape_resolution_ignores_the_model_string() -> None:
+    kwargs = dict(
+        api_key="k",
+        provider_name="dashscope",
+        base_url="https://dashscope.example/api/v1",
+        wire_shape="dashscope_image_background",
+    )
+    background_named = ModelBinding.image(model="wanx-background-generation-v2", **kwargs)
+    t2i_named = ModelBinding.image(model="wanx2.1-t2i-turbo", **kwargs)
+    assert background_named.get_provider()._media_shape("image") is DASHSCOPE_IMAGE_BACKGROUND
+    assert t2i_named.get_provider()._media_shape("image") is DASHSCOPE_IMAGE_BACKGROUND
+
+
+def test_brand_declarations_compose_with_their_protocol_base() -> None:
+    seedance = SeedanceProvider(
+        api_key="k", base_url="https://ark.example/api/v3", transport=_RecordingTransport()
+    )
+    assert seedance._media_shape("video") is SEEDANCE_VIDEO
+    assert seedance._media_shape("tts") is OPENAI_TTS  # inherited from the OpenAI base
+
+    qwen = QwenImageProvider(
+        api_key="k", base_url="https://dashscope.example/api/v1", transport=_RecordingTransport()
+    )
+    assert qwen._media_shape("image") is QWEN_IMAGE_MESSAGES
+    assert qwen._media_shape("video") is DASHSCOPE_VIDEO  # inherited from the DashScope base
+
+    minimax = MiniMaxAnthropicProvider(
+        api_key="k", base_url="https://api.minimaxi.com/anthropic", transport=_RecordingTransport()
+    )
+    assert minimax._media_shape("tts") is MINIMAX_TTS
+    assert minimax._media_shape("image") is MINIMAX_IMAGE

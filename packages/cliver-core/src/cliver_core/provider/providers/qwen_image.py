@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import Any
 
 from cliver_core.media import MediaContent
+from cliver_core.provider.media_shapes import QWEN_IMAGE_MESSAGES
 from cliver_core.provider.providers.dashscope import DashScopeProvider
 
 
@@ -41,6 +42,13 @@ class QwenImageProvider(DashScopeProvider):
         "image": "/services/aigc/multimodal-generation/generation",
     }
     _standard_media_fallback = False
+
+    #: Every reference image rides the content array — no fixed limit.
+    MEDIA_SHAPES = {**DashScopeProvider.MEDIA_SHAPES, "qwen_image_messages": QWEN_IMAGE_MESSAGES}
+    DEFAULT_MEDIA_SHAPES = {
+        **DashScopeProvider.DEFAULT_MEDIA_SHAPES,
+        "image": "qwen_image_messages",
+    }
 
     # ── create body ──────────────────────────────────────────────
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 import base64
 
 from cliver_core.provider import Provider
+from cliver_core.provider.media_shapes import MINIMAX_IMAGE, MINIMAX_TTS
 from cliver_core.provider.providers.anthropic import AnthropicProvider
 
 
@@ -44,6 +45,15 @@ class _MiniMaxBase(Provider):
         "asr": "/speech_to_text",
     }
     _standard_media_fallback = False
+
+    #: TTS takes no reference media.  Image reference support is not
+    #: live-verified, so the image shape rejects media until it is.
+    MEDIA_SHAPES = {
+        **Provider.MEDIA_SHAPES,
+        "minimax_tts": MINIMAX_TTS,
+        "minimax_image": MINIMAX_IMAGE,
+    }
+    DEFAULT_MEDIA_SHAPES = {"tts": "minimax_tts", "image": "minimax_image"}
 
     #: MiniMax takes the transcription language as a BCP-47 HTTP header, not
     #: a multipart form field (unlike the OpenAI transcription fashion).

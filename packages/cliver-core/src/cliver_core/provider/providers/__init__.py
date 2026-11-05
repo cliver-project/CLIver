@@ -213,6 +213,7 @@ def create_provider(
     on_event: EventHandler | None = None,
     client_timeout: float | None = None,
     client_max_retries: int | None = None,
+    wire_shape: str | None = None,
 ) -> Provider:
     """Create a Provider instance.
 
@@ -252,6 +253,9 @@ def create_provider(
             builtin SDK transport (``supports_client_options``).
         client_max_retries: SDK-client retry count.  ``None`` keeps the SDK
             default.
+        wire_shape: Reference-media wire for media generation — must name an
+            entry of the selected class's ``MEDIA_SHAPES``.  ``None`` keeps
+            the class's per-purpose default.
 
     Returns:
         A Provider instance ready to use.
@@ -287,6 +291,15 @@ def create_provider(
             + f" carry a built-in default endpoint: {known}"
         )
 
+    # Wire shapes are declared by the provider class; a binding may only pin
+    # one the class can actually emit.  Checked before construction so a bad
+    # name fails here, not on the first media call.
+    if wire_shape is not None and wire_shape not in cls.MEDIA_SHAPES:
+        raise ValueError(
+            f"{cls.__name__} does not declare wire shape '{wire_shape}'; "
+            f"declared: {sorted(cls.MEDIA_SHAPES)}"
+        )
+
     kwargs: dict[str, object] = {
         "api_key": api_key,
         "base_url": url,
@@ -305,4 +318,6 @@ def create_provider(
             kwargs["client_timeout"] = client_timeout
         if client_max_retries is not None:
             kwargs["client_max_retries"] = client_max_retries
+    if wire_shape is not None:
+        kwargs["wire_shape"] = wire_shape
     return cls(**kwargs)

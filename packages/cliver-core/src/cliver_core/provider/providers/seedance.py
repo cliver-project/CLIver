@@ -19,6 +19,7 @@ from typing import Any
 import httpx
 
 from cliver_core.media import MediaContent, MediaType
+from cliver_core.provider.media_shapes import SEEDANCE_VIDEO
 from cliver_core.provider.providers.openai import OpenAIProvider
 
 
@@ -45,6 +46,11 @@ class SeedanceProvider(OpenAIProvider):
     #: The only media endpoint Ark serves — task-shaped, not OpenAI-fashion.
     _media_gen_urls: dict[str, str] = {"video": "/contents/generations/tasks"}
     _standard_media_fallback = False
+
+    #: Video carries reference images (image-to-video, first/last frame)
+    #: as ``content[].image_url`` items — up to two.
+    MEDIA_SHAPES = {**OpenAIProvider.MEDIA_SHAPES, "seedance_video": SEEDANCE_VIDEO}
+    DEFAULT_MEDIA_SHAPES = {**OpenAIProvider.DEFAULT_MEDIA_SHAPES, "video": "seedance_video"}
 
     #: Create → poll cadence.
     _POLL_INTERVAL = 5.0

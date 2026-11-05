@@ -224,8 +224,9 @@ class AnthropicProvider(Provider):
         transport: BrandSDK | None = None,
         client_timeout: float | None = None,
         client_max_retries: int | None = None,
+        wire_shape: str | None = None,
     ):
-        super().__init__(api_key, base_url, logger=logger)
+        super().__init__(api_key, base_url, logger=logger, wire_shape=wire_shape)
         self.user_agent = user_agent
         self.on_event = on_event
         # The brand selects the transport: a ``cliver.provider_sdks`` adapter

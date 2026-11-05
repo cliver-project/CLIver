@@ -33,6 +33,7 @@ from cliver_core.messages import (
     UsageInfo,
 )
 from cliver_core.provider import CLIverRequest, CLIverResponse, Provider
+from cliver_core.provider.media_shapes import OPENAI_IMAGE_JSON, OPENAI_TTS
 from cliver_core.provider.transport import BrandSDK
 from cliver_core.provider.transports import resolve_brand_sdk
 from cliver_core.tool import CLIverTool
@@ -64,8 +65,9 @@ class OpenAIProvider(Provider):
         transport: BrandSDK | None = None,
         client_timeout: float | None = None,
         client_max_retries: int | None = None,
+        wire_shape: str | None = None,
     ):
-        super().__init__(api_key, base_url, logger=logger)
+        super().__init__(api_key, base_url, logger=logger, wire_shape=wire_shape)
         self.user_agent = user_agent
         self.on_event = on_event
         # The brand selects the transport: a ``cliver.provider_sdks`` adapter
@@ -356,6 +358,16 @@ class OpenAIProvider(Provider):
 
     #: ``/audio/speech`` returns raw audio bytes, not a JSON envelope.
     _BINARY_MEDIA_PURPOSES = frozenset({"tts"})
+
+    # Wire shapes this class emits: the OpenAI-fashion image body carries one
+    # reference image as a data URL; TTS takes none.  Subclasses compose over
+    # these with ``{**OpenAIProvider.MEDIA_SHAPES, ...}``.
+    MEDIA_SHAPES = {
+        **Provider.MEDIA_SHAPES,
+        "openai_image_json": OPENAI_IMAGE_JSON,
+        "openai_tts": OPENAI_TTS,
+    }
+    DEFAULT_MEDIA_SHAPES = {"image": "openai_image_json", "tts": "openai_tts"}
 
     def _build_media_gen_body(
         self,

@@ -17,6 +17,7 @@ from cliver_core.media import (
     resolve_media_mime,
 )
 from cliver_core.messages import CLIverMessage, CLIverMessageChunk, UsageInfo
+from cliver_core.provider.media_shapes import GENERIC_JSON, MediaShape
 from cliver_core.tool import CLIverTool
 
 if TYPE_CHECKING:
@@ -172,13 +173,24 @@ class Provider(ABC):
                 f'declare protocol = "" only on intermediate mixin bases'
             )
 
-    def __init__(self, api_key: str, base_url: str, *, logger: "logging.Logger | None" = None):
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str,
+        *,
+        logger: "logging.Logger | None" = None,
+        wire_shape: str | None = None,
+    ):
         self.api_key = api_key
         self.base_url = base_url
         self.logger = logger or logging.getLogger(__name__)
         #: The brand's I/O pipe — set by the protocol providers; media
         #: generation sends through it (:meth:`_post_media`).
         self.transport: BrandSDK | None = None
+        #: Explicit wire-shape override from the model binding, validated
+        #: against :attr:`MEDIA_SHAPES` in :meth:`_media_shape`.  ``None``
+        #: uses the provider's per-purpose default.
+        self._wire_shape = wire_shape
 
     @classmethod
     def provider_name(cls) -> str:
@@ -322,6 +334,18 @@ class Provider(ABC):
         item_mime, ext = self._AUDIO_FORMAT_KINDS.get(fmt.lower(), (f"audio/{fmt.lower()}", fmt.lower()))
         return (MediaType.AUDIO, item_mime, ext)
 
+    # Wire shapes this class can emit, by shape name — subclasses compose
+    # with ``{**SuperClass.MEDIA_SHAPES, ...}`` so inherited shapes survive.
+    # The catalog itself (``cliver_core.provider.media_shapes``) lists wires,
+    # never vendors or models.
+    MEDIA_SHAPES: dict[str, MediaShape] = {"generic_json": GENERIC_JSON}
+
+    # Purpose → default shape name for providers of this class.  A purpose
+    # with no entry resolves ``GENERIC_JSON`` (accepts no reference media),
+    # so a provider without an override fails loudly instead of silently
+    # dropping references.
+    DEFAULT_MEDIA_SHAPES: dict[str, str] = {}
+
     # Per-purpose request paths by wire protocol — the standard wire fashion
     # (OpenAI-style endpoint names).  Brand classes override individual
     # purposes via ``_media_gen_urls``; protocols without media endpoints
@@ -363,6 +387,34 @@ class Provider(ABC):
         if purpose in self._MEDIA_PURPOSES and not self._standard_media_fallback:
             return None
         return self._DEFAULT_MEDIA_PATHS.get(self.protocol, {}).get(purpose)
+
+    def _media_shape(self, purpose: str) -> MediaShape:
+        """Resolve the wire shape for *purpose* — the reference-media gate.
+
+        Order: the binding's explicit ``wire_shape`` (constructor), then the
+        class's ``DEFAULT_MEDIA_SHAPES[purpose]``, then ``GENERIC_JSON``.
+        The model string is never consulted — a vendor renaming a model
+        cannot change the wire.  A ``"tts"`` alias ("audio") normalizes the
+        same way ``media_path`` does.
+        """
+        purpose = "tts" if purpose == "audio" else purpose
+        if self._wire_shape is not None:
+            shape = self.MEDIA_SHAPES.get(self._wire_shape)
+            if shape is None:
+                raise ValueError(
+                    f"{self.provider_name()} does not declare wire shape '{self._wire_shape}'; "
+                    f"declared: {sorted(self.MEDIA_SHAPES)}"
+                )
+            if shape.purpose != "any" and shape.purpose != purpose:
+                raise ValueError(
+                    f"wire shape '{self._wire_shape}' is for {shape.purpose} requests, "
+                    f"not {purpose}"
+                )
+            return shape
+        name = self.DEFAULT_MEDIA_SHAPES.get(purpose)
+        if name is not None:
+            return self.MEDIA_SHAPES[name]
+        return GENERIC_JSON
 
     def _build_media_gen_body(
         self,
