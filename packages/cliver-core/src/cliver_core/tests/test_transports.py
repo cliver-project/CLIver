@@ -22,6 +22,7 @@ import json
 
 import pytest
 
+from cliver_core.errors import MediaReferenceError
 from cliver_core.messages import CLIverMessage
 from cliver_core.provider import CLIverRequest
 from cliver_core.provider.providers.anthropic import AnthropicProvider
@@ -1264,3 +1265,27 @@ async def test_openai_video_accepts_the_video_url_field() -> None:
     assert mc.type == MediaType.VIDEO
     assert mc.data == "https://cdn.example/clip.mp4"
     assert mc.mime_type == "video/mp4"
+
+
+@pytest.mark.asyncio
+async def test_openai_image_rejects_two_reference_images() -> None:
+    from cliver_core.media import MediaContent, MediaType
+
+    transport = _FakeTransport()
+    provider = OpenAIProvider("k", "https://example.test/v1", transport=transport)
+    two = [MediaContent(type=MediaType.IMAGE, data="AAAA", mime_type="image/png")] * 2
+    with pytest.raises(MediaReferenceError, match="got 2"):
+        await provider.image("make it watercolor", "img-model", media=two)
+    assert transport.post_calls == []
+
+
+@pytest.mark.asyncio
+async def test_openai_image_rejects_audio_reference() -> None:
+    from cliver_core.media import MediaContent, MediaType
+
+    transport = _FakeTransport()
+    provider = OpenAIProvider("k", "https://example.test/v1", transport=transport)
+    audio = MediaContent(type=MediaType.AUDIO, data="AAAA", mime_type="audio/mpeg")
+    with pytest.raises(MediaReferenceError, match="audio"):
+        await provider.image("make it watercolor", "img-model", media=[audio])
+    assert transport.post_calls == []

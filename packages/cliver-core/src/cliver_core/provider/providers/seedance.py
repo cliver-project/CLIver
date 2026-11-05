@@ -18,7 +18,7 @@ from typing import Any
 
 import httpx
 
-from cliver_core.media import MediaContent, MediaType
+from cliver_core.media import MediaContent
 from cliver_core.provider.media_shapes import SEEDANCE_VIDEO
 from cliver_core.provider.providers.openai import OpenAIProvider
 
@@ -83,9 +83,9 @@ class SeedanceProvider(OpenAIProvider):
         options.pop("poll_interval", None)
         options.pop("poll_timeout", None)
         content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
+        # The seedance_video shape guarantees IMAGE-only references with
+        # data, at most two, by the time the builder runs.
         for item in media or []:
-            if getattr(item, "type", None) != MediaType.IMAGE:
-                continue
             image = item.data
             if not image.startswith("data:"):
                 image = f"data:{item.mime_type};base64,{image}"

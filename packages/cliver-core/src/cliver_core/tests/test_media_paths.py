@@ -20,8 +20,8 @@ import pytest
 from cliver_core import capabilities
 from cliver_core.bindings import ModelBinding
 from cliver_core.capabilities._base import coerce_media
-from cliver_core.errors import CapabilityNotSupported, ProviderError
-from cliver_core.media import MediaType
+from cliver_core.errors import CapabilityNotSupported, MediaReferenceError, ProviderError
+from cliver_core.media import MediaContent, MediaType
 from cliver_core.messages import CLIverMessage
 from cliver_core.provider import CLIverRequest, CLIverResponse, EmbeddingsResult, Provider
 from cliver_core.provider.media_shapes import (
@@ -1248,12 +1248,8 @@ def test_media_factories_accept_wire_shape() -> None:
     image = ModelBinding.image(
         model="m", api_key="k", base_url="https://api.example/v1", wire_shape="openai_image_json"
     )
-    video = ModelBinding.video(
-        model="m", api_key="k", base_url="https://api.example/v1", wire_shape="seedance_video"
-    )
-    tts = ModelBinding.tts(
-        model="m", api_key="k", base_url="https://api.example/v1", wire_shape="minimax_tts"
-    )
+    video = ModelBinding.video(model="m", api_key="k", base_url="https://api.example/v1", wire_shape="seedance_video")
+    tts = ModelBinding.tts(model="m", api_key="k", base_url="https://api.example/v1", wire_shape="minimax_tts")
     assert image.wire_shape == "openai_image_json"
     assert video.wire_shape == "seedance_video"
     assert tts.wire_shape == "minimax_tts"
@@ -1266,9 +1262,7 @@ def test_media_factories_accept_wire_shape() -> None:
 def test_non_media_factories_reject_wire_shape(factory) -> None:
     # TypeError, matching the llm() path-guard precedent.
     with pytest.raises(TypeError, match="wire_shape"):
-        factory(
-            model="m", api_key="k", base_url="https://api.example/v1", wire_shape="openai_image_json"
-        )
+        factory(model="m", api_key="k", base_url="https://api.example/v1", wire_shape="openai_image_json")
 
 
 def test_wire_shape_unknown_name_is_rejected_at_construction() -> None:
@@ -1353,15 +1347,11 @@ def test_shape_resolution_ignores_the_model_string() -> None:
 
 
 def test_brand_declarations_compose_with_their_protocol_base() -> None:
-    seedance = SeedanceProvider(
-        api_key="k", base_url="https://ark.example/api/v3", transport=_RecordingTransport()
-    )
+    seedance = SeedanceProvider(api_key="k", base_url="https://ark.example/api/v3", transport=_RecordingTransport())
     assert seedance._media_shape("video") is SEEDANCE_VIDEO
     assert seedance._media_shape("tts") is OPENAI_TTS  # inherited from the OpenAI base
 
-    qwen = QwenImageProvider(
-        api_key="k", base_url="https://dashscope.example/api/v1", transport=_RecordingTransport()
-    )
+    qwen = QwenImageProvider(api_key="k", base_url="https://dashscope.example/api/v1", transport=_RecordingTransport())
     assert qwen._media_shape("image") is QWEN_IMAGE_MESSAGES
     assert qwen._media_shape("video") is DASHSCOPE_VIDEO  # inherited from the DashScope base
 
@@ -1370,3 +1360,59 @@ def test_brand_declarations_compose_with_their_protocol_base() -> None:
     )
     assert minimax._media_shape("tts") is MINIMAX_TTS
     assert minimax._media_shape("image") is MINIMAX_IMAGE
+
+
+# ── The reference gate — shape.select before the wire ────────────────────────
+#
+# A reference the resolved wire shape cannot represent raises
+# MediaReferenceError before any transport call: no friendly failure
+# response, no failover bait.
+
+
+def _ref_media() -> list:
+    return [MediaContent(type=MediaType.IMAGE, data="data:image/png;base64,AAAA", mime_type="image/png")]
+
+
+def _ref_audio() -> list:
+    return [MediaContent(type=MediaType.AUDIO, data="data:audio/mpeg;base64,AAAA", mime_type="audio/mpeg")]
+
+
+@pytest.mark.asyncio
+async def test_generic_fallback_purpose_rejects_media_before_the_wire() -> None:
+    transport = _RecordingTransport()
+    provider = OpenAIProvider(api_key="k", base_url="https://api.example/v1", transport=transport)
+    with pytest.raises(MediaReferenceError, match="no reference media"):
+        await provider.generate_media(
+            "calm piano", model="music-1", purpose="music", path="/v1/music", media=_ref_media()
+        )
+    assert transport.posts == []
+
+
+@pytest.mark.asyncio
+async def test_empty_media_list_behaves_as_no_references() -> None:
+    transport = _RecordingTransport()
+    provider = OpenAIProvider(api_key="k", base_url="https://api.example/v1", transport=transport)
+    await provider.image("a cat", "img-model", media=[])
+    assert transport.posts[-1]["body"] == {"model": "img-model", "prompt": "a cat"}
+    assert "image" not in transport.posts[-1]["body"]
+
+
+@pytest.mark.asyncio
+async def test_wire_shape_as_a_call_option_is_rejected() -> None:
+    provider = OpenAIProvider(api_key="k", base_url="https://api.example/v1", transport=_RecordingTransport())
+    with pytest.raises(ValueError, match="model-binding setting"):
+        await provider.image("a cat", "img-model", wire_shape="openai_image_json")
+
+
+@pytest.mark.asyncio
+async def test_minimax_image_purpose_rejects_reference_media() -> None:
+    provider = MiniMaxAnthropicProvider(api_key="k", base_url="https://api.minimaxi.com/anthropic")
+    with pytest.raises(MediaReferenceError, match="minimax_image"):
+        await provider.image("a cat", "image-01", media=_ref_media(), path="/image_generation")
+
+
+@pytest.mark.asyncio
+async def test_minimax_tts_purpose_rejects_reference_media() -> None:
+    provider = MiniMaxAnthropicProvider(api_key="k", base_url="https://api.minimaxi.com/anthropic")
+    with pytest.raises(MediaReferenceError, match="minimax_tts"):
+        await provider.tts("hello", "speech-1", media=_ref_audio())

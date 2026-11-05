@@ -296,8 +296,7 @@ def create_provider(
     # name fails here, not on the first media call.
     if wire_shape is not None and wire_shape not in cls.MEDIA_SHAPES:
         raise ValueError(
-            f"{cls.__name__} does not declare wire shape '{wire_shape}'; "
-            f"declared: {sorted(cls.MEDIA_SHAPES)}"
+            f"{cls.__name__} does not declare wire shape '{wire_shape}'; declared: {sorted(cls.MEDIA_SHAPES)}"
         )
 
     kwargs: dict[str, object] = {

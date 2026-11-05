@@ -28,13 +28,13 @@ from typing import Any
 import httpx
 
 from cliver_core.errors import ProviderError
-from cliver_core.media import MediaContent, MediaType, get_file_extension
-from cliver_core.provider.providers.openai import OpenAIProvider
+from cliver_core.media import MediaContent, get_file_extension
 from cliver_core.provider.media_shapes import (
     DASHSCOPE_IMAGE_BACKGROUND,
     DASHSCOPE_IMAGE_T2I,
     DASHSCOPE_VIDEO,
 )
+from cliver_core.provider.providers.openai import OpenAIProvider
 
 
 async def _sleep(seconds: float) -> None:
@@ -45,8 +45,8 @@ async def _sleep(seconds: float) -> None:
 class DashScopeProvider(OpenAIProvider):
     """Alibaba Model Studio media generation (bearer auth).
 
-    Media surface: ``image`` (text-to-image, plus background generation when
-    the model name selects it) and ``video`` — both on the async
+    Media surface: ``image`` (text-to-image, plus background generation
+    when the binding's ``wire_shape`` selects it) and ``video`` — both on the async
     create-and-poll wire.  Other media purposes report unsupported
     (DashScope has no OpenAI-fashion media endpoints).  Poll knobs ride the
     request options but never the body: ``poll_interval`` (seconds between
@@ -80,11 +80,6 @@ class DashScopeProvider(OpenAIProvider):
         "video": "dashscope_video",
     }
 
-    #: Background generation shares the ``image`` purpose but has its own
-    #: endpoint (pinned by the ``dashscope_background`` preset) and body
-    #: shape; the model name is what selects it.
-    _BACKGROUND_MODEL_PREFIX = "wanx-background-generation"
-
     #: The ``input`` fields that carry a reference image, in preference order.
     _INPUT_IMAGE_FIELDS = ("base_image_url", "img_url", "ref_image_url")
 
@@ -114,13 +109,14 @@ class DashScopeProvider(OpenAIProvider):
         """DashScope's ``{"model", "input", "parameters"}`` request shape.
 
         The prompt lands in ``input.prompt`` (text-to-image, video) or
-        ``input.ref_prompt`` (background generation, selected by the model
-        name).  The first reference image feeds ``input.base_image_url``
-        (background) or ``input.img_url`` (image-to-video); a second
-        background reference feeds ``input.ref_image_url``.  Every other
-        option folds into ``parameters``, ``negative_prompt`` rides
-        ``input``, and sizes normalize to DashScope's ``*`` separator.
-        Poll knobs are request options, not body fields.
+        ``input.ref_prompt`` (background generation, selected by the
+        binding's ``wire_shape``, never the model name).  The first
+        reference image feeds ``input.base_image_url`` (background) or
+        ``input.img_url`` (image-to-video); a second background reference
+        feeds ``input.ref_image_url``.  Every other option folds into
+        ``parameters``, ``negative_prompt`` rides ``input``, and sizes
+        normalize to DashScope's ``*`` separator.  Poll knobs are request
+        options, not body fields.
         """
         if purpose not in ("image", "video"):
             return super()._build_media_gen_body(prompt, model, purpose, media=media, **options)
@@ -131,13 +127,14 @@ class DashScopeProvider(OpenAIProvider):
             params["size"] = size.replace("x", "*").replace("X", "*")
         negative_prompt = params.pop("negative_prompt", None)
 
+        background = purpose == "image" and self._media_shape("image") is DASHSCOPE_IMAGE_BACKGROUND
         inputs: dict[str, Any] = {}
         if purpose == "video":
             inputs["prompt"] = prompt
             images = self._image_values(media)
             if images:
                 inputs["img_url"] = images[0]
-        elif model.startswith(self._BACKGROUND_MODEL_PREFIX):
+        elif background:
             inputs["ref_prompt"] = prompt
             images = self._image_values(media)
             if images:
@@ -145,6 +142,8 @@ class DashScopeProvider(OpenAIProvider):
             if len(images) > 1:
                 inputs["ref_image_url"] = images[1]
         else:
+            # Plain text-to-image — its shape rejects media before the
+            # builder, so references never reach this branch.
             inputs["prompt"] = prompt
         if negative_prompt is not None:
             inputs["negative_prompt"] = negative_prompt
@@ -160,9 +159,9 @@ class DashScopeProvider(OpenAIProvider):
         :meth:`_prepare_media_body` can decode it without the media item.
         """
         values: list[str] = []
+        # The wire shape guarantees IMAGE-only references with data by the
+        # time this runs — no per-item kind filtering here.
         for item in media or []:
-            if getattr(item, "type", None) != MediaType.IMAGE:
-                continue
             data = getattr(item, "data", "")
             if not isinstance(data, str) or not data:
                 continue

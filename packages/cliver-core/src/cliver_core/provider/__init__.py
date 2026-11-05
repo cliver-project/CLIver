@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable, Class
 
 from pydantic import BaseModel, Field
 
-from cliver_core.errors import CapabilityNotSupported, ProviderError
+from cliver_core.errors import CapabilityNotSupported, MediaReferenceError, ProviderError
 from cliver_core.media import (
     MediaContent,
     MediaType,
@@ -406,10 +406,7 @@ class Provider(ABC):
                     f"declared: {sorted(self.MEDIA_SHAPES)}"
                 )
             if shape.purpose != "any" and shape.purpose != purpose:
-                raise ValueError(
-                    f"wire shape '{self._wire_shape}' is for {shape.purpose} requests, "
-                    f"not {purpose}"
-                )
+                raise ValueError(f"wire shape '{self._wire_shape}' is for {shape.purpose} requests, not {purpose}")
             return shape
         name = self.DEFAULT_MEDIA_SHAPES.get(purpose)
         if name is not None:
@@ -599,6 +596,14 @@ class Provider(ABC):
         ``_media_gen_urls``) — or by taking over output handling completely
         with *output_handler*.
 
+        Wire shapes: reference *media* is validated against the resolved
+        shape (the binding's ``wire_shape``, else the provider's default for
+        the purpose) **before** anything reaches the wire — a kind or count
+        the shape does not accept raises :class:`MediaReferenceError`.  That
+        is a caller error, not a provider failure: it escapes this method
+        unwrapped (never a friendly :class:`CLIverResponse`) and never
+        triggers binding failover.
+
         A purpose with no resolvable endpoint raises
         :class:`CapabilityNotSupported` before anything reaches the wire;
         runtime failures return a friendly :class:`CLIverResponse`.
@@ -670,6 +675,11 @@ class Provider(ABC):
         # does the same, and everything downstream keys on "tts".
         purpose = "tts" if purpose == "audio" else purpose
         options.pop("timeout", None)
+        if "wire_shape" in options:
+            raise ValueError(
+                "wire_shape is a model-binding setting (ModelBinding.image/video/tts"
+                "(wire_shape=...)), not a call option — it never rides the request body."
+            )
         url = self._resolve_media_gen_url(purpose, path)
         if not url:
             label = self._UNSUPPORTED_MEDIA_LABELS.get(purpose, purpose)
@@ -694,6 +704,13 @@ class Provider(ABC):
                 raise TypeError("asr() expects a MediaContent instance")
             return await self._transcribe(media, model, url, options)
 
+        # The reference gate: the resolved wire shape either accepts every
+        # reference or raises here — before any body is built and outside the
+        # try below, so a contract error never becomes a friendly failure
+        # response or failover bait.
+        shape = self._media_shape(purpose)
+        media = shape.select(self.provider_name(), purpose, media)
+
         try:
             return await self._generate_media_items(
                 prompt,
@@ -707,6 +724,8 @@ class Provider(ABC):
                 binary=binary,
                 output_handler=output_handler,
             )
+        except MediaReferenceError:
+            raise
         except Exception as e:
             self.logger.warning("%s %s generation failed: %s", self.provider_name(), purpose, e)
             return self._media_failure_response(purpose, e)

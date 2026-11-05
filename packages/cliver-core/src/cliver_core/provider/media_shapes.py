@@ -109,9 +109,7 @@ DASHSCOPE_IMAGE_BACKGROUND = MediaShape(
 )
 DASHSCOPE_VIDEO = MediaShape("dashscope_video", "video", frozenset({MediaType.IMAGE}), 1, "async_upload")
 
-QWEN_IMAGE_MESSAGES = MediaShape(
-    "qwen_image_messages", "image", frozenset({MediaType.IMAGE}), None, "json"
-)
+QWEN_IMAGE_MESSAGES = MediaShape("qwen_image_messages", "image", frozenset({MediaType.IMAGE}), None, "json")
 
 MINIMAX_TTS = MediaShape("minimax_tts", "tts", frozenset(), 0, "json")
 #: Reference-image support is not live-verified; the shape rejects media until it is.

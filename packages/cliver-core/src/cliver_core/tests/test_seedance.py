@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 
 from cliver_core.capabilities import generate_video
+from cliver_core.errors import MediaReferenceError
 from cliver_core.media import MediaContent, MediaType
 from cliver_core.messages import CLIverMessage
 from cliver_core.provider import CLIverResponse
@@ -405,3 +406,23 @@ async def test_generate_video_works_out_of_the_box_on_the_seedance_preset(monkey
     assert mc.mime_type == "video/mp4"
     assert (tmp_path / "generated_0.mp4").read_bytes() == video
     await binding.aclose()
+
+
+@pytest.mark.asyncio
+async def test_seedance_video_rejects_three_reference_images() -> None:
+    transport = _CreateTransport()
+    provider = _provider(transport)
+    three = [MediaContent(type=MediaType.IMAGE, data=f"IMG{i}", mime_type="image/png") for i in range(3)]
+    with pytest.raises(MediaReferenceError, match="got 3"):
+        await provider.video("a sunset", _MODEL, media=three)
+    assert transport.posts == []
+
+
+@pytest.mark.asyncio
+async def test_seedance_video_rejects_audio_reference() -> None:
+    transport = _CreateTransport()
+    provider = _provider(transport)
+    audio = MediaContent(type=MediaType.AUDIO, data="data:audio/mpeg;base64,AAAA", mime_type="audio/mpeg")
+    with pytest.raises(MediaReferenceError, match="audio"):
+        await provider.video("a sunset", _MODEL, media=[audio])
+    assert transport.posts == []

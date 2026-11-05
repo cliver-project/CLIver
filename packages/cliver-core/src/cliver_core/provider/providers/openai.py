@@ -25,7 +25,7 @@ from uuid import uuid4
 
 from cliver_core.errors import ProviderError
 from cliver_core.events import EventHandler, InferenceEvent, InferenceEventType, dispatch_event
-from cliver_core.media import MediaContent, MediaType
+from cliver_core.media import MediaContent
 from cliver_core.messages import (
     CLIverMessage,
     CLIverMessageChunk,
@@ -386,8 +386,10 @@ class OpenAIProvider(Provider):
         """
         if purpose == "image":
             body: dict[str, Any] = {"model": model, "prompt": prompt, **options}
-            reference = next((m for m in media or [] if getattr(m, "type", None) == MediaType.IMAGE), None)
-            if reference is not None:
+            # The openai_image_json shape guarantees at most one IMAGE
+            # reference with data by the time the builder runs.
+            if media:
+                reference = media[0]
                 image = reference.data
                 if not image.startswith("data:"):
                     image = f"data:{reference.mime_type};base64,{image}"

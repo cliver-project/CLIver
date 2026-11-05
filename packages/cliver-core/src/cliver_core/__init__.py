@@ -65,6 +65,7 @@ __all__ = [
     "ContextCompactor",
     "LlmCompactor",
     "MediaJob",
+    "MediaReferenceError",
     "ModelBinding",
     "ModelBindings",
     "ProviderError",

@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from cliver_core.capabilities import generate_image
-from cliver_core.errors import ProviderError
+from cliver_core.errors import MediaReferenceError, ProviderError
 from cliver_core.media import MediaContent, MediaType
 from cliver_core.provider.providers import dashscope as dashscope_module
 from cliver_core.provider.providers.dashscope import DashScopeProvider
@@ -64,8 +64,8 @@ class _PollStub:
         return self.payloads.pop(0)
 
 
-def _provider(transport: _CreateTransport, base_url: str = _BASE) -> DashScopeProvider:
-    return DashScopeProvider(api_key="k", base_url=base_url, transport=transport)
+def _provider(transport: _CreateTransport, base_url: str = _BASE, wire_shape: str | None = None) -> DashScopeProvider:
+    return DashScopeProvider(api_key="k", base_url=base_url, transport=transport, wire_shape=wire_shape)
 
 
 def _stub_poll(monkeypatch, provider: DashScopeProvider, *payloads: dict) -> _PollStub:
@@ -188,7 +188,7 @@ async def test_negative_prompt_rides_the_input_not_the_parameters(monkeypatch) -
 @pytest.mark.asyncio
 async def test_background_body_uses_the_first_image_and_the_prompt_as_ref_prompt(monkeypatch) -> None:
     transport = _CreateTransport()
-    provider = _provider(transport)
+    provider = _provider(transport, wire_shape="dashscope_image_background")
     _stub_poll(monkeypatch, provider, _image_succeeded())
 
     await provider.image(
@@ -216,7 +216,7 @@ async def test_background_body_uses_the_first_image_and_the_prompt_as_ref_prompt
 @pytest.mark.asyncio
 async def test_background_body_maps_a_second_image_to_ref_image_url(monkeypatch) -> None:
     transport = _CreateTransport()
-    provider = _provider(transport)
+    provider = _provider(transport, wire_shape="dashscope_image_background")
     _stub_poll(monkeypatch, provider, _image_succeeded())
 
     await provider.image(
@@ -467,7 +467,7 @@ async def test_create_sends_the_async_header(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_oss_resolve_header_is_sent_iff_the_body_has_an_oss_url(monkeypatch) -> None:
     transport = _CreateTransport()
-    provider = _provider(transport)
+    provider = _provider(transport, wire_shape="dashscope_image_background")
     _stub_poll(monkeypatch, provider, _image_succeeded())
 
     await provider.image(
@@ -490,7 +490,7 @@ async def test_oss_resolve_header_is_sent_iff_the_body_has_an_oss_url(monkeypatc
 @pytest.mark.asyncio
 async def test_data_uri_media_is_uploaded_once_and_the_body_carries_the_oss_url(monkeypatch) -> None:
     transport = _CreateTransport()
-    provider = _provider(transport)
+    provider = _provider(transport, wire_shape="dashscope_image_background")
     _stub_poll(monkeypatch, provider, _image_succeeded())
     uploads: list[dict] = []
 
@@ -526,7 +526,7 @@ async def test_data_uri_media_is_uploaded_once_and_the_body_carries_the_oss_url(
 @pytest.mark.asyncio
 async def test_raw_base64_media_is_wrapped_then_uploaded(monkeypatch) -> None:
     transport = _CreateTransport()
-    provider = _provider(transport)
+    provider = _provider(transport, wire_shape="dashscope_image_background")
     _stub_poll(monkeypatch, provider, _image_succeeded())
     uploads: list[dict] = []
 
@@ -551,7 +551,7 @@ async def test_raw_base64_media_is_wrapped_then_uploaded(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_public_http_media_passes_through_without_an_upload(monkeypatch) -> None:
     transport = _CreateTransport()
-    provider = _provider(transport)
+    provider = _provider(transport, wire_shape="dashscope_image_background")
     _stub_poll(monkeypatch, provider, _image_succeeded())
     uploads: list[dict] = []
 
@@ -978,3 +978,66 @@ async def test_generate_image_with_references_works_on_the_qwen_image_preset(mon
     assert Path(mc.saved_path).read_bytes() == image
     assert isinstance(binding.get_provider(), QwenImageProvider)
     await binding.aclose()
+
+
+# ── The reference gate — shapes reject what they cannot encode ───────────────
+
+
+def _ref_image(index: int = 0) -> MediaContent:
+    return MediaContent(type=MediaType.IMAGE, data=f"data:image/png;base64,IMG{index}", mime_type="image/png")
+
+
+@pytest.mark.asyncio
+async def test_plain_t2i_rejects_reference_media() -> None:
+    transport = _CreateTransport()
+    provider = _provider(transport)  # no wire_shape → the t2i default
+    with pytest.raises(MediaReferenceError, match="dashscope_image_t2i"):
+        await provider.image("a cat", "wanx2.1-t2i-turbo", media=[_ref_image()], poll_interval=0)
+    assert transport.posts == []
+
+
+@pytest.mark.asyncio
+async def test_background_wire_rejects_a_third_reference_image() -> None:
+    transport = _CreateTransport()
+    provider = _provider(transport, wire_shape="dashscope_image_background")
+    with pytest.raises(MediaReferenceError, match="got 3"):
+        await provider.image(
+            "make the backdrop clean", _BG_MODEL, media=[_ref_image(i) for i in range(3)], poll_interval=0
+        )
+    assert transport.posts == []
+
+
+@pytest.mark.asyncio
+async def test_video_wire_rejects_a_second_reference_image() -> None:
+    transport = _CreateTransport()
+    provider = _provider(transport)
+    with pytest.raises(MediaReferenceError, match="got 2"):
+        await provider.video("make it move", _VIDEO_MODEL, media=[_ref_image(0), _ref_image(1)], poll_interval=0)
+    assert transport.posts == []
+
+
+@pytest.mark.asyncio
+async def test_audio_reference_is_rejected_on_every_wire() -> None:
+    audio = MediaContent(type=MediaType.AUDIO, data="data:audio/mpeg;base64,AAAA", mime_type="audio/mpeg")
+    for provider, call in (
+        (_provider(_CreateTransport()), lambda p: p.image("p", "wanx2.1-t2i-turbo", media=[audio])),
+        (
+            _provider(_CreateTransport(), wire_shape="dashscope_image_background"),
+            lambda p: p.image("p", _BG_MODEL, media=[audio]),
+        ),
+        (_provider(_CreateTransport()), lambda p: p.video("p", _VIDEO_MODEL, media=[audio])),
+    ):
+        with pytest.raises(MediaReferenceError, match="audio"):
+            await call(provider)
+
+
+@pytest.mark.asyncio
+async def test_qwen_image_wire_rejects_audio_reference() -> None:
+    from cliver_core.provider.providers.qwen_image import QwenImageProvider
+
+    transport = _CreateTransport()
+    provider = QwenImageProvider(api_key="k", base_url=_BASE, transport=transport)
+    audio = MediaContent(type=MediaType.AUDIO, data="data:audio/mpeg;base64,AAAA", mime_type="audio/mpeg")
+    with pytest.raises(MediaReferenceError, match="audio"):
+        await provider.image("a cat", "qwen-image", media=[audio])
+    assert transport.posts == []

@@ -192,9 +192,7 @@ class ModelBinding:
                 )
             shape = SHAPES.get(self.wire_shape)
             if shape is None:
-                raise ValueError(
-                    f"unknown wire shape '{self.wire_shape}'; known shapes: {sorted(SHAPES)}"
-                )
+                raise ValueError(f"unknown wire shape '{self.wire_shape}'; known shapes: {sorted(SHAPES)}")
             if self.purpose is not None and shape.purpose not in ("any", self.purpose):
                 raise ValueError(
                     f"wire shape '{self.wire_shape}' is for {shape.purpose} requests, "
@@ -444,9 +442,7 @@ class ModelBinding:
         """Embedding-purpose binding — ``path`` is the endpoint override;
         ``dimensions`` becomes a default param."""
         if wire_shape is not None:
-            raise TypeError(
-                "ModelBinding.embed() takes no wire_shape — embedding requests carry no media."
-            )
+            raise TypeError("ModelBinding.embed() takes no wire_shape — embedding requests carry no media.")
         return cls(
             model=model,
             provider=provider,
@@ -483,9 +479,7 @@ class ModelBinding:
         """Rerank-purpose binding — ``path`` is the endpoint override;
         ``top_k`` becomes a default param."""
         if wire_shape is not None:
-            raise TypeError(
-                "ModelBinding.rerank() takes no wire_shape — rerank requests carry no media."
-            )
+            raise TypeError("ModelBinding.rerank() takes no wire_shape — rerank requests carry no media.")
         return cls(
             model=model,
             provider=provider,

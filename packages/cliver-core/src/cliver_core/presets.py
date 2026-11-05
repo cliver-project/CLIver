@@ -439,6 +439,7 @@ def dashscope_background(
         protocol="openai",
         provider_name="dashscope",
         path=path,
+        wire_shape="dashscope_image_background",
         n=n,
         model_version=model_version,
         **params,
