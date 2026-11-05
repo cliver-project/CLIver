@@ -17,7 +17,7 @@ from cliver_core.capabilities import (
 )
 from cliver_core.compaction import CompactionContext, CompactionPlan, CompactionSplit, ContextCompactor
 from cliver_core.compactors import LlmCompactor
-from cliver_core.errors import ProviderError, RunTimeoutError
+from cliver_core.errors import MediaReferenceError, ProviderError, RunTimeoutError
 from cliver_core.events import EventHandler
 from cliver_core.media import MediaContent
 from cliver_core.media_jobs import MediaJob

@@ -7,7 +7,7 @@ raise :class:`CapabilityNotSupported`, and ``bindings`` imports ``provider``
 
 from __future__ import annotations
 
-__all__ = ["CapabilityNotSupported", "ProviderError", "RunTimeoutError"]
+__all__ = ["CapabilityNotSupported", "MediaReferenceError", "ProviderError", "RunTimeoutError"]
 
 
 class CapabilityNotSupported(Exception):
@@ -37,6 +37,18 @@ class RunTimeoutError(TimeoutError):
         super().__init__(
             f"Run '{run_id}' timed out after {timeout:g}s" if run_id else f"Run timed out after {timeout:g}s"
         )
+
+
+class MediaReferenceError(ValueError):
+    """The provider/purpose cannot represent the supplied reference media.
+
+    Raised before any request body is built: the resolved wire shape does not
+    accept the reference kinds (or the count) the caller passed as
+    ``media=``.  It is a caller/contract error, so ``generate_media``
+    propagates it unchanged — never a friendly failure response, never a
+    failover trigger.  Subclasses :class:`ValueError` to match the existing
+    caller-error conventions (e.g. the ASR generation-only knob guard).
+    """
 
 
 class ProviderError(RuntimeError):
