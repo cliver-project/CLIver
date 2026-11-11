@@ -607,12 +607,12 @@ class ModelBinding:
         """Bind this handle to the running loop, rejecting a different one.
 
         Only loop-bound resources claim: an SDK client owns connection pools
-        and stream tasks on the loop that created it.  The first async use
-        claims the loop; any later use from another loop (in practice another
-        thread) fails here with :class:`LoopAffinityError` rather than inside
-        ``httpx``.  Providers marked ``loop_agnostic`` own no such resources
-        and never reach this check.  Calls made outside a running loop are
-        not recorded.
+        and stream tasks on the loop that created it.  The first use on a
+        running loop claims it; any later use from another loop (in practice
+        another thread) fails here with :class:`LoopAffinityError` rather than
+        inside ``httpx``.  Providers marked ``loop_agnostic`` own no such
+        resources and never reach this check.  Calls made outside a running
+        loop are not recorded.
         """
         try:
             running = asyncio.get_running_loop()

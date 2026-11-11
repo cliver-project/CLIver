@@ -413,7 +413,8 @@ and make sure your orchestrator's termination grace period is longer than that.
 
 ## Checklist
 
-- [ ] One agent per worker process, built inside `lifespan` on that worker's loop.
+- [ ] One agent per worker process, built inside `lifespan` (or by `agent_lifespan`) on that
+      worker's loop.
 - [ ] `run_timeout` and `client_timeout` set below the upstream/proxy timeouts.
 - [ ] Admission semaphore sized from upstream limits; `429` (or backpressure) when saturated.
 - [ ] `RunTimeoutError` → 504, retryable `ProviderError` → 503, other provider failures → 502.

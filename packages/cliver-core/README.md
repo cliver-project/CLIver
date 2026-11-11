@@ -12,8 +12,9 @@ pip install cliver-core==0.3.0          # core library + MCP client (stdio / str
 pip install "cliver-core[local]==0.3.0" # + in-process local embed / rerank / System One models
 ```
 
-`0.3.0` is the first stable release of the 0.3 API series: the public API is frozen, with bug
-fixes only in `0.3.x` patch releases. Python 3.10–3.13. See
+`0.3.0` is the first stable release of the 0.3 API series: the public API stays backward
+compatible, and `0.3.x` patch releases contain bug fixes and backward-compatible additions.
+Python 3.10–3.13. See
 [Stability & Versioning](https://cliver-project.github.io/CLIver/getting-started/stability/).
 
 ## 0.3 highlights
@@ -36,18 +37,16 @@ from cliver_core import AgentCore, ModelBinding, ModelBindings
 
 
 async def main():
-    agent = AgentCore(
-        ModelBindings(
-            llm=ModelBinding.llm(
-                model="deepseek-v4-flash",
-                api_key="...",
-                base_url="https://api.deepseek.com",
-            )
+    bindings = ModelBindings(
+        llm=ModelBinding.llm(
+            model="deepseek-v4-flash",
+            api_key="...",
+            base_url="https://api.deepseek.com",
         )
     )
-    response = await agent.chat("Summarize the agent loop in one sentence.")
-    print(response.message.content)
-    await agent.aclose()
+    async with AgentCore.open(bindings) as agent:
+        response = await agent.chat("Summarize the agent loop in one sentence.")
+        print(response.message.content)
 
 
 asyncio.run(main())
@@ -59,7 +58,7 @@ Ready-made bindings for live-verified providers live in `cliver_core.presets`:
 from cliver_core import ModelBindings, presets
 
 bindings = ModelBindings(llm=presets.deepseek(api_key="..."))
-agent = AgentCore(bindings)
+agent = AgentCore(bindings)  # if you construct directly, close with `await agent.aclose()`
 ```
 
 ## Tools
@@ -108,6 +107,15 @@ after a credential rotation. A caller-supplied `context_compactor` can replace h
 loop iteration before the model call: return a `CompactionPlan` and core applies it safely, or
 return a full history as an escape hatch. `LlmCompactor` is an opt-in reference policy that is
 never installed automatically.
+
+`await bindings.preflight()` builds every binding's provider and resolves credentials at
+startup, so a missing endpoint or key fails before the first call. `AgentCore.open(bindings, ...)`
+runs the agent as an async context manager and closes it on exit — normal or exceptional —
+without closing a provider or MCP client you supplied;
+`cliver_core.integrations.lifespan.agent_lifespan(bindings)` combines construction, preflight,
+and shutdown in one ASGI lifespan. `binding.build_provider()` builds eagerly (and is
+idempotent); `binding.owner_loop` reports the event loop the binding first used, or `None`
+before first use.
 
 `chat_structured()` validates a pydantic model or JSON-Schema dict and retries invalid output:
 

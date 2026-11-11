@@ -5,8 +5,9 @@ A provider the binding builds holds loop-bound clients (the SDK and its
 practice, a second thread — fails deep inside the client or hangs.  The binding
 records the loop on first use and rejects a different one with
 :class:`LoopAffinityError` and a message that says what to do: one binding (and
-agent) per event loop.  ``aclose`` releases the claim, so a binding can be
-reused after its agent shuts down.
+agent) per event loop.  ``aclose`` releases the claim of a binding that built
+its provider, so it can be reused after its agent shuts down; a caller-supplied
+loop-bound provider keeps the claim because it stays open on its original loop.
 
 A caller-supplied provider marked ``loop_agnostic`` (the in-process local
 embed/rerank providers) owns no loop-bound resources, so the binding does not

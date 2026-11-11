@@ -26,8 +26,9 @@ Both packages in `packages/*/pyproject.toml` must carry the exact same version. 
 tag is `v` + that version, e.g. `v0.3.0`. The release workflow refuses to build if the tag
 and the `cliver-core` version disagree.
 
-`0.3.0` is the first stable release of the 0.3 series: the public API is frozen, with bug
-fixes only in `0.3.x` patch releases. Downstream projects may pin exactly
+`0.3.0` is the first stable release of the 0.3 series: the public API stays backward compatible,
+and `0.3.x` patch releases contain bug fixes and backward-compatible additions. Breaking
+changes require a new minor release (`0.4.0`). Downstream projects may pin exactly
 (`pip install cliver-core==0.3.0`) or use the compatible range
 `cliver-core>=0.3.0,<0.4`. Exact pins remain the safest choice for reproducibility.
 
@@ -35,7 +36,8 @@ fixes only in `0.3.x` patch releases. Downstream projects may pin exactly
 
 Before an `rc` tag, all of the following must be true:
 
-- The public API is frozen; the only remaining changes are bug fixes.
+- The public API is stable: changes since the previous pre-release are bug fixes and
+  backward-compatible additions only; breaking changes wait for a new minor release.
 - `CHANGELOG.md` covers every commit since the previous release, including breaking changes and
   an upgrade section.
 - The `cliver-core` README and the documentation install snippets pin the new version.

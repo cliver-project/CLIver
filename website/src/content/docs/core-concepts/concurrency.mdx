@@ -13,7 +13,7 @@ what the application must supply.
   limitation planned for removal.
 - **One agent per event loop — in practice, one per thread.** Each thread that serves work owns
   its loop, its agent, its bindings, and its MCP client. Providers, MCP sessions, and media jobs
-  are loop-bound. A binding remembers the loop of its first async use and raises
+  are loop-bound. A binding remembers the loop of its first use and raises
   `LoopAffinityError` on a second one instead of failing inside the HTTP client. `aclose()`
   releases the claim when the binding can rebuild its provider; a caller-supplied loop-bound
   provider keeps it, because it stays open on its original loop. In-process local providers are

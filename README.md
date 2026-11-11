@@ -17,8 +17,9 @@ CLIver is an **embeddable agent core with a companion CLI**, built from two pack
   interactive REPL, with interactive tool approval in both modes. It remains experimental and
   is not on PyPI yet.
 
-`cliver-core` 0.3 is the first stable series: the public API is frozen, and `0.3.x` patch
-releases contain bug fixes only. The `cliver` CLI is for tinkering:
+`cliver-core` 0.3 is the first stable series: the public API stays backward compatible, and
+`0.3.x` patch releases contain bug fixes and backward-compatible additions. The `cliver` CLI is
+for tinkering:
 run one-shot tasks or a multi-turn REPL with your own skills and tools, approve mutating calls
 interactively, and inspect tool events. See
 [Stability & Versioning](https://cliver-project.github.io/CLIver/getting-started/stability/)
@@ -41,10 +42,10 @@ from cliver_core import AgentCore, ModelBindings, presets
 
 
 async def main():
-    agent = AgentCore(ModelBindings(llm=presets.deepseek(api_key="...")))
-    response = await agent.chat("Summarize the agent loop in one sentence.")
-    print(response.message.content)
-    await agent.aclose()
+    bindings = ModelBindings(llm=presets.deepseek(api_key="..."))
+    async with AgentCore.open(bindings) as agent:
+        response = await agent.chat("Summarize the agent loop in one sentence.")
+        print(response.message.content)
 
 
 asyncio.run(main())

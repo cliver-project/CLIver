@@ -13,15 +13,12 @@ const quickstartCode = `import asyncio
 from cliver_core import AgentCore, ModelBindings, presets
 from cliver_core.tools import discover_builtin_tools
 
-agent = AgentCore(
-    ModelBindings(llm=presets.deepseek()),
-    builtin_tools=discover_builtin_tools(),
-)
-
 
 async def main() -> None:
-    response = await agent.chat("List the files in this project.")
-    print(response.message.content)
+    bindings = ModelBindings(llm=presets.deepseek())
+    async with AgentCore.open(bindings, builtin_tools=discover_builtin_tools()) as agent:
+        response = await agent.chat("List the files in this project.")
+        print(response.message.content)
 
 
 asyncio.run(main())`;
@@ -193,10 +190,7 @@ const capabilities = [
         ) : (
           <div class="home-notes__empty">
             <span class="home-notes__issue">ISSUE 00</span>
-            <p>
-              The first dispatch lands with CLIver 0.3.0. Until then, the docs are the lab
-              notebook.
-            </p>
+            <p>Field notes are on the way. Until then, the docs are the lab notebook.</p>
             <a class="home-text-link" href={`${base}getting-started/`}>
               Start with the docs <span aria-hidden="true">→</span>
             </a>
