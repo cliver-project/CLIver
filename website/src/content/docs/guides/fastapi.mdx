@@ -76,6 +76,11 @@ because FastAPI resolves a dependency by parameter **annotation**: `get_agent(re
 cannot be passed to `Depends` directly — FastAPI would treat the unannotated parameter as a
 query parameter — and `cliver-core` does not import `Request`.
 
+Not every app should fail startup. `agent_lifespan` suits a server whose configuration is
+complete at startup; an app that builds bindings per call, or treats a missing key as an
+expected state, keeps lazy construction and surfaces the first call's error itself — see
+[Choosing a startup strategy](../core-concepts/concurrency/#choosing-a-startup-strategy).
+
 ### Composing with other resources
 
 When the app also owns an MCP client, a credential refresher, or admission slots, write the

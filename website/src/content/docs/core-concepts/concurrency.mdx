@@ -260,6 +260,26 @@ not rebuilt or closed. `agent_lifespan()` from `cliver_core.integrations.lifespa
 you. Lazy construction remains the default; call preflight explicitly when startup validation
 pays off.
 
+### Choosing a startup strategy
+
+Both helpers only move a configuration failure earlier — they add no capability. Pick the mode
+that matches who supplies the configuration and when a failure should surface:
+
+| Mode | Use when | Failure surfaces |
+|------|----------|------------------|
+| `agent_lifespan()`, or explicit `preflight()` in your lifespan | A long-lived server owns a long-lived agent, and its configuration is complete at startup. A bad endpoint or missing key is a deployment error. | Startup: the process refuses to serve |
+| Lazy construction only (the default) | A script, CLI, test, or short-lived job. The first call may pay the provider build. | The first call that needs the provider |
+| Application-managed validation | Bindings are built per call or per tenant, or an absent credential is an expected state — a development or demo environment — that the app reports in its own UI. | The first call, routed through the app's own error path |
+
+The third mode is not a workaround. An app that builds a binding per request — one key or
+endpoint per tenant, for example — has nothing to preflight at startup, and failing the whole
+process for a credential that may never be used would be wrong. Check what the application can
+check (a key present in settings, a workspace selected), then let the first call fail; the
+capability functions and `AgentCore` already raise the provider's message. Do not call
+`preflight()` on a server whose configuration is incomplete by design — it builds every
+configured binding, so one missing credential refuses startup even for requests that never
+touch that purpose.
+
 The first real call still does one-time work that is otherwise paid by a user request:
 
 - builds the provider(s) for the bound purpose (skipped if preflight already did);

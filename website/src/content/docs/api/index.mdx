@@ -43,7 +43,9 @@ and resolves each `credential_provider` once, without a network call. An unbuild
 (missing endpoint or credential, a loop claimed by another event loop) raises there and then, so
 a misconfigured server fails startup instead of its first request. Idempotent: a provider the
 binding already built is reused, never rebuilt or closed. Lazy construction stays the default —
-call `preflight()` when you want eager validation.
+call `preflight()` when you want eager validation. For when eager validation is the wrong choice
+— per-call bindings, or a development environment where a missing key is expected — see
+[Choosing a startup strategy](../core-concepts/concurrency/#choosing-a-startup-strategy).
 
 ### `await agent.chat(user_input, **options) → CLIverResponse`
 
