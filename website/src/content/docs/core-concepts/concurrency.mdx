@@ -31,6 +31,27 @@ what the application must supply.
 - **No built-in backpressure.** Admission control, per-tenant quotas, and shutdown draining are
   the application's job.
 
+## Binding State at a Glance
+
+Two diagnostics make the loop contract observable without a debugger. `binding.owner_loop` is
+the event loop the binding first used (or `None`), and `repr(binding)` ends with `loop=<id>` — the
+loop's `id()` in hex — and `built=True/False`. Neither ever shows the API key.
+
+| Provider source | `built` after first use | `owner_loop` | Who closes it |
+|-----------------|-------------------------|--------------|---------------|
+| Definition-built (`api_key` / `base_url` / `provider_name`) | `True` | Set on first use; `None` before; released by `aclose()` | The binding — `aclose()` closes it; `arefresh()` closes a retired provider |
+| Caller-supplied `provider=` | `False` | Set on the first loop-bound use and kept; stays `None` for a `loop_agnostic` provider | The caller — core never closes it |
+
+| Moment | What happens | `built` | `owner_loop` |
+|--------|--------------|---------|--------------|
+| Construction | Definition stored; nothing built, no loop touched | `False` | `None` |
+| First use — `chat()` / `stream()` / a capability call / `preflight()` / `build_provider()` | Provider built if definition-built; the running loop is claimed if the provider is loop-bound | `True` (built) / `False` (supplied) | The running loop, or `None` for a loop-agnostic provider |
+| `aclose()` | Built providers are closed; a supplied provider stays open | `False` again | Released for a rebuildable binding or a loop-agnostic provider; kept for a supplied loop-bound provider |
+
+When a second loop is rejected, `LoopAffinityError` carries the same diagnostics:
+`exc.model`, `exc.owner_loop`, and `exc.current_loop` (the loop that raised). `preflight()`
+keeps them on the labeled error it raises.
+
 ## Why Not Thread-Safe
 
 Thread safety is deliberately out of scope. It is not something a few locks can add, because the

@@ -54,7 +54,25 @@ class LoopAffinityError(RuntimeError):
     resources declare ``loop_agnostic = True`` and are exempt; the in-process
     local embed/rerank providers do.  It subclasses :class:`RuntimeError` so
     existing ``except RuntimeError`` handlers keep working.
+
+    Carries the diagnostics: ``model`` (the binding's model name),
+    ``owner_loop`` (the loop the binding first used) and ``current_loop``
+    (the loop that raised).  They are ``None`` on an error rebuilt from just
+    a message.
     """
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        model: str | None = None,
+        owner_loop: object | None = None,
+        current_loop: object | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.model = model
+        self.owner_loop = owner_loop
+        self.current_loop = current_loop
 
 
 class MediaReferenceError(ValueError):

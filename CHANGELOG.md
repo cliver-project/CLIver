@@ -38,6 +38,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lifespan yields nothing (the ASGI lifespan yield is reserved for a state mapping), so read the
   agent through `get_agent(request)` from an application-side `Depends` wrapper. No FastAPI or
   Starlette import.
+- **cliver-core: binding observability** — `ModelBinding.owner_loop` is the event loop the
+  binding first used (`None` before first use, and after `aclose()` for a rebuildable binding).
+  `LoopAffinityError` now carries `.model`, `.owner_loop`, and `.current_loop`;
+  `ModelBindings.preflight()` keeps them on the labeled error it raises. `repr(binding)` shows
+  `loop=<id>` and `built=True/False` (a caller-supplied provider keeps `built=False`) without
+  exposing the API key.
 
 ### Fixed
 

@@ -225,6 +225,114 @@ def test_real_local_embedding_binding_runs_across_asyncio_run() -> None:
     asyncio.run(provider.close())
 
 
+# ── Observability: owner_loop, LoopAffinityError fields, repr ──
+
+
+def test_owner_loop_is_none_before_first_use() -> None:
+    binding = ModelBinding.llm(model="mock-model", provider=_FakeProvider())
+
+    assert binding.owner_loop is None
+
+
+def test_owner_loop_records_the_first_loop() -> None:
+    binding = ModelBinding.llm(model="mock-model", provider=_FakeProvider())
+    loops: list[asyncio.AbstractEventLoop] = []
+
+    async def run() -> None:
+        loops.append(asyncio.get_running_loop())
+        await _agent(binding).chat("hi")
+
+    asyncio.run(run())
+
+    assert binding.owner_loop is loops[0]
+
+
+def test_owner_loop_stays_none_for_a_loop_agnostic_provider() -> None:
+    binding = ModelBinding.llm(model="mock-model", provider=_LoopAgnosticProvider())
+
+    async def run() -> None:
+        await _agent(binding).chat("hi")
+
+    asyncio.run(run())
+
+    assert binding.owner_loop is None
+
+
+def test_loop_affinity_error_carries_model_and_both_loops() -> None:
+    binding = ModelBinding.llm(model="mock-model", provider=_FakeProvider())
+    loops: list[asyncio.AbstractEventLoop] = []
+
+    async def first() -> None:
+        loops.append(asyncio.get_running_loop())
+        await _agent(binding).chat("hi")
+
+    asyncio.run(first())
+
+    async def second() -> None:
+        loops.append(asyncio.get_running_loop())
+        with pytest.raises(LoopAffinityError) as info:
+            await _agent(binding).chat("hi")
+        assert info.value.model == "mock-model"
+        assert info.value.owner_loop is loops[0]
+        assert info.value.current_loop is loops[1]
+
+    asyncio.run(second())
+
+
+def test_preflight_wrapped_loop_error_keeps_the_loop_fields() -> None:
+    binding = ModelBinding.llm(model="mock-model", provider=_FakeProvider())
+    bindings = ModelBindings(llm=binding)
+    loops: list[asyncio.AbstractEventLoop] = []
+
+    async def first() -> None:
+        loops.append(asyncio.get_running_loop())
+        binding.build_provider()
+
+    asyncio.run(first())
+
+    async def second() -> None:
+        loops.append(asyncio.get_running_loop())
+        with pytest.raises(LoopAffinityError, match=r"bindings\.llm") as info:
+            await bindings.preflight()
+        assert info.value.model == "mock-model"
+        assert info.value.owner_loop is loops[0]
+        assert info.value.current_loop is loops[1]
+
+    asyncio.run(second())
+
+
+def test_repr_shows_loop_and_built_state(monkeypatch) -> None:
+    built = _FakeProvider()
+    monkeypatch.setattr("cliver_core.bindings.create_provider", lambda **kwargs: built)
+    binding = ModelBinding.llm(model="mock-model", api_key="k", base_url="https://example.test/v1")
+
+    assert "loop=None" in repr(binding)
+    assert "built=False" in repr(binding)
+
+    async def run() -> None:
+        await _agent(binding).chat("hi")
+
+    asyncio.run(run())
+
+    text = repr(binding)
+    assert "loop=None" not in text
+    assert f"loop=0x{id(binding.owner_loop):x}" in text
+    assert "built=True" in text
+    assert "api_key" not in text
+
+
+def test_repr_keeps_built_false_for_a_supplied_provider() -> None:
+    binding = ModelBinding.llm(model="mock-model", provider=_FakeProvider())
+
+    async def run() -> None:
+        await _agent(binding).chat("hi")
+
+    asyncio.run(run())
+
+    assert "built=False" in repr(binding)
+    assert binding.owner_loop is not None
+
+
 # ── Rebinding with for_current_loop() ─────────────────────────
 
 

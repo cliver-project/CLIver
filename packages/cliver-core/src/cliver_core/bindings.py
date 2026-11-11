@@ -206,6 +206,26 @@ class ModelBinding:
                     f"not this binding's purpose ('{self.purpose}')"
                 )
 
+    def __repr__(self) -> str:
+        """Show the binding's state without secret material.
+
+        ``loop=0x...`` is the id of the event loop the binding first used
+        (``None`` before first use), and ``built=`` says whether the binding
+        built its provider — a caller-supplied ``provider=`` keeps it
+        ``False``.  Never includes ``api_key``, ``on_event``, or
+        ``credential_provider``.
+        """
+        loop = f"0x{id(self._loop):x}" if self._loop is not None else "None"
+        return (
+            f"ModelBinding(model={self.model!r}, provider={self.provider!r}, "
+            f"base_url={self.base_url!r}, protocol={self.protocol!r}, "
+            f"provider_name={self.provider_name!r}, provider_class={self.provider_class!r}, "
+            f"path={self.path!r}, wire_shape={self.wire_shape!r}, "
+            f"client_timeout={self.client_timeout!r}, client_max_retries={self.client_max_retries!r}, "
+            f"purpose={self.purpose!r}, params={self.params!r}, "
+            f"loop={loop}, built={self._built is not None})"
+        )
+
     # ── Per-purpose factories ─────────────────────────────────
 
     @classmethod
@@ -567,6 +587,17 @@ class ModelBinding:
 
     # ── Provider handle ───────────────────────────────────────
 
+    @property
+    def owner_loop(self) -> asyncio.AbstractEventLoop | None:
+        """The event loop this binding first used, or ``None`` before first use.
+
+        A loop-bound provider claims the running loop on first use — an eager
+        :meth:`preflight` / :meth:`build_provider`, or any model or capability
+        call.  ``None`` also after :meth:`aclose` released a binding that can
+        rebuild its provider, and always for a ``loop_agnostic`` provider.
+        """
+        return self._loop
+
     @staticmethod
     def _is_loop_agnostic(provider: Provider) -> bool:
         """Whether *provider* declared it owns no loop-bound resources."""
@@ -593,7 +624,10 @@ class ModelBinding:
             raise LoopAffinityError(
                 f"ModelBinding for '{self.model}' is bound to another event loop; "
                 "create one binding (and AgentCore) per event loop — one per thread — "
-                "or call ModelBinding.for_current_loop() for a loop-agnostic provider."
+                "or call ModelBinding.for_current_loop() for a loop-agnostic provider.",
+                model=self.model,
+                owner_loop=self._loop,
+                current_loop=running,
             )
 
     def _claim_loop_for_providers(self) -> None:
@@ -962,8 +996,15 @@ class ModelBindings:
             for binding in self.get_all(purpose):
                 try:
                     await binding.preflight()
-                except (ValueError, LoopAffinityError) as exc:
-                    raise type(exc)(f"bindings.{purpose} ('{binding.model}') failed preflight: {exc}") from exc
+                except LoopAffinityError as exc:
+                    raise LoopAffinityError(
+                        f"bindings.{purpose} ('{binding.model}') failed preflight: {exc}",
+                        model=exc.model,
+                        owner_loop=exc.owner_loop,
+                        current_loop=exc.current_loop,
+                    ) from exc
+                except ValueError as exc:
+                    raise ValueError(f"bindings.{purpose} ('{binding.model}') failed preflight: {exc}") from exc
 
     async def arefresh(self) -> None:
         """Rotate the credential of every mounted binding — primary and fallbacks.
