@@ -27,6 +27,7 @@ explicitly.
 | `qwen()` | Chat | OpenAI |
 | `qwen_image()` | Image | OpenAI |
 | `dashscope_image()` | Image | OpenAI |
+| `dashscope_background()` | Image (reference) | OpenAI |
 | `dashscope_video()` | Video | OpenAI |
 | `minimax_image()` | Image | Anthropic leaf |
 | `minimax_tts()` | Text-to-speech | Anthropic leaf |
@@ -46,8 +47,12 @@ conventional environment variable is read at call time — `DEEPSEEK_API_KEY`,
 
 Media presets pin their endpoint path explicitly on the binding (`minimax_image` →
 `/image_generation`, `minimax_tts` → `/t2a_v2`, `minimax_asr` → `/speech_to_text`,
-`seedance` → `/contents/generations/tasks`). Pass `path=None` to defer to the brand map or
-supply another path to override.
+`seedance` → `/contents/generations/tasks`; DashScope pins
+`/services/aigc/text2image/image-synthesis`,
+`/services/aigc/background-generation/generation`, and
+`/services/aigc/video-generation/video-synthesis`). Pass `path=None` to defer to the brand map
+or supply another path to override. Media presets also pin their reference-media wire shape —
+see [Reference Media](../../core-concepts/media/#reference-media).
 
 ### Bailian Workspace Hosts
 

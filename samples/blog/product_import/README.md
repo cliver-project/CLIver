@@ -10,7 +10,7 @@ starts from the extracted text so its test needs no network.
 ## Install and run
 
 ```bash
-pip install cliver-core==0.3.0
+pip install cliver-core==0.3.1
 export DEEPSEEK_API_KEY=...   # variable name only; never commit a value
 python product_import.py
 ```

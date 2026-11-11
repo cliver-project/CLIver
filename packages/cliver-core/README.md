@@ -8,11 +8,11 @@ No CLI, no database, no config files — you pass Python objects in and get mess
 ## Install
 
 ```bash
-pip install cliver-core==0.3.0          # core library + MCP client (stdio / streamable HTTP)
-pip install "cliver-core[local]==0.3.0" # + in-process local embed / rerank / System One models
+pip install cliver-core==0.3.1          # core library + MCP client (stdio / streamable HTTP)
+pip install "cliver-core[local]==0.3.1" # + in-process local embed / rerank / System One models
 ```
 
-`0.3.0` is the first stable release of the 0.3 API series: the public API stays backward
+`0.3.1` is the latest release of the 0.3 API series: the public API stays backward
 compatible, and `0.3.x` patch releases contain bug fixes and backward-compatible additions.
 Python 3.10–3.13. See
 [Stability & Versioning](https://cliver-project.github.io/CLIver/getting-started/stability/).
@@ -26,6 +26,9 @@ Python 3.10–3.13. See
 - System One decision models and `SystemOneSelector`
 - A streamable-HTTP MCP session pool (`session_pool_size`)
 - DashScope, Qwen, and Qwen-Image chat/media brands
+- Reference-media wire shapes (`wire_shape=`) validated before the request, with
+  `MediaReferenceError` for unsupported references
+- `AgentCore.open`, `bindings.preflight()`, and a framework-free ASGI lifespan helper
 - A committed live verification suite (`make live-verify`)
 
 ## Quick start
@@ -150,9 +153,9 @@ Run embedding, rerank, and System One decision models in-process — no endpoint
 pull torch, so they are opt-in:
 
 ```bash
-pip install "cliver-core[local-st]==0.3.0"     # sentence-transformers embeddings
-pip install "cliver-core[local-flag]==0.3.0"   # FlagEmbedding embeddings + rerank
-pip install "cliver-core[local]==0.3.0"        # all three local backends
+pip install "cliver-core[local-st]==0.3.1"     # sentence-transformers embeddings
+pip install "cliver-core[local-flag]==0.3.1"   # FlagEmbedding embeddings + rerank
+pip install "cliver-core[local]==0.3.1"        # all three local backends
 ```
 
 ```python

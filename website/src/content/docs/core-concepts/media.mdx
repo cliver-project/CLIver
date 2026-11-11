@@ -45,6 +45,45 @@ job = agent.submit_video("A hummingbird hovering over a flower")
 response = await job.result(timeout=600)
 ```
 
+## Reference Media
+
+Image and video generation accept reference media — an edit, image-to-image, or image-to-video
+input — through `media=`:
+
+```python
+from cliver_core import presets
+from cliver_core.capabilities import generate_image
+from cliver_core.media import load_media_file
+
+image = await generate_image(
+    prompt="repaint the product photo in watercolor",
+    binding=presets.qwen_image(),
+    media=[load_media_file("product.png")],
+)
+```
+
+Every media binding routes references through one **wire shape**: the request fields the
+provider fills, the media kinds they carry, and how many fit. Core validates `media=` against
+that shape before any request body is built. A reference without data, a kind the wire does not
+accept, or more references than it can carry raises `MediaReferenceError` — a reference is never
+silently dropped. That error is a caller error, not a provider failure: it does not trigger
+binding failover and is not wrapped in a friendly response.
+
+Presets pin their shape, so reference support follows the preset you choose:
+
+| Preset | Reference media |
+|--------|-----------------|
+| `qwen_image()` | Image references, no fixed count |
+| `dashscope_background()` | Up to 2 images — product photo, then style reference |
+| `dashscope_video()` | 1 image — the start frame |
+| `seedance()` | Up to 2 images |
+| `dashscope_image()` | None — text-to-image only |
+| `minimax_image()` | None — reference support is not live-verified yet |
+
+For a custom provider, pass `wire_shape=` to `ModelBinding.image()`, `.video()`, or `.tts()`.
+The name must be one the provider declares and must match the purpose. `wire_shape` is a
+binding setting, never a per-call option; `ModelBinding.llm()` and `.asr()` take no wire shape.
+
 ## The Media Pipeline
 
 Protocol providers share one media pipeline: bindings describe the endpoint (base URL,

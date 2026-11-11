@@ -5,10 +5,17 @@ All notable changes to CLIver will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.3.1] - 2026-11-11
 
 ### Added
 
+- **cliver-core: reference-media wire shapes** — the `MediaShape` catalog makes reference
+  support an explicit property of the request wire (accepted media kinds, reference count,
+  transport), and media binding factories accept `wire_shape=` to select one. `generate_media`
+  validates `media=` against the resolved shape before building a request and raises the new
+  public `MediaReferenceError` instead of silently dropping a reference; the error never
+  triggers binding failover. Presets pin their shapes, and `dashscope_background()` joins
+  `qwen_image()`, `dashscope_video()`, and `seedance()` as a reference-capable preset.
 - **cliver-core: `ModelBinding.for_current_loop()`** — returns a sibling binding that shares the
   model definition, params, and a caller-supplied provider but resets the event-loop claim, so an
   application can keep one binding spec and use it from multiple loops/threads. A binding that
@@ -47,6 +54,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **cliver-core: DashScope background generation is selected by wire shape, not model name** —
+  `presets.dashscope_background()` pins `dashscope_image_background`; passing a
+  `wanx-background-generation-*` model to another DashScope image binding no longer changes the
+  request wire, and text-to-image (`presets.dashscope_image()`) rejects `media=` with
+  `MediaReferenceError` instead of silently ignoring the reference.
 - **cliver-core: `aclose()` keeps the event-loop claim of a supplied loop-bound provider** — the
   bindings' claim is now released only when a binding can rebuild its provider (the one it built
   was just closed) or holds only `loop_agnostic` providers. A caller-supplied provider stays

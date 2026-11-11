@@ -7,7 +7,7 @@ when the model asks for it.
 ## Install and run
 
 ```bash
-pip install cliver-core==0.3.0
+pip install cliver-core==0.3.1
 export DEEPSEEK_API_KEY=...   # variable name only; never commit a value
 python word_count_tool.py
 ```

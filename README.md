@@ -30,7 +30,7 @@ for the support policy.
 Install the core library (Python 3.10–3.13):
 
 ```bash
-pip install cliver-core==0.3.0
+pip install cliver-core==0.3.1
 ```
 
 ### As a library

@@ -9,12 +9,12 @@ title: Installation
 
 ## Install cliver-core
 
-`0.3.0` is the first stable release of the 0.3 API series. The public API stays backward
+`0.3.1` is the latest release of the 0.3 API series. The public API stays backward
 compatible: `0.3.x` releases carry bug fixes and additive APIs, and breaking changes require a
 new minor release. Pin the exact version when your deployment needs reproducibility:
 
 ```bash
-pip install cliver-core==0.3.0
+pip install cliver-core==0.3.1
 ```
 
 The core package includes the MCP client (stdio and streamable HTTP). See
@@ -25,9 +25,9 @@ The core package includes the MCP client (stdio and streamable HTTP). See
 In-process embedding, rerank, and System One backends pull torch, so they are opt-in:
 
 ```bash
-pip install "cliver-core[local-st]==0.3.0"     # sentence-transformers embeddings
-pip install "cliver-core[local-flag]==0.3.0"   # FlagEmbedding embeddings + rerank
-pip install "cliver-core[local]==0.3.0"        # all three local backends
+pip install "cliver-core[local-st]==0.3.1"     # sentence-transformers embeddings
+pip install "cliver-core[local-flag]==0.3.1"   # FlagEmbedding embeddings + rerank
+pip install "cliver-core[local]==0.3.1"        # all three local backends
 ```
 
 ## Verify Installation
