@@ -36,8 +36,11 @@ CI tests Python 3.10, 3.11, 3.12, and 3.13. The package declares `requires-pytho
   event loop. Do not share them across threads or loops.
 - **Stateless by default.** `AgentCore` does not carry conversation state; pass `conversation=`
   on every call and persist what you need in the application.
-- **Lifecycle.** `AgentCore.aclose()` drains media jobs it started and closes providers its
-  bindings built. It never owns the MCP client or a provider you supplied.
+- **Lifecycle.** `AgentCore.open(...)` as an async context manager, or a direct
+  `await agent.aclose()`, drains media jobs the agent started and closes providers its bindings
+  built. It never owns the MCP client or a provider you supplied. `await bindings.preflight()`
+  validates endpoints and credentials at startup; `cliver_core.integrations.lifespan` wires both
+  into an ASGI app without a framework dependency.
 
 See [Concurrency & Lifecycle](../../core-concepts/concurrency/) for the full contract.
 

@@ -30,17 +30,18 @@ from cliver_core.tools import discover_builtin_tools
 
 
 async def main():
-    agent = AgentCore(
-        ModelBindings(llm=presets.deepseek(api_key="...")),
-        builtin_tools=discover_builtin_tools(),
-    )
-    response = await agent.chat("List the files in this directory.")
-    print(response.message.content)
-    await agent.aclose()
+    bindings = ModelBindings(llm=presets.deepseek(api_key="..."))
+    async with AgentCore.open(bindings, builtin_tools=discover_builtin_tools()) as agent:
+        response = await agent.chat("List the files in this directory.")
+        print(response.message.content)
 
 
 asyncio.run(main())
 ```
+
+`AgentCore.open(...)` is the constructor with an explicit lifecycle: leaving the `async with`
+block awaits `aclose()`, including on an exception. `async with AgentCore(bindings) as agent`
+is equivalent; see [AgentCore Python API](../api/).
 
 ## Key Properties
 
@@ -77,4 +78,5 @@ content arrives. Both accept the same per-call options:
 | `context_compactor` | Caller-supplied compaction (plan or full history); see [Context Window](context-window/) |
 | `skill_dispatch` | Advertise the skill catalogue and dispatch tools (default on) |
 
-When finished, call `await agent.aclose()` to close providers the agent built.
+When you construct the agent directly instead of with `AgentCore.open(...)`, call
+`await agent.aclose()` when finished to close providers the agent built.

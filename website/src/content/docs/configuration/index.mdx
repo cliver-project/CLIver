@@ -82,5 +82,11 @@ bindings = ModelBindings(
 
 ## Lifecycle
 
-A binding builds its provider lazily and reuses it. `await bindings.aclose()` closes providers
-the bindings built; a provider you supplied yourself stays open.
+A binding builds its provider lazily and reuses it. `await bindings.preflight()` builds every
+configured provider eagerly on the calling loop — primary bindings and fallbacks — so a missing
+endpoint or credential raises at startup rather than on the first call. It sends no network
+request and never rebuilds a provider that already exists. `await bindings.aclose()` closes
+providers the bindings built; a provider you supplied yourself stays open.
+
+`AgentCore.open(bindings, **agent_kwargs)` is an async context manager over that lifecycle: it
+closes the agent on exit. See [AgentCore Python API](../api/).

@@ -19,9 +19,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   handlers keep working.
 - **cliver-core: `Provider.loop_agnostic`** — a provider class that owns no loop-bound resources
   declares `loop_agnostic = True`. The in-process local embed/rerank providers do.
+- **cliver-core: `AgentCore.open(bindings, **agent_kwargs)` and async context-manager support** —
+  `async with AgentCore.open(bindings) as agent:` awaits `aclose()` on exit, on normal and
+  exceptional paths alike. `AgentCore(bindings)` itself is also an async context manager. Close
+  remains idempotent and single-flight, and still never closes a caller-supplied provider or the
+  MCP client.
+- **cliver-core: `ModelBinding.build_provider()`** — the documented name for the idempotent
+  "build once for this loop" call. `get_provider()` remains as a compatibility alias for 0.3.x
+  callers.
+- **cliver-core: `ModelBindings.preflight()` / `ModelBinding.preflight()`** — builds every
+  configured provider (primary and fallbacks) on the calling loop and resolves each
+  `credential_provider` once, so a missing endpoint or credential raises at startup instead of
+  on the first call. No network request; idempotent; a failed build leaves the binding
+  unchanged. Lazy construction remains the default.
+- **cliver-core: `cliver_core.integrations.lifespan`** — `agent_lifespan(bindings, **agent_kwargs)`
+  returns a framework-agnostic ASGI lifespan callable that builds the agent, preflights the
+  bindings, publishes the agent on `app.state.agent`, and closes it on every exit path. The
+  lifespan yields nothing (the ASGI lifespan yield is reserved for a state mapping), so read the
+  agent through `get_agent(request)` from an application-side `Depends` wrapper. No FastAPI or
+  Starlette import.
 
 ### Fixed
 
+- **cliver-core: `aclose()` keeps the event-loop claim of a supplied loop-bound provider** — the
+  bindings' claim is now released only when a binding can rebuild its provider (the one it built
+  was just closed) or holds only `loop_agnostic` providers. A caller-supplied provider stays
+  open on its original loop, so reusing that binding from a second loop now raises
+  `LoopAffinityError` instead of quietly handing out a client bound to a dead loop.
 - **cliver-core: loop-agnostic providers no longer trip the binding's event-loop guard** — a
   binding wrapping a caller-supplied `LocalEmbeddingProvider` / `LocalRerankProvider` (or any
   `loop_agnostic` provider) no longer claims the loop it is first used on, so it can stay cached

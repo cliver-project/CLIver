@@ -26,19 +26,72 @@ binding whose provider is loop-agnostic (the in-process local embed/rerank provi
 
 ## Lifespan
 
+The shortest correct shape is the framework-agnostic helper. `cliver-core` never imports FastAPI
+or Starlette — `agent_lifespan` uses the generic ASGI lifespan protocol:
+
+```python
+# app/server.py
+import os
+
+from fastapi import Depends, FastAPI, Request
+
+from cliver_core import AgentCore, ModelBindings, presets
+from cliver_core.integrations.lifespan import agent_lifespan, get_agent
+from cliver_core.tools import discover_builtin_tools
+
+binding = presets.deepseek(
+    api_key=os.environ["DEEPSEEK_API_KEY"],
+    client_timeout=60,     # SDK read timeout (all HTTP phases); default is 600 s
+    client_max_retries=1,  # SDK transport retries; default is 2
+)
+
+app = FastAPI(
+    lifespan=agent_lifespan(
+        ModelBindings(llm=binding),
+        builtin_tools=discover_builtin_tools(),
+        run_timeout=120,  # default budget; call sites may override
+        tool_timeout=30,
+    )
+)
+
+
+def current_agent(request: Request) -> AgentCore:
+    return get_agent(request)
+
+
+@app.post("/chat")
+async def chat(prompt: str, agent: AgentCore = Depends(current_agent)):
+    response = await agent.chat(prompt)
+    return {"content": response.message.content}
+```
+
+`agent_lifespan` constructs the agent on the serving loop, awaits `bindings.preflight()` (a
+missing endpoint or credential fails startup, not the first request), publishes the agent on
+`app.state.agent`, and awaits `aclose()` on exit — normal exit, application exception, or
+preflight failure. Its lifespan yields nothing, as the ASGI protocol requires: a non-`None`
+yield is reserved for a state mapping that the server merges into `scope["state"]`.
+
+`get_agent` only reads `request.app.state`. The one-line `current_agent` wrapper is needed
+because FastAPI resolves a dependency by parameter **annotation**: `get_agent(request: Any)`
+cannot be passed to `Depends` directly — FastAPI would treat the unannotated parameter as a
+query parameter — and `cliver-core` does not import `Request`.
+
+### Composing with other resources
+
+When the app also owns an MCP client, a credential refresher, or admission slots, write the
+lifespan yourself and compose the helper — or manage the agent directly, as below. The agent
+still closes before the MCP client, and `preflight()` still runs before serving:
+
 ```python
 # app/server.py
 import asyncio
-import json
 import logging
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from fastapi import FastAPI
 
-from cliver_core import AgentCore, ModelBindings, ProviderError, RunTimeoutError, presets
+from cliver_core import AgentCore, ModelBindings, presets
 from cliver_core.mcp import MCPClient
 from cliver_core.tools import discover_builtin_tools
 
@@ -65,16 +118,18 @@ async def lifespan(app: FastAPI):
 
     binding = presets.deepseek(
         api_key=os.environ["DEEPSEEK_API_KEY"],
-        client_timeout=60,     # SDK read timeout (all HTTP phases); default is 600 s
-        client_max_retries=1,  # SDK transport retries; default is 2
+        client_timeout=60,
+        client_max_retries=1,
     )
+    bindings = ModelBindings(llm=binding)
     agent = AgentCore(
-        ModelBindings(llm=binding),
+        bindings,
         builtin_tools=discover_builtin_tools(),
         mcp_client=mcp,
-        run_timeout=120,  # default budget; call sites may override
+        run_timeout=120,
         tool_timeout=30,
     )
+    await bindings.preflight()  # build providers, resolve credentials, fail startup early
 
     app.state.agent = agent
     app.state.mcp = mcp
@@ -98,7 +153,8 @@ app = FastAPI(lifespan=lifespan)
 - `MCPClient.from_discovery()` also starts lazily, but calling `start()` in the lifespan surfaces
   a broken server at startup instead of on the first request.
 - `agent.aclose()` is idempotent. It does **not** close the MCP client — the lifespan owns that
-  order.
+  order. `agent_lifespan` follows the same rule: it closes the agent, never an injected MCP
+  client.
 - With several workers (`uvicorn --workers 4`, or gunicorn), each worker runs this lifespan
   itself: four processes, four loops, four agents. Nothing is shared across processes.
 

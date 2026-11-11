@@ -15,22 +15,35 @@ from cliver_core.tools import discover_builtin_tools
 
 
 async def main():
-    agent = AgentCore(
-        ModelBindings(llm=presets.deepseek(api_key="...")),
-        builtin_tools=discover_builtin_tools(),
-    )
+    bindings = ModelBindings(llm=presets.deepseek(api_key="..."))
+    await bindings.preflight()  # fail startup, not the first call
 
-    async for chunk in agent.stream("Analyze sales.csv"):
-        if chunk.content:
-            print(chunk.content, end="", flush=True)
-
-    await agent.aclose()
+    async with AgentCore.open(bindings, builtin_tools=discover_builtin_tools()) as agent:
+        async for chunk in agent.stream("Analyze sales.csv"):
+            if chunk.content:
+                print(chunk.content, end="", flush=True)
 
 
 asyncio.run(main())
 ```
 
 ## Methods
+
+### `AgentCore.open(bindings, **agent_kwargs) → AgentCore`
+
+The constructor with an explicit lifecycle: the returned agent is an async context manager, and
+leaving the `async with` block awaits `aclose()` — on normal exit and on an exception. The
+constructor itself is also an async context manager, so `async with AgentCore(bindings) as agent`
+is equivalent.
+
+### `await bindings.preflight()`
+
+Builds every configured provider on the calling loop — primary bindings and failover fallbacks —
+and resolves each `credential_provider` once, without a network call. An unbuildable binding
+(missing endpoint or credential, a loop claimed by another event loop) raises there and then, so
+a misconfigured server fails startup instead of its first request. Idempotent: a provider the
+binding already built is reused, never rebuilt or closed. Lazy construction stays the default —
+call `preflight()` when you want eager validation.
 
 ### `await agent.chat(user_input, **options) → CLIverResponse`
 
@@ -85,6 +98,24 @@ Cancels and drains the media jobs the agent started, then closes the providers i
 built. A caller-supplied `provider=` and an injected `MCPClient` are never closed — their
 builders own them. Close is idempotent and single-flight; afterwards every public entry point
 raises `RuntimeError`, so build a new agent for a new event loop.
+
+The bindings' event-loop claim is released when a binding can rebuild its provider (the one it
+built was just closed) or holds only loop-agnostic providers, so consecutive
+`asyncio.run(...)` cycles work with the same `ModelBindings`. A binding wrapping a
+caller-supplied loop-bound provider keeps its claim: that client is still open on its original
+loop.
+
+### `binding.build_provider() → Provider`
+
+Builds this binding's provider for the calling loop, once — later calls return the same
+provider. Core uses it internally; `preflight()` is the supported way to trigger it eagerly.
+`get_provider()` remains as a compatibility alias.
+
+### `binding.lease_provider()`
+
+The per-call scope used by the agent: it yields the built provider and tracks in-flight calls so
+a credential refresh or close does not cut an active call's provider out from under it. Use it,
+not `build_provider()`, whenever a provider is used across an `await` outside a core call.
 
 ## Common Parameters
 
