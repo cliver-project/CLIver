@@ -7,7 +7,13 @@ raise :class:`CapabilityNotSupported`, and ``bindings`` imports ``provider``
 
 from __future__ import annotations
 
-__all__ = ["CapabilityNotSupported", "MediaReferenceError", "ProviderError", "RunTimeoutError"]
+__all__ = [
+    "CapabilityNotSupported",
+    "LoopAffinityError",
+    "MediaReferenceError",
+    "ProviderError",
+    "RunTimeoutError",
+]
 
 
 class CapabilityNotSupported(Exception):
@@ -37,6 +43,18 @@ class RunTimeoutError(TimeoutError):
         super().__init__(
             f"Run '{run_id}' timed out after {timeout:g}s" if run_id else f"Run timed out after {timeout:g}s"
         )
+
+
+class LoopAffinityError(RuntimeError):
+    """A loop-bound object was used from a different event loop.
+
+    Raised by :class:`~cliver_core.bindings.ModelBinding` when a binding that
+    owns (or was given) a loop-bound provider is used from a second event
+    loop — in practice, a second thread.  Providers that own no loop-bound
+    resources declare ``loop_agnostic = True`` and are exempt; the in-process
+    local embed/rerank providers do.  It subclasses :class:`RuntimeError` so
+    existing ``except RuntimeError`` handlers keep working.
+    """
 
 
 class MediaReferenceError(ValueError):

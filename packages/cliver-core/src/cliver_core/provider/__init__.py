@@ -158,6 +158,15 @@ class Provider(ABC):
     #: the user are free to ignore the options entirely.
     supports_client_options: ClassVar[bool] = False
 
+    #: Whether this provider owns no loop-bound resources.  A binding claims
+    #: its event loop only for a loop-bound provider; a provider marked
+    #: ``loop_agnostic`` (the in-process local embed/rerank providers, which
+    #: synchronize with plain threading primitives and run blocking work in
+    #: ``asyncio.to_thread``) may be shared by bindings used on different
+    #: loops.  Declare it only when that is true — an SDK client owns
+    #: connection pools and stream tasks and is loop-bound.
+    loop_agnostic: ClassVar[bool] = False
+
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
         # A literal ``protocol = ""`` in the class's own __dict__ is the

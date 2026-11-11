@@ -265,6 +265,10 @@ class LocalProvider(Provider):
 
     protocol = "local"
     brand = "local"
+    #: In-process providers own no loop-bound resources: blocking work runs in
+    #: ``asyncio.to_thread`` and state is guarded by threading locks, so a
+    #: binding wrapping one may be reused across event loops/threads.
+    loop_agnostic = True
 
     _backend_protocol: Any = None
     _capability: str = ""

@@ -64,10 +64,10 @@ from __future__ import annotations
 import asyncio
 import inspect
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, AsyncIterator, Awaitable, Callable, Sequence
 
-from cliver_core.errors import CapabilityNotSupported
+from cliver_core.errors import CapabilityNotSupported, LoopAffinityError
 from cliver_core.events import EventHandler
 from cliver_core.provider import Provider
 from cliver_core.provider.media_shapes import SHAPES
@@ -106,6 +106,13 @@ class ModelBinding:
     * otherwise one is built lazily from the model definition (``api_key`` /
       ``base_url`` / ``protocol`` / ``provider_name``) on first use, cached,
       and reused for every following call.
+
+    A loop-bound provider claims the event loop it is first used on; a later
+    use from another loop raises
+    :class:`~cliver_core.errors.LoopAffinityError`.  A caller-supplied
+    provider marked ``loop_agnostic`` (the in-process local providers) is
+    exempt, and :meth:`for_current_loop` clones the binding spec for use on
+    another loop.
 
     ``params`` holds default call parameters (e.g. image ``size`` / tts
     ``voice``) that individual calls may override.  ``provider_name`` is the
@@ -560,14 +567,21 @@ class ModelBinding:
 
     # ── Provider handle ───────────────────────────────────────
 
+    @staticmethod
+    def _is_loop_agnostic(provider: Provider) -> bool:
+        """Whether *provider* declared it owns no loop-bound resources."""
+        return bool(getattr(provider, "loop_agnostic", False))
+
     def _claim_loop(self) -> None:
         """Bind this handle to the running loop, rejecting a different one.
 
-        Providers are loop-bound: the SDK clients own connection pools and
-        stream tasks on the loop that created them.  The first async use
+        Only loop-bound resources claim: an SDK client owns connection pools
+        and stream tasks on the loop that created it.  The first async use
         claims the loop; any later use from another loop (in practice another
-        thread) fails here with an actionable message rather than inside
-        ``httpx``.  Calls made outside a running loop are not recorded.
+        thread) fails here with :class:`LoopAffinityError` rather than inside
+        ``httpx``.  Providers marked ``loop_agnostic`` own no such resources
+        and never reach this check.  Calls made outside a running loop are
+        not recorded.
         """
         try:
             running = asyncio.get_running_loop()
@@ -576,10 +590,17 @@ class ModelBinding:
         if self._loop is None:
             self._loop = running
         elif self._loop is not running:
-            raise RuntimeError(
+            raise LoopAffinityError(
                 f"ModelBinding for '{self.model}' is bound to another event loop; "
-                "create one binding (and AgentCore) per event loop — one per thread."
+                "create one binding (and AgentCore) per event loop — one per thread — "
+                "or call ModelBinding.for_current_loop() for a loop-agnostic provider."
             )
+
+    def _claim_loop_for_providers(self) -> None:
+        """Claim the loop only when this binding touches a loop-bound provider."""
+        providers = (self.provider, self._built, *self._retired)
+        if any(provider is not None and not self._is_loop_agnostic(provider) for provider in providers):
+            self._claim_loop()
 
     def get_provider(self) -> Provider:
         """The provider for this binding — the supplied one, or built once and reused.
@@ -590,31 +611,67 @@ class ModelBinding:
         ``provider=`` with a binding-level ``on_event`` is a configuration
         error rather than a silently ignored handler.
 
-        The first async use claims the running event loop; a later use from
-        another loop raises ``RuntimeError`` — the cached provider's clients
-        are loop-bound.
+        A loop-bound provider claims the running event loop; a later use from
+        another loop raises :class:`LoopAffinityError` — the cached provider's
+        clients are loop-bound.  A provider marked ``loop_agnostic`` (the
+        in-process local providers) claims nothing and may be shared across
+        loops.
         """
-        self._claim_loop()
         if self.provider is not None:
             if self.on_event is not None:
                 raise ValueError(
                     "ModelBinding.on_event applies only to a provider the binding builds; "
                     "with provider=..., pass on_event to that provider's constructor instead."
                 )
-            return self.provider
-        if self._built is None:
-            self._built = create_provider(
-                api_key=self.api_key,
-                base_url=self.base_url,
-                protocol=self.protocol,
-                provider_class=self.provider_class,
-                provider_name=self.provider_name,
-                on_event=self.on_event,
-                client_timeout=self.client_timeout,
-                client_max_retries=self.client_max_retries,
-                wire_shape=self.wire_shape,
+            provider = self.provider
+        else:
+            if self._built is None:
+                self._built = create_provider(
+                    api_key=self.api_key,
+                    base_url=self.base_url,
+                    protocol=self.protocol,
+                    provider_class=self.provider_class,
+                    provider_name=self.provider_name,
+                    on_event=self.on_event,
+                    client_timeout=self.client_timeout,
+                    client_max_retries=self.client_max_retries,
+                    wire_shape=self.wire_shape,
+                )
+            provider = self._built
+        if not self._is_loop_agnostic(provider):
+            self._claim_loop()
+        return provider
+
+    def for_current_loop(self) -> ModelBinding:
+        """Return a sibling binding spec for use on another event loop.
+
+        The clone shares the model definition, ``params``, event handler,
+        credential provider, and a caller-supplied provider, but starts with
+        no loop claim and no cached provider — an application can keep one
+        binding spec and use it from multiple loops/threads:
+
+        * a supplied provider marked ``loop_agnostic`` (the in-process local
+          providers) is shared as-is;
+        * a binding that builds its provider builds a fresh one on the loop
+          that first uses the clone — never share a loop-bound SDK client.
+
+        A caller-supplied provider that owns loop-bound resources cannot be
+        rebound: sharing it across loops is exactly what the loop guard
+        prevents, so this raises :class:`ValueError` instead of letting the
+        clone bypass it.  Build that provider inside the target loop, or
+        create a new binding there.
+
+        The original binding keeps its own claim and cached provider; each
+        clone carries its own lease bookkeeping, so use one clone per thread
+        when calls overlap concurrently.
+        """
+        if self.provider is not None and not self._is_loop_agnostic(self.provider):
+            raise ValueError(
+                f"ModelBinding for '{self.model}' wraps a caller-supplied provider that owns "
+                "loop-bound resources; it cannot be rebound to another loop — build that "
+                "provider inside the target loop or create a new binding there."
             )
-        return self._built
+        return replace(self, params=dict(self.params))
 
     @asynccontextmanager
     async def lease_provider(self) -> AsyncIterator[Provider]:
@@ -672,11 +729,13 @@ class ModelBinding:
         caller-supplied ``provider=`` is never rebuilt or closed; only
         ``api_key`` updates (media paths read it from the binding).
 
-        Runs on the owning loop; another loop raises ``RuntimeError``.  There
-        is no automatic refresh on a 401 — the application decides when to
-        rotate (TTL timer, or catch :class:`ProviderError` and call this).
+        Runs on the owning loop; another loop raises
+        :class:`LoopAffinityError` — unless every provider it holds is
+        loop-agnostic, which may be refreshed from any loop.  There is no
+        automatic refresh on a 401 — the application decides when to rotate
+        (TTL timer, or catch :class:`ProviderError` and call this).
         """
-        self._claim_loop()
+        self._claim_loop_for_providers()
         if self.credential_provider is None:
             credential = self.api_key
         else:
@@ -712,13 +771,14 @@ class ModelBinding:
         """Close the provider this binding built and every retired one.
 
         A caller-supplied provider stays open.  Must run on the loop the
-        binding was used on, and releases the loop claim so the binding can be
-        mounted in a new agent afterwards.  In-flight leases are not awaited
-        here — the agent drains its work before closing its bindings; a
-        provider closed under a still-running call is the caller's contract
-        violation, exactly as before.
+        binding was used on — unless every provider it holds is loop-agnostic,
+        in which case any loop may close it.  Releases the loop claim so the
+        binding can be mounted in a new agent afterwards.  In-flight leases
+        are not awaited here — the agent drains its work before closing its
+        bindings; a provider closed under a still-running call is the
+        caller's contract violation, exactly as before.
         """
-        self._claim_loop()
+        self._claim_loop_for_providers()
         if self._built is not None:
             built, self._built = self._built, None
             await built.close()

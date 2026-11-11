@@ -19,7 +19,9 @@ first loop that first uses it — which may be a test client's loop, not the ser
 
 Every endpoint that touches the agent must be **`async def`**. A plain `def` endpoint runs in a
 worker thread, and the agent, its bindings, and its MCP client are loop-bound — using them there
-raises `RuntimeError` once the binding has claimed the server loop.
+raises `LoopAffinityError` once the binding has claimed the server loop. The exception is a
+binding whose provider is loop-agnostic (the in-process local embed/rerank providers); see
+[Bridging to a Thread Pool](#bridging-to-a-thread-pool).
 :::
 
 ## Lifespan
@@ -306,6 +308,37 @@ share an agent only when tenants differ by call parameters alone.
   an endpoint (not inside a tool body that already blocks), with their own timeout budget.
 - `AgentCore` instances are cheap to build but hold a provider client each; build one per worker
   and reuse it. Building a new agent per request defeats connection reuse.
+
+## Bridging to a Thread Pool
+
+Keep endpoints `async def` on the server loop. If a dependency forces a call through a plain
+thread (`run_in_executor`, a sync framework hook), do not hand it the lifespan-built agent or a
+binding that owns a remote provider — the SDK client is loop-bound. Two safe shapes:
+
+- **Per-call binding** — build the binding inside the thread. A binding that builds its provider
+  creates a fresh client on that thread's loop; nothing loop-bound is shared.
+- **`for_current_loop()`** — keep one binding spec and clone it on the target loop. The clone
+  shares the model definition and a loop-agnostic supplied provider, and starts with no claim.
+
+```python
+import asyncio
+
+from cliver_core import ModelBinding
+from cliver_core.capabilities import embed
+from cliver_core.local import LocalEmbeddingProvider
+
+# Process-wide in-process provider: thread-safe, loop-agnostic, no SDK client.
+local_provider = LocalEmbeddingProvider(model="BAAI/bge-base-zh-v1.5", backend="sentence-transformers")
+spec = ModelBinding.embed(model="BAAI/bge-base-zh-v1.5", provider=local_provider)
+
+
+def embed_in_thread(text: str):
+    binding = spec.for_current_loop()  # no loop claim; shares the local provider
+    return asyncio.run(embed(texts=text, binding=binding))
+```
+
+`for_current_loop()` refuses a caller-supplied provider that owns loop-bound resources (a remote
+SDK client): rebuild that provider inside the target loop, or build a per-call binding there.
 
 ## Shutdown
 

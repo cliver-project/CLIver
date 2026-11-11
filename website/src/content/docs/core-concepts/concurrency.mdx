@@ -13,8 +13,10 @@ what the application must supply.
   limitation planned for removal.
 - **One agent per event loop — in practice, one per thread.** Each thread that serves work owns
   its loop, its agent, its bindings, and its MCP client. Providers, MCP sessions, and media jobs
-  are loop-bound. A binding remembers the loop of its first async use and raises `RuntimeError`
-  on a second one instead of failing inside the HTTP client; `aclose()` releases the claim.
+  are loop-bound. A binding remembers the loop of its first async use and raises
+  `LoopAffinityError` on a second one instead of failing inside the HTTP client; `aclose()`
+  releases the claim. In-process local providers are the exception — see
+  [Threads and Multiple Event Loops](#threads-and-multiple-event-loops).
 - **Conversation state is per call.** Pass `conversation=` on every call. Nothing about a
   conversation is stored on the agent.
 - **Deadlines are per run.** `run_timeout` bounds one whole run — preamble, model calls, tools,
@@ -183,6 +185,41 @@ def worker(prompts: list[str]) -> list[str]:
 That shape fits a thread that handles one unit of work. If a thread serves requests for its whole
 lifetime, give it one long-lived loop and create one agent inside that loop — do not call
 `asyncio.run()` per request and reuse an agent across the resulting loops.
+
+**Local in-process providers are the exception.** `LocalEmbeddingProvider` and
+`LocalRerankProvider` own no loop-bound resources — blocking work runs in `asyncio.to_thread` and
+state is guarded by threading locks — so they declare `loop_agnostic = True`. A binding wrapping
+one does not claim a loop and can stay cached across `asyncio.run()` calls:
+
+```python
+import asyncio
+
+from cliver_core import ModelBinding
+from cliver_core.capabilities import embed
+from cliver_core.local import LocalEmbeddingProvider
+
+# One process-wide provider; safe to share across threads and loops.
+provider = LocalEmbeddingProvider(model="BAAI/bge-base-zh-v1.5", backend="sentence-transformers")
+spec = ModelBinding.embed(model="BAAI/bge-base-zh-v1.5", provider=provider)
+
+
+def embed_in_thread(text: str):
+    return asyncio.run(embed(texts=text, binding=spec))
+
+
+embed_in_thread("hello")
+embed_in_thread("world")  # same cached binding — no loop claim, no error
+```
+
+Reuse is safe when the calls do not overlap. The provider object is thread-safe, but the binding's
+lease bookkeeping is not synchronized — for concurrent calls from different threads, keep one
+binding per thread.
+
+Keep one binding spec and need it on a different loop or thread? `ModelBinding.for_current_loop()`
+returns a sibling: it shares the model definition, `params`, and a supplied loop-agnostic provider,
+and starts with no loop claim. A binding that builds its provider builds a fresh one on the clone's
+first loop (never share a loop-bound SDK client). It refuses a caller-supplied provider that owns
+loop-bound resources — rebuild that provider inside the target loop instead.
 
 The alternative is **one loop, many threads**: run a single agent on a dedicated loop and submit
 work with `asyncio.run_coroutine_threadsafe(...)`. For streaming, bridge chunks through a

@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **cliver-core: `ModelBinding.for_current_loop()`** — returns a sibling binding that shares the
+  model definition, params, and a caller-supplied provider but resets the event-loop claim, so an
+  application can keep one binding spec and use it from multiple loops/threads. A binding that
+  builds its provider builds a fresh one on the clone's first loop; a caller-supplied provider
+  that owns loop-bound resources is refused.
+- **cliver-core: `LoopAffinityError`** — the typed `RuntimeError` subclass raised when a binding
+  with loop-bound resources is used from a second event loop; existing `except RuntimeError`
+  handlers keep working.
+- **cliver-core: `Provider.loop_agnostic`** — a provider class that owns no loop-bound resources
+  declares `loop_agnostic = True`. The in-process local embed/rerank providers do.
+
+### Fixed
+
+- **cliver-core: loop-agnostic providers no longer trip the binding's event-loop guard** — a
+  binding wrapping a caller-supplied `LocalEmbeddingProvider` / `LocalRerankProvider` (or any
+  `loop_agnostic` provider) no longer claims the loop it is first used on, so it can stay cached
+  while calls run under consecutive `asyncio.run()` calls in one process. Bindings that build a
+  remote SDK provider keep the guard unchanged. See
+  [Concurrency & Lifecycle](https://cliver.dev/core-concepts/concurrency/).
+
 ## [0.3.0] - 2026-11-02
 
 The first stable release of the 0.3 series. The public `cliver-core` API is frozen; only bug
