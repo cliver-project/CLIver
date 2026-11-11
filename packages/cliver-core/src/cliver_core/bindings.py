@@ -602,9 +602,11 @@ class ModelBinding:
         if any(provider is not None and not self._is_loop_agnostic(provider) for provider in providers):
             self._claim_loop()
 
-    def get_provider(self) -> Provider:
-        """The provider for this binding — the supplied one, or built once and reused.
+    def build_provider(self) -> Provider:
+        """Build this binding's provider for the calling loop (idempotent).
 
+        The provider is the supplied one, or one built once and reused:
+        calling this again returns the same instance without rebuilding.
         ``on_event`` is applied when the binding builds the provider.  A
         caller-supplied ``provider=`` is used as-is; its own ``on_event``
         (set at construction) is the subscription surface, so combining
@@ -616,6 +618,10 @@ class ModelBinding:
         clients are loop-bound.  A provider marked ``loop_agnostic`` (the
         in-process local providers) claims nothing and may be shared across
         loops.
+
+        Use this to build eagerly at startup (see :meth:`preflight`); ordinary
+        calls resolve the provider through :meth:`lease_provider`, which holds
+        an in-flight lease across the ``await``.
         """
         if self.provider is not None:
             if self.on_event is not None:
@@ -641,6 +647,14 @@ class ModelBinding:
         if not self._is_loop_agnostic(provider):
             self._claim_loop()
         return provider
+
+    def get_provider(self) -> Provider:
+        """Compatibility alias for :meth:`build_provider`.
+
+        Kept for 0.3.x callers; new code should call :meth:`build_provider`,
+        which reads as the side-effecting, idempotent build it is.
+        """
+        return self.build_provider()
 
     def for_current_loop(self) -> ModelBinding:
         """Return a sibling binding spec for use on another event loop.
@@ -682,7 +696,7 @@ class ModelBinding:
         :meth:`arefresh` closes a leased-out provider at the first refresh
         after its last in-flight call finishes, instead of keeping it until
         :meth:`aclose`.
-        Use this — not :meth:`get_provider` — whenever a provider is used
+        Use this — not :meth:`build_provider` — whenever a provider is used
         across an ``await``::
 
             async with binding.lease_provider() as provider:
@@ -690,7 +704,7 @@ class ModelBinding:
 
         Leases are per binding and per event loop, like the provider itself.
         """
-        provider = self.get_provider()
+        provider = self.build_provider()
         self._leases[provider] = self._leases.get(provider, 0) + 1
         try:
             yield provider
@@ -710,6 +724,49 @@ class ModelBinding:
             else:
                 await provider.close()
         self._retired = remaining
+
+    async def preflight(self) -> None:
+        """Build this binding's provider now, for startup checks.
+
+        Idempotent: a provider this binding already built is returned as-is —
+        nothing is rebuilt or closed.  A caller-supplied provider is used
+        as-is; preflight only claims the calling loop when it is loop-bound.
+
+        A ``credential_provider`` is resolved **once** for a binding that has
+        not built its provider yet, and the provider is built with that
+        credential.  If the build fails, the previous ``api_key`` is restored,
+        so a failed preflight leaves the binding exactly as it was.  A binding
+        that already built its provider skips credential resolution — rotate
+        explicitly with :meth:`arefresh`.
+
+        Raises the provider-construction error (missing ``base_url``, missing
+        credential, invalid client options) or :class:`LoopAffinityError` when
+        the binding was already claimed by another loop.  Lazy construction
+        remains the default; call this only when startup validation pays off.
+        """
+        if self.provider is not None or self._built is not None:
+            self.build_provider()
+            return
+        credential = self.api_key
+        if self.credential_provider is not None:
+            resolved = self.credential_provider()
+            if inspect.isawaitable(resolved):
+                resolved = await resolved
+            if not isinstance(resolved, str) or not resolved.strip():
+                raise ValueError(
+                    f"credential_provider for '{self.model}' must return a non-empty string, got {resolved!r}"
+                )
+            credential = resolved
+        if credential == self.api_key:
+            self.build_provider()
+            return
+        previous = self.api_key
+        self.api_key = credential
+        try:
+            self.build_provider()
+        except BaseException:
+            self.api_key = previous
+            raise
 
     async def arefresh(self) -> None:
         """Rotate this binding's credential and rebuild its provider.
@@ -748,7 +805,7 @@ class ModelBinding:
                 )
         if self.provider is not None or self._built is None:
             # Supplied provider: never rebuild or close it.  Unbuilt binding:
-            # the next get_provider() builds with the new key.
+            # the next build_provider() builds with the new key.
             self.api_key = credential
             return
         replacement = create_provider(
@@ -772,10 +829,14 @@ class ModelBinding:
 
         A caller-supplied provider stays open.  Must run on the loop the
         binding was used on — unless every provider it holds is loop-agnostic,
-        in which case any loop may close it.  Releases the loop claim so the
-        binding can be mounted in a new agent afterwards.  In-flight leases
-        are not awaited here — the agent drains its work before closing its
-        bindings; a provider closed under a still-running call is the
+        in which case any loop may close it.  Releases the loop claim when the
+        binding can safely be reused: its built provider is now closed, so the
+        next loop builds a fresh client, and a loop-agnostic supplied provider
+        never claimed one.  A caller-supplied loop-bound provider keeps the
+        claim — it stays open on its original loop, so reusing the binding on
+        another loop would hand a live SDK client to the wrong loop.  In-flight
+        leases are not awaited here — the agent drains its work before closing
+        its bindings; a provider closed under a still-running call is the
         caller's contract violation, exactly as before.
         """
         self._claim_loop_for_providers()
@@ -786,7 +847,8 @@ class ModelBinding:
         for provider in retired:
             await provider.close()
         self._leases.clear()
-        self._loop = None
+        if self.provider is None or self._is_loop_agnostic(self.provider):
+            self._loop = None
 
 
 @dataclass(kw_only=True)
@@ -881,6 +943,27 @@ class ModelBindings:
     def bound_purposes(self) -> list[str]:
         """Purposes that have a model bound."""
         return [p for p in PURPOSES if getattr(self, p) is not None]
+
+    async def preflight(self) -> None:
+        """Build every configured provider on the calling loop.
+
+        The startup check: every primary and fallback binding builds its
+        provider now, resolving a credential source once for bindings that
+        have not built yet, so a missing endpoint or credential fails before
+        traffic is served instead of on the first request.  Idempotent — a
+        binding that already built its provider is not rebuilt or closed.
+
+        Purposes are visited in :data:`PURPOSES` order and bindings in mount
+        order; the first failure stops the pass, named with its purpose and
+        model.  Bindings already built stay usable.  Lazy construction remains
+        the default; call this explicitly at startup (``agent_lifespan`` does).
+        """
+        for purpose in self.bound_purposes():
+            for binding in self.get_all(purpose):
+                try:
+                    await binding.preflight()
+                except (ValueError, LoopAffinityError) as exc:
+                    raise type(exc)(f"bindings.{purpose} ('{binding.model}') failed preflight: {exc}") from exc
 
     async def arefresh(self) -> None:
         """Rotate the credential of every mounted binding — primary and fallbacks.

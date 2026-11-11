@@ -59,8 +59,18 @@ def test_binding_rejects_a_second_event_loop() -> None:
         asyncio.run(run())
 
 
-def test_aclose_releases_loop_affinity() -> None:
-    binding = ModelBinding.llm(model="mock-model", provider=_FakeProvider())
+def test_aclose_releases_loop_affinity_for_a_built_provider(monkeypatch) -> None:
+    """A binding that builds its provider can be closed and reused: aclose
+    closes the client, and the next loop builds a fresh one."""
+    built: list[_FakeProvider] = []
+
+    def fake_create(**kwargs):
+        provider = _FakeProvider()
+        built.append(provider)
+        return provider
+
+    monkeypatch.setattr("cliver_core.bindings.create_provider", fake_create)
+    binding = ModelBinding.llm(model="mock-model", api_key="k", base_url="https://example.test/v1")
 
     async def run() -> None:
         agent = _agent(binding)
@@ -68,7 +78,27 @@ def test_aclose_releases_loop_affinity() -> None:
         await agent.aclose()
 
     asyncio.run(run())
-    asyncio.run(run())  # the binding is free again after its agent closes
+    asyncio.run(run())  # the binding rebuilds on the new loop
+    assert len(built) == 2
+    assert built[0] is not built[1]
+
+
+def test_aclose_keeps_the_claim_of_a_loop_bound_supplied_provider() -> None:
+    """A caller-supplied loop-bound provider is never closed, so closing the
+    binding must not release its loop claim — reusing it on another loop would
+    hand a still-open, loop-bound client to a different event loop."""
+    binding = ModelBinding.llm(model="mock-model", provider=_FakeProvider())
+
+    async def run() -> None:
+        agent = _agent(binding)
+        try:
+            await agent.chat("hi")
+        finally:
+            await agent.aclose()
+
+    asyncio.run(run())
+    with pytest.raises(LoopAffinityError, match="another event loop"):
+        asyncio.run(run())
 
 
 def test_aclose_from_another_loop_raises() -> None:

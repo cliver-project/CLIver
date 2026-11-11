@@ -132,6 +132,51 @@ async def test_concurrent_aclose_calls_share_one_shutdown(monkeypatch) -> None:
     assert provider.closed == 1
 
 
+# ── async context manager ────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_open_context_manager_closes_on_normal_exit(monkeypatch) -> None:
+    provider = _FakeProvider()
+    monkeypatch.setattr("cliver_core.bindings.create_provider", lambda **kwargs: provider)
+    bindings = ModelBindings(llm=ModelBinding.llm(model="mock-model", base_url="https://example.test"))
+
+    async with AgentCore.open(bindings) as agent:
+        assert isinstance(agent, AgentCore)
+        assert (await agent.chat("hi")).message.content == "ok"
+
+    assert provider.closed == 1
+    with pytest.raises(RuntimeError, match="closed"):
+        await agent.chat("hi")
+
+
+@pytest.mark.asyncio
+async def test_open_context_manager_closes_on_exceptional_exit(monkeypatch) -> None:
+    provider = _FakeProvider()
+    monkeypatch.setattr("cliver_core.bindings.create_provider", lambda **kwargs: provider)
+    bindings = ModelBindings(llm=ModelBinding.llm(model="mock-model", base_url="https://example.test"))
+
+    with pytest.raises(RuntimeError, match="boom"):
+        async with AgentCore.open(bindings) as agent:
+            await agent.chat("hi")
+            raise RuntimeError("boom")
+
+    assert provider.closed == 1
+
+
+@pytest.mark.asyncio
+async def test_open_context_manager_leaves_supplied_resources_open() -> None:
+    client = _FakeMCPClient()
+    provider = _FakeProvider()
+    bindings = ModelBindings(llm=ModelBinding.llm(model="mock-model", provider=provider))
+
+    async with AgentCore.open(bindings, mcp_client=client) as agent:
+        await agent.chat("hi")
+
+    assert provider.closed == 0  # caller-supplied provider stays open
+    assert client.closed == 0  # the caller owns the MCP client
+
+
 class _SlowImageProvider(_FakeProvider):
     """An image provider whose generation blocks until cancelled."""
 

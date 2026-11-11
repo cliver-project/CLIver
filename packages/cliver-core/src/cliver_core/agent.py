@@ -16,6 +16,7 @@ import logging
 import math
 import time
 from dataclasses import dataclass, replace
+from types import TracebackType
 from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable, Mapping, Sequence, TypeVar
 
 from cliver_core import capabilities
@@ -185,7 +186,7 @@ class AgentCore:
     back the embedded model APIs below.  An unbound non-llm purpose raises
     :class:`CapabilityNotSupported` — "not supported".  ``self.llm`` is the
     primary chat :class:`~cliver_core.bindings.ModelBinding`; its provider is
-    built on first use, so read the provider via ``self.llm.get_provider()``
+    built on first use, so read the provider via ``self.llm.build_provider()``
     (its ``.provider`` attribute stays ``None`` until then).  A purpose may
     mount several bindings; a retryable provider failure hands the call to
     the next binding of the same purpose (see :meth:`ModelBindings.get_all`).
@@ -272,6 +273,19 @@ class AgentCore:
         # Media jobs this agent started.  They hold a provider from these
         # bindings, so they cannot outlive aclose().
         self._media_jobs: set[MediaJob] = set()
+
+    @classmethod
+    def open(cls, bindings: ModelBindings, **agent_kwargs: Any) -> "AgentCore":
+        """Construct an agent for use as an async context manager.
+
+        ``async with AgentCore.open(bindings) as agent:`` closes the agent
+        (and the providers its bindings built) on exit — normal or
+        exceptional.  Caller-supplied providers and the MCP client stay open;
+        whoever built them owns them.  The constructor itself is also an
+        async context manager, so ``async with AgentCore(bindings) as agent``
+        is equivalent; ``open`` exists to make the lifecycle explicit.
+        """
+        return cls(bindings, **agent_kwargs)
 
     # ── Public API ────────────────────────────────────────────
 
@@ -1220,6 +1234,19 @@ class AgentCore:
         if self._close_task is None:
             self._close_task = asyncio.ensure_future(self._close())
         await asyncio.shield(self._close_task)
+
+    async def __aenter__(self) -> "AgentCore":
+        """Return this agent for ``async with`` — see :meth:`open`."""
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        """Close on context exit; an in-flight exception keeps propagating."""
+        await self.aclose()
 
     async def _close(self) -> None:
         self._closed = True

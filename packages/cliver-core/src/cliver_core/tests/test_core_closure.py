@@ -30,6 +30,7 @@ BLOCKED = frozenset(
         "requests",
         "sqlalchemy",
         "apscheduler",
+        "fastapi",
         "starlette",
         "uvicorn",
         "firecrawl",
@@ -67,6 +68,8 @@ import cliver_core.skill
 import cliver_core.tool
 import cliver_core.media
 import cliver_core.events
+import cliver_core.integrations
+import cliver_core.integrations.lifespan
 import cliver_core.util
 import cliver_core.constants
 import cliver_core.provider

@@ -7,7 +7,7 @@ default call parameters — plus purpose-specific parameters, it performs the
 call and returns the result.  No AgentCore required.
 
 The binding is the whole handle: the provider comes from
-:meth:`~cliver_core.bindings.ModelBinding.get_provider`, the model name from
+:meth:`~cliver_core.bindings.ModelBinding.build_provider`, the model name from
 ``binding.model``, and the default request parameters from
 :meth:`~cliver_core.bindings.ModelBinding.call_defaults`.  This module only
 holds the pieces every capability shares:

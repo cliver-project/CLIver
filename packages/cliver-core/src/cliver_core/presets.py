@@ -7,7 +7,7 @@ provider another is still streaming on.  The API key comes from the brand's
 conventional environment variable(s) (:data:`API_KEY_ENV`) when set — read at
 **call time**, after dotenv/config load, never at import — and is the empty
 string otherwise; the first
-:meth:`~cliver_core.bindings.ModelBinding.get_provider` then fails with a
+:meth:`~cliver_core.bindings.ModelBinding.build_provider` then fails with a
 message naming the exact variable to set.
 
 ``provider_name`` and ``protocol`` are pinned, and ``base_url`` stays empty so
