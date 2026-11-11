@@ -1,12 +1,12 @@
 ---
 title: "A product URL in, validated JSON out"
 description: "chat_structured() asks for JSON, validates it, and retries with the error — so your code gets a typed object or a clear failure."
-pubDate: 2026-11-06
+pubDate: 2026-11-11
 tags:
   - Structured Output
   - Pydantic
 issue: 3
-draft: true
+draft: false
 author: Lin Gao
 series: Field Notes
 ---
