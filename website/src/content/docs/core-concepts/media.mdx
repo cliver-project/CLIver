@@ -11,16 +11,19 @@ own binding in `ModelBindings`. Capabilities work standalone, with or without `A
 from cliver_core import ModelBinding
 from cliver_core.capabilities import embed, generate_image
 
-vectors = await embed(
-    texts=["hello", "world"],
-    binding=ModelBinding.embed(model="text-embedding-3-small", api_key="...", base_url="..."),
-)
+async with ModelBinding.embed(
+    model="text-embedding-3-small", api_key="...", base_url="..."
+) as embedding:
+    vectors = await embed(texts=["hello", "world"], binding=embedding)
 
-image = await generate_image(
-    prompt="a red panda on a skateboard",
-    binding=ModelBinding.image(model="gpt-image-1", api_key="...", base_url="..."),
-)
+async with ModelBinding.image(model="gpt-image-1", api_key="...", base_url="...") as image:
+    picture = await generate_image(prompt="a red panda on a skateboard", binding=image)
 ```
+
+`ModelBinding` is an async context manager: leaving the block closes the provider it built — a
+supplied `provider=` stays open. Build bindings once and close them explicitly at shutdown when
+they serve many calls; see
+[Lifecycle and Shutdown](../concurrency/#lifecycle-and-shutdown).
 
 The capability functions are `generate_image`, `generate_video`, `text_to_speech`,
 `transcribe_audio`, `embed`, and `rerank`.

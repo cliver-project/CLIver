@@ -11,6 +11,14 @@ providers a binding built are closed by :meth:`ModelBinding.arefresh` once
 they are retired with no in-flight call, and by :meth:`ModelBinding.aclose`
 (a caller-supplied provider is never closed by the binding).
 
+Both :class:`ModelBinding` and :class:`ModelBindings` are async context
+managers — ``async with ModelBinding.image(...) as binding:`` and
+``async with bindings:`` await ``aclose()`` on normal and exceptional exit, so
+a standalone capability call can scope its binding lexically::
+
+    async with ModelBinding.image(model=..., api_key=..., base_url=...) as image:
+        result = await generate_image(prompt="a red panda", binding=image)
+
 Build bindings with the per-purpose factories — each knows the common
 parameters of its purpose and folds them into ``params``::
 
@@ -65,6 +73,7 @@ import asyncio
 import inspect
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, replace
+from types import TracebackType
 from typing import Any, AsyncIterator, Awaitable, Callable, Sequence
 
 from cliver_core.errors import CapabilityNotSupported, LoopAffinityError
@@ -884,6 +893,23 @@ class ModelBinding:
         if self.provider is None or self._is_loop_agnostic(self.provider):
             self._loop = None
 
+    async def __aenter__(self) -> "ModelBinding":
+        """Return this binding for ``async with`` — see :meth:`aclose`."""
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        """Close the providers this binding built on context exit.
+
+        Ownership follows :meth:`aclose`: a caller-supplied ``provider=``
+        stays open, and an in-flight exception keeps propagating.
+        """
+        await self.aclose()
+
 
 @dataclass(kw_only=True)
 class ModelBindings:
@@ -1022,3 +1048,16 @@ class ModelBindings:
         for purpose in self.bound_purposes():
             for binding in self.get_all(purpose):
                 await binding.aclose()
+
+    async def __aenter__(self) -> "ModelBindings":
+        """Return these bindings for ``async with`` — see :meth:`aclose`."""
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        """Close every provider these bindings built on context exit."""
+        await self.aclose()

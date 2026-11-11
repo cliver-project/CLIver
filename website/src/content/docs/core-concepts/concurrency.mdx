@@ -352,6 +352,29 @@ await mcp_client.close()
   `chat_structured`, embedded model calls, `submit_*`) with `RuntimeError`. Build a new one for
   a new loop.
 
+### Standalone capabilities
+
+A capability call used without an agent owns its binding's lifetime. `ModelBinding` and
+`ModelBindings` are async context managers that await `aclose()` on normal and exceptional
+exit — the same lexical pattern as `AgentCore.open`:
+
+```python
+from cliver_core import ModelBinding
+from cliver_core.capabilities import generate_image
+
+async with ModelBinding.image(
+    model="gpt-image-1",
+    api_key="...",
+    base_url="https://api.openai.com/v1",
+) as image:
+    result = await generate_image(prompt="a red panda on a skateboard", binding=image)
+```
+
+Ownership is the same as `aclose()`: providers the binding built are closed, a caller-supplied
+`provider=` stays open. The context-manager form fits a binding whose lifetime is one operation
+or one script; a server that reuses providers across requests builds the bindings once and calls
+`await bindings.aclose()` at shutdown instead.
+
 ## Streaming
 
 Consume a stream from one task and in the same loop that created the agent:

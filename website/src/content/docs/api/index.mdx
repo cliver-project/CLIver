@@ -117,6 +117,15 @@ The per-call scope used by the agent: it yields the built provider and tracks in
 a credential refresh or close does not cut an active call's provider out from under it. Use it,
 not `build_provider()`, whenever a provider is used across an `await` outside a core call.
 
+### `async with binding:` / `async with bindings:`
+
+Both are async context managers: entering returns the binding, and leaving awaits `aclose()` on
+normal and exceptional exit. Use them when a standalone capability call owns its binding
+lexically; a long-lived bindings object is closed explicitly at shutdown instead. Ownership
+matches `aclose()` — only providers the binding built are closed, while a caller-supplied
+`provider=` stays open. See
+[Lifecycle and Shutdown](../core-concepts/concurrency/#lifecycle-and-shutdown).
+
 ### `binding.owner_loop → asyncio.AbstractEventLoop | None`
 
 The event loop the binding first used, or `None` before first use (and after `aclose()` for a

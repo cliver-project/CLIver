@@ -84,16 +84,16 @@ Every purpose works standalone — no AgentCore required:
 from cliver_core import ModelBinding
 from cliver_core.capabilities import embed, generate_image
 
-vectors = await embed(
-    texts=["hello", "world"],
-    binding=ModelBinding.embed(model="text-embedding-3-small", api_key="...", base_url="..."),
-)
+async with ModelBinding.embed(model="text-embedding-3-small", api_key="...", base_url="...") as embedding:
+    vectors = await embed(texts=["hello", "world"], binding=embedding)
 
-image = await generate_image(
-    prompt="a red panda on a skateboard",
-    binding=ModelBinding.image(model="gpt-image-1", api_key="...", base_url="..."),
-)
+async with ModelBinding.image(model="gpt-image-1", api_key="...", base_url="...") as image:
+    picture = await generate_image(prompt="a red panda on a skateboard", binding=image)
 ```
+
+`ModelBinding` and `ModelBindings` are async context managers: leaving the block closes the
+providers the binding built, while a caller-supplied `provider=` stays open. Bindings created
+once for many calls are closed with `await bindings.aclose()` at shutdown instead.
 
 Purposes: image, video, text-to-speech, speech-to-text, embed, rerank. Long generations can return
 a `MediaJob` future via `AgentCore`'s `submit_*` variants.
