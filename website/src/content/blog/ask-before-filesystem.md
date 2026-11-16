@@ -1,13 +1,13 @@
 ---
 title: "Ask before the agent touches the filesystem"
 description: "An ASK-category tool goes through your callback, a denial is a normal tool result, and path scopes bound what the tool can touch anyway."
-pubDate: 2026-11-16
+pubDate: 2026-11-17
 tags:
   - Policy
   - Permissions
   - AgentCore
 issue: 5
-draft: true
+draft: false
 author: Lin Gao
 series: Field Notes
 ---

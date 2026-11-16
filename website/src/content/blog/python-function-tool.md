@@ -1,12 +1,12 @@
 ---
 title: "Your first tool is just a Python function"
 description: "One decorator, type hints in, JSON Schema out — then watch the model call your function and use the result."
-pubDate: 2026-11-13
+pubDate: 2026-11-17
 tags:
   - Tools
   - AgentCore
 issue: 4
-draft: true
+draft: false
 author: Lin Gao
 series: Field Notes
 ---
