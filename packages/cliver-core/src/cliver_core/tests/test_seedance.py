@@ -313,7 +313,7 @@ class _FakeResponse:
 
 
 class _FakeHttpx:
-    """Stands in for the module-level httpx import inside seedance.py."""
+    """Stands in for the provider's shared HTTP client inside seedance.py."""
 
     def __init__(self, response: _FakeResponse) -> None:
         self.response = response
@@ -329,7 +329,7 @@ class _FakeHttpx:
             async def __aexit__(self, *exc):
                 return None
 
-            async def get(self, url, headers=None):
+            async def get(self, url, headers=None, timeout=None):
                 fake.requests.append({"url": url, "headers": headers})
                 return fake.response
 
@@ -339,8 +339,8 @@ class _FakeHttpx:
 @pytest.mark.asyncio
 async def test_fetch_task_gets_the_task_url_with_bearer_headers(monkeypatch) -> None:
     fake = _FakeHttpx(_FakeResponse(200, payload={"id": "cgt-1", "status": "running"}))
-    monkeypatch.setattr(seedance_module, "httpx", fake)
     provider = _provider(_CreateTransport())
+    monkeypatch.setattr(provider, "_http_client", fake.AsyncClient)
 
     task = await provider._fetch_task("cgt-1", url=_TASK_URL)
 
@@ -353,8 +353,8 @@ async def test_fetch_task_gets_the_task_url_with_bearer_headers(monkeypatch) -> 
 @pytest.mark.asyncio
 async def test_fetch_task_non_2xx_raises_with_the_body_excerpt(monkeypatch) -> None:
     fake = _FakeHttpx(_FakeResponse(404, text='{"error": "not found"}'))
-    monkeypatch.setattr(seedance_module, "httpx", fake)
     provider = _provider(_CreateTransport())
+    monkeypatch.setattr(provider, "_http_client", fake.AsyncClient)
 
     with pytest.raises(RuntimeError, match=r"HTTP 404 .*not found"):
         await provider._fetch_task("cgt-9", url=_TASK_URL)

@@ -34,11 +34,12 @@ coverage claim.
 
 from __future__ import annotations
 
+import inspect
 import logging
 
+from cliver_core.client_options import ClientOptions, resolve_client_options
 from cliver_core.events import EventHandler
 from cliver_core.provider import Provider
-from cliver_core.util import validate_client_options
 
 # ── Lazy imports for individual providers ────────────────────
 # Each provider module defines a protocol-provider subclass
@@ -211,6 +212,7 @@ def create_provider(
     user_agent: str | None = None,
     logger: "logging.Logger | None" = None,
     on_event: EventHandler | None = None,
+    client: ClientOptions | None = None,
     client_timeout: float | None = None,
     client_max_retries: int | None = None,
     wire_shape: str | None = None,
@@ -243,16 +245,24 @@ def create_provider(
             ``"seedance"``; case-insensitive).  No substrings, no aliases.
             Unlisted vendors — self-hosted, proxies, compatible clones —
             need no name at all: pass *base_url* with the right *protocol*.
-        user_agent: Optional User-Agent header.
+        user_agent: Optional User-Agent header.  Equivalent to
+            ``client=ClientOptions(user_agent=...)``.
         logger: Optional logger for this provider.  When provided, all log
             output from the provider is routed through this logger.
         on_event: Optional inference-event subscriber (sync or async) for
             the constructed provider.
+        client: One data object for every HTTP-client setting — User-Agent,
+            SDK request timeout and retries, and the connection-pool limits
+            shared by the SDK client and the raw-HTTP client.  Forwarded as-is
+            to the provider class; classes with no HTTP client of their own
+            may reject it.
         client_timeout: SDK-client request timeout in seconds.  ``None``
-            keeps the SDK default.  Only accepted by providers with a
-            builtin SDK transport (``supports_client_options``).
+            keeps the SDK default.  The legacy spelling of
+            ``ClientOptions.timeout`` — merged into ``client``; only accepted
+            by providers with a builtin SDK transport
+            (``supports_client_options``).
         client_max_retries: SDK-client retry count.  ``None`` keeps the SDK
-            default.
+            default.  The legacy spelling of ``ClientOptions.max_retries``.
         wire_shape: Reference-media wire for media generation — must name an
             entry of the selected class's ``MEDIA_SHAPES``.  ``None`` keeps
             the class's per-purpose default.
@@ -262,11 +272,18 @@ def create_provider(
 
     Raises:
         ValueError: No explicit *base_url* and no applicable default endpoint,
-            invalid client options, or client options on a provider class
-            without an SDK transport.
+            invalid or conflicting client options, an SDK-only setting on a
+            provider class without an SDK transport, or a ``client=`` object
+            for a provider class whose constructor does not accept one.
     """
     api_key = api_key or ""
-    client_timeout, client_max_retries = validate_client_options(client_timeout, client_max_retries)
+    explicit_client = client
+    options = resolve_client_options(
+        client,
+        user_agent=user_agent,
+        timeout=client_timeout,
+        max_retries=client_max_retries,
+    )
     brand = (provider_name or "").strip().lower()
 
     if provider_class is not None:
@@ -299,24 +316,42 @@ def create_provider(
             f"{cls.__name__} does not declare wire shape '{wire_shape}'; declared: {sorted(cls.MEDIA_SHAPES)}"
         )
 
-    kwargs: dict[str, object] = {
-        "api_key": api_key,
-        "base_url": url,
-        "user_agent": user_agent,
-        "logger": logger,
-    }
-    if on_event is not None:
-        kwargs["on_event"] = on_event
-    if client_timeout is not None or client_max_retries is not None:
+    if options.timeout is not None or options.max_retries is not None:
         if not getattr(cls, "supports_client_options", False):
             raise ValueError(
                 f"client_timeout/client_max_retries are not supported by {cls.__name__}; "
                 "they apply only to providers that build an SDK client (OpenAI/Anthropic protocol providers)."
             )
-        if client_timeout is not None:
-            kwargs["client_timeout"] = client_timeout
-        if client_max_retries is not None:
-            kwargs["client_max_retries"] = client_max_retries
+
+    kwargs: dict[str, object] = {
+        "api_key": api_key,
+        "base_url": url,
+        "user_agent": options.user_agent,
+        "logger": logger,
+    }
+    if on_event is not None:
+        kwargs["on_event"] = on_event
+    if explicit_client is not None:
+        # One object instead of the scattered scalars.  A class that cannot
+        # take it fails here, named, rather than deep in construction.
+        if not _accepts_client_kwarg(cls):
+            raise ValueError(
+                f"{cls.__name__} does not accept client=ClientOptions(...); "
+                "client options apply to the builtin providers, or to a custom class "
+                "whose constructor accepts a 'client' keyword."
+            )
+        kwargs["client"] = options
+    else:
+        if options.timeout is not None:
+            kwargs["client_timeout"] = options.timeout
+        if options.max_retries is not None:
+            kwargs["client_max_retries"] = options.max_retries
     if wire_shape is not None:
         kwargs["wire_shape"] = wire_shape
     return cls(**kwargs)
+
+
+def _accepts_client_kwarg(cls: type[Provider]) -> bool:
+    """Whether *cls*'s constructor can take ``client=ClientOptions(...)``."""
+    params = inspect.signature(cls).parameters
+    return "client" in params or any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values())

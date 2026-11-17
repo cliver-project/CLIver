@@ -111,6 +111,26 @@ loop iteration before the model call: return a `CompactionPlan` and core applies
 return a full history as an escape hatch. `LlmCompactor` is an opt-in reference policy that is
 never installed automatically.
 
+`ClientOptions` is the single data object for every HTTP client a binding's provider owns —
+User-Agent, SDK timeout/retries, and the connection-pool limits shared by the SDK client and the
+shared raw-HTTP client (embeddings, rerank, System One, media polling):
+
+```python
+from cliver_core import ClientOptions, presets
+
+binding = presets.deepseek(
+    api_key="...",
+    client=ClientOptions(
+        user_agent="my-app/1.2",
+        timeout=30,  # default: SDK read timeout, 600 s
+        max_retries=0,  # default: SDK retries, 2
+        max_connections=32,  # default: httpx pool, 100
+    ),
+)
+```
+
+The legacy `client_timeout` / `client_max_retries` factory arguments merge into the same object.
+
 `await bindings.preflight()` builds every binding's provider and resolves credentials at
 startup, so a missing endpoint or key fails before the first call. `AgentCore.open(bindings, ...)`
 runs the agent as an async context manager and closes it on exit — normal or exceptional —

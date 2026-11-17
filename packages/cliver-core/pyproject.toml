@@ -25,6 +25,11 @@ dependencies = [
     "openai>=3.0.0",
     "anthropic>=1.0.0",
     "httpx>=0.28.0",
+    # The HTTP stack the official SDKs ship on (openai 3.x / anthropic 1.x
+    # depend on it) and the client the MCP adapters open for streamable-http
+    # headers.  The SDK transports also inject it when a binding sets pool
+    # limits, so it is a direct runtime dependency, not a test-only one.
+    "httpx2>=2.0.0",
     "mcp>=2.3.0,<3.0",
 ]
 
@@ -57,9 +62,6 @@ dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=1.2.0",
     "ruff>=0.0.270",
-    # The HTTP stack the official SDKs ship on; tests mock at that layer
-    # (MockTransport) to exercise the SDK parse path.
-    "httpx2>=2.0.0",
 ]
 
 [project.urls]

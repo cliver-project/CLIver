@@ -76,6 +76,7 @@ from dataclasses import dataclass, field, replace
 from types import TracebackType
 from typing import Any, AsyncIterator, Awaitable, Callable, Sequence
 
+from cliver_core.client_options import ClientOptions, resolve_client_options
 from cliver_core.errors import CapabilityNotSupported, LoopAffinityError
 from cliver_core.events import EventHandler
 from cliver_core.provider import Provider
@@ -136,6 +137,11 @@ class ModelBinding:
     :meth:`video`, :meth:`tts`, :meth:`asr`, :meth:`embed`, :meth:`rerank`) —
     the legacy ``audio`` purpose uses :meth:`tts`.  An ``llm`` binding is the
     chat/stream handle for :class:`~cliver_core.agent.AgentCore`.
+
+    ``client=ClientOptions(...)`` is the one data object for every HTTP-client
+    setting the built provider uses — User-Agent, SDK request timeout/retries,
+    and connection-pool limits for both the SDK client and the raw-HTTP client.
+    See :class:`~cliver_core.client_options.ClientOptions`.
     """
 
     model: str
@@ -166,16 +172,24 @@ class ModelBinding:
     # Resolves the credential used by :meth:`arefresh` — sync or async, must
     # return a non-empty string.  Without one, ``arefresh()`` rebuilds with the
     # current ``api_key`` (assign it first to rotate in place).
+    client: ClientOptions | None = None
+    # One data object for every HTTP-client setting: User-Agent, SDK request
+    # timeout and transport retries, and the connection-pool limits shared by
+    # the SDK client and the provider's raw-HTTP client.  Applied only to a
+    # provider the binding builds.  ``client_timeout`` / ``client_max_retries``
+    # are the legacy spellings of ``timeout`` / ``max_retries`` and merge into
+    # this object (conflicting values are rejected).
     client_timeout: float | None = None
     # SDK-client request timeout in seconds.  ``None`` keeps the SDK default
     # (600 s read on both builtin SDKs).  This is a client-construction
     # setting, distinct from a per-request ``timeout`` in ``params``; it
     # applies to every HTTP phase, and a streaming response's read timeout is
     # re-armed per chunk.  Only providers with an SDK transport accept it.
+    # Merged into ``client``; kept as a public field for existing callers.
     client_max_retries: int | None = None
     # SDK-client retry count.  ``None`` keeps the SDK default (2 on both
     # builtin SDKs).  This is transport-level retrying, distinct from
-    # AgentCore's same-purpose binding failover.
+    # AgentCore's same-purpose binding failover.  Merged into ``client``.
     purpose: str | None = field(default=None, compare=False)
     params: dict[str, Any] = field(default_factory=dict)
     _built: Provider | None = field(default=None, init=False, repr=False, compare=False)
@@ -190,15 +204,30 @@ class ModelBinding:
     # In-flight lease count per provider, maintained by :meth:`lease_provider`.
     # A retired provider is never closed while its count is non-zero.
     _leases: dict[Provider, int] = field(default_factory=dict, init=False, repr=False, compare=False)
+    # The effective ClientOptions: the supplied object with the legacy flat
+    # ``client_timeout`` / ``client_max_retries`` merged in.  ``self.client``
+    # keeps exactly what the caller passed (None when they configured the
+    # flat arguments only), so cloning via ``replace`` cannot mistake a
+    # derived object for an explicit one.
+    _effective_client: ClientOptions = field(default_factory=ClientOptions, init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         self.client_timeout, self.client_max_retries = validate_client_options(
             self.client_timeout, self.client_max_retries
         )
-        if self.provider is not None and (self.client_timeout is not None or self.client_max_retries is not None):
+        self._effective_client = resolve_client_options(
+            self.client,
+            timeout=self.client_timeout,
+            max_retries=self.client_max_retries,
+        )
+        self.client_timeout = self._effective_client.timeout
+        self.client_max_retries = self._effective_client.max_retries
+        if self.provider is not None and (
+            self.client is not None or self.client_timeout is not None or self.client_max_retries is not None
+        ):
             raise ValueError(
-                "client_timeout/client_max_retries apply only to a provider the binding builds; "
-                "configure the supplied provider's SDK client directly."
+                "client= / client_timeout / client_max_retries apply only to a provider the binding "
+                "builds; configure the supplied provider's SDK client directly."
             )
         if self.wire_shape is not None:
             if self.provider is not None:
@@ -230,6 +259,7 @@ class ModelBinding:
             f"base_url={self.base_url!r}, protocol={self.protocol!r}, "
             f"provider_name={self.provider_name!r}, provider_class={self.provider_class!r}, "
             f"path={self.path!r}, wire_shape={self.wire_shape!r}, "
+            f"client_options={self._effective_client!r}, "
             f"client_timeout={self.client_timeout!r}, client_max_retries={self.client_max_retries!r}, "
             f"purpose={self.purpose!r}, params={self.params!r}, "
             f"loop={loop}, built={self._built is not None})"
@@ -253,6 +283,7 @@ class ModelBinding:
         credential_provider: CredentialProvider | None = None,
         client_timeout: float | None = None,
         client_max_retries: int | None = None,
+        client: ClientOptions | None = None,
         **params: Any,
     ) -> ModelBinding:
         """Chat/stream-purpose binding — the LLM handle for ``AgentCore``.
@@ -271,10 +302,12 @@ class ModelBinding:
         provider constructor.  It applies only to a provider the binding
         builds; a supplied ``provider=`` keeps its own handler.
 
-        ``client_timeout`` and ``client_max_retries`` tune the SDK client this
-        binding builds (positive seconds; non-negative retries); ``None``
-        keeps the SDK's defaults.  A per-request ``timeout`` belongs in
-        ``params`` instead.
+        ``client=ClientOptions(...)`` tunes every HTTP client this binding's
+        provider builds — User-Agent, SDK timeout/retries, and connection-pool
+        limits.  ``client_timeout`` and ``client_max_retries`` are the legacy
+        spellings of two of those fields and merge into the same object;
+        setting the same field both ways requires the values to agree.  A
+        per-request ``timeout`` belongs in ``params`` instead.
         """
         if path is not None:
             raise TypeError(
@@ -297,6 +330,7 @@ class ModelBinding:
             credential_provider=credential_provider,
             client_timeout=client_timeout,
             client_max_retries=client_max_retries,
+            client=client,
             purpose="llm",
             params=dict(params),
         )
@@ -314,6 +348,7 @@ class ModelBinding:
         credential_provider: CredentialProvider | None = None,
         client_timeout: float | None = None,
         client_max_retries: int | None = None,
+        client: ClientOptions | None = None,
         path: str | None = None,
         wire_shape: str | None = None,
         n: int | None = None,
@@ -335,6 +370,7 @@ class ModelBinding:
             credential_provider=credential_provider,
             client_timeout=client_timeout,
             client_max_retries=client_max_retries,
+            client=client,
             path=path,
             wire_shape=wire_shape,
             purpose="image",
@@ -354,6 +390,7 @@ class ModelBinding:
         credential_provider: CredentialProvider | None = None,
         client_timeout: float | None = None,
         client_max_retries: int | None = None,
+        client: ClientOptions | None = None,
         path: str | None = None,
         wire_shape: str | None = None,
         duration: int | None = None,
@@ -373,6 +410,7 @@ class ModelBinding:
             credential_provider=credential_provider,
             client_timeout=client_timeout,
             client_max_retries=client_max_retries,
+            client=client,
             path=path,
             wire_shape=wire_shape,
             purpose="video",
@@ -392,6 +430,7 @@ class ModelBinding:
         credential_provider: CredentialProvider | None = None,
         client_timeout: float | None = None,
         client_max_retries: int | None = None,
+        client: ClientOptions | None = None,
         voice: str | None = None,
         response_format: str | None = None,
         path: str | None = None,
@@ -411,6 +450,7 @@ class ModelBinding:
             credential_provider=credential_provider,
             client_timeout=client_timeout,
             client_max_retries=client_max_retries,
+            client=client,
             path=path,
             wire_shape=wire_shape,
             purpose="tts",
@@ -430,6 +470,7 @@ class ModelBinding:
         credential_provider: CredentialProvider | None = None,
         client_timeout: float | None = None,
         client_max_retries: int | None = None,
+        client: ClientOptions | None = None,
         language: str | None = None,
         path: str | None = None,
         wire_shape: str | None = None,
@@ -452,6 +493,7 @@ class ModelBinding:
             credential_provider=credential_provider,
             client_timeout=client_timeout,
             client_max_retries=client_max_retries,
+            client=client,
             path=path,
             purpose="asr",
             params={**drop_none(language=language), **params},
@@ -470,6 +512,7 @@ class ModelBinding:
         credential_provider: CredentialProvider | None = None,
         client_timeout: float | None = None,
         client_max_retries: int | None = None,
+        client: ClientOptions | None = None,
         dimensions: int | None = None,
         path: str | None = None,
         wire_shape: str | None = None,
@@ -489,6 +532,7 @@ class ModelBinding:
             credential_provider=credential_provider,
             client_timeout=client_timeout,
             client_max_retries=client_max_retries,
+            client=client,
             path=path,
             purpose="embed",
             params={**drop_none(dimensions=dimensions), **params},
@@ -507,6 +551,7 @@ class ModelBinding:
         credential_provider: CredentialProvider | None = None,
         client_timeout: float | None = None,
         client_max_retries: int | None = None,
+        client: ClientOptions | None = None,
         top_k: int | None = None,
         path: str | None = None,
         wire_shape: str | None = None,
@@ -526,6 +571,7 @@ class ModelBinding:
             credential_provider=credential_provider,
             client_timeout=client_timeout,
             client_max_retries=client_max_retries,
+            client=client,
             path=path,
             purpose="rerank",
             params={**drop_none(top_k=top_k), **params},
@@ -546,6 +592,7 @@ class ModelBinding:
         credential_provider: CredentialProvider | None = None,
         client_timeout: float | None = None,
         client_max_retries: int | None = None,
+        client: ClientOptions | None = None,
         **params: Any,
     ) -> ModelBinding:
         """System One decision-model binding — predictions, never text.
@@ -577,6 +624,7 @@ class ModelBinding:
             credential_provider=credential_provider,
             client_timeout=client_timeout,
             client_max_retries=client_max_retries,
+            client=client,
             purpose="system_one",
             params=dict(params),
         )
@@ -593,6 +641,29 @@ class ModelBinding:
         binding default in place.
         """
         return {**drop_none(path=self.path), **self.params}
+
+    # ── Client options ────────────────────────────────────────
+
+    @property
+    def client_options(self) -> ClientOptions:
+        """The effective HTTP-client settings this binding applies.
+
+        The supplied ``client=ClientOptions(...)`` object with the legacy flat
+        ``client_timeout`` / ``client_max_retries`` arguments merged in;
+        never ``None``.  The provider this binding builds derives both its SDK
+        client and its shared raw-HTTP client from it.
+        """
+        return self._effective_client
+
+    def _configured_client(self) -> ClientOptions | None:
+        """The client options to hand provider construction, or ``None``.
+
+        ``None`` when the caller configured nothing — provider classes then
+        keep their own construction path untouched.
+        """
+        if self.client is None and self.client_timeout is None and self.client_max_retries is None:
+            return None
+        return self._effective_client
 
     # ── Provider handle ───────────────────────────────────────
 
@@ -682,6 +753,7 @@ class ModelBinding:
                     provider_class=self.provider_class,
                     provider_name=self.provider_name,
                     on_event=self.on_event,
+                    client=self._configured_client(),
                     client_timeout=self.client_timeout,
                     client_max_retries=self.client_max_retries,
                     wire_shape=self.wire_shape,
@@ -858,6 +930,7 @@ class ModelBinding:
             provider_class=self.provider_class,
             provider_name=self.provider_name,
             on_event=self.on_event,
+            client=self._configured_client(),
             client_timeout=self.client_timeout,
             client_max_retries=self.client_max_retries,
             wire_shape=self.wire_shape,

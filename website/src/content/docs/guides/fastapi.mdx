@@ -35,14 +35,17 @@ import os
 
 from fastapi import Depends, FastAPI, Request
 
-from cliver_core import AgentCore, ModelBindings, presets
+from cliver_core import AgentCore, ClientOptions, ModelBindings, presets
 from cliver_core.integrations.lifespan import agent_lifespan, get_agent
 from cliver_core.tools import discover_builtin_tools
 
 binding = presets.deepseek(
     api_key=os.environ["DEEPSEEK_API_KEY"],
-    client_timeout=60,     # SDK read timeout (all HTTP phases); default is 600 s
-    client_max_retries=1,  # SDK transport retries; default is 2
+    client=ClientOptions(
+        timeout=60,          # HTTP timeout, all phases; default is 600 s read
+        max_retries=1,       # transport retries; default is 2
+        max_connections=32,  # connection pool per provider; default is 100
+    ),
 )
 
 app = FastAPI(
@@ -96,7 +99,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from cliver_core import AgentCore, ModelBindings, presets
+from cliver_core import AgentCore, ClientOptions, ModelBindings, presets
 from cliver_core.mcp import MCPClient
 from cliver_core.tools import discover_builtin_tools
 
@@ -123,8 +126,7 @@ async def lifespan(app: FastAPI):
 
     binding = presets.deepseek(
         api_key=os.environ["DEEPSEEK_API_KEY"],
-        client_timeout=60,
-        client_max_retries=1,
+        client=ClientOptions(timeout=60, max_retries=1, max_connections=32),
     )
     bindings = ModelBindings(llm=binding)
     agent = AgentCore(
@@ -356,8 +358,9 @@ share an agent only when tenants differ by call parameters alone.
 |------|-------|-----|
 | `run_timeout` | `AgentCore(...)` + per call | Maps a run to your request SLA; bounds the whole agent loop |
 | `tool_timeout` | `AgentCore(...)` + per call | Bounds one tool execution; sync tools run in a thread and cannot be killed |
-| `client_timeout` | Binding factory | A hung upstream must fail before the run budget is gone |
-| `client_max_retries` | Binding factory | `0` makes same-purpose binding failover react on the first retryable error |
+| `ClientOptions.timeout` | Binding factory (`client=`) | A hung upstream must fail before the run budget is gone |
+| `ClientOptions.max_retries` | Binding factory (`client=`) | `0` makes same-purpose binding failover react on the first retryable error |
+| `ClientOptions.max_connections` | Binding factory (`client=`) | Match the per-provider concurrency you allow; a smaller pool queues requests |
 | admission semaphore | Application | Core has no rate limiter or circuit breaker |
 | `session_pool_size` | streamable-http MCP entry | Set it to the concurrent calls you allow for that server; leaves stay ephemeral |
 | `max_iterations` | Per call, default 50 | Caps a runaway loop; lower it for latency-sensitive endpoints |
@@ -420,7 +423,7 @@ and make sure your orchestrator's termination grace period is longer than that.
 
 - [ ] One agent per worker process, built inside `lifespan` (or by `agent_lifespan`) on that
       worker's loop.
-- [ ] `run_timeout` and `client_timeout` set below the upstream/proxy timeouts.
+- [ ] `run_timeout` and `ClientOptions.timeout` set below the upstream/proxy timeouts.
 - [ ] Admission semaphore sized from upstream limits; `429` (or backpressure) when saturated.
 - [ ] `RunTimeoutError` → 504, retryable `ProviderError` → 503, other provider failures → 502.
 - [ ] `run_id` accepted from the caller and returned in every response, success or failure.

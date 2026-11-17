@@ -15,6 +15,7 @@ from cliver_core.capabilities import (
     text_to_speech,
     transcribe_audio,
 )
+from cliver_core.client_options import ClientOptions
 from cliver_core.compaction import CompactionContext, CompactionPlan, CompactionSplit, ContextCompactor
 from cliver_core.compactors import LlmCompactor
 from cliver_core.errors import LoopAffinityError, MediaReferenceError, ProviderError, RunTimeoutError
@@ -57,6 +58,7 @@ from cliver_core.tool import CLIverTool, ToolRegistry, tool
 __all__ = [
     "AgentCore",
     "CapabilityNotSupported",
+    "ClientOptions",
     "CLIverMessage",
     "CLIverMessageChunk",
     "CompactionContext",

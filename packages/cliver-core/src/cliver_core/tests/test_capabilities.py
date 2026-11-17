@@ -498,7 +498,7 @@ class _FakeAsyncClient:
     async def __aexit__(self, *exc) -> bool:
         return False
 
-    async def post(self, url, json=None, headers=None):
+    async def post(self, url, json=None, headers=None, timeout=None):
         return _FakeResponse(self.status_code)
 
 

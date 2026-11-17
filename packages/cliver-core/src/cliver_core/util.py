@@ -1,5 +1,4 @@
 import logging
-import math
 import os
 import platform
 import select
@@ -11,6 +10,7 @@ from pathlib import Path
 from typing import Any, Callable
 from zoneinfo import ZoneInfo
 
+from cliver_core.client_options import validate_max_retries, validate_timeout
 from cliver_core.constants import APP_NAME, CONFIG_DIR
 
 logger = logging.getLogger(__name__)
@@ -26,20 +26,13 @@ def validate_client_options(timeout: Any, max_retries: Any) -> tuple[float | Non
 
     ``None`` leaves the SDK's own default in place.  Returning the normalized
     values keeps dataclass fields and provider construction on one contract.
+    The rules themselves live on :class:`~cliver_core.client_options.ClientOptions`
+    — the unified data object the flat arguments merge into.
     """
-    if timeout is not None:
-        if (
-            isinstance(timeout, bool)
-            or not isinstance(timeout, (int, float))
-            or not math.isfinite(timeout)
-            or timeout <= 0
-        ):
-            raise ValueError("client_timeout must be a positive number of seconds or None")
-        timeout = float(timeout)
-    if max_retries is not None:
-        if isinstance(max_retries, bool) or not isinstance(max_retries, int) or max_retries < 0:
-            raise ValueError("client_max_retries must be a non-negative integer or None")
-    return timeout, max_retries
+    return (
+        validate_timeout(timeout, "client_timeout"),
+        validate_max_retries(max_retries, "client_max_retries"),
+    )
 
 
 # -- Timezone utilities -------------------------------------------------------

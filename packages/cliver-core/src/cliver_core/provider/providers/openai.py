@@ -23,6 +23,7 @@ import time
 from typing import Any, AsyncIterator
 from uuid import uuid4
 
+from cliver_core.client_options import ClientOptions, resolve_client_options
 from cliver_core.errors import ProviderError
 from cliver_core.events import EventHandler, InferenceEvent, InferenceEventType, dispatch_event
 from cliver_core.media import MediaContent
@@ -63,12 +64,19 @@ class OpenAIProvider(Provider):
         logger: "logging.Logger | None" = None,
         on_event: EventHandler | None = None,
         transport: BrandSDK | None = None,
+        client: ClientOptions | None = None,
         client_timeout: float | None = None,
         client_max_retries: int | None = None,
         wire_shape: str | None = None,
     ):
-        super().__init__(api_key, base_url, logger=logger, wire_shape=wire_shape)
-        self.user_agent = user_agent
+        options = resolve_client_options(
+            client,
+            user_agent=user_agent,
+            timeout=client_timeout,
+            max_retries=client_max_retries,
+        )
+        super().__init__(api_key, base_url, logger=logger, wire_shape=wire_shape, client=options)
+        self.user_agent = options.user_agent
         self.on_event = on_event
         # The brand selects the transport: a ``cliver.provider_sdks`` adapter
         # for this brand if registered, else the protocol's builtin SDK
@@ -78,14 +86,18 @@ class OpenAIProvider(Provider):
             api_key=api_key,
             base_url=base_url,
             brand=self.provider_name(),
-            user_agent=user_agent,
-            timeout=client_timeout,
-            max_retries=client_max_retries,
+            user_agent=options.user_agent,
+            timeout=options.timeout,
+            max_retries=options.max_retries,
+            max_connections=options.max_connections,
+            max_keepalive_connections=options.max_keepalive_connections,
+            keepalive_expiry=options.keepalive_expiry,
         )
 
     async def close(self) -> None:
-        """Close the underlying transport."""
+        """Close the underlying transport, then the shared raw-HTTP client."""
         await self.transport.close()
+        await super().close()
 
     # ── Conversion ──────────────────────────────────────────
 

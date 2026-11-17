@@ -25,8 +25,6 @@ import base64
 import time
 from typing import Any
 
-import httpx
-
 from cliver_core.errors import ProviderError
 from cliver_core.media import MediaContent, get_file_extension
 from cliver_core.provider.media_shapes import (
@@ -255,12 +253,12 @@ class DashScopeProvider(OpenAIProvider):
             "x-oss-forbid-overwrite": str(policy.get("x_oss_forbid_overwrite") or "true"),
             "success_action_status": "200",
         }
-        async with httpx.AsyncClient(timeout=self._UPLOAD_TIMEOUT) as client:
-            response = await client.post(
-                str(policy["upload_host"]),
-                data=fields,
-                files={"file": (filename, data, mime)},
-            )
+        response = await self._http_client().post(
+            str(policy["upload_host"]),
+            data=fields,
+            files={"file": (filename, data, mime)},
+            timeout=self._UPLOAD_TIMEOUT,
+        )
         if not response.is_success:
             raise ProviderError(f"dashscope upload failed: HTTP {response.status_code} {response.text[:200]}")
         return f"oss://{key}"
@@ -268,12 +266,12 @@ class DashScopeProvider(OpenAIProvider):
     async def _upload_policy(self, model: str) -> dict[str, Any]:
         """One policy read — the ``data`` object of ``GET /uploads``."""
         url = f"{self.base_url.rstrip('/')}/uploads"
-        async with httpx.AsyncClient(timeout=self._POLL_REQUEST_TIMEOUT) as client:
-            response = await client.get(
-                url,
-                params={"action": "getPolicy", "model": model},
-                headers=self._build_media_gen_headers(),
-            )
+        response = await self._http_client().get(
+            url,
+            params={"action": "getPolicy", "model": model},
+            headers=self._build_media_gen_headers(),
+            timeout=self._POLL_REQUEST_TIMEOUT,
+        )
         if not response.is_success:
             raise ProviderError(
                 f"dashscope upload policy request failed: HTTP {response.status_code} {response.text[:200]}"
@@ -411,12 +409,16 @@ class DashScopeProvider(OpenAIProvider):
     async def _fetch_task(self, task_id: str, *, url: str) -> dict:
         """Read one task object — a single GET, no retries.
 
-        The transport protocol has no GET verb, so this rides httpx directly
-        — the same sessionless shape as the embed/rerank precedent
-        (``Provider._post_json_endpoint``).
+        The transport protocol has no GET verb, so this rides the provider's
+        shared HTTP client (``Provider._http_client``) — the same seam the
+        embed/rerank precedent uses, so consecutive polls reuse the
+        connection instead of reconnecting.
         """
-        async with httpx.AsyncClient(timeout=self._POLL_REQUEST_TIMEOUT) as client:
-            response = await client.get(self._task_url(task_id, url), headers=self._build_media_gen_headers())
+        response = await self._http_client().get(
+            self._task_url(task_id, url),
+            headers=self._build_media_gen_headers(),
+            timeout=self._POLL_REQUEST_TIMEOUT,
+        )
         if not response.is_success:
             raise RuntimeError(f"dashscope task read failed: HTTP {response.status_code} {response.text[:200]}")
         return response.json()

@@ -477,32 +477,51 @@ async def refresh_all(tenants: dict[str, AgentCore]) -> None:
 - A tool error is a normal result; five consecutive tool errors or permission denials stop that
   run with a failure response. One run's streak never affects another.
 
-### SDK Client Timeout and Retries
+### HTTP Client Options
 
-Both builtin SDK clients default to an SDK read timeout of 600 seconds and two retries — far
-larger than a typical request budget. A hung primary can spend the whole `run_timeout` before
-failover ever sees an error. Every binding factory (`llm`, `image`, `video`, `tts`, `asr`,
-`embed`, `rerank`, `system_one`) accepts two client-construction options:
+Both builtin SDK clients default to a read timeout of 600 seconds and two retries — far larger
+than a typical request budget. A hung primary can spend the whole `run_timeout` before failover
+ever sees an error. Every binding factory (`llm`, `image`, `video`, `tts`, `asr`, `embed`,
+`rerank`, `system_one`) accepts one `ClientOptions` object for every HTTP client its provider
+builds: the SDK client (chat, streaming, transport posts) and the shared raw-HTTP client
+(embeddings, rerank, System One, media-task polling).
 
 ```python
+from cliver_core import ClientOptions, ModelBinding
+
 binding = ModelBinding.llm(
     model="deepseek-chat",
     protocol="openai",
     api_key=key,
-    client_timeout=30,        # seconds, every HTTP phase; None = SDK default (600 s read)
-    client_max_retries=0,     # transport retries; None = SDK default (2)
+    client=ClientOptions(
+        user_agent="my-app/1.2",       # sent with every request from this provider
+        timeout=30,                     # seconds, every HTTP phase; None = SDK default (600 s read)
+        max_retries=0,                  # transport retries; None = SDK default (2)
+        max_connections=32,             # pool size, both clients; None = httpx default (100)
+        max_keepalive_connections=8,    # idle connections kept; None = 20
+        keepalive_expiry=30.0,          # seconds; None = 5
+    ),
 )
 ```
 
-- These are SDK-client settings, not request parameters. A `timeout` inside `params` is the
-  per-request value the SDK accepts in the request body — different knob, same word.
-- They apply to every call made through the binding — chat, streaming, media, embeddings,
-  rerank, System One — and are re-applied when `arefresh()` rebuilds the provider.
-- Transport retries (this option) happen inside one model call; binding failover (D39) happens
-  after a retryable `ProviderError` escapes it. Set `client_max_retries=0` when you want the
-  failover to react immediately.
-- They are rejected with `ValueError` on a supplied `provider=` (configure that provider's
-  client directly) and on provider classes without a builtin SDK transport.
+- `None` keeps that client's own default: 600 s read timeout and two retries on both builtin
+  SDKs; 100 connections / 20 keep-alive / 5 s expiry in the httpx pools.
+- The pool limits apply to **both** HTTP stacks — the SDK client (`httpx2`) and the provider's
+  shared raw-HTTP client (`httpx`). Size `max_connections` at or above the application's
+  concurrency toward that provider: a smaller pool queues requests, it does not fail them.
+- `user_agent` replaces the SDK's default header and is also sent by the raw-HTTP seams.
+- `timeout` and `max_retries` are client-construction settings, not request parameters. A
+  `timeout` inside `params` is the per-request value the SDK accepts in the request body —
+  different knob, same word.
+- They apply to every call made through the binding and are re-applied when `arefresh()`
+  rebuilds the provider. Transport retries happen inside one model call; binding failover (D39)
+  happens after a retryable `ProviderError` escapes them — set `max_retries=0` when you want
+  the failover to react immediately.
+- The legacy flat arguments `client_timeout` / `client_max_retries` still work and merge into
+  the same object; setting the same field both ways is allowed only when the values agree.
+- Options are rejected with `ValueError` on a supplied `provider=` (configure that provider
+  directly), and an SDK-only field (`timeout` / `max_retries`) is rejected on a provider class
+  without a builtin SDK transport.
 
 ## Checklist
 

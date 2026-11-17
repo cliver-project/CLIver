@@ -60,6 +60,9 @@ def resolve_brand_sdk(
     use_bearer_auth: bool = False,
     timeout: float | None = None,
     max_retries: int | None = None,
+    max_connections: int | None = None,
+    max_keepalive_connections: int | None = None,
+    keepalive_expiry: float | None = None,
 ) -> BrandSDK:
     """Resolve the transport for *brand* speaking *protocol*.
 
@@ -68,9 +71,11 @@ def resolve_brand_sdk(
     it supports the protocol; otherwise the protocol's builtin SDK adapter
     serves the brand through its ``base_url``.
 
-    *timeout* and *max_retries* tune the SDK client the adapter builds.
-    They are forwarded only when set, so adapters and SDKs keep their own
-    defaults otherwise.
+    *timeout*, *max_retries*, and the pool limits tune the SDK client the
+    adapter builds.  They are forwarded only when set, so adapters and SDKs
+    keep their own defaults otherwise.  The builtin adapters build their
+    ``httpx2`` client with the requested pool limits; an adapter that does
+    not accept them keeps its own pool when none are set.
     """
     requested = (brand or protocol).lower()
 
@@ -81,10 +86,15 @@ def resolve_brand_sdk(
         "user_agent": user_agent,
         "use_bearer_auth": use_bearer_auth,
     }
-    if timeout is not None:
-        create_kwargs["timeout"] = timeout
-    if max_retries is not None:
-        create_kwargs["max_retries"] = max_retries
+    for key, value in {
+        "timeout": timeout,
+        "max_retries": max_retries,
+        "max_connections": max_connections,
+        "max_keepalive_connections": max_keepalive_connections,
+        "keepalive_expiry": keepalive_expiry,
+    }.items():
+        if value is not None:
+            create_kwargs[key] = value
 
     adapter_cls = registered_adapters().get(requested)
     if adapter_cls is not None:

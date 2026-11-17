@@ -16,8 +16,6 @@ import asyncio
 import time
 from typing import Any
 
-import httpx
-
 from cliver_core.media import MediaContent
 from cliver_core.provider.media_shapes import SEEDANCE_VIDEO
 from cliver_core.provider.providers.openai import OpenAIProvider
@@ -159,12 +157,15 @@ class SeedanceProvider(OpenAIProvider):
         The task URL derives from *url*, the create endpoint exactly as
         POSTed, so a call-site ``path=`` (proxy, custom host) is honored.
         The transport protocol has no GET verb and extending it would break
-        third-party adapters, so this rides httpx directly — the same
-        sessionless shape as the embed/rerank precedent
-        (``Provider._post_json_endpoint``).
+        third-party adapters, so this rides the provider's shared HTTP client
+        (``Provider._http_client``) — consecutive polls reuse the connection
+        instead of reconnecting.
         """
-        async with httpx.AsyncClient(timeout=self._POLL_REQUEST_TIMEOUT) as client:
-            response = await client.get(f"{url}/{task_id}", headers=self._build_media_gen_headers())
+        response = await self._http_client().get(
+            f"{url}/{task_id}",
+            headers=self._build_media_gen_headers(),
+            timeout=self._POLL_REQUEST_TIMEOUT,
+        )
         if not response.is_success:
             raise RuntimeError(f"seedance task read failed: HTTP {response.status_code} {response.text[:200]}")
         return response.json()

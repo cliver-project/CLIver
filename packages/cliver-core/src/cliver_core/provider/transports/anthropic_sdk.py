@@ -11,6 +11,7 @@ import inspect
 import json
 from typing import Any, AsyncIterator
 
+import httpx2
 from anthropic import AsyncAnthropic, Timeout
 
 from cliver_core.provider.transport import as_dict
@@ -59,6 +60,9 @@ class AnthropicSDK:
         use_bearer_auth: bool = False,
         timeout: float | None = None,
         max_retries: int | None = None,
+        max_connections: int | None = None,
+        max_keepalive_connections: int | None = None,
+        keepalive_expiry: float | None = None,
     ) -> "AnthropicSDK":
         headers = {"User-Agent": user_agent} if user_agent else {}
         client_options: dict[str, object] = {}
@@ -67,6 +71,19 @@ class AnthropicSDK:
             client_options["timeout"] = Timeout(timeout)
         if max_retries is not None:
             client_options["max_retries"] = max_retries
+        pool = {
+            key: value
+            for key, value in {
+                "max_connections": max_connections,
+                "max_keepalive_connections": max_keepalive_connections,
+                "keepalive_expiry": keepalive_expiry,
+            }.items()
+            if value is not None
+        }
+        if pool:
+            # See OpenAISDK.create: the injected client keeps the SDK's
+            # redirect behavior and pins the connection pool.
+            client_options["http_client"] = httpx2.AsyncClient(limits=httpx2.Limits(**pool), follow_redirects=True)
         # Anthropic SDK: api_key → x-api-key header, auth_token → Authorization: Bearer
         # Third-party providers (DeepSeek, MiniMax) use Bearer auth.
         if use_bearer_auth:

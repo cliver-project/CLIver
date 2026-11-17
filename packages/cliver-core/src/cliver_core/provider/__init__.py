@@ -6,8 +6,10 @@ import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable, ClassVar, Mapping, Union
 
+import httpx
 from pydantic import BaseModel, Field
 
+from cliver_core.client_options import ClientOptions
 from cliver_core.errors import CapabilityNotSupported, MediaReferenceError, ProviderError
 from cliver_core.media import (
     MediaContent,
@@ -189,10 +191,15 @@ class Provider(ABC):
         *,
         logger: "logging.Logger | None" = None,
         wire_shape: str | None = None,
+        client: ClientOptions | None = None,
     ):
         self.api_key = api_key
         self.base_url = base_url
         self.logger = logger or logging.getLogger(__name__)
+        #: Effective HTTP-client settings — User-Agent and pool limits for the
+        #: shared raw-HTTP client; the protocol providers also derive their
+        #: SDK client's timeout, retries, and pool from it.
+        self.client_options: ClientOptions = client or ClientOptions()
         #: The brand's I/O pipe — set by the protocol providers; media
         #: generation sends through it (:meth:`_post_media`).
         self.transport: BrandSDK | None = None
@@ -200,6 +207,8 @@ class Provider(ABC):
         #: against :attr:`MEDIA_SHAPES` in :meth:`_media_shape`.  ``None``
         #: uses the provider's per-purpose default.
         self._wire_shape = wire_shape
+        #: Lazily built client for the raw-HTTP seams (see :meth:`_http_client`).
+        self._shared_http: httpx.AsyncClient | None = None
 
     @classmethod
     def provider_name(cls) -> str:
@@ -232,10 +241,12 @@ class Provider(ABC):
     async def close(self) -> None:
         """Release provider-held resources.
 
-        Overridden by providers that hold a client (the protocol providers
-        close their transport); the default is a no-op.
+        Closes the shared raw-HTTP client; idempotent.  The protocol
+        providers close their transport first, then call this.
         """
-        return
+        client, self._shared_http = self._shared_http, None
+        if client is not None:
+            await client.aclose()
 
     # ── Transport I/O ───────────────────────────────────────
 
@@ -1044,21 +1055,51 @@ class Provider(ABC):
 
     # ── Rerank / embeddings (generic HTTP, shared across providers) ────
 
+    def _http_client(self) -> httpx.AsyncClient:
+        """The provider-owned HTTP client for the raw-HTTP seams.
+
+        One client per provider, created on first use on the provider's loop
+        and closed by :meth:`close`.  Reusing it keeps the connection pool
+        alive across embed / rerank / System One calls and every media-task
+        poll instead of reconnecting per request; per-request ``timeout=``
+        still overrides the client default.
+
+        The ``User-Agent`` and pool limits from the provider's
+        :class:`~cliver_core.client_options.ClientOptions` apply here; every
+        other setting keeps httpx's default.
+        """
+        if self._shared_http is None:
+            client_kwargs: dict[str, Any] = {}
+            if self.client_options.user_agent:
+                client_kwargs["headers"] = {"User-Agent": self.client_options.user_agent}
+            limits = {
+                key: value
+                for key, value in {
+                    "max_connections": self.client_options.max_connections,
+                    "max_keepalive_connections": self.client_options.max_keepalive_connections,
+                    "keepalive_expiry": self.client_options.keepalive_expiry,
+                }.items()
+                if value is not None
+            }
+            if limits:
+                client_kwargs["limits"] = httpx.Limits(**limits)
+            self._shared_http = httpx.AsyncClient(**client_kwargs)
+        return self._shared_http
+
     async def _post_json_endpoint(self, path: str, body: dict, *, label: str, timeout: float = 120.0) -> dict:
         """POST JSON to ``base_url + path`` and return the parsed response.
 
-        Non-2xx responses raise :class:`ProviderError` with the status-derived
-        ``retryable`` flag (429 / 5xx retryable) — it is a ``RuntimeError``,
-        so callers that caught the previous exception type keep working.
-        Transport-level exceptions propagate unchanged.
+        Rides :meth:`_http_client`; the timeout is per request, so one client
+        serves seams with different deadlines.  Non-2xx responses raise
+        :class:`ProviderError` with the status-derived ``retryable`` flag
+        (429 / 5xx retryable) — it is a ``RuntimeError``, so callers that
+        caught the previous exception type keep working.  Transport-level
+        exceptions propagate unchanged.
         """
         if not self.base_url:
             raise RuntimeError(f"{self.provider_name()} has no base_url configured for {label}")
         url = self.base_url.rstrip("/") + path
-        import httpx
-
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(url, json=body, headers=self._build_media_gen_headers())
+        resp = await self._http_client().post(url, json=body, headers=self._build_media_gen_headers(), timeout=timeout)
         if not resp.is_success:
             raise ProviderError(
                 f"{self.provider_name()} {label} request failed (HTTP {resp.status_code}): {resp.text[:1000]}",

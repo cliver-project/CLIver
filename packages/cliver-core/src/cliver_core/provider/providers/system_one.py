@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 from typing import Any, AsyncIterator, Mapping
 
+from cliver_core.client_options import ClientOptions, resolve_client_options
 from cliver_core.errors import CapabilityNotSupported, ProviderError
 from cliver_core.messages import CLIverMessageChunk
 from cliver_core.provider import CLIverRequest, Provider
@@ -61,9 +62,11 @@ class SystemOneProvider(Provider):
         logger: logging.Logger | None = None,
         on_event: Any = None,
         timeout: float = DEFAULT_TIMEOUT,
+        client: ClientOptions | None = None,
     ) -> None:
-        super().__init__(api_key, base_url, logger=logger)
-        self.user_agent = user_agent
+        options = resolve_client_options(client, user_agent=user_agent)
+        super().__init__(api_key, base_url, logger=logger, client=options)
+        self.user_agent = options.user_agent
         self.on_event = on_event
         self.timeout = timeout
 

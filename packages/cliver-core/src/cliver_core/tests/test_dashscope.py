@@ -581,7 +581,7 @@ class _FakeResponse:
 
 
 class _UploadHttpx:
-    """Stands in for the module-level httpx import — records the policy GET + OSS POST."""
+    """Stands in for the provider's shared HTTP client — records the policy GET + OSS POST."""
 
     def __init__(self, policy: dict, upload_status: int = 200) -> None:
         self.policy = policy
@@ -599,11 +599,11 @@ class _UploadHttpx:
             async def __aexit__(self, *exc):
                 return None
 
-            async def get(self, url, params=None, headers=None):
+            async def get(self, url, params=None, headers=None, timeout=None):
                 fake.gets.append({"url": url, "params": params, "headers": headers})
                 return _FakeResponse(200, payload=fake.policy)
 
-            async def post(self, url, data=None, files=None):
+            async def post(self, url, data=None, files=None, timeout=None):
                 fake.posts.append({"url": url, "data": data, "files": files})
                 return _FakeResponse(fake.upload_status)
 
@@ -630,8 +630,8 @@ def _policy() -> dict:
 @pytest.mark.asyncio
 async def test_upload_media_gets_a_policy_then_posts_the_multipart(monkeypatch) -> None:
     fake = _UploadHttpx(_policy())
-    monkeypatch.setattr(dashscope_module, "httpx", fake)
     provider = _provider(_CreateTransport())
+    monkeypatch.setattr(provider, "_http_client", fake.AsyncClient)
 
     url = await provider.upload_media(b"PNGDATA", "image/png", model=_BG_MODEL, filename="cat.png")
 
@@ -663,8 +663,8 @@ async def test_upload_media_gets_a_policy_then_posts_the_multipart(monkeypatch) 
 @pytest.mark.asyncio
 async def test_upload_media_failure_raises_a_provider_error(monkeypatch) -> None:
     fake = _UploadHttpx(_policy(), upload_status=403)
-    monkeypatch.setattr(dashscope_module, "httpx", fake)
     provider = _provider(_CreateTransport())
+    monkeypatch.setattr(provider, "_http_client", fake.AsyncClient)
 
     with pytest.raises(ProviderError, match=r"upload failed: HTTP 403"):
         await provider.upload_media(b"PNGDATA", "image/png", model=_BG_MODEL, filename="cat.png")
@@ -673,8 +673,8 @@ async def test_upload_media_failure_raises_a_provider_error(monkeypatch) -> None
 @pytest.mark.asyncio
 async def test_upload_policy_without_data_raises_a_provider_error(monkeypatch) -> None:
     fake = _UploadHttpx({"request_id": "req-1"})
-    monkeypatch.setattr(dashscope_module, "httpx", fake)
     provider = _provider(_CreateTransport())
+    monkeypatch.setattr(provider, "_http_client", fake.AsyncClient)
 
     with pytest.raises(ProviderError, match="no data"):
         await provider.upload_media(b"PNGDATA", "image/png", model=_BG_MODEL, filename="cat.png")
@@ -684,7 +684,7 @@ async def test_upload_policy_without_data_raises_a_provider_error(monkeypatch) -
 
 
 class _TaskHttpx:
-    """Stands in for the module-level httpx import inside dashscope.py."""
+    """Stands in for the provider's shared HTTP client inside dashscope.py."""
 
     def __init__(self, response: _FakeResponse) -> None:
         self.response = response
@@ -700,7 +700,7 @@ class _TaskHttpx:
             async def __aexit__(self, *exc):
                 return None
 
-            async def get(self, url, headers=None):
+            async def get(self, url, headers=None, timeout=None):
                 fake.requests.append({"url": url, "headers": headers})
                 return fake.response
 
@@ -710,8 +710,8 @@ class _TaskHttpx:
 @pytest.mark.asyncio
 async def test_fetch_task_reads_the_tasks_route_not_the_create_route(monkeypatch) -> None:
     fake = _TaskHttpx(_FakeResponse(200, payload=_task("RUNNING")))
-    monkeypatch.setattr(dashscope_module, "httpx", fake)
     provider = _provider(_CreateTransport())
+    monkeypatch.setattr(provider, "_http_client", fake.AsyncClient)
 
     task = await provider._fetch_task(_TASK_ID, url=_IMAGE_URL)
 
@@ -727,8 +727,8 @@ async def test_fetch_task_reads_the_tasks_route_not_the_create_route(monkeypatch
 @pytest.mark.asyncio
 async def test_fetch_task_derives_the_tasks_root_from_a_proxied_create_url(monkeypatch) -> None:
     fake = _TaskHttpx(_FakeResponse(200, payload=_task("RUNNING")))
-    monkeypatch.setattr(dashscope_module, "httpx", fake)
     provider = _provider(_CreateTransport())
+    monkeypatch.setattr(provider, "_http_client", fake.AsyncClient)
 
     await provider._fetch_task(_TASK_ID, url="https://proxy.internal/api/v1" + _IMAGE_PATH)
 
@@ -738,8 +738,8 @@ async def test_fetch_task_derives_the_tasks_root_from_a_proxied_create_url(monke
 @pytest.mark.asyncio
 async def test_fetch_task_non_2xx_raises_with_the_body_excerpt(monkeypatch) -> None:
     fake = _TaskHttpx(_FakeResponse(404, text='{"code": "NotFound"}'))
-    monkeypatch.setattr(dashscope_module, "httpx", fake)
     provider = _provider(_CreateTransport())
+    monkeypatch.setattr(provider, "_http_client", fake.AsyncClient)
 
     with pytest.raises(RuntimeError, match=r"HTTP 404 .*NotFound"):
         await provider._fetch_task("missing", url=_IMAGE_URL)
