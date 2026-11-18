@@ -73,9 +73,14 @@ The assistant text is parsed with `json.loads` after stripping a surrounding Mar
 pydantic schemas are then validated. Prose around the JSON is a failure, not a silent extraction.
 
 - `retries` (default `1`) is the number of extra attempts. `retries=0` makes exactly one.
-- A failed attempt appends to the retry conversation: the original user message (media included
-  once) and the model's bad answer, then a corrective user turn carrying the error. The caller's
-  `conversation` list is never mutated.
+- A failed attempt rebuilds the retry conversation: the original user message (media included
+  once), the **most recent** bad answer, then a corrective user turn. Older attempts are dropped,
+  so the retry prompt does not grow with each failure. The caller's `conversation` list is never
+  mutated.
+- The corrective turn carries a bounded, targeted error diff: pydantic errors are reduced to
+  `path: message` lines — no echoed input, no docs URLs, at most ten errors plus a count of the
+  rest. Invalid-JSON errors pass through verbatim (they are already one line).
+  `StructuredOutputError.last_error` keeps the full validation text for diagnostics.
 - `StructuredResponse` reports `attempts`, the final `response`, `usage_total` (summed over every
   attempt, failed ones included), and the shared `run_id`.
 - Exhausted retries raise `StructuredOutputError` (a `RuntimeError`) with `attempts`,

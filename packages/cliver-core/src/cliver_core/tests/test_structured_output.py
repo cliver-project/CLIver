@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Literal
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from cliver_core.agent import AgentCore
 from cliver_core.bindings import ModelBinding, ModelBindings
@@ -14,7 +15,7 @@ from cliver_core.errors import RunTimeoutError
 from cliver_core.media import MediaContent, MediaType
 from cliver_core.messages import CLIverMessage, UsageInfo
 from cliver_core.provider import CLIverRequest, CLIverResponse, Provider
-from cliver_core.structured import StructuredOutputError
+from cliver_core.structured import StructuredOutputError, format_error_for_retry
 
 
 class PartVerdict(BaseModel):
@@ -24,6 +25,23 @@ class PartVerdict(BaseModel):
 
 
 PART_JSON = '{"part_id": "P-7", "verdict": "pass", "confidence": 0.93}'
+
+
+class WideVerdict(BaseModel):
+    """Twelve required fields — enough to exercise the retry-error cap."""
+
+    f01: int
+    f02: int
+    f03: int
+    f04: int
+    f05: int
+    f06: int
+    f07: int
+    f08: int
+    f09: int
+    f10: int
+    f11: int
+    f12: int
 
 
 class _ScriptedProvider(Provider):
@@ -73,6 +91,13 @@ def _text(content: str, usage: tuple[int, int] = (1, 1)) -> CLIverResponse:
 def _agent(provider: Provider, *, protocol: str = "openai", **options) -> AgentCore:
     binding = ModelBinding.llm(model="mock-model", protocol=protocol, provider=provider)
     return AgentCore(ModelBindings(llm=binding), **options)
+
+
+def _last_user_text(request: CLIverRequest) -> str:
+    for message in reversed(request.messages):
+        if message.role == "user" and isinstance(message.content, str):
+            return message.content
+    raise AssertionError("request has no string user turn")
 
 
 @pytest.mark.asyncio
@@ -224,6 +249,71 @@ async def test_exhausted_retries_raise_with_diagnostics():
     assert error.response is not None
     assert "nope" not in error.last_error  # the error is the parse/validation failure
     assert len(provider.requests) == 2
+
+
+def test_format_error_for_retry_is_a_bounded_targeted_diff():
+    with pytest.raises(ValidationError) as info:
+        WideVerdict.model_validate({})
+
+    feedback = format_error_for_retry(info.value)
+    lines = feedback.splitlines()
+
+    assert len(lines) == 11  # ten field diffs plus the remainder line
+    assert lines[0] == "- f01: Field required"
+    assert lines[-1] == "- ... and 2 more error(s)"
+    assert "errors.pydantic.dev" not in feedback
+    assert "input_value" not in feedback
+    assert "input_type" not in feedback
+
+
+def test_format_error_for_retry_keeps_short_errors_verbatim():
+    with pytest.raises(json.JSONDecodeError) as info:
+        json.loads("not json")
+
+    assert format_error_for_retry(info.value) == str(info.value)
+    assert format_error_for_retry(ValueError("the model returned no content")) == ("the model returned no content")
+
+
+@pytest.mark.asyncio
+async def test_retry_feedback_uses_the_targeted_diff():
+    bad = '{"part_id": "P-7", "verdict": "maybe", "confidence": "high"}'
+    provider = _ScriptedProvider(_text(bad), _text(PART_JSON))
+
+    await _agent(provider).chat_structured("go", schema=PartVerdict)
+
+    corrective = _last_user_text(provider.requests[1])
+    assert "verdict: Input should be 'pass' or 'fail'" in corrective
+    assert "confidence: Input should be a valid number" in corrective
+    assert "errors.pydantic.dev" not in corrective
+    assert "input_value" not in corrective
+
+
+@pytest.mark.asyncio
+async def test_retry_history_keeps_only_the_latest_bad_answer():
+    provider = _ScriptedProvider(_text("first bad"), _text("second bad"), _text(PART_JSON))
+
+    result = await _agent(provider).chat_structured("go", schema=PartVerdict, retries=2)
+
+    assert result.attempts == 3
+    third = provider.requests[2].messages
+    contents = [getattr(m.content, "text", m.content) for m in third]
+    assert "second bad" in contents
+    assert "first bad" not in contents  # older attempts are dropped, not replayed
+    assert contents.count("go") == 1  # the original task is replayed exactly once
+    assert sum(1 for m in third if m.role == "assistant") == 1
+
+
+@pytest.mark.asyncio
+async def test_last_error_keeps_the_full_validation_text():
+    bad = '{"part_id": "P-7", "verdict": "maybe", "confidence": "high"}'
+    provider = _ScriptedProvider(_text(bad))
+
+    with pytest.raises(StructuredOutputError) as info:
+        await _agent(provider).chat_structured("go", schema=PartVerdict, retries=0)
+
+    # Diagnostics keep the raw pydantic dump even though the retry prompt does not.
+    assert "errors.pydantic.dev" in info.value.last_error
+    assert "input_value" in info.value.last_error
 
 
 @pytest.mark.asyncio

@@ -17,7 +17,7 @@ import json
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from cliver_core.messages import UsageInfo
 from cliver_core.provider import CLIverResponse
@@ -179,3 +179,32 @@ def corrective_message(error: str) -> str:
         f"Error: {error}\n"
         "Return only the JSON object that conforms to the schema."
     )
+
+
+#: Most field errors listed in one corrective prompt.  A longer list is
+#: summarized; the full text stays on ``StructuredOutputError.last_error``.
+_RETRY_ERROR_LIMIT = 10
+
+
+def format_error_for_retry(exc: BaseException) -> str:
+    """Bounded, targeted validation feedback for the corrective prompt.
+
+    A pydantic ``ValidationError`` becomes one ``path: message`` line per
+    failing field.  The echoed input, error type, and docs URL are noise —
+    the bad answer itself is already in the retry history.  At most
+    ``_RETRY_ERROR_LIMIT`` errors are listed; the rest is summarized.  Other
+    failures (invalid JSON, empty content, a non-object payload) are already
+    short and pass through verbatim.  The full text stays available on
+    ``StructuredOutputError.last_error`` for diagnostics.
+    """
+    if not isinstance(exc, ValidationError):
+        return str(exc)
+    errors = exc.errors(include_url=False, include_input=False)
+    lines = [
+        f"- {'.'.join(str(part) for part in error['loc']) or '(root)'}: {error['msg']}"
+        for error in errors[:_RETRY_ERROR_LIMIT]
+    ]
+    remaining = len(errors) - _RETRY_ERROR_LIMIT
+    if remaining > 0:
+        lines.append(f"- ... and {remaining} more error(s)")
+    return "\n".join(lines)

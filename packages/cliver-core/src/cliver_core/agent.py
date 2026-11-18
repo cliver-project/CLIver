@@ -79,6 +79,7 @@ from cliver_core.structured import (
     StructuredOutputError,
     StructuredResponse,
     corrective_message,
+    format_error_for_retry,
     parse_structured,
     protocol_options,
     schema_instruction,
@@ -629,14 +630,18 @@ class AgentCore:
         speak a different protocol, pass ``mode="prompt"`` or explicit
         options.  The wire mapping is protocol-level; no brand branches.
 
-        A failed parse/validation retries up to ``retries`` more times: the
-        retry conversation carries the original user turn (media included)
-        and the bad assistant answer, followed by a corrective user turn.
-        The caller's ``conversation`` list is never mutated.  ``usage_total``
+        A failed parse/validation retries up to ``retries`` more times.  The
+        retry history is the original user turn (media included) plus only
+        the most recent bad answer; older attempts are dropped.  It is
+        followed by a corrective user turn built from a bounded, targeted
+        error diff (pydantic errors reduced to ``path: message`` lines), so
+        retries do not accumulate stale answers or validation noise.  The
+        caller's ``conversation`` list is never mutated.  ``usage_total``
         sums every attempt; ``run_id`` is generated once and shared by every
         attempt's events.  ``run_timeout`` bounds the whole structured run —
         retries on one clock — not each attempt.  When every attempt fails,
-        :class:`StructuredOutputError` carries the diagnostics.
+        :class:`StructuredOutputError` carries the diagnostics, including the
+        full ``last_error`` text.
 
         Every other parameter matches :meth:`chat`.
         """
@@ -703,7 +708,8 @@ class AgentCore:
         # replay it into the conversation.  Built once; chat() builds its own
         # copy for the attempt that sends it directly.
         original_user = self._build_messages(user_input, None, None, media)[-1]
-        history: list[CLIverMessage] = list(conversation or [])
+        base_history: list[CLIverMessage] = list(conversation or [])
+        history = base_history
         next_input = user_input
         next_media = media
         usage_total: UsageInfo | None = None
@@ -744,10 +750,16 @@ class AgentCore:
                         run_id=run_id,
                         response=response,
                     ) from exc
-                # Replay the sent turns into the history for the next attempt.
-                history.append(original_user if attempt == 1 else CLIverMessage(role="user", content=next_input))
-                history.append(CLIverMessage(role="assistant", content=content or ""))
-                next_input = corrective_message(last_error)
+                # Rebuild the retry history: the original task plus only the
+                # most recent bad answer.  Older attempts (their answers and
+                # their corrective turns) add tokens without adding signal;
+                # the corrective turn itself carries a bounded error diff.
+                history = [
+                    *base_history,
+                    original_user,
+                    CLIverMessage(role="assistant", content=content or ""),
+                ]
+                next_input = corrective_message(format_error_for_retry(exc))
                 next_media = None
                 continue
             return StructuredResponse(
