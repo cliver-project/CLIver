@@ -6,7 +6,7 @@ tags:
   - Skills
   - AgentCore
 issue: 6
-draft: true
+draft: false
 author: Lin Gao
 series: Field Notes
 ---
