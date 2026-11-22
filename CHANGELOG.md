@@ -5,6 +5,37 @@ All notable changes to CLIver will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-11-22
+
+### Added
+
+- **cliver-core: one shared HTTP client per provider, configured through `ClientOptions`** —
+  every raw-HTTP request path (embed, rerank, System One, DashScope upload/policy/poll, and
+  Seedance polling) now uses one lazily built provider-owned `httpx.AsyncClient` instead of
+  opening a client per call, so keep-alive survives repeated calls and every media poll
+  iteration; `close()` releases it. `ClientOptions` is the single frozen data object for
+  client settings — `user_agent`, `timeout`, `max_retries`, `max_connections`,
+  `max_keepalive_connections`, and `keepalive_expiry` — accepted as `client=` by every
+  binding factory and `create_provider()`, and exposed as the merged
+  `binding.client_options`. The legacy `client_timeout` / `client_max_retries` arguments
+  merge into the same object, and conflicting values raise. SDK transports receive an
+  `httpx2.AsyncClient` with the same pool limits; `httpx2` is now a declared runtime
+  dependency.
+- **cliver-core: async context managers for model bindings** — `ModelBinding` and
+  `ModelBindings` implement `__aenter__` / `__aexit__`, so `async with binding:` awaits
+  `aclose()` on exit. A standalone capability call can scope the binding lexically instead of
+  hand-writing `try` / `finally`. Ownership follows `aclose()`: providers the binding built
+  are closed, while a caller-supplied `provider=` stays open.
+
+### Fixed
+
+- **cliver-core: structured-output retries send a bounded, targeted error diff** — the
+  corrective prompt now lists at most 10 field errors as `path: message` lines, omits input
+  echoes and documentation URLs, and summarizes the remainder. The retry history is rebuilt
+  from the original user turn plus only the most recent bad answer, so repeated retries no
+  longer grow the prompt with each earlier attempt. `StructuredOutputError.last_error` still
+  carries the complete validation text.
+
 ## [0.3.1] - 2026-11-11
 
 ### Added

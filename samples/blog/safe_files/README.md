@@ -7,7 +7,7 @@ an `ExecutionPolicy` — limits every file tool to the workspace and writes to `
 ## Install and run
 
 ```bash
-pip install cliver-core==0.3.1
+pip install cliver-core==0.3.2
 export DEEPSEEK_API_KEY=...   # variable name only; never commit a value
 python safe_files.py
 ```
