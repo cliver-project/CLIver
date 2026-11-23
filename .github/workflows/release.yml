@@ -4,6 +4,20 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to publish from (for example v0.3.2)"
+        required: true
+      package:
+        description: "Package to publish"
+        required: true
+        default: "all"
+        type: choice
+        options:
+          - all
+          - cliver
+          - cliver-core
 
 permissions:
   contents: read
@@ -15,6 +29,8 @@ jobs:
       UV_PYTHON: "3.12"
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v10.3.0
@@ -39,28 +55,42 @@ jobs:
   build:
     needs: test
     runs-on: ubuntu-latest
+    env:
+      REF_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      PACKAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.package || 'all' }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v10.3.0
         with:
           version: "0.12.9"
 
-      - name: Verify tag matches cliver-core version
+      - name: Verify tag matches both package versions
         run: |
-          version="$(sed -n 's/^version = "\(.*\)"/\1/p' packages/cliver-core/pyproject.toml | head -n1)"
-          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
-            echo "Tag ${GITHUB_REF_NAME} does not match cliver-core version ${version}" >&2
-            exit 1
-          fi
+          for name in cliver-core cliver; do
+            version="$(sed -n 's/^version = "\(.*\)"/\1/p' "packages/${name}/pyproject.toml" | head -n1)"
+            if [ "v${version}" != "${REF_NAME}" ]; then
+              echo "Tag ${REF_NAME} does not match ${name} version ${version}" >&2
+              exit 1
+            fi
+          done
 
-      - name: Build sdist and wheel
-        run: make dist
+      - name: Build selected packages
+        run: |
+          rm -rf dist
+          if [ "${PACKAGE}" = "all" ] || [ "${PACKAGE}" = "cliver-core" ]; then
+            uv build --package cliver-core --out-dir dist
+          fi
+          if [ "${PACKAGE}" = "all" ] || [ "${PACKAGE}" = "cliver" ]; then
+            uv build --package cliver --out-dir dist
+          fi
 
       - uses: actions/upload-artifact@v7
         with:
-          name: cliver-core-dist
+          name: release-dist
           path: dist/
           if-no-files-found: error
 
@@ -70,6 +100,8 @@ jobs:
     environment: pypi
     permissions:
       id-token: write
+    env:
+      PACKAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.package || 'all' }}
     steps:
       - name: Install uv
         uses: astral-sh/setup-uv@v10.3.0
@@ -78,10 +110,26 @@ jobs:
 
       - uses: actions/download-artifact@v8
         with:
-          name: cliver-core-dist
+          name: release-dist
           path: dist
 
       - name: Publish to PyPI
-        run: >-
-          uv publish dist/*
-          --trusted-publishing always
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          if [ "${PACKAGE}" = "all" ] || [ "${PACKAGE}" = "cliver-core" ]; then
+            files=(dist/cliver_core-*)
+            if [ ${#files[@]} -eq 0 ]; then
+              echo "No cliver-core artifacts to publish" >&2
+              exit 1
+            fi
+            uv publish "${files[@]}" --trusted-publishing always
+          fi
+          if [ "${PACKAGE}" = "all" ] || [ "${PACKAGE}" = "cliver" ]; then
+            files=(dist/cliver-*)
+            if [ ${#files[@]} -eq 0 ]; then
+              echo "No cliver artifacts to publish" >&2
+              exit 1
+            fi
+            uv publish "${files[@]}" --trusted-publishing always
+          fi

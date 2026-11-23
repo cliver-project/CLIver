@@ -1,13 +1,12 @@
 # Releasing cliver-core
 
-Only `cliver-core` is published today. The `cliver` CLI application stays unpublished, but
-**both packages share one version** — a test (`test_versions_aligned.py`) fails if they
-diverge.
+Both `cliver-core` and the `cliver` CLI are published. **Both packages share one version** —
+tests (`test_versions_aligned.py`) fail if the versions or the CLI's exact pin diverge.
 
 ## One-time setup: trusted publishers
 
 Publishing uses PyPI trusted publishing (OIDC), not API tokens. On PyPI, register a publisher
-for `cliver-core` with these exact values:
+for **each** project — `cliver-core` and `cliver` — with these exact values:
 
 | Field | Value |
 |---|---|
@@ -52,7 +51,7 @@ Before an `rc` tag, all of the following must be true:
 1. Bump the version in both `packages/*/pyproject.toml` files.
 2. Refresh the lockfile: `uv lock`.
 3. `make format && make lint && make test && make live-verify`.
-4. `make dist` — builds `dist/cliver_core-<version>-py3-none-any.whl` and the sdist.
+4. `make dist` — builds the wheel and sdist for both `cliver-core` and `cliver` into `dist/`.
 5. Smoke-test the wheel (never publish an untested artifact):
 
    ```bash
@@ -70,8 +69,21 @@ Before an `rc` tag, all of the following must be true:
    git push origin v0.3.0
    ```
 
-8. The `Release` workflow runs lint and the tests, builds, verifies the tag, and publishes
-   directly to **PyPI**. A failure at any step stops the chain.
+8. The `Release` workflow runs lint and the tests, builds both packages, verifies the tag
+   against both versions, and publishes `cliver-core` first, then `cliver`, directly to
+   **PyPI**. A failure at any step stops the chain.
+
+## Publishing one package from an existing tag
+
+The workflow also accepts a manual run for backfilling a package from a tag that is already
+published. Run **Release** from the Actions tab (or `gh workflow run`) with:
+
+- `tag`: the existing tag, for example `v0.3.2`
+- `package`: `cliver`, `cliver-core`, or `all`
+
+The workflow checks out that tag, runs the tests, verifies the tag against both package
+versions, and publishes only the selected package. Re-publishing an already-published
+`cliver-core` version is safe (PyPI ignores identical files) but unnecessary.
 
 ## Notes
 

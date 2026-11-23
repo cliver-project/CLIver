@@ -25,9 +25,10 @@ samples-live: init ## Run optional live sample checks (missing keys skip)
 blog-check: samples-check ## Validate snippets and build the docs site
 	cd website && npm run build
 
-dist: ## Build the cliver-core sdist + wheel into dist/
+dist: ## Build both packages' sdists + wheels into dist/
 	rm -rf dist
 	uv build --package cliver-core --out-dir dist
+	uv build --package cliver --out-dir dist
 
 lint: ## Lint + format check
 	uv run ruff check
