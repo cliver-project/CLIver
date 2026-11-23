@@ -5,7 +5,7 @@ title: Stability & Versioning
 `0.3.0` is the first stable release of the 0.3 series. The public `cliver-core` API stays
 backward compatible: `0.3.x` releases contain bug fixes and backward-compatible additions.
 Breaking changes require a new minor release. The `cliver` CLI application remains experimental
-and is not published to PyPI.
+and is published to PyPI as `cliver`.
 
 ## What counts as public API
 
@@ -47,7 +47,7 @@ See [Concurrency & Lifecycle](../../core-concepts/concurrency/) for the full con
 
 ## Experimental surfaces
 
-- The `cliver` CLI application (not on PyPI yet).
+- The `cliver` CLI application (experimental; published as `cliver`).
 - Local model backends depend on their upstream libraries (`sentence-transformers`,
   `FlagEmbedding`, and `laya`).
 - Provider brands are curated convenience, not coverage. A wire-compatible vendor needs no brand

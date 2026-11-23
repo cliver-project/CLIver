@@ -53,7 +53,7 @@ rather than silently run. That boundary is worth keeping: a tool the model canno
 it cannot misuse.
 
 The CLI ships a builtin toolset on the same execution path. Custom tools are library-level today;
-the sample runs the same core the CLI does. The CLI is experimental and not on PyPI yet.
+the sample runs the same core the CLI does. The CLI is experimental and published as `cliver`.
 
 Next: [Tools](../../core-concepts/tools/) covers schema generation, async tools, tool filters,
 and parallel calls.

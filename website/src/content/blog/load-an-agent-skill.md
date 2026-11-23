@@ -80,7 +80,7 @@ directory format, two dispatch modes.
 
 The `cliver` CLI already accepts `--skill <name>` for a one-shot skill run and discovers skills
 from eight sources, including project-local `.cliver`, `.claude`, and `.agents` directories. The
-CLI is experimental and not on PyPI yet.
+CLI is experimental and published as `cliver`.
 
 Next: [Skills](../../core-concepts/skills/) covers the format, dispatch modes, bundled files, and
 the search and selector seams.

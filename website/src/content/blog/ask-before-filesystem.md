@@ -76,7 +76,7 @@ all: scopes reduce accidents, they are not OS-level confinement.
 
 The CLI wires the same axis to an interactive prompt; `--yes` approves ASK tools without asking,
 and a non-interactive run denies them with a hint instead of hanging. The CLI is experimental and
-not on PyPI yet.
+published as `cliver`.
 
 Next: [Permissions & Policy](../../core-concepts/policy/) covers both axes, `safety_overrides`,
 and the full scope rules.

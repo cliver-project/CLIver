@@ -147,10 +147,12 @@ took one attempt.
 
 ## In the CLI
 
-From a checkout, the same read-only shape works on a diff:
+The CLI is on PyPI as `cliver==0.3.2` (`uv run cliver` in a checkout). The same read-only shape
+works on a diff:
 
 ```bash
-git diff | uv run cliver "Review this diff for correctness problems."
+pip install cliver==0.3.2
+git diff | cliver "Review this diff for correctness problems."
 ```
 
 Leave `--yes` off. In a non-interactive run, the CLI denies every ASK tool — `Write`, `Bash`,

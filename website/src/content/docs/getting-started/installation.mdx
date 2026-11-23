@@ -20,6 +20,17 @@ pip install cliver-core==0.3.2
 The core package includes the MCP client (stdio and streamable HTTP). See
 [Stability & Versioning](../stability/) for the support policy.
 
+## Install the CLI
+
+The CLI is a separate package pinned to the same version as the core:
+
+```bash
+pip install cliver==0.3.2
+```
+
+It provides the `cliver` command for one-shot tasks and an interactive REPL. See
+[CLI Application](../../cli/) for configuration, skills, and permission behavior.
+
 ## Optional local models
 
 In-process embedding, rerank, and System One backends pull torch, so they are opt-in:

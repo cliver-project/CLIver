@@ -50,9 +50,9 @@ The printed text and the returned string are the same characters.
 - Use `chat()` when the next step needs the finished answer: validation, storage, another call.
 - Both accept `conversation=`, `extra_tools=`, and the rest of the `chat()` parameters.
 
-The CLI uses this path directly: `uv run cliver --yes` starts a streaming REPL with multi-turn
-history. The CLI is experimental and not on PyPI yet; the repository version runs the same
-`AgentCore` you just read.
+The CLI uses this path directly: `cliver --yes` starts a streaming REPL with multi-turn history
+(`uv run cliver --yes` in a checkout). The CLI is experimental and published as `cliver`; it runs
+the same `AgentCore` you just read.
 
 Next: [Structured Output](../../core-concepts/structured-output/) turns the final answer into a
 validated object instead of text.

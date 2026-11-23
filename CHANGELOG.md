@@ -26,6 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `aclose()` on exit. A standalone capability call can scope the binding lexically instead of
   hand-writing `try` / `finally`. Ownership follows `aclose()`: providers the binding built
   are closed, while a caller-supplied `provider=` stays open.
+- **`cliver` 0.3.2 on PyPI** — the CLI is published alongside `cliver-core` from the same
+  `v0.3.2` tag and pins `cliver-core==0.3.2`.
 
 ### Fixed
 

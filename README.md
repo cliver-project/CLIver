@@ -15,7 +15,7 @@ CLIver is an **embeddable agent core with a companion CLI**, built from two pack
 - **`cliver`** — the CLI application built on `cliver-core`: config-path and skill-discovery
   conventions plus a `cliver` command that runs one task per invocation or starts a streaming
   interactive REPL, with interactive tool approval in both modes. It remains experimental and
-  is not on PyPI yet.
+  is published to PyPI as `cliver`.
 
 `cliver-core` 0.3 is the first stable series: the public API stays backward compatible, and
 `0.3.x` patch releases contain bug fixes and backward-compatible additions. The `cliver` CLI is
@@ -56,17 +56,21 @@ capabilities, and the full API.
 
 ### From the terminal
 
-The `cliver` CLI lives in this repository (not on PyPI yet). With a prompt it runs one task;
-with no prompt on a terminal it starts a streaming REPL:
+Install the `cliver` CLI from PyPI. With a prompt it runs one task; with no prompt on a terminal
+it starts a streaming REPL:
 
 ```bash
+pip install cliver==0.3.2
+
 export CLIVER_MODEL=deepseek-v4-flash
 export CLIVER_PROVIDER=deepseek        # or CLIVER_BASE_URL for any compatible endpoint
 export DEEPSEEK_API_KEY=...            # or CLIVER_API_KEY
 
-uv run cliver --yes "Read pyproject.toml and summarize the dependencies."
-uv run cliver --yes                    # interactive REPL: /help, /clear, /exit
+cliver --yes "Read pyproject.toml and summarize the dependencies."
+cliver --yes                           # interactive REPL: /help, /clear, /exit
 ```
+
+From a repository checkout, `uv run cliver` runs the same command after `make init`.
 
 `--yes` approves ASK tools without prompting; without it, safe tools still run and each ASK
 tool asks on the terminal (non-interactive runs deny them). `--skill NAME` runs a skill
