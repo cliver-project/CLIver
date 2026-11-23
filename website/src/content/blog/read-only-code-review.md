@@ -16,7 +16,7 @@ A code review agent has an unusual risk profile. A bad summary wastes your time;
 decides to fix the code wastes your afternoon. The useful shape is read-only: it can inspect a
 repository, and it cannot write to it.
 
-This sample composes the previous three posts: a custom tool, a Pydantic schema through
+This sample combines three earlier pieces: a custom tool, a Pydantic schema through
 `chat_structured()`, and an `ExecutionPolicy` that bounds the run.
 
 ## The repository
