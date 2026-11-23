@@ -20,7 +20,6 @@ from cliver_core.local import LocalSystemOneProvider, local_system_one
 from cliver_core.provider.providers import API_KEY_ENV
 from cliver_core.system_one.selector import SystemOneSelector
 from cliver_core.tools import discover_builtin_tools
-from dotenv import load_dotenv
 
 from cliver.paths import get_config_dir
 from cliver.skills import create_skill_manager
@@ -36,12 +35,42 @@ __all__ = [
 ]
 
 
+def _parse_env_file(env_file: Path) -> dict[str, str]:
+    """Parse the simple ``KEY=VALUE`` subset the CLI documents for ``.env``.
+
+    Blank lines and lines starting with ``#`` are ignored, an ``export``
+    prefix is allowed, and single or double quotes are stripped from a value.
+    An unquoted value loses a trailing `` # comment``.  No variable expansion,
+    escaping, or multi-line values — keep ``{config_dir}/.env`` simple.
+    """
+    values: dict[str, str] = {}
+    for raw_line in env_file.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].lstrip()
+        key, separator, value = line.partition("=")
+        key = key.strip()
+        if not separator or not key:
+            continue
+        value = value.strip()
+        if value[:1] in {'"', "'"}:
+            end = value.find(value[0], 1)
+            value = value[1:end] if end != -1 else value[1:]
+        elif " #" in value:
+            value = value.split(" #", 1)[0].rstrip()
+        values[key] = value
+    return values
+
+
 def load_environment(config_dir: Path | None = None) -> None:
     """Load ``{config_dir}/.env`` without overriding the process environment."""
     config_path = get_config_dir() if config_dir is None else Path(config_dir).expanduser()
     env_file = config_path / ".env"
     if env_file.is_file():
-        load_dotenv(env_file, override=False)
+        for key, value in _parse_env_file(env_file).items():
+            os.environ.setdefault(key, value)
 
 
 def llm_binding_from_env(
