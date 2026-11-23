@@ -26,3 +26,5 @@ select = ["E", "F", "B", "I"]
 
 [tool.ruff.lint.per-file-ignores]
 "packages/*/tests/**/*" = ["E501"]
+# Deliberately buggy code under review; the issues are the fixture's point.
+"samples/blog/code_review/fixture/*.py" = ["B006", "E722"]
