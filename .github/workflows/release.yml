@@ -30,7 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v10.3.0
@@ -56,12 +56,12 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     env:
-      REF_NAME: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
-      PACKAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.package || 'all' }}
+      REF_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+      PACKAGE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.package || 'all' }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v10.3.0
@@ -101,7 +101,7 @@ jobs:
     permissions:
       id-token: write
     env:
-      PACKAGE: ${{ github.event_name == 'workflow_dispatch' && inputs.package || 'all' }}
+      PACKAGE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.package || 'all' }}
     steps:
       - name: Install uv
         uses: astral-sh/setup-uv@v10.3.0
