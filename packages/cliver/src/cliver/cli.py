@@ -11,6 +11,7 @@ from pathlib import Path
 
 from cliver_core import ModelBinding, ModelBindings, ProviderError
 
+from cliver import media
 from cliver.app import (
     build_agent,
     llm_binding_from_env,
@@ -36,6 +37,16 @@ def build_parser() -> argparse.ArgumentParser:
         prog="cliver",
         description="CLIver — agent work from the terminal.",
         epilog=(
+            "commands:\n"
+            '  cliver image "..."   generate an image into the current directory\n'
+            '  cliver video "..."   generate a video into the current directory\n'
+            '  cliver audio "..."   synthesize speech (alias: tts)\n'
+            "  cliver asr FILE      transcribe an audio file or URL\n"
+            '  cliver chat "..."    force a chat prompt that starts with a command word\n'
+            "\n"
+            "media models come from the JSON configuration (models.image, models.video,\n"
+            "models.tts / models.audio, models.asr); no chat model is needed for them.\n"
+            "\n"
             "environment:\n"
             "  CLIVER_MODEL      chat model (with --model)\n"
             "  CLIVER_PROVIDER   known provider brand (with --provider)\n"
@@ -50,7 +61,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "prompt",
         nargs="*",
-        help="prompt to run (reads stdin when piped; starts the REPL when omitted)",
+        help="prompt to run, or a media command (image, video, audio, tts, asr); "
+        "reads stdin when piped and starts the REPL when omitted",
     )
     parser.add_argument("-m", "--model", help="chat model (default: CLIVER_MODEL)")
     parser.add_argument("--provider", help="known provider brand (default: CLIVER_PROVIDER)")
@@ -61,6 +73,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="wire protocol (default: CLIVER_PROTOCOL or openai)",
     )
     parser.add_argument("--skill", help="run this skill with the prompt")
+    parser.add_argument("--out", help="directory for generated media (default: current directory)")
+    parser.add_argument("--language", help="language hint for asr (e.g. zh, en)")
     parser.add_argument("--cwd", help="working directory and project skill root")
     parser.add_argument(
         "--config",
@@ -82,10 +96,24 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     load_environment()
 
-    prompt = " ".join(args.prompt).strip()
+    words = list(args.prompt)
+    first = words[0].lower() if words else ""
+    media_command = first if first in media.MEDIA_COMMANDS else None
+    if media_command is not None or first == "chat":
+        # A media command carries its prompt; "chat" is the escape hatch for
+        # chat prompts that start with a command word.
+        words = words[1:]
+    prompt = " ".join(words).strip()
     if not prompt and not sys.stdin.isatty():
         prompt = sys.stdin.read().strip()
-    interactive = not prompt and sys.stdin.isatty() and sys.stdout.isatty()
+    if media_command is not None:
+        if not prompt:
+            parser.error(
+                "asr needs an audio file or URL" if media_command == "asr" else f"{media_command} needs a prompt"
+            )
+        if args.skill:
+            parser.error("--skill does not apply to media commands")
+    interactive = media_command is None and not prompt and sys.stdin.isatty() and sys.stdout.isatty()
     if not prompt and not interactive:
         parser.error("a prompt is required (or pipe one on stdin)")
     if not prompt and args.skill:
@@ -98,6 +126,13 @@ def main(argv: list[str] | None = None) -> int:
             os.chdir(Path(args.cwd).expanduser())
 
         config = load_config(config_path=args.config, cwd=Path.cwd())
+        if media_command is not None:
+            _, binding = media.binding_for(config, media_command)
+            build = getattr(binding, "build_provider", None)
+            if build is not None:
+                build()
+            return _run_media_command(parser, media_command, prompt, binding, args.out, args.language)
+
         run_binding, model_bindings, system_one_binding, _ = _resolve_bindings(config, args)
         display_binding = run_binding.llm if isinstance(run_binding, ModelBindings) else run_binding
         _preflight(run_binding, model_bindings)
@@ -126,7 +161,14 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if interactive:
             return asyncio.run(
-                _run_repl(agent, display_binding, args.max_iterations, system_one_binding, mcp.client),
+                _run_repl(
+                    agent,
+                    display_binding,
+                    args.max_iterations,
+                    system_one_binding,
+                    mcp.client,
+                    media.config_hint(config),
+                ),
             )
 
         response = asyncio.run(
@@ -145,6 +187,42 @@ def main(argv: list[str] | None = None) -> int:
     content = response.message.content or ""
     if content:
         print(content)
+    return 0
+
+
+def _run_media_command(parser, command: str, prompt: str, binding, out: str | None, language: str | None) -> int:
+    """Run one media subcommand and print its result or a clean error."""
+    print(media.status_line(command, prompt), file=sys.stderr)
+    try:
+        response = asyncio.run(media.run_once(binding, command, prompt, language=language))
+    except ProviderError as exc:
+        print(f"{parser.prog}: error: {exc}", file=sys.stderr)
+        hint = _endpoint_hint(binding)
+        if hint:
+            print(f"{parser.prog}: endpoint: {hint}", file=sys.stderr)
+        return 1
+    except KeyboardInterrupt:
+        print(f"{parser.prog}: interrupted", file=sys.stderr)
+        return 130
+
+    failure = media.failure_message(response)
+    if failure is not None:
+        print(f"{parser.prog}: error: {failure}", file=sys.stderr)
+        return 1
+    if command == "asr":
+        content = (response.message.content or "").strip()
+        if content:
+            print(content)
+        return 0
+
+    directory = Path(out).expanduser() if out else Path.cwd()
+    saved = media.save_media(response, command, directory)
+    if not saved:
+        detail = (response.message.content or "the provider returned no media").strip()
+        print(f"{parser.prog}: error: {detail}", file=sys.stderr)
+        return 1
+    for path in saved:
+        print(media.display_path(path))
     return 0
 
 
@@ -251,6 +329,7 @@ async def _run_repl(
     max_iterations: int,
     system_one_binding=None,
     mcp_client=None,
+    config_hint: str = "",
 ) -> int:
     try:
         return await run_repl(
@@ -258,6 +337,7 @@ async def _run_repl(
             max_iterations=max_iterations,
             model=getattr(binding, "model", ""),
             endpoint=_endpoint_hint(binding),
+            config_hint=config_hint,
         )
     finally:
         await _close_agent(agent, system_one_binding, mcp_client)

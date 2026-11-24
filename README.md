@@ -78,6 +78,14 @@ explicitly, `--cwd DIR` selects the project root for skill discovery, and `{conf
 is loaded automatically. In the REPL, each turn streams its answer and keeps the conversation
 for follow-ups.
 
+With media models in `~/.cliver/config.json` (keys `image`, `video`, `tts`, and `asr` under
+`models`), media commands need no chat model:
+
+```bash
+cliver image "a red panda on a skateboard"   # saves ./image-<timestamp>-0.png
+cliver asr ./meeting.mp3 --language zh       # prints the transcript
+```
+
 ## Built-in Capabilities
 
 - **Model-agnostic** — OpenAI and Anthropic protocols, live-verified presets, any compatible

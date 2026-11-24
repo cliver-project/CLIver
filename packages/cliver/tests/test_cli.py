@@ -7,9 +7,14 @@ import sys
 from types import SimpleNamespace
 
 import cliver.cli as cli
+import cliver.media as media
 import pytest
 from cliver.config import CLIConfig, MCPSelection
-from cliver_core import ModelBinding, ProviderError
+from cliver_core import CLIverMessage, ModelBinding, ProviderError
+from cliver_core.media import MediaContent, MediaType
+from cliver_core.provider import CLIverResponse
+
+PNG_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
 
 
 class FakeAgent:
@@ -236,6 +241,7 @@ def test_main_starts_the_repl_when_interactive_without_a_prompt(monkeypatch):
 
     assert captured["agent"] is fake
     assert captured["max_iterations"] == 50
+    assert captured["config_hint"].endswith("config.json")
     assert fake.closed is True
 
 
@@ -377,3 +383,150 @@ def test_main_returns_130_when_interrupted(monkeypatch, capsys):
     captured = capsys.readouterr()
     assert "interrupted" in captured.err
     assert fake.closed is True
+
+
+# ── Media subcommands ───────────────────────────────────────
+
+
+def patch_media_config(monkeypatch, models: dict) -> None:
+    """A media-only configuration: any chat wiring would be a bug."""
+
+    def unexpected(*args, **kwargs):
+        raise AssertionError("media commands must not need a chat model")
+
+    monkeypatch.setattr(cli, "load_environment", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "load_config", lambda **kwargs: CLIConfig(models=models))
+    monkeypatch.setattr(cli, "llm_binding_from_env", unexpected)
+    monkeypatch.setattr(cli, "create_mcp_client", unexpected)
+    monkeypatch.setattr(cli, "build_agent", unexpected)
+
+
+def image_response(content: str = "generated") -> CLIverResponse:
+    return CLIverResponse(
+        message=CLIverMessage(role="assistant", content=content),
+        media=[MediaContent(type=MediaType.IMAGE, data=PNG_BASE64, mime_type="image/png")],
+    )
+
+
+def test_main_image_generates_and_saves_into_the_current_directory(monkeypatch, tmp_path, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(media, "_timestamp", lambda: "20261124-120000")
+    image = ModelBinding.image(model="img", api_key="k", base_url="https://example.test/v1")
+    patch_media_config(monkeypatch, {"image": [image]})
+    seen: list[tuple] = []
+
+    async def fake_run_once(binding, command, prompt, *, language=None):
+        seen.append((binding, command, prompt, language))
+        return image_response()
+
+    monkeypatch.setattr(media, "run_once", fake_run_once)
+
+    assert cli.main(["image", "a dog", "on", "the", "levee"]) == 0
+
+    captured = capsys.readouterr()
+    assert seen == [(image, "image", "a dog on the levee", None)]
+    assert captured.out.strip() == "image-20261124-120000-0.png"
+    assert "[media] generating image ..." in captured.err
+    assert (tmp_path / "image-20261124-120000-0.png").is_file()
+
+
+def test_main_saves_media_into_the_requested_directory(monkeypatch, tmp_path, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(media, "_timestamp", lambda: "20261124-120000")
+    image = ModelBinding.image(model="img", api_key="k", base_url="https://example.test/v1")
+    patch_media_config(monkeypatch, {"image": [image]})
+
+    async def fake_run_once(binding, command, prompt, *, language=None):
+        return image_response()
+
+    monkeypatch.setattr(media, "run_once", fake_run_once)
+
+    assert cli.main(["image", "a dog", "--out", str(tmp_path / "out")]) == 0
+
+    assert capsys.readouterr().out.strip() == "out/image-20261124-120000-0.png"
+    assert (tmp_path / "out" / "image-20261124-120000-0.png").is_file()
+
+
+def test_main_reports_a_missing_media_model(monkeypatch, tmp_path, capsys):
+    config = CLIConfig(models={}, paths=(), config_dir=tmp_path)
+    monkeypatch.setattr(cli, "load_environment", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "load_config", lambda **kwargs: config)
+
+    with pytest.raises(SystemExit) as excinfo:
+        cli.main(["image", "a dog"])
+
+    assert excinfo.value.code == 2
+    err = capsys.readouterr().err
+    assert "cliver: error: no image model configured" in err
+    assert 'add "image" under "models"' in err
+    assert str(tmp_path / "config.json") in err
+    assert "Traceback" not in err
+
+
+def test_main_chat_escapes_prompts_that_begin_with_a_command_word(monkeypatch, capsys):
+    fake = FakeAgent("the answer")
+    patch_agent(monkeypatch, fake)
+
+    assert cli.main(["chat", "image", "a", "dog", "--yes"]) == 0
+
+    assert fake.calls == [("chat", "image a dog")]
+    assert "the answer" in capsys.readouterr().out
+
+
+def test_main_keeps_a_quoted_prompt_that_starts_with_a_command_word(monkeypatch):
+    fake = FakeAgent("the answer")
+    patch_agent(monkeypatch, fake)
+
+    # The subcommand word must be its own argument: one quoted prompt stays chat.
+    assert cli.main(["image classification is hard", "--yes"]) == 0
+
+    assert fake.calls == [("chat", "image classification is hard")]
+
+
+def test_main_asr_prints_the_transcript_with_the_language_hint(monkeypatch, tmp_path, capsys):
+    asr = ModelBinding.asr(model="whisper", api_key="k", base_url="https://example.test/v1")
+    patch_media_config(monkeypatch, {"asr": [asr]})
+    seen: list[tuple] = []
+
+    async def fake_run_once(binding, command, prompt, *, language=None):
+        seen.append((binding, command, prompt, language))
+        return CLIverResponse(message=CLIverMessage(role="assistant", content="the transcript"))
+
+    monkeypatch.setattr(media, "run_once", fake_run_once)
+
+    assert cli.main(["asr", "meeting.mp3", "--language", "zh"]) == 0
+
+    captured = capsys.readouterr()
+    assert seen == [(asr, "asr", "meeting.mp3", "zh")]
+    assert captured.out.strip() == "the transcript"
+    assert "[media] transcribing meeting.mp3 ..." in captured.err
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_main_reports_a_media_failure(monkeypatch, tmp_path, capsys):
+    image = ModelBinding.image(model="img", api_key="k", base_url="https://example.test/v1")
+    patch_media_config(monkeypatch, {"image": [image]})
+
+    async def fake_run_once(binding, command, prompt, *, language=None):
+        return CLIverResponse(
+            message=CLIverMessage(role="assistant", content="x image generation failed: boom"),
+            retryable=True,
+        )
+
+    monkeypatch.setattr(media, "run_once", fake_run_once)
+
+    assert cli.main(["image", "a dog"]) == 1
+
+    err = capsys.readouterr().err
+    assert "cliver: error: x image generation failed: boom" in err
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_main_media_command_requires_a_prompt(monkeypatch):
+    patch_agent(monkeypatch, FakeAgent())
+    monkeypatch.setattr(sys, "stdin", PipedStdin(""))
+
+    with pytest.raises(SystemExit) as excinfo:
+        cli.main(["image"])
+
+    assert excinfo.value.code == 2

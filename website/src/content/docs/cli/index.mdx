@@ -37,6 +37,49 @@ Piped stdin works as the prompt:
 git diff | uv run cliver --yes "Review this diff for correctness problems."
 ```
 
+The first positional word is a subcommand only when it is exactly `image`,
+`video`, `audio`, `tts`, or `asr`. Anything else is a chat prompt — including a single quoted
+prompt such as `cliver "image classification is hard"`. For a chat prompt whose first word is
+a command name, prefix it with `chat`:
+
+```bash
+uv run cliver chat "image classification is hard" --yes
+```
+
+### Media commands
+
+Media commands read their model from the JSON configuration and do not need a chat model:
+
+```bash
+uv run cliver image "a red panda on a skateboard"
+uv run cliver video "a drone shot over a misty forest"
+uv run cliver audio "Hello from CLIver."          # tts is an alias
+uv run cliver asr ./meeting.mp3 --language zh
+```
+
+Generated files are saved in the current directory as
+`<command>-<timestamp>-<n>.<ext>` — for example `image-20261124-153012-0.png` — and each saved
+path is printed. `--out DIR` writes into another directory. `asr` prints the transcript and
+saves nothing.
+
+Add the purpose under `models` in `{config_dir}/config.json` (or the project file
+`<cwd>/.cliver/config.json`):
+
+```json
+{
+  "models": {
+    "image": [{"model": "qwen-image-plus", "provider": "qwen-image"}],
+    "video": [{"model": "<video-model>", "provider": "dashscope"}],
+    "tts": [{"model": "<tts-model>", "provider": "minimax"}],
+    "asr": [{"model": "<asr-model>", "provider": "minimax"}]
+  }
+}
+```
+
+A missing purpose is one error line naming the config file, never a traceback. One-shot media
+commands run the primary configured binding; other model parameters (`size`, `voice`,
+`response_format`, …) belong in that entry's `params`.
+
 ### Interactive REPL
 
 Run `cliver` with no prompt on a terminal to start the REPL:
@@ -63,7 +106,15 @@ Commands:
 |---|---|
 | `/help` | Show the command list |
 | `/clear` | Forget the conversation and start fresh |
+| `/image <prompt>` | Generate an image into the current directory |
+| `/video <prompt>` | Generate a video into the current directory |
+| `/audio <text>`, `/tts <text>` | Synthesize speech into the current directory |
+| `/asr <file\|url> [--language zh]` | Transcribe audio and print the text |
 | `/exit`, `/quit`, `exit`, `quit` | Leave the REPL (Ctrl-D also works) |
+
+Media commands use the running agent's bindings (including same-purpose fallbacks) and print a
+`[media] ...` progress line on stderr. Their results do not enter the conversation history, and
+a missing model or a failed request is reported without ending the session.
 
 Ctrl-C at the prompt clears the line; Ctrl-C during a turn cancels that turn and keeps the
 session alive. The REPL requires both stdin and stdout to be terminals, so redirecting either
