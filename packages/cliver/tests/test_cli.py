@@ -32,6 +32,15 @@ class FakeAgent:
         self.closed = True
 
 
+class FakeBinding:
+    model = "test-model"
+    base_url = "https://example.com/v1"
+    protocol = "openai"
+
+    def build_provider(self):
+        return None
+
+
 class PipedStdin(io.StringIO):
     def isatty(self) -> bool:
         return False
@@ -49,7 +58,7 @@ class TtyStringIO(io.StringIO):
 
 def patch_agent(monkeypatch, fake: FakeAgent) -> None:
     monkeypatch.setattr(cli, "load_environment", lambda *args, **kwargs: None)
-    monkeypatch.setattr(cli, "llm_binding_from_env", lambda **kwargs: object())
+    monkeypatch.setattr(cli, "llm_binding_from_env", lambda **kwargs: FakeBinding())
     # Never read the developer's ambient System One / selector settings.
     monkeypatch.setattr(cli, "system_one_binding_from_env", lambda: None)
     monkeypatch.setattr(cli, "selector_from_env", lambda binding: None)
@@ -72,7 +81,7 @@ def test_main_wires_system_one_and_closes_the_local_provider(monkeypatch):
     captured: dict = {}
 
     monkeypatch.setattr(cli, "load_environment", lambda *args, **kwargs: None)
-    monkeypatch.setattr(cli, "llm_binding_from_env", lambda **kwargs: object())
+    monkeypatch.setattr(cli, "llm_binding_from_env", lambda **kwargs: FakeBinding())
     monkeypatch.setattr(cli, "system_one_binding_from_env", lambda: system_one)
     monkeypatch.setattr(cli, "selector_from_env", lambda binding: selector)
 
@@ -178,6 +187,46 @@ def test_main_reports_a_configuration_error_without_a_traceback(monkeypatch, cap
     assert captured.out == ""
 
 
+def test_main_reports_provider_configuration_errors_before_the_run(monkeypatch, capsys):
+    class BrokenBinding(FakeBinding):
+        def build_provider(self):
+            raise ValueError("the 'deepseek' provider needs an API key — pass api_key=...")
+
+    built = []
+    monkeypatch.setattr(cli, "load_environment", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "llm_binding_from_env", lambda **kwargs: BrokenBinding())
+    monkeypatch.setattr(cli, "system_one_binding_from_env", lambda: None)
+    monkeypatch.setattr(cli, "selector_from_env", lambda binding: None)
+    monkeypatch.setattr(cli, "build_agent", lambda binding, **kwargs: built.append(binding))
+
+    with pytest.raises(SystemExit) as excinfo:
+        cli.main(["hello", "--yes"])
+
+    assert excinfo.value.code == 2
+    captured = capsys.readouterr()
+    assert "cliver: error: the 'deepseek' provider needs an API key" in captured.err
+    assert "Traceback" not in captured.err
+    assert captured.out == ""
+    assert built == []
+
+
+def test_help_documents_the_runtime_environment_variables(capsys):
+    with pytest.raises(SystemExit) as excinfo:
+        cli.main(["--help"])
+
+    assert excinfo.value.code == 0
+    out = capsys.readouterr().out
+    for name in (
+        "CLIVER_MODEL",
+        "CLIVER_PROVIDER",
+        "CLIVER_BASE_URL",
+        "CLIVER_PROTOCOL",
+        "CLIVER_API_KEY",
+        "CLIVER_CONF_DIR",
+    ):
+        assert name in out
+
+
 def test_main_reports_a_missing_optional_backend_without_a_traceback(monkeypatch, capsys):
     patch_agent(monkeypatch, FakeAgent())
 
@@ -217,6 +266,7 @@ def test_main_reports_the_endpoint_with_a_provider_failure(monkeypatch, capsys):
             base_url="https://api.deepseek.com/anthropic",
             protocol="openai",
             model="deepseek-v4-flash",
+            build_provider=lambda: None,
         ),
     )
 

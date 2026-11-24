@@ -44,6 +44,7 @@ def test_llm_binding_from_env_accepts_custom_endpoint():
         {
             "CLIVER_MODEL": "local-model",
             "CLIVER_BASE_URL": "http://localhost:11434/v1",
+            "CLIVER_API_KEY": "local",
         }
     )
 
@@ -84,6 +85,35 @@ def test_llm_binding_from_env_requires_model():
 def test_llm_binding_from_env_requires_an_endpoint():
     with pytest.raises(ValueError, match="CLIVER_PROVIDER"):
         llm_binding_from_env({"CLIVER_MODEL": "some-model"})
+
+
+def test_llm_binding_from_env_reports_every_missing_setting_at_once():
+    with pytest.raises(ValueError) as excinfo:
+        llm_binding_from_env({})
+
+    message = str(excinfo.value)
+    assert "CLIVER_MODEL" in message
+    assert "CLIVER_PROVIDER" in message
+    assert "CLIVER_BASE_URL" in message
+    assert ".env" in message
+
+
+def test_llm_binding_from_env_requires_a_key_for_a_known_brand():
+    with pytest.raises(ValueError) as excinfo:
+        llm_binding_from_env({"CLIVER_MODEL": "deepseek-v4-flash", "CLIVER_PROVIDER": "deepseek"})
+
+    message = str(excinfo.value)
+    assert "CLIVER_API_KEY" in message
+    assert "DEEPSEEK_API_KEY" in message
+
+
+def test_llm_binding_from_env_requires_a_placeholder_key_for_a_keyless_provider():
+    with pytest.raises(ValueError) as excinfo:
+        llm_binding_from_env({"CLIVER_MODEL": "llama3", "CLIVER_PROVIDER": "ollama"})
+
+    message = str(excinfo.value)
+    assert "CLIVER_API_KEY" in message
+    assert "non-empty" in message
 
 
 def test_build_agent_wires_builtin_tools_and_all_skill_sources(tmp_path):

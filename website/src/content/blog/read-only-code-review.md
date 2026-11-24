@@ -147,11 +147,11 @@ took one attempt.
 
 ## In the CLI
 
-The CLI is on PyPI as `cliver==0.3.2` (`uv run cliver` in a checkout). The same read-only shape
-works on a diff:
+The CLI is on PyPI as `cliver` (`uv run cliver` in a checkout). The same read-only shape works
+on a diff:
 
 ```bash
-pip install cliver==0.3.2
+pip install cliver
 git diff | cliver "Review this diff for correctness problems."
 ```
 

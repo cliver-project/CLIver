@@ -60,7 +60,7 @@ Install the `cliver` CLI from PyPI. With a prompt it runs one task; with no prom
 it starts a streaming REPL:
 
 ```bash
-pip install cliver==0.3.2
+pip install cliver
 
 export CLIVER_MODEL=deepseek-v4-flash
 export CLIVER_PROVIDER=deepseek        # or CLIVER_BASE_URL for any compatible endpoint

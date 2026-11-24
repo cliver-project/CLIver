@@ -6,7 +6,7 @@ title: CLI Application
 and skill-discovery conventions, and runs either one agent task per invocation or an interactive
 REPL session.
 
-The CLI is published to PyPI as `cliver`; install it with `pip install cliver==0.3.2`. From a
+The CLI is published to PyPI as `cliver`; install it with `pip install cliver`. From a
 repository checkout, `uv run cliver` runs the same command after `make init`. The examples below
 use `uv run cliver`; with the PyPI install, use `cliver` directly.
 
@@ -85,6 +85,13 @@ overriding variables already in the process environment, so `~/.cliver/.env` is 
 place for keys. The file uses simple `KEY=VALUE` lines: blank lines and `#` comments are
 ignored, an `export` prefix is allowed, and surrounding quotes are stripped from a value. No
 variable expansion or multi-line values.
+
+The CLI validates the chat binding at startup and builds the provider before the first model
+call. A missing model, endpoint, or key is one error line naming both the flag and the
+environment variable (for example `--provider` / `CLIVER_PROVIDER`), never a traceback.
+`cliver --help` lists the environment variables. Any OpenAI- or Anthropic-compatible endpoint
+needs a non-empty key; for a local server that needs no auth, set `CLIVER_API_KEY` to any
+placeholder value.
 
 Use `--provider` for a brand with a default endpoint, or `--base-url` for anything else
 (Ollama, vLLM, a gateway). `--max-iterations` bounds the agent loop (default 50).

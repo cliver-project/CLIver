@@ -73,6 +73,11 @@ def load_environment(config_dir: Path | None = None) -> None:
             os.environ.setdefault(key, value)
 
 
+def _env_file(values: Mapping[str, str]) -> Path:
+    """The settings file the CLI loads at startup."""
+    return get_config_dir(env=values) / ".env"
+
+
 def llm_binding_from_env(
     env: Mapping[str, str] | None = None,
     *,
@@ -85,31 +90,44 @@ def llm_binding_from_env(
     """Build the chat binding from explicit values, then ``CLIVER_*`` variables.
 
     A known ``provider`` supplies its default ``base_url``; otherwise an
-    explicit ``base_url`` is required.  Without an explicit key or
-    ``CLIVER_API_KEY``, the key comes from the brand's conventional
-    environment variable (``DEEPSEEK_API_KEY``, ``MINIMAX_API_KEY``, ...).
+    explicit ``base_url`` is required.  A provider with a conventional key
+    variable requires that key.  Missing settings are reported together,
+    naming the flag and environment variable for each.
     """
     values = os.environ if env is None else env
 
     resolved_model = model or values.get("CLIVER_MODEL", "")
-    if not resolved_model:
-        raise ValueError("No chat model configured: pass --model or set CLIVER_MODEL.")
-
     resolved_provider = provider if provider is not None else values.get("CLIVER_PROVIDER", "")
     resolved_base_url = base_url if base_url is not None else values.get("CLIVER_BASE_URL", "")
+
+    missing: list[str] = []
+    if not resolved_model:
+        missing.append("model (--model or CLIVER_MODEL)")
     if not resolved_provider and not resolved_base_url:
+        missing.append("endpoint (--provider or --base-url, or CLIVER_PROVIDER / CLIVER_BASE_URL)")
+    if missing:
         raise ValueError(
-            "No endpoint configured: pass --provider or --base-url (or set CLIVER_PROVIDER / CLIVER_BASE_URL)."
+            "CLIver is not configured: missing "
+            + " and ".join(missing)
+            + f". Add these settings to the environment or to {_env_file(values)}."
         )
 
     resolved_protocol = protocol or values.get("CLIVER_PROTOCOL", "openai")
     resolved_api_key = api_key if api_key is not None else values.get("CLIVER_API_KEY", "")
+    brand = (resolved_provider or "").strip().lower()
     if not resolved_api_key:
-        brand = (resolved_provider or "").strip().lower()
-        resolved_api_key = next(
-            (values[name] for name in API_KEY_ENV.get(brand, ()) if values.get(name)),
-            "",
-        )
+        key_vars = API_KEY_ENV.get(brand, ())
+        resolved_api_key = next((values[name] for name in key_vars if values.get(name)), "")
+        if not resolved_api_key and key_vars:
+            names = " or ".join(("CLIVER_API_KEY", *key_vars))
+            raise ValueError(
+                f"The {brand} provider needs an API key: set {names} in the environment or in {_env_file(values)}."
+            )
+        if not resolved_api_key:
+            raise ValueError(
+                "No API key configured: set CLIVER_API_KEY (any non-empty value works for an "
+                f"endpoint that needs no auth) in the environment or in {_env_file(values)}."
+            )
 
     return ModelBinding.llm(
         model=resolved_model,

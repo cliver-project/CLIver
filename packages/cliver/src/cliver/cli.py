@@ -34,6 +34,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="cliver",
         description="CLIver — agent work from the terminal.",
+        epilog=(
+            "environment:\n"
+            "  CLIVER_MODEL      chat model (with --model)\n"
+            "  CLIVER_PROVIDER   known provider brand (with --provider)\n"
+            "  CLIVER_BASE_URL   endpoint for any compatible server (with --base-url)\n"
+            "  CLIVER_PROTOCOL   openai (default) or anthropic (with --protocol)\n"
+            "  CLIVER_API_KEY    API key; otherwise the brand's variable (DEEPSEEK_API_KEY, ...)\n"
+            "  CLIVER_CONF_DIR   config directory; {config_dir}/.env is loaded at startup\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
         "prompt",
@@ -43,7 +53,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-m", "--model", help="chat model (default: CLIVER_MODEL)")
     parser.add_argument("--provider", help="known provider brand (default: CLIVER_PROVIDER)")
     parser.add_argument("--base-url", help="endpoint base URL (default: CLIVER_BASE_URL)")
-    parser.add_argument("--protocol", choices=("openai", "anthropic"), help="wire protocol")
+    parser.add_argument(
+        "--protocol",
+        choices=("openai", "anthropic"),
+        help="wire protocol (default: CLIVER_PROTOCOL or openai)",
+    )
     parser.add_argument("--skill", help="run this skill with the prompt")
     parser.add_argument("--cwd", help="working directory and project skill root")
     parser.add_argument("--max-iterations", type=int, default=50)
@@ -83,6 +97,9 @@ def main(argv: list[str] | None = None) -> int:
             base_url=args.base_url,
             protocol=args.protocol,
         )
+        # Build the provider now so a bad endpoint, protocol, or credential is
+        # a one-line configuration error instead of a traceback on first use.
+        binding.build_provider()
         system_one_binding = system_one_binding_from_env()
         agent = build_agent(
             binding,
