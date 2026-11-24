@@ -8,7 +8,8 @@ from types import SimpleNamespace
 
 import cliver.cli as cli
 import pytest
-from cliver_core import ProviderError
+from cliver.config import CLIConfig, MCPSelection
+from cliver_core import ModelBinding, ProviderError
 
 
 class FakeAgent:
@@ -58,8 +59,11 @@ class TtyStringIO(io.StringIO):
 
 def patch_agent(monkeypatch, fake: FakeAgent) -> None:
     monkeypatch.setattr(cli, "load_environment", lambda *args, **kwargs: None)
+    # Never read the developer's ambient config, MCP files, System One, or
+    # selector settings.
+    monkeypatch.setattr(cli, "load_config", lambda **kwargs: CLIConfig())
+    monkeypatch.setattr(cli, "create_mcp_client", lambda config, **kwargs: MCPSelection(client=None))
     monkeypatch.setattr(cli, "llm_binding_from_env", lambda **kwargs: FakeBinding())
-    # Never read the developer's ambient System One / selector settings.
     monkeypatch.setattr(cli, "system_one_binding_from_env", lambda: None)
     monkeypatch.setattr(cli, "selector_from_env", lambda binding: None)
     monkeypatch.setattr(cli, "build_agent", lambda binding, **kwargs: fake)
@@ -81,6 +85,8 @@ def test_main_wires_system_one_and_closes_the_local_provider(monkeypatch):
     captured: dict = {}
 
     monkeypatch.setattr(cli, "load_environment", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "load_config", lambda **kwargs: CLIConfig())
+    monkeypatch.setattr(cli, "create_mcp_client", lambda config, **kwargs: MCPSelection(client=None))
     monkeypatch.setattr(cli, "llm_binding_from_env", lambda **kwargs: FakeBinding())
     monkeypatch.setattr(cli, "system_one_binding_from_env", lambda: system_one)
     monkeypatch.setattr(cli, "selector_from_env", lambda binding: selector)
@@ -96,6 +102,87 @@ def test_main_wires_system_one_and_closes_the_local_provider(monkeypatch):
     assert captured["system_one_binding"] is system_one
     assert captured["candidate_selector"] is selector
     assert provider.closed is True
+    assert fake.closed is True
+
+
+def test_resolve_bindings_keeps_every_purpose_as_an_ordered_list(monkeypatch):
+    llm_a = ModelBinding.llm(model="chat-a", api_key="k", base_url="https://a.test/v1")
+    llm_b = ModelBinding.llm(model="chat-b", api_key="k", base_url="https://b.test/v1")
+    image = ModelBinding.image(model="image", api_key="k", base_url="https://a.test/v1")
+    system_a = ModelBinding.system_one(model="so-a", api_key="k", base_url="https://so.test")
+    system_b = ModelBinding.system_one(model="so-b", api_key="k", base_url="https://so.test")
+    config = CLIConfig(
+        models={
+            "llm": [llm_a, llm_b],
+            "image": [image],
+            "system_one": [system_a, system_b],
+        }
+    )
+    args = SimpleNamespace(model=None, provider=None, base_url=None, protocol=None)
+
+    monkeypatch.delenv("CLIVER_MODEL", raising=False)
+    monkeypatch.setattr(cli, "system_one_binding_from_env", lambda: None)
+
+    run_binding, model_bindings, primary_system_one, system_one_bindings = cli._resolve_bindings(config, args)
+
+    assert model_bindings is not None
+    assert run_binding is model_bindings
+    assert model_bindings.get_all("llm") == [llm_a, llm_b]
+    assert model_bindings.get_all("image") == [image]
+    assert model_bindings.get_all("system_one") == [system_a, system_b]
+    assert primary_system_one is system_a
+    assert system_one_bindings == [system_a, system_b]
+
+
+def test_resolve_bindings_keeps_the_single_binding_shape(monkeypatch):
+    llm = ModelBinding.llm(model="chat", api_key="k", base_url="https://a.test/v1")
+    config = CLIConfig(models={"llm": [llm]})
+    args = SimpleNamespace(model=None, provider=None, base_url=None, protocol=None)
+
+    monkeypatch.delenv("CLIVER_MODEL", raising=False)
+    monkeypatch.setattr(cli, "system_one_binding_from_env", lambda: None)
+
+    run_binding, model_bindings, system_one, system_one_bindings = cli._resolve_bindings(config, args)
+
+    assert run_binding is llm
+    assert model_bindings is None
+    assert system_one is None
+    assert system_one_bindings == []
+
+
+def test_main_passes_the_mcp_client_to_the_agent_and_closes_it(monkeypatch, capsys):
+    class FakeMCPClient:
+        def __init__(self) -> None:
+            self.closed = False
+
+        async def close(self) -> None:
+            self.closed = True
+
+    fake = FakeAgent("answer")
+    client = FakeMCPClient()
+    captured: dict = {}
+
+    monkeypatch.setattr(cli, "load_environment", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "load_config", lambda **kwargs: CLIConfig())
+    monkeypatch.setattr(
+        cli,
+        "create_mcp_client",
+        lambda config, **kwargs: SimpleNamespace(client=client, problems=(), summary="1 server from config"),
+    )
+    monkeypatch.setattr(cli, "llm_binding_from_env", lambda **kwargs: FakeBinding())
+    monkeypatch.setattr(cli, "system_one_binding_from_env", lambda: None)
+    monkeypatch.setattr(cli, "selector_from_env", lambda binding: None)
+
+    def build_agent(binding, **kwargs):
+        captured.update(kwargs)
+        return fake
+
+    monkeypatch.setattr(cli, "build_agent", build_agent)
+
+    assert cli.main(["hello", "--yes"]) == 0
+
+    assert captured["mcp_client"] is client
+    assert client.closed is True
     assert fake.closed is True
 
 
@@ -171,6 +258,8 @@ def test_main_requires_a_prompt_for_a_skill_in_an_interactive_session(monkeypatc
 
 def test_main_reports_a_configuration_error_without_a_traceback(monkeypatch, capsys):
     monkeypatch.setattr(cli, "load_environment", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "load_config", lambda **kwargs: CLIConfig())
+    monkeypatch.setattr(cli, "create_mcp_client", lambda config, **kwargs: MCPSelection(client=None))
 
     def fail(**kwargs):
         raise ValueError("No chat model configured: pass --model or set CLIVER_MODEL.")
@@ -194,6 +283,8 @@ def test_main_reports_provider_configuration_errors_before_the_run(monkeypatch, 
 
     built = []
     monkeypatch.setattr(cli, "load_environment", lambda *args, **kwargs: None)
+    monkeypatch.setattr(cli, "load_config", lambda **kwargs: CLIConfig())
+    monkeypatch.setattr(cli, "create_mcp_client", lambda config, **kwargs: MCPSelection(client=None))
     monkeypatch.setattr(cli, "llm_binding_from_env", lambda **kwargs: BrokenBinding())
     monkeypatch.setattr(cli, "system_one_binding_from_env", lambda: None)
     monkeypatch.setattr(cli, "selector_from_env", lambda binding: None)

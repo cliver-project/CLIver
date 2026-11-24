@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import TextIO
 
@@ -271,7 +271,7 @@ def selector_from_env(
 
 
 def build_agent(
-    binding: ModelBinding,
+    binding: ModelBinding | ModelBindings,
     *,
     cwd: Path | None = None,
     config_dir: Path | None = None,
@@ -280,21 +280,50 @@ def build_agent(
     on_event=None,
     system_one_binding: ModelBinding | None = None,
     candidate_selector=None,
+    mcp_client=None,
+    skill_sources: Iterable[str | Path] = (),
 ) -> AgentCore:
-    """Build an ``AgentCore`` with CLIver's tools, skills, and identity."""
+    """Build an ``AgentCore`` with CLIver's tools, skills, and identity.
+
+    *binding* is a single chat binding (the legacy shape) or a full
+    :class:`ModelBindings` carrying several purposes.  *system_one_binding* is
+    only used with the single-binding form.  *mcp_client* is injected as-is;
+    the caller owns its lifecycle.
+    """
     working_dir = Path.cwd() if cwd is None else Path(cwd)
-    mounts: dict[str, ModelBinding] = {"llm": binding}
-    if system_one_binding is not None:
-        mounts["system_one"] = system_one_binding
+    bindings = _as_bindings(binding, system_one_binding)
     return AgentCore(
-        ModelBindings(**mounts),
+        bindings,
         builtin_tools=discover_builtin_tools(),
-        skill_manager=create_skill_manager(config_dir=config_dir, cwd=working_dir, home=home),
+        mcp_client=mcp_client,
+        skill_manager=create_skill_manager(
+            config_dir=config_dir,
+            cwd=working_dir,
+            home=home,
+            extra_sources=skill_sources,
+        ),
         permission_callback=permission_callback,
         candidate_selector=candidate_selector,
         on_event=on_event,
         builtin_system_prompt=_system_prompt(working_dir),
     )
+
+
+def _as_bindings(
+    binding: ModelBinding | ModelBindings,
+    system_one_binding: ModelBinding | None,
+) -> ModelBindings:
+    """Normalize the two accepted ``build_agent`` shapes into ``ModelBindings``."""
+    if isinstance(binding, ModelBindings):
+        if system_one_binding is not None and binding.system_one is None:
+            binding.system_one = system_one_binding
+        return binding
+    if not isinstance(binding, ModelBinding):
+        raise TypeError(f"build_agent needs a ModelBinding or ModelBindings (got {type(binding).__name__})")
+    mounts: dict[str, ModelBinding] = {"llm": binding}
+    if system_one_binding is not None:
+        mounts["system_one"] = system_one_binding
+    return ModelBindings(**mounts)
 
 
 # ── Environment helpers ─────────────────────────────────────

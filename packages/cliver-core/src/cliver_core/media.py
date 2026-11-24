@@ -8,7 +8,7 @@ import logging
 import mimetypes
 from dataclasses import dataclass
 from enum import Enum
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Dict, List, Optional
 from urllib.parse import urlsplit
 
@@ -66,6 +66,32 @@ def get_file_extension(mime_type: str) -> str:
     return _MIME_TO_EXTENSION.get(mime_type, ".bin")
 
 
+#: URL suffix → MIME for common media formats.  Python 3.10's stdlib
+#: ``mimetypes`` database is incomplete (it has no ``.webp``), and the
+#: platform database differs between 3.10 and 3.11+, so the formats CLIver
+#: vendors actually return are pinned here.  ``mimetypes`` remains the
+#: fallback for everything else.
+_MEDIA_EXTENSION_MIME = {
+    ".bmp": "image/bmp",
+    ".gif": "image/gif",
+    ".jpeg": "image/jpeg",
+    ".jpg": "image/jpeg",
+    ".png": "image/png",
+    ".svg": "image/svg+xml",
+    ".tif": "image/tiff",
+    ".tiff": "image/tiff",
+    ".webp": "image/webp",
+    ".flac": "audio/flac",
+    ".m4a": "audio/mp4",
+    ".mp3": "audio/mpeg",
+    ".ogg": "audio/ogg",
+    ".wav": "audio/wav",
+    ".avi": "video/x-msvideo",
+    ".mov": "video/quicktime",
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
+}
+
 #: Image magic bytes → MIME — the containers vendors actually return.
 _IMAGE_MAGIC = (
     (b"\x89PNG\r\n\x1a\n", "image/png"),
@@ -101,7 +127,10 @@ def resolve_media_mime(default: str, *, url: Optional[str] = None, payload: Opti
     if url:
         # ``mimetypes`` only strips query/fragment on newer Pythons; split
         # explicitly so the documented behavior holds on 3.10/3.11 too.
-        named, _ = mimetypes.guess_type(urlsplit(url).path)
+        path = urlsplit(url).path
+        named = _MEDIA_EXTENSION_MIME.get(PurePosixPath(path).suffix.lower())
+        if named is None:
+            named, _ = mimetypes.guess_type(path)
         if named and named.split("/", 1)[0] in ("image", "audio", "video"):
             return named
     return default

@@ -1,15 +1,16 @@
-"""CLIver's eight skill discovery sources.
+"""CLIver's skill discovery sources.
 
 cliver-core deliberately owns no discovery: ``SkillManager`` reads only the
 directories an application supplies.  This module supplies CLIver's
-conventions — the builtin skills shipped with the package plus the global
-and project-local directories shared with other coding agents — in
-ascending priority order.  Later sources override earlier ones with the
-same skill name, as in the legacy CLI.
+conventions — the builtin skills shipped with the package, the user-level
+directories shared with other coding agents, and the project-local
+directories — in ascending priority order.  Later sources override earlier
+ones with the same skill name, as in the legacy CLI.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -41,27 +42,52 @@ def default_skill_sources(
     config_dir: Path | None = None,
     cwd: Path | None = None,
     home: Path | None = None,
+    extra_sources: Iterable[str | Path] = (),
 ) -> list[SkillSource]:
-    """Return the eight CLIver skill sources, lowest priority first.
+    """Return CLIver's skill sources, lowest priority first.
 
     *config_dir*, *cwd*, and *home* are injection points for tests; in the
     application they default to :func:`cliver.paths.get_config_dir`, the
     process working directory, and the user's home directory.
+
+    *extra_sources* are configuration-file additions.  They are appended
+    after the built-in sources, so an explicitly configured directory wins
+    over every conventional one.  Duplicate paths keep their first label.
     """
     home_dir = Path.home() if home is None else Path(home).expanduser()
     config_path = get_config_dir(home=home_dir) if config_dir is None else Path(config_dir).expanduser()
     project_dir = Path.cwd() if cwd is None else Path(cwd).expanduser()
 
-    return [
+    sources = [
         SkillSource(BUILTIN_SKILLS_DIR, "builtin"),
         SkillSource(config_path / "skills", "global (cliver)"),
         SkillSource(home_dir / ".agents" / "skills", "global (agents)"),
+        SkillSource(home_dir / ".claude" / "skills", "global (.claude compat)"),
+        SkillSource(home_dir / ".copilot" / "skills", "global (.copilot compat)"),
+        SkillSource(home_dir / ".gemini" / "skills", "global (.gemini compat)"),
+        SkillSource(home_dir / ".qwen" / "skills", "global (.qwen compat)"),
         SkillSource(project_dir / ".cliver" / "skills", "project (.cliver)"),
         SkillSource(project_dir / ".agent" / "skills", "project (.agent)"),
+        SkillSource(project_dir / ".agents" / "skills", "project (.agents compat)"),
         SkillSource(project_dir / ".claude" / "skills", "project (.claude compat)"),
+        SkillSource(project_dir / ".github" / "skills", "project (.github compat)"),
         SkillSource(project_dir / ".gemini" / "skills", "project (.gemini compat)"),
         SkillSource(project_dir / ".qwen" / "skills", "project (.qwen compat)"),
     ]
+    sources.extend(SkillSource(Path(entry).expanduser(), "config") for entry in extra_sources)
+    return _dedupe(sources)
+
+
+def _dedupe(sources: Iterable[SkillSource]) -> list[SkillSource]:
+    seen: set[Path] = set()
+    result: list[SkillSource] = []
+    for source in sources:
+        key = source.path.expanduser().resolve()
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(source)
+    return result
 
 
 def create_skill_manager(
@@ -69,10 +95,19 @@ def create_skill_manager(
     config_dir: Path | None = None,
     cwd: Path | None = None,
     home: Path | None = None,
+    extra_sources: Iterable[str | Path] = (),
 ) -> SkillManager:
-    """Build a core ``SkillManager`` over the eight CLIver sources."""
+    """Build a core ``SkillManager`` over CLIver's sources."""
     return SkillManager(
-        sources=[source.path for source in default_skill_sources(config_dir=config_dir, cwd=cwd, home=home)]
+        sources=[
+            source.path
+            for source in default_skill_sources(
+                config_dir=config_dir,
+                cwd=cwd,
+                home=home,
+                extra_sources=extra_sources,
+            )
+        ]
     )
 
 

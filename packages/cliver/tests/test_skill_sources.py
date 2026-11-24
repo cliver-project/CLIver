@@ -4,6 +4,7 @@ from pathlib import Path
 
 from cliver.skills import (
     BUILTIN_SKILLS_DIR,
+    SkillSource,
     create_skill_manager,
     default_skill_sources,
     source_for_skill,
@@ -21,7 +22,7 @@ def write_skill(root: Path, name: str, description: str) -> Path:
     return skill_dir
 
 
-def test_eight_sources_in_priority_order(tmp_path: Path) -> None:
+def test_sources_in_priority_order(tmp_path: Path) -> None:
     config_dir = tmp_path / "conf"
     cwd = tmp_path / "project"
     home = tmp_path / "home"
@@ -32,9 +33,15 @@ def test_eight_sources_in_priority_order(tmp_path: Path) -> None:
         ("builtin", BUILTIN_SKILLS_DIR),
         ("global (cliver)", config_dir / "skills"),
         ("global (agents)", home / ".agents" / "skills"),
+        ("global (.claude compat)", home / ".claude" / "skills"),
+        ("global (.copilot compat)", home / ".copilot" / "skills"),
+        ("global (.gemini compat)", home / ".gemini" / "skills"),
+        ("global (.qwen compat)", home / ".qwen" / "skills"),
         ("project (.cliver)", cwd / ".cliver" / "skills"),
         ("project (.agent)", cwd / ".agent" / "skills"),
+        ("project (.agents compat)", cwd / ".agents" / "skills"),
         ("project (.claude compat)", cwd / ".claude" / "skills"),
+        ("project (.github compat)", cwd / ".github" / "skills"),
         ("project (.gemini compat)", cwd / ".gemini" / "skills"),
         ("project (.qwen compat)", cwd / ".qwen" / "skills"),
     ]
@@ -55,6 +62,35 @@ def test_manager_loads_every_source_and_overrides_by_priority(tmp_path: Path) ->
     assert manager.get_skill("shared").description == "from project cliver"
     assert manager.get_skill("agents-only").description == "from global agents"
     assert manager.get_skill("qwen-only").description == "from qwen"
+
+
+def test_extra_sources_are_appended_and_deduplicated(tmp_path: Path) -> None:
+    cwd = tmp_path / "project"
+    home = tmp_path / "home"
+    extra = tmp_path / "team-skills"
+
+    sources = default_skill_sources(
+        config_dir=tmp_path / "conf",
+        cwd=cwd,
+        home=home,
+        extra_sources=[extra, home / ".claude" / "skills"],
+    )
+
+    assert sources[-1] == SkillSource(extra, "config")
+    assert [source.path for source in sources].count(home / ".claude" / "skills") == 1
+
+
+def test_global_claude_skills_are_discovered(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    write_skill(home / ".claude" / "skills", "global-claude", "from global claude")
+
+    manager = create_skill_manager(
+        config_dir=tmp_path / "conf",
+        cwd=tmp_path / "project",
+        home=home,
+    )
+
+    assert manager.get_skill("global-claude").description == "from global claude"
 
 
 def test_qwen_overrides_other_project_sources(tmp_path: Path) -> None:

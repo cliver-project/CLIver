@@ -7,7 +7,7 @@ import sys
 import cliver.app as app
 import pytest
 from cliver.app import build_agent, llm_binding_from_env, make_permission_callback
-from cliver_core import DecisionAction, ModelBinding, ToolCallContext, ToolCategory
+from cliver_core import DecisionAction, ModelBinding, ModelBindings, ToolCallContext, ToolCategory
 
 BUILTIN_TOOL_NAMES = [
     "Bash",
@@ -130,6 +130,48 @@ def test_build_agent_wires_builtin_tools_and_all_skill_sources(tmp_path):
     skills = {skill.name for skill in agent.skill_manager.list_skills()}
     assert {"brainstorm", "write-plan", "execute-plan", "wbs-planner"} <= skills
     assert str(tmp_path) in agent._builtin_system_prompt
+
+
+def test_build_agent_accepts_model_bindings_and_injects_the_mcp_client(tmp_path):
+    primary = ModelBinding.llm(model="primary", api_key="k", base_url="https://primary.test/v1")
+    backup = ModelBinding.llm(model="backup", api_key="k", base_url="https://backup.test/v1")
+    bindings = ModelBindings(llm=[primary, backup])
+    client = object()
+
+    agent = build_agent(
+        bindings,
+        cwd=tmp_path,
+        config_dir=tmp_path / "conf",
+        home=tmp_path / "home",
+        mcp_client=client,
+    )
+
+    assert agent.bindings is bindings
+    assert agent.bindings.get_all("llm") == [primary, backup]
+    assert agent.mcp_client is client
+
+
+def test_build_agent_uses_extra_skill_sources(tmp_path):
+    extra = tmp_path / "team-skills"
+    skill_dir = extra / "team-skill"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: team-skill\ndescription: from the config source\n---\n\nBody.\n",
+        encoding="utf-8",
+    )
+    binding = ModelBinding.llm(model="m", api_key="k", base_url="https://example.com/v1")
+
+    agent = build_agent(
+        binding,
+        cwd=tmp_path,
+        config_dir=tmp_path / "conf",
+        home=tmp_path / "home",
+        skill_sources=[extra],
+    )
+
+    skill = agent.skill_manager.get_skill("team-skill")
+    assert skill is not None
+    assert skill.description == "from the config source"
 
 
 @pytest.mark.asyncio
