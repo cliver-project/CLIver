@@ -41,6 +41,11 @@ _GENERATION = (
     ),
 )
 
+_ASR_DESCRIPTION = (
+    "Transcribe a local audio file or an audio URL to text. "
+    "Use when the user asks what an audio file says or wants a transcript."
+)
+
 
 def build_media_tools(agent: Any, bindings: ModelBindings | None) -> list[CLIverTool]:
     """Media tools for the purposes bound on *bindings* (configured only)."""
@@ -49,6 +54,9 @@ def build_media_tools(agent: Any, bindings: ModelBindings | None) -> list[CLIver
         purpose = media.bound_purpose(bindings, command)
         if purpose is not None:
             tools.append(_generation_tool(agent, command, purpose, name, description))
+    purpose = media.bound_purpose(bindings, "asr")
+    if purpose is not None:
+        tools.append(_asr_tool(agent, purpose))
     return tools
 
 
@@ -76,3 +84,34 @@ def _save_result(response: CLIverResponse, command: str) -> list[dict]:
         return [{"error": detail}]
     paths = "\n".join(media.display_path(path) for path in saved)
     return [{"text": f"Saved {len(saved)} file(s):\n{paths}"}]
+
+
+def _asr_tool(agent: Any, purpose: str) -> CLIverTool:
+    async def handler(source: str, language: str = "") -> list[dict]:
+        resolved = _resolve_source(source)
+        if not _is_url(resolved):
+            violation = scope_violation(resolved, write=False)
+            if violation is not None:
+                return [{"error": violation}]
+        response = await media.run_in_agent(agent, "asr", purpose, resolved, language=language or None)
+        failure = media.failure_message(response)
+        if failure is not None:
+            return [{"error": failure}]
+        transcript = (response.message.content or "").strip()
+        if not transcript:
+            return [{"error": "no transcript returned"}]
+        return [{"text": transcript}]
+
+    handler.__doc__ = _ASR_DESCRIPTION
+    return tool(name="TranscribeAudio", description=_ASR_DESCRIPTION, safety="safe")(handler)
+
+
+def _resolve_source(source: str) -> str:
+    """Rebase a relative local path onto the pinned cwd; leave URLs alone."""
+    if _is_url(source) or Path(source).is_absolute():
+        return source
+    return str((pinned_cwd() or Path.cwd()) / source)
+
+
+def _is_url(value: str) -> bool:
+    return value.startswith(("http://", "https://"))

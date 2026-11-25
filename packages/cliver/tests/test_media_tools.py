@@ -175,3 +175,83 @@ async def test_generation_lets_unexpected_tool_errors_propagate(tmp_path, monkey
 
     with pytest.raises(RuntimeError, match="provider exploded"):
         await tool.execute_async(prompt="a red panda")
+
+
+def test_transcription_is_safe_and_only_advertised_when_configured():
+    agent = FakeAgent()
+    bindings = ModelBindings(llm=_llm(), asr=_binding("asr"))
+
+    tools = build_media_tools(agent, bindings)
+
+    assert [tool.name for tool in tools] == ["TranscribeAudio"]
+    assert tools[0].safety == "safe"
+
+
+async def test_transcribe_audio_rebases_relative_paths_against_the_pinned_cwd(tmp_path, monkeypatch):
+    pinned = tmp_path / "project"
+    pinned.mkdir()
+    (pinned / "meeting.mp3").write_bytes(b"ID3")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    agent = FakeAgent()
+    agent.responses["asr"] = _response(content="  hello world  ")
+    tool = _tool(build_media_tools(agent, ModelBindings(llm=_llm(), asr=_binding("asr"))), "TranscribeAudio")
+
+    with policy_scope(ExecutionPolicy(cwd=pinned)):
+        result = await tool.execute_async(source="meeting.mp3", language="zh")
+
+    assert agent.calls == [("asr", str(pinned / "meeting.mp3"), "zh")]
+    assert result == [{"text": "hello world"}]
+
+
+async def test_transcribe_audio_passes_urls_through_and_leaves_language_unset(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    agent = FakeAgent()
+    agent.responses["asr"] = _response(content="remote words")
+    tool = _tool(build_media_tools(agent, ModelBindings(llm=_llm(), asr=_binding("asr"))), "TranscribeAudio")
+
+    result = await tool.execute_async(source="https://example.test/a.mp3")
+
+    assert agent.calls == [("asr", "https://example.test/a.mp3", None)]
+    assert result == [{"text": "remote words"}]
+
+
+async def test_transcribe_audio_reports_empty_transcripts(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    agent = FakeAgent()
+    agent.responses["asr"] = _response(content="   ")
+    tool = _tool(build_media_tools(agent, ModelBindings(llm=_llm(), asr=_binding("asr"))), "TranscribeAudio")
+
+    result = await tool.execute_async(source="a.mp3")
+
+    assert result == [{"error": "no transcript returned"}]
+
+
+async def test_transcribe_audio_reports_provider_failures(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    agent = FakeAgent()
+    agent.responses["asr"] = _response(content="asr failed: boom", retryable=True)
+    tool = _tool(build_media_tools(agent, ModelBindings(llm=_llm(), asr=_binding("asr"))), "TranscribeAudio")
+
+    result = await tool.execute_async(source="a.mp3")
+
+    assert result == [{"error": "asr failed: boom"}]
+
+
+async def test_transcribe_audio_respects_read_scopes(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "a.mp3").write_bytes(b"ID3")
+    agent = FakeAgent()
+    agent.responses["asr"] = _response(content="words")
+    tool = _tool(build_media_tools(agent, ModelBindings(llm=_llm(), asr=_binding("asr"))), "TranscribeAudio")
+
+    with policy_scope(ExecutionPolicy(cwd=tmp_path, read_paths=[allowed])):
+        result = await tool.execute_async(source="outside/a.mp3")
+
+    assert "outside the allowed read paths" in result[0]["error"]
+    assert agent.calls == []
