@@ -8,6 +8,7 @@ CLI's own naming, and tool results carry text (saved paths or the transcript).
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -43,8 +44,43 @@ _GENERATION = (
 
 _ASR_DESCRIPTION = (
     "Transcribe a local audio file or an audio URL to text. "
-    "Use when the user asks what an audio file says or wants a transcript."
+    "Use when the user asks what an audio file says or wants a transcript. "
+    "Sensitive files (e.g. .env, keys, credentials) are refused."
 )
+
+# Mirrors the sensitive-file guard in ``cliver_core.tools.read_file`` until core
+# exposes a shared helper: transcription uploads the file's bytes to the
+# provider, so the same names Read refuses must be refused here.
+_SENSITIVE_PATTERNS = [
+    r"\.env$",
+    r"\.env\..+$",
+    r"credentials\.json$",
+    r"credentials\.yaml$",
+    r"credentials\.yml$",
+    r"\.secret$",
+    r"\.secrets$",
+    r"secrets\.json$",
+    r"secrets\.yaml$",
+    r"secrets\.yml$",
+    r"\.pem$",
+    r"\.key$",
+    r"id_rsa$",
+    r"id_ed25519$",
+    r"id_dsa$",
+    r"id_ecdsa$",
+    r"\.p12$",
+    r"\.pfx$",
+    r"\.keystore$",
+    r"\.jks$",
+    r"htpasswd$",
+    r"shadow$",
+    r"\.netrc$",
+    r"\.pgpass$",
+    r"token\.json$",
+    r"service[-_]?account.*\.json$",
+    r"kubeconfig$",
+]
+_SENSITIVE_RE = re.compile("|".join(f"(?:{pattern})" for pattern in _SENSITIVE_PATTERNS), re.IGNORECASE)
 
 
 def build_media_tools(agent: Any, bindings: ModelBindings | None) -> list[CLIverTool]:
@@ -93,6 +129,8 @@ def _asr_tool(agent: Any, purpose: str) -> CLIverTool:
             violation = scope_violation(resolved, write=False)
             if violation is not None:
                 return [{"error": violation}]
+            if _is_sensitive_file(resolved):
+                return [{"error": f"Access denied: '{Path(resolved).name}' appears to be a sensitive file."}]
         response = await media.run_in_agent(agent, "asr", purpose, resolved, language=language or None)
         failure = media.failure_message(response)
         if failure is not None:
@@ -115,3 +153,7 @@ def _resolve_source(source: str) -> str:
 
 def _is_url(value: str) -> bool:
     return value.startswith(("http://", "https://"))
+
+
+def _is_sensitive_file(path: str) -> bool:
+    return bool(_SENSITIVE_RE.search(Path(path).name))

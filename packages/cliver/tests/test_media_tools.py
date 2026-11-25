@@ -258,6 +258,19 @@ async def test_transcribe_audio_respects_read_scopes(tmp_path, monkeypatch):
     assert agent.calls == []
 
 
+async def test_transcribe_audio_refuses_sensitive_files(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("SECRET=1", encoding="utf-8")
+    agent = FakeAgent()
+    agent.responses["asr"] = _response(content="never")
+    tool = _tool(build_media_tools(agent, ModelBindings(llm=_llm(), asr=_binding("asr"))), "TranscribeAudio")
+
+    result = await tool.execute_async(source=".env")
+
+    assert result == [{"error": "Access denied: '.env' appears to be a sensitive file."}]
+    assert agent.calls == []
+
+
 def test_build_agent_registers_media_tools_for_configured_purposes(tmp_path):
     bindings = ModelBindings(llm=_llm(), image=_binding("image"), asr=_binding("asr"))
 
