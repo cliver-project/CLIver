@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import cliver.media as media
 import pytest
+from cliver.app import build_agent
 from cliver.media_tools import build_media_tools
 from cliver_core import CLIverMessage, ModelBinding, ModelBindings
 from cliver_core.media import MediaContent, MediaType
@@ -255,3 +256,54 @@ async def test_transcribe_audio_respects_read_scopes(tmp_path, monkeypatch):
 
     assert "outside the allowed read paths" in result[0]["error"]
     assert agent.calls == []
+
+
+def test_build_agent_registers_media_tools_for_configured_purposes(tmp_path):
+    bindings = ModelBindings(llm=_llm(), image=_binding("image"), asr=_binding("asr"))
+
+    agent = build_agent(
+        bindings,
+        cwd=tmp_path,
+        config_dir=tmp_path / "conf",
+        home=tmp_path / "home",
+    )
+
+    names = agent.tool_registry.tool_names
+    assert "GenerateImage" in names
+    assert "TranscribeAudio" in names
+    assert "GenerateVideo" not in names
+    assert "TextToSpeech" not in names
+    assert {"Bash", "Read", "Write"} <= set(names)
+
+
+def test_build_agent_registers_no_media_tools_without_media_bindings(tmp_path):
+    agent = build_agent(
+        _llm(),
+        cwd=tmp_path,
+        config_dir=tmp_path / "conf",
+        home=tmp_path / "home",
+    )
+
+    media_names = {"GenerateImage", "GenerateVideo", "TextToSpeech", "TranscribeAudio"}
+    assert media_names.isdisjoint(agent.tool_registry.tool_names)
+
+
+async def test_build_agent_media_tool_calls_the_agent_and_saves(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(media, "_timestamp", lambda: "20261125-120000")
+    bindings = ModelBindings(llm=_llm(), image=_binding("image"))
+    agent = build_agent(bindings, cwd=tmp_path, config_dir=tmp_path / "conf", home=tmp_path / "home")
+    calls: list[str] = []
+
+    async def fake_image(prompt):
+        calls.append(prompt)
+        return _response(_png())
+
+    agent.image = fake_image
+    tool = agent.tool_registry.get("GenerateImage")
+
+    result = await tool.execute_async(prompt="a red panda")
+
+    assert calls == ["a red panda"]
+    assert result == [{"text": "Saved 1 file(s):\nimage-20261125-120000-0.png"}]
+    assert (tmp_path / "image-20261125-120000-0.png").exists()

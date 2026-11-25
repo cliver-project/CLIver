@@ -86,6 +86,12 @@ cliver image "a red panda on a skateboard"   # saves ./image-<timestamp>-0.png
 cliver asr ./meeting.mp3 --language zh       # prints the transcript
 ```
 
+When those purposes are configured, the agent also gets media tools — `GenerateImage`,
+`GenerateVideo`, `TextToSpeech`, and `TranscribeAudio` — so a chat request such as "make a
+logo for this project" can produce media without a subcommand. Generation tools ask for
+approval (use `--yes` in non-interactive runs); transcription is safe. Files are saved in the
+working directory with the same naming, and the tool result is the saved path.
+
 ## Built-in Capabilities
 
 - **Model-agnostic** — OpenAI and Anthropic protocols, live-verified presets, any compatible

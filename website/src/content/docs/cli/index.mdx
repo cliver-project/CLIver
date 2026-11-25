@@ -62,6 +62,12 @@ Generated files are saved in the current directory as
 path is printed. `--out DIR` writes into another directory. `asr` prints the transcript and
 saves nothing.
 
+These commands are explicit and deterministic. When the same purposes are configured, the
+agent also carries media tools — `GenerateImage`, `GenerateVideo`, `TextToSpeech`, and
+`TranscribeAudio` — so a chat turn can produce media on its own. Generation tools are ASK
+(approve with `--yes` or at the prompt); transcription is safe. Their files land in the
+working directory with the same naming, and the tool result carries the saved path.
+
 Add the purpose under `models` in `{config_dir}/config.json` (or the project file
 `<cwd>/.cliver/config.json`):
 

@@ -21,6 +21,7 @@ from cliver_core.provider.providers import API_KEY_ENV
 from cliver_core.system_one.selector import SystemOneSelector
 from cliver_core.tools import discover_builtin_tools
 
+from cliver.media_tools import build_media_tools
 from cliver.paths import get_config_dir
 from cliver.skills import create_skill_manager
 
@@ -288,11 +289,12 @@ def build_agent(
     *binding* is a single chat binding (the legacy shape) or a full
     :class:`ModelBindings` carrying several purposes.  *system_one_binding* is
     only used with the single-binding form.  *mcp_client* is injected as-is;
-    the caller owns its lifecycle.
+    the caller owns its lifecycle.  Media tools are registered for each purpose
+    bound on *bindings* (``image``, ``video``, ``tts``/``audio``, ``asr``).
     """
     working_dir = Path.cwd() if cwd is None else Path(cwd)
     bindings = _as_bindings(binding, system_one_binding)
-    return AgentCore(
+    agent = AgentCore(
         bindings,
         builtin_tools=discover_builtin_tools(),
         mcp_client=mcp_client,
@@ -307,6 +309,8 @@ def build_agent(
         on_event=on_event,
         builtin_system_prompt=_system_prompt(working_dir),
     )
+    agent.tool_registry.register_all(build_media_tools(agent, bindings))
+    return agent
 
 
 def _as_bindings(
