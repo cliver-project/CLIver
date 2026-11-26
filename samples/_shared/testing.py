@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from cliver_core import AgentCore, CLIverMessage, CLIverMessageChunk, ModelBinding, ModelBindings
+from cliver_core import AgentCore, CLIverMessage, CLIverMessageChunk, ModelBinding, ModelBindings, UsageInfo
 from cliver_core.messages import ToolCall
 from cliver_core.provider import CLIverRequest, CLIverResponse, Provider
 from cliver_core.tools import discover_builtin_tools
@@ -65,6 +65,7 @@ class Streamed:
 Script = str | CLIverResponse | Exception | Streamed
 
 
+# region: scripted-provider
 class ScriptedProvider(Provider):
     """Return prepared responses in order and record every request."""
 
@@ -108,19 +109,29 @@ class ScriptedProvider(Provider):
         yield CLIverMessageChunk(native={"role": "assistant", "content": answer})
 
 
-def text_response(text: str) -> CLIverResponse:
+# endregion: scripted-provider
+
+
+def text_response(text: str, *, usage: UsageInfo | None = None) -> CLIverResponse:
     """A final assistant answer with no tool calls."""
-    return CLIverResponse(message=CLIverMessage(role="assistant", content=text))
+    return CLIverResponse(message=CLIverMessage(role="assistant", content=text), usage=usage)
 
 
-def tool_call_response(name: str, args: dict, *, call_id: str = "call-1") -> CLIverResponse:
+def tool_call_response(
+    name: str,
+    args: dict,
+    *,
+    call_id: str = "call-1",
+    usage: UsageInfo | None = None,
+) -> CLIverResponse:
     """An assistant turn that asks the agent to run one tool."""
     return CLIverResponse(
         message=CLIverMessage(
             role="assistant",
             content=None,
             tool_calls=[ToolCall(id=call_id, name=name, args=args)],
-        )
+        ),
+        usage=usage,
     )
 
 
