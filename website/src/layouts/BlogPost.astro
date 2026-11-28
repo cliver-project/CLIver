@@ -147,6 +147,27 @@ const articleHead = [
             </p>
           </div>
         </div>
+
+        {!isDraft && (
+          <section
+            class="blog-comments"
+            aria-labelledby="comments-heading"
+            data-blog-comments
+            data-repo="cliver-project/CLIver"
+            data-repo-id="R_kgDOOaU3cw"
+            data-category="Comments"
+            data-category-id="DIC_kwDOOaU3c84DMJAK"
+          >
+            <div class="blog-section-heading">
+              <p class="blog-eyebrow">Discussion</p>
+              <h2 id="comments-heading">Comments</h2>
+            </div>
+            <p class="blog-comments__note">
+              Comments use your GitHub account. There is no anonymous posting.
+            </p>
+            <div class="giscus"></div>
+          </section>
+        )}
       </div>
 
       <aside class="blog-article__rail" aria-label="Article navigation">

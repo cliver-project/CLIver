@@ -1250,6 +1250,28 @@
   font-weight: 600;
 }
 
+/* ── Comments ─────────────────────────────────────────────── */
+
+.blog-comments {
+  margin-top: 2.5rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--blog-border);
+}
+
+.blog-comments .blog-section-heading {
+  margin-bottom: 0.6rem;
+}
+
+.blog-comments__note {
+  margin: 0 0 1.25rem;
+  color: var(--sl-color-gray-3);
+  font-size: 0.8rem;
+}
+
+.blog-comments .giscus {
+  min-height: 12rem;
+}
+
 /* ── Article rail and ToC ──────────────────────────────────── */
 
 .blog-article__rail {

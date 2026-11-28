@@ -71,3 +71,64 @@ document.querySelectorAll<HTMLAnchorElement>(".blog-toc--mobile a").forEach((lin
     link.closest("details")?.removeAttribute("open");
   });
 });
+
+// ── Comments (Giscus) ──────────────────────────────────────
+
+const comments = document.querySelector<HTMLElement>("[data-blog-comments]");
+
+if (comments) {
+  const container = comments.querySelector<HTMLElement>(".giscus");
+  const { repo, repoId, category, categoryId } = comments.dataset;
+
+  if (container && repo && repoId && category && categoryId && !comments.dataset.giscusLoaded) {
+    comments.dataset.giscusLoaded = "true";
+
+    const currentTheme = () =>
+      document.documentElement.dataset.theme === "light" ? "light" : "dark";
+
+    const script = document.createElement("script");
+    script.src = "https://giscus.app/client.js";
+    script.async = true;
+    script.crossOrigin = "anonymous";
+
+    const attributes: Record<string, string> = {
+      "data-repo": repo,
+      "data-repo-id": repoId,
+      "data-category": category,
+      "data-category-id": categoryId,
+      "data-mapping": "pathname",
+      "data-strict": "1",
+      "data-reactions-enabled": "1",
+      "data-emit-metadata": "0",
+      "data-input-position": "top",
+      "data-theme": currentTheme(),
+      "data-lang": "en",
+      "data-loading": "lazy",
+    };
+
+    for (const [name, value] of Object.entries(attributes)) {
+      script.setAttribute(name, value);
+    }
+
+    container.appendChild(script);
+
+    const sendTheme = () => {
+      const frame = container.querySelector<HTMLIFrameElement>("iframe.giscus-frame");
+      frame?.contentWindow?.postMessage(
+        { giscus: { setConfig: { theme: currentTheme() } } },
+        "https://giscus.app",
+      );
+    };
+
+    window.addEventListener("message", (event) => {
+      if (event.origin !== "https://giscus.app") return;
+      if (!(event.data as { giscus?: unknown } | null)?.giscus) return;
+      sendTheme();
+    });
+
+    new MutationObserver(sendTheme).observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-theme"],
+    });
+  }
+}
